@@ -12,7 +12,10 @@
     "typecheck": "bunx tsc --noEmit",
     "sync": "bun engine/scripts/sync-agents.ts",
     "approve": "bun engine/bin/approve.ts",
-    "schema:export": "bun engine/schema/export.ts"
+    "schema:export": "bun engine/schema/export.ts",
+    "doctor": "bun engine/bin/doctor.ts",
+    "keys": "bun engine/bin/keys.ts",
+    "owner": "bun engine/bin/owner.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
