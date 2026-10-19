@@ -34,7 +34,7 @@ export function toEvents(ev: HookEvent, links: Links = emptyLinks()): { events: 
       const to = (ev.agent_id && links.parents[ev.agent_id]) || 'tej';
       if (ev.agent_id) delete links.parents[ev.agent_id];
       out.push({ event: 'msg', kind: 'report', from: ev.agent_type, ...(ev.agent_id ? { agent_id: ev.agent_id } : {}), to, text: clip(ev.last_assistant_message, 400) });
-      out.push({ event: 'done', agent: ev.agent_type, ...(ev.agent_id ? { agent_id: ev.agent_id } : {}) });
+      out.push({ event: 'done', agent: ev.agent_type });
       break;
     }
     case 'UserPromptSubmit':
