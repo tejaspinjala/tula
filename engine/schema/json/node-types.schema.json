@@ -1,0 +1,1877 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "node-types",
+  "$ref": "#/$defs/node",
+  "$defs": {
+    "node": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "trigger.schedule"
+            },
+            "config": {
+              "$ref": "#/$defs/trigger.schedule"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "trigger.manual"
+            },
+            "config": {
+              "$ref": "#/$defs/trigger.manual"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "trigger.event"
+            },
+            "config": {
+              "$ref": "#/$defs/trigger.event"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "trigger.webhook"
+            },
+            "config": {
+              "$ref": "#/$defs/trigger.webhook"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "agent"
+            },
+            "config": {
+              "$ref": "#/$defs/agent"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "verify"
+            },
+            "config": {
+              "$ref": "#/$defs/verify"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "judge"
+            },
+            "config": {
+              "$ref": "#/$defs/judge"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "approval"
+            },
+            "config": {
+              "$ref": "#/$defs/approval"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "action"
+            },
+            "config": {
+              "$ref": "#/$defs/action"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "branch"
+            },
+            "config": {
+              "$ref": "#/$defs/branch"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "fanout"
+            },
+            "config": {
+              "$ref": "#/$defs/fanout"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "fanin"
+            },
+            "config": {
+              "$ref": "#/$defs/fanin"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "loop"
+            },
+            "config": {
+              "$ref": "#/$defs/loop"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "wait"
+            },
+            "config": {
+              "$ref": "#/$defs/wait"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "notify"
+            },
+            "config": {
+              "$ref": "#/$defs/notify"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "set"
+            },
+            "config": {
+              "$ref": "#/$defs/set"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nodeId"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "inputs": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "outputSchema": {
+              "description": "JSON Schema of this node's output",
+              "$ref": "#/$defs/jsonSchema"
+            },
+            "retry": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "backoffSec": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "onError": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "edge"
+              ]
+            },
+            "maxUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "subworkflow"
+            },
+            "config": {
+              "$ref": "#/$defs/subworkflow"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "config"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]{1,40}$"
+    },
+    "binding": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "pattern": "^(trigger|params|nodes\\.[a-z0-9_-]+\\.output)(\\.[A-Za-z0-9_]+|\\[[0-9]+\\])*$"
+            }
+          },
+          "required": [
+            "from"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {}
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "jsonSchema": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {},
+      "description": "An embedded JSON Schema document"
+    },
+    "trigger.schedule": {
+      "type": "object",
+      "properties": {
+        "cron": {
+          "type": "string",
+          "pattern": "^(\\S+\\s+){4}\\S+$"
+        },
+        "tz": {
+          "type": "string",
+          "minLength": 1,
+          "description": "IANA time zone, e.g. America/Chicago"
+        },
+        "catchUp": {
+          "default": "once",
+          "type": "string",
+          "enum": [
+            "once",
+            "skip",
+            "all"
+          ]
+        }
+      },
+      "required": [
+        "cron",
+        "tz"
+      ],
+      "additionalProperties": false
+    },
+    "trigger.manual": {
+      "type": "object",
+      "properties": {
+        "inputSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        }
+      },
+      "additionalProperties": false
+    },
+    "trigger.event": {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filter": {
+          "$ref": "#/$defs/jsonLogic"
+        }
+      },
+      "required": [
+        "eventType"
+      ],
+      "additionalProperties": false
+    },
+    "jsonLogic": {
+      "anyOf": [
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trigger.webhook": {
+      "type": "object",
+      "properties": {
+        "hmacSecretRef": {
+          "type": "string",
+          "pattern": "^\\/?[A-Za-z0-9_-]+(?:\\/[A-Za-z0-9_.-]+)*$"
+        },
+        "inputSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        }
+      },
+      "required": [
+        "hmacSecretRef"
+      ],
+      "additionalProperties": false
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "roleId": {
+          "$ref": "#/$defs/slug"
+        },
+        "agentId": {
+          "$ref": "#/$defs/slug"
+        },
+        "tierOverride": {
+          "$ref": "#/$defs/tier"
+        },
+        "briefTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "may reference {{inputs.x}}; contents of files are never inlined, only paths"
+        },
+        "acceptance": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "doneCondition": {
+          "$ref": "#/$defs/doneCondition"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "narrowScope": {
+          "description": "intersected with the role scope; can only narrow",
+          "$ref": "#/$defs/scope"
+        }
+      },
+      "required": [
+        "roleId",
+        "briefTemplate",
+        "acceptance",
+        "doneCondition"
+      ],
+      "additionalProperties": false
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Configuration object id: lowercase letters, digits and dashes, 2-64 chars"
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "cheap",
+        "mid",
+        "deep"
+      ]
+    },
+    "doneCondition": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "command",
+            "tests",
+            "schema",
+            "rubric"
+          ]
+        },
+        "spec": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutSec": {
+          "default": 300,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind",
+        "spec"
+      ],
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "write": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shell": {
+          "description": "allowed command prefixes",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gatewayTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nativeTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "netDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dataClasses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dataClass"
+          }
+        },
+        "usd": {
+          "$ref": "#/$defs/usd"
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    },
+    "usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "verify": {
+      "type": "object",
+      "properties": {
+        "roleId": {
+          "$ref": "#/$defs/slug"
+        },
+        "proposalFrom": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rubric": {
+          "type": "string"
+        },
+        "hiddenTestsRef": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "roleId",
+        "proposalFrom"
+      ],
+      "additionalProperties": false
+    },
+    "judge": {
+      "type": "object",
+      "properties": {
+        "roleId": {
+          "$ref": "#/$defs/slug"
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1
+        },
+        "familyPolicy": {
+          "default": "other_than_implementer",
+          "type": "string",
+          "enum": [
+            "other_than_implementer",
+            "any"
+          ]
+        },
+        "onUnavailable": {
+          "default": "skip_weak",
+          "type": "string",
+          "enum": [
+            "skip_weak",
+            "pause"
+          ]
+        }
+      },
+      "required": [
+        "roleId",
+        "rubric"
+      ],
+      "additionalProperties": false
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "approver": {
+          "type": "string",
+          "minLength": 1,
+          "description": "'owner' or a roleId"
+        },
+        "payloadFrom": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresHours": {
+          "default": 72,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "allowEdit": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "approver",
+        "payloadFrom"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "$ref": "#/$defs/slug"
+        },
+        "actionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvalFrom": {
+          "description": "node id of the gating approval",
+          "$ref": "#/$defs/nodeId"
+        }
+      },
+      "required": [
+        "connectionId",
+        "actionId"
+      ],
+      "additionalProperties": false
+    },
+    "branch": {
+      "type": "object",
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/jsonLogic"
+        }
+      },
+      "required": [
+        "condition"
+      ],
+      "additionalProperties": false
+    },
+    "fanout": {
+      "type": "object",
+      "properties": {
+        "over": {
+          "type": "string"
+        },
+        "branches": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 10
+        },
+        "maxParallel": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "fanin": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "all",
+            "any",
+            "n_of"
+          ]
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "loop": {
+      "type": "object",
+      "properties": {
+        "forEach": {
+          "type": "string"
+        },
+        "until": {
+          "$ref": "#/$defs/jsonLogic"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "maxUsd": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "maxIterations",
+        "maxUsd"
+      ],
+      "additionalProperties": false
+    },
+    "wait": {
+      "type": "object",
+      "properties": {
+        "durationSec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "untilCron": {
+          "type": "string",
+          "pattern": "^(\\S+\\s+){4}\\S+$"
+        },
+        "untilEvent": {
+          "type": "string"
+        },
+        "timeoutSec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "notify": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "default",
+            "high"
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "set": {
+      "type": "object",
+      "properties": {
+        "mapping": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonLogic"
+          }
+        }
+      },
+      "required": [
+        "mapping"
+      ],
+      "additionalProperties": false
+    },
+    "subworkflow": {
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "$ref": "#/$defs/slug"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "workflowId",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

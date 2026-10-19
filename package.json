@@ -11,7 +11,8 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "sync": "bun engine/scripts/sync-agents.ts",
-    "approve": "bun engine/bin/approve.ts"
+    "approve": "bun engine/bin/approve.ts",
+    "schema:export": "bun engine/schema/export.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",

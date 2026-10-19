@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "ownerName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "legalEntity": {
+      "description": "entity that pays for real spends (data, not code)",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "currency": {
+      "type": "string",
+      "const": "USD"
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IANA time zone"
+    },
+    "moneyMode": {
+      "type": "string",
+      "enum": [
+        "paper",
+        "card"
+      ]
+    },
+    "autonomyMax": {
+      "description": "company-wide ceiling; departments and teams are capped at it",
+      "$ref": "#/$defs/autonomy"
+    },
+    "killSwitch": {
+      "description": "mirror of the STOP state for display; the STOP file stays authoritative",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name",
+    "ownerName",
+    "currency",
+    "timezone",
+    "moneyMode",
+    "autonomyMax"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "autonomy": {
+      "type": "string",
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3"
+      ]
+    }
+  }
+}

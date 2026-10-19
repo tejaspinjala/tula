@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "taskId": {
+      "$ref": "#/$defs/id"
+    },
+    "agentId": {
+      "$ref": "#/$defs/slug"
+    },
+    "roleId": {
+      "$ref": "#/$defs/slug"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "implement",
+        "verify",
+        "judge",
+        "coordinate",
+        "intake",
+        "compile",
+        "meeting_turn",
+        "other"
+      ]
+    },
+    "adapter": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "fleet-loop"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tier": {
+      "$ref": "#/$defs/tier"
+    },
+    "dataClasses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dataClass"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "running",
+        "ok",
+        "failed",
+        "handoff",
+        "killed",
+        "failover"
+      ]
+    },
+    "resumeFrom": {
+      "description": "handoff path",
+      "type": "string"
+    },
+    "briefPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoffPath": {
+      "type": "string"
+    },
+    "decisionLogPath": {
+      "type": "string"
+    },
+    "scopeTokenId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "worktree": {
+      "type": "string"
+    },
+    "osUser": {
+      "type": "string"
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "rate_limit",
+            "credits_exhausted",
+            "overloaded",
+            "auth",
+            "context",
+            "tool",
+            "other"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    },
+    "startedAt": {
+      "$ref": "#/$defs/ts"
+    },
+    "endedAt": {
+      "$ref": "#/$defs/ts"
+    }
+  },
+  "required": [
+    "id",
+    "taskId",
+    "agentId",
+    "roleId",
+    "adapter",
+    "provider",
+    "family",
+    "model",
+    "tier",
+    "status",
+    "briefPath",
+    "scopeTokenId",
+    "startedAt"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,15}_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Entity id: <prefix>_<26 Crockford base32>, as produced by engine/lib/ids.ts newId()"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Configuration object id: lowercase letters, digits and dashes, 2-64 chars"
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "cheap",
+        "mid",
+        "deep"
+      ]
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    }
+  }
+}

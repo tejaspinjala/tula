@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "approval",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "publish",
+        "spend",
+        "deploy",
+        "external",
+        "org_change",
+        "grant",
+        "autonomy"
+      ]
+    },
+    "actionHash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "taskId": {
+      "$ref": "#/$defs/id"
+    },
+    "verdictId": {
+      "$ref": "#/$defs/id"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "payloadRef": {
+      "description": "path to staged item; never secrets",
+      "type": "string"
+    },
+    "channel": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/postingMode"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "copy",
+            "official_api",
+            "browser"
+          ]
+        },
+        "tosRisk": {
+          "$ref": "#/$defs/tosRisk"
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approverRequired": {
+      "type": "string",
+      "minLength": 1,
+      "description": "'owner' | 'finance' | agentId"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "reserved",
+        "consumed",
+        "released",
+        "denied",
+        "expired"
+      ]
+    },
+    "usesLeft": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "decidedBy": {
+      "type": "string"
+    },
+    "decidedAt": {
+      "$ref": "#/$defs/ts"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "postponedUntil": {
+      "$ref": "#/$defs/ts"
+    },
+    "createdAt": {
+      "$ref": "#/$defs/ts"
+    },
+    "expiresAt": {
+      "$ref": "#/$defs/ts"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "actionHash",
+    "summary",
+    "requestedBy",
+    "approverRequired",
+    "status",
+    "usesLeft",
+    "createdAt",
+    "expiresAt"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,15}_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Entity id: <prefix>_<26 Crockford base32>, as produced by engine/lib/ids.ts newId()"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "postingMode": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "approve_then_auto",
+        "auto_when_unavailable",
+        "auto"
+      ]
+    },
+    "tosRisk": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    }
+  }
+}

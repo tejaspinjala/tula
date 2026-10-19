@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "handoff",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/id"
+    },
+    "taskId": {
+      "$ref": "#/$defs/id"
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "doneCondition": {
+      "$ref": "#/$defs/doneCondition"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "met",
+        "not_met",
+        "partial"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 1200
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceRef"
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 300
+      }
+    },
+    "changed": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commit": {
+          "type": "string"
+        },
+        "contentHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "next": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unverified": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "peakCtxPct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "trust": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "auto"
+      ]
+    },
+    "writtenAt": {
+      "$ref": "#/$defs/ts"
+    }
+  },
+  "required": [
+    "runId",
+    "taskId",
+    "owner",
+    "inputs",
+    "doneCondition",
+    "status",
+    "evidence",
+    "next",
+    "trust",
+    "writtenAt"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,15}_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Entity id: <prefix>_<26 Crockford base32>, as produced by engine/lib/ids.ts newId()"
+    },
+    "doneCondition": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "command",
+            "tests",
+            "schema",
+            "rubric"
+          ]
+        },
+        "spec": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutSec": {
+          "default": 300,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind",
+        "spec"
+      ],
+      "additionalProperties": false
+    },
+    "evidenceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "test_output",
+            "command_log",
+            "commit",
+            "screenshot",
+            "video",
+            "file_line",
+            "url",
+            "metric",
+            "brain_note"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    }
+  }
+}

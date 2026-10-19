@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "template",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "kinds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "department",
+          "team",
+          "role",
+          "agent",
+          "workflow",
+          "schedule",
+          "connection",
+          "providers",
+          "routing",
+          "policy",
+          "limits",
+          "portfolio",
+          "skill",
+          "brain_note"
+        ]
+      }
+    },
+    "requires": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string"
+        },
+        "connectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "params": {
+      "description": "JSON Schema for import params",
+      "$ref": "#/$defs/jsonSchema"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "department",
+              "team",
+              "role",
+              "agent",
+              "workflow",
+              "schedule",
+              "connection",
+              "providers",
+              "routing",
+              "policy",
+              "limits",
+              "portfolio",
+              "skill",
+              "brain_note"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "riskWidening": {
+      "description": "computed on import; informational in the file",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "kinds",
+    "requires",
+    "files"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "jsonSchema": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {},
+      "description": "An embedded JSON Schema document"
+    }
+  }
+}

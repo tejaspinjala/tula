@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "department",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "directorAgentId": {
+      "$ref": "#/$defs/slug"
+    },
+    "purpose": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "autonomy": {
+      "$ref": "#/$defs/autonomy"
+    },
+    "envelopeId": {
+      "type": "string"
+    },
+    "tools": {
+      "description": "tool policy: tools any role in this department may hold",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scope": {
+      "description": "department ceiling; effective permission = role ∩ team ∩ department ∩ policy ∩ grants",
+      "$ref": "#/$defs/scope"
+    },
+    "dataClass": {
+      "description": "highest data class handled; 'private' forces fail-closed routing (SPEC 4.8)",
+      "$ref": "#/$defs/dataClass"
+    },
+    "goalIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "dormant",
+        "paused",
+        "retired"
+      ]
+    },
+    "room": {
+      "description": "office room label (UI only)",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "directorAgentId",
+    "autonomy",
+    "dataClass",
+    "goalIds",
+    "status"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Configuration object id: lowercase letters, digits and dashes, 2-64 chars"
+    },
+    "autonomy": {
+      "type": "string",
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "write": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shell": {
+          "description": "allowed command prefixes",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gatewayTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nativeTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "netDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dataClasses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dataClass"
+          }
+        },
+        "usd": {
+          "$ref": "#/$defs/usd"
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    },
+    "usd": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

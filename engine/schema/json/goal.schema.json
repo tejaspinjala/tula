@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "goal",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "why": {
+      "type": "string",
+      "maxLength": 600
+    },
+    "keyResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+          },
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": "number"
+          },
+          "current": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "where the metric comes from, e.g. a connector analytics action"
+          },
+          "due": {
+            "$ref": "#/$defs/ts"
+          },
+          "valuePerUnitUsd": {
+            "description": "S3: unset until the Owner sets it",
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "metric",
+          "target",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "done",
+        "killed"
+      ]
+    },
+    "dataClass": {
+      "$ref": "#/$defs/dataClass"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "keyResults",
+    "status"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    }
+  }
+}
