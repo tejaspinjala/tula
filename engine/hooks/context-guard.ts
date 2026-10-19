@@ -5,7 +5,8 @@
 // Reads real usage from the transcript (input + cache read + cache creation tokens of the last assistant turn).
 import fs from 'node:fs';
 import type { HookEvent } from '../lib/core.ts';
-import { readStdin, readJSONState, writeJSONState, appendEvent, sha } from '../lib/core.ts';
+import { readStdin, appendEvent, readEventsTailText } from '../lib/core.ts';
+import { deriveCtx, ctxKey, parseEvents } from '../lib/derive.ts';
 
 export const WARN = 30;
 export const HARD = 35;
@@ -52,23 +53,29 @@ export function evaluate({ tokens, window, prev = { level: 0, pct: 0 } }: { toke
   return { pct, level, emit, msg, next: { level, pct } };
 }
 
-if (import.meta.main) {
-  const ev = readStdin();
-  const file = ev.agent_transcript_path || ev.transcript_path;
-  const tokens = file ? contextTokens(file) : null;
-  if (tokens == null) process.exit(0);
-  const window = Number(process.env.FLEET_CONTEXT_WINDOW) || 200_000;
-  const key = sha(`${ev.session_id}:${ev.agent_id || 'main'}`);
-  const state = readJSONState<Record<string, CtxState>>('ctx.json', {});
-  const r = evaluate({ tokens, window, prev: state[key] });
-  if (Math.abs(r.pct - (state[key]?.pct ?? -99)) >= 1) {
-    appendEvent({ event: 'ctx', agent: ev.agent_type || 'tej', pct: Math.round(r.pct * 10) / 10, tokens });
-  }
-  state[key] = r.next;
-  writeJSONState('ctx.json', state);
-  if (r.msg) {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: ev.hook_event_name || 'PostToolUse', additionalContext: r.msg },
-    }));
-  }
+export async function main(): Promise<void> {
+  try {
+    const ev = readStdin();
+    const file = ev.agent_transcript_path || ev.transcript_path;
+    const tokens = file ? contextTokens(file) : null;
+    if (tokens == null) return;
+    const window = Number(process.env.FLEET_CONTEXT_WINDOW) || 200_000;
+    // Previous level/pct comes from the latest ctx event (read-only tail); nothing shared is rewritten.
+    const prev = deriveCtx(parseEvents(readEventsTailText()))[ctxKey(ev.session_id, ev.agent_id)];
+    const r = evaluate({ tokens, window, prev: prev ? { level: prev.level, pct: prev.pct } : undefined });
+    // Always record a change in level; otherwise only when usage moved by >= 1 point.
+    if (!prev || prev.level !== r.level || Math.abs(r.pct - prev.pct) >= 1) {
+      appendEvent({
+        session: ev.session_id, event: 'ctx', agent: ev.agent_type || 'tej',
+        ...(ev.agent_id ? { agent_id: ev.agent_id } : {}), pct: Math.round(r.pct * 10) / 10, level: r.level, tokens,
+      });
+    }
+    if (r.msg) {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: ev.hook_event_name || 'PostToolUse', additionalContext: r.msg },
+      }));
+    }
+  } catch { /* fail open */ }
 }
+
+if (import.meta.main) await main();
