@@ -18,6 +18,12 @@
       "maximum": 4,
       "description": "0 owner seat, 1 director, 2 manager, 3 employee, 4 helper"
     },
+    "description": {
+      "description": "one line: what this role is for (subagent description for adapters)",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
     "dutiesPrompt": {
       "type": "string",
       "minLength": 1,

@@ -1,5 +1,5 @@
 // Routing (config kind `routing`, `org/routing.json`; SPEC 4.7). Task type → tier, keyword routes and
-// escalation steps are data from template `defaults-v1`.
+// escalation steps are data from the starter defaults template.
 import { z } from 'zod';
 import { tier } from './common.ts';
 

@@ -1,0 +1,30 @@
+{
+  "_why": "param default must match its declared type",
+  "_path": [
+    "params",
+    "properties",
+    "postsPerWeek",
+    "default"
+  ],
+  "id": "team-youtube-channel",
+  "version": "1.0.0",
+  "kinds": [
+    "team"
+  ],
+  "requires": {},
+  "files": [
+    {
+      "kind": "team",
+      "path": "teams/youtube.json"
+    }
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "postsPerWeek": {
+        "type": "integer",
+        "default": "two"
+      }
+    }
+  }
+}
