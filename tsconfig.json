@@ -5,10 +5,15 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "strict": false,
-    "noImplicitAny": false,
+    "strict": true,
     "skipLibCheck": true,
-    "types": ["bun"]
+    "types": [
+      "bun"
+    ],
+    "noUncheckedIndexedAccess": false
   },
-  "include": ["fleet", "tests"]
+  "include": [
+    "engine",
+    "tests"
+  ]
 }

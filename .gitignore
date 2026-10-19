@@ -2,10 +2,10 @@ node_modules/
 .env
 .env.*
 *.pem
-fleet/state/
-fleet/approvals/pending/
-fleet/approvals/approved/
-fleet/approvals/denied/
+engine/state/
+engine/approvals/pending/
+engine/approvals/approved/
+engine/approvals/denied/
 brain/.obsidian/workspace*.json
 brain/.obsidian/cache
 .DS_Store

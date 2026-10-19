@@ -1,0 +1,31 @@
+{
+  "_doc": "Deterministic, zero-token routing. First rule with the most keyword hits wins. `skills` are loaded as sections via engine/bin/skill.ts, never whole. Escalate one tier on high risk, >8 files, or after a failed attempt.",
+  "defaults": { "employee": "e-coder", "skills": ["tdd-slice"], "maxTurns": 25 },
+  "escalate": { "files": 8 },
+  "rules": [
+    { "id": "classify", "employee": "e-classifier", "skills": [], "maxTurns": 5,
+      "match": ["classify", "label", "tag", "triage", "categorize", "sentiment", "dedupe", "extract field", "which one", "yes or no"] },
+    { "id": "docs", "employee": "e-scribe", "skills": ["docs-contract"], "maxTurns": 10,
+      "match": ["document", "readme", "docstring", "changelog", "explain what", "write docs"] },
+    { "id": "ui-api", "employee": "e-coder", "skills": ["ui-api-call", "tdd-slice", "docs-contract"],
+      "match": ["button", "form", "component", "endpoint", "api call", "fetch", "hook up", "wire up", "ui"] },
+    { "id": "bugfix", "employee": "e-coder", "skills": ["tdd-slice"],
+      "match": ["bug", "fix", "broken", "error", "crash", "regression", "failing"] },
+    { "id": "review", "employee": "e-reviewer", "skills": [], "maxTurns": 15,
+      "match": ["review", "audit diff", "check the diff", "pr review"] },
+    { "id": "security", "employee": "e-scanner", "skills": [], "maxTurns": 10,
+      "match": ["secret", "vulnerab", "cve", "permission", "scan", "injection", "xss"] },
+    { "id": "research", "employee": "e-researcher", "skills": [],
+      "match": ["research", "compare", "investigate", "find out", "look up", "benchmark"] },
+    { "id": "linkedin", "employee": "e-writer", "skills": ["publish-gate"],
+      "match": ["linkedin", "blog", "article", "post about", "newsletter"] },
+    { "id": "video", "employee": "e-producer", "skills": ["publish-gate"],
+      "match": ["video", "reel", "short", "thumbnail", "storyboard", "voiceover"] },
+    { "id": "brain", "employee": "e-curator", "skills": [],
+      "match": ["brain", "note", "file this", "learning", "pattern", "vault"] },
+    { "id": "diagram", "employee": "e-diagrammer", "skills": ["adr-excalidraw"],
+      "match": ["diagram", "excalidraw", "adr", "decision record", "flow chart"] },
+    { "id": "council", "employee": "council-chair", "skills": ["council"], "tier": "deep",
+      "match": ["architecture", "choose between", "should we", "migrate", "rewrite", "which stack", "irreversible", "trade-off", "tradeoff"] }
+  ]
+}
