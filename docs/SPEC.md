@@ -1,14 +1,15 @@
 ---
 type: spec
-version: 1.0
+version: 1.1
 status: locked for Phase 0-1 (changes after this go through an ADR in brain/decisions/)
 owner: Tej
 updated: 2026-10-18
 companion: docs/PHASE-1-PLAN.md
 ---
-# Tula Fleet: Spec v1.0
+# Tula Fleet: Spec v1.1
 
 ## CHANGELOG
+- **1.1 (2026-10-18):** **Nothing is hard-coded (C17).** The engine ships only generic mechanisms, schemas, node executors and connectors. Org, teams, workflows, schedules, connections, providers, budgets, thresholds, autonomy and prompts are versioned DATA in `$FLEET_HOME`, edited in the UI or as files, and importable/exportable. The full-life org (8.4), the LinkedIn flow (6.2) and the S-defaults (25) are now starter **templates**. New sections: 26 configuration as data, 27 workflow engine + visual builder, 28 teams, connections and the connector framework (API via Infisical refs / browser via an isolated Playwright profile / manual). Private-provider eligibility became an owner-locked setting instead of an engine constant (4.8). UI scope gains all editors (15).
 - **1.0 (2026-10-18):** Round 2 answers locked (C9-C16). Full life org from day one (section 8.4). Private data is pinned to Claude Max + loopback-local models and fails closed (sections 4.8, 11.3). Paper budget numbers fixed. Autonomy defaults fixed. Scaffold bugs became Phase 0 tasks (section 21). Remaining open items became safe defaults that Tej can override (section 25). Renamed SPEC-DRAFT.md → SPEC.md. Phase 1 backlog moved to PHASE-1-PLAN.md.
 - **0.2:** Round 1 answers (C1-C8). Goal portfolio, channel posting modes, Infisical secret broker, secure data handling, laptop→VPS runbook, Lauren Tan practices, verification pipeline, rule promotion.
 - **0.1:** First draft. Hybrid architecture (fleetd + MCP gateway + adapters), domain model, flows, scaffold review.
@@ -30,12 +31,15 @@ Tula Fleet is an autonomous AI-agent company that runs Tej's work and life towar
 | C7 | **All three 90-day goals run in parallel:** (G1) income via content/YouTube, (G2) ship and sell a Tula product, (G3) job + personal brand. Prioritisation is portfolio-style. | section 8 |
 | C8 | **"Lauren Tann" is Lauren Tan (poteto).** Her agent-org practices were evaluated and the adopted ones folded in. | section 13 |
 | C9 | **Infisical Cloud free tier now**, self-hosted on the VPS later. | section 11.4 |
-| C10 | **Full life org from day one:** Chief of Staff, Content (LinkedIn + YouTube), Product (Tula), Career, Finance, Brain, Relationships, Personal, Health. Security is a shared function. Titles now; Tej renames agents later in the UI. | section 8.4 |
+| C10 | **Full life org from day one:** Chief of Staff, Content (LinkedIn + YouTube), Product (Tula), Career, Finance, Brain, Relationships, Personal, Health. Security is a shared function. Titles now; Tej renames agents later in the UI. Shipped as the importable template `org-full-life` (C17). | section 8.4 |
 | C11 | **Autonomy defaults:** everything external needs Tej. Brain runs internal work alone (L2). Finance may approve paper spends ≤ $5. | sections 7.4, 9 |
 | C12 | **Paper budget:** $100 start, 30% reserve, 40% of revenue reinvested, $10/day token cap. | section 7.2 |
-| C13 | **Private data (Relationships, Personal, Health, people notes) goes only to Claude Max + local models.** Never OpenAI or any other API. The data-class router enforces this in code, and private departments **fail closed** (pause, never fall back). | sections 4.8, 6.5, 11.3 |
+| C13 | **Private data (Relationships, Personal, Health, people notes) goes only to Claude Max + local models.** Never OpenAI or any other API. The data-class router enforces it: the fail-closed *mechanism* is code, while provider eligibility is an owner-locked setting defaulting to exactly this (C17, section 4.8). Private departments **fail closed** (pause, never fall back). | sections 4.8, 6.5, 11.3 |
 | C14 | **First interface:** phone-friendly approvals inbox + kanban + simple pixel office. The meeting/walking view grows from there. | section 15 |
 | C15 | **First end-to-end slice:** learning → verified LinkedIn draft → Tej approves → Tej posts himself. | PHASE-1-PLAN.md |
+| C17 | **Everything is configurable data, nothing hard-coded.** Tej builds his own teams and workflows in the UI (drag-and-drop). Code holds mechanisms and safety invariants only (section 26.2). | sections 26-28 |
+| C18 | **Teams own connections.** A team (e.g. a YouTube team) binds to one or more external accounts. Each connection uses API (creds from Infisical), browser (Tej logs in, the agent drives it under policy) or manual mode. | section 28 |
+| C19 | **Workflows are visual graphs** that compile to Tasks/Runs, so every governance rule still applies. | section 27 |
 | C16 | **Accounts exist** for LinkedIn, YouTube, a domain registrar and hosting. Vendor/account details are collected in onboarding (Channels + Accounts step); nothing is assumed in code. | section 6.7 |
 
 ---
@@ -51,6 +55,7 @@ Tula Fleet is an autonomous AI-agent company that runs Tej's work and life towar
 - **It compounds.** The brain (evidence-backed), scorecards, review-comment→rule promotion, and a Coach loop that can be reverted.
 - **It's fun to watch.** A pixel-art office next to serious admin panels.
 - **Anyone can clone it.** The engine is generic, user data lives in `$FLEET_HOME`, and a first-run wizard sets it up.
+- **Tej designs the company himself.** Teams, workflows, connections, schedules, budgets and policies are built in the UI (drag-and-drop workflow canvas, editors, wizards) and stored as versioned files. Templates are starting points, not code (C17).
 
 ### 1.2 Non-goals (v1)
 - Not SaaS or multi-tenant. One owner, one active host at a time, one company.
@@ -99,7 +104,14 @@ Code, files, UI and prompts all use these terms. New terms go into `brain/glossa
 | **Gateway tools** | MCP tools exposed by fleetd. The only way agents change governed state. |
 | **Secret broker** | The component inside the execution services (publisherd, paymentd, provider launcher) that fetches secrets from Infisical at execution time. Agents never call it directly. |
 | **Execution service** | A separate process with its own OS user and Infisical identity that performs external actions (publisherd, paymentd). |
-| **Channel** | An external destination (LinkedIn personal, YouTube channel, X, blog...) with a posting mode and method. |
+| **Channel** | Legacy name for a Connection's external destination (kept in v1.0 text). See Connection. |
+| **Team** | A unit inside a Department: one Manager, member Agents (from Role templates), its Connections, Workflows, budget and an autonomy override (never above the Department's). |
+| **Connection** | A binding of **one** external account/channel to **one** Team, with auth mode `api` / `browser` / `manual`, a posting mode, daily limits and quiet hours. |
+| **Connector** | Platform support = manifest (capabilities/actions, auth modes, config schema, rate limits, ToS risk, required secret fields) + implementation module. Adding a platform means adding a connector. |
+| **Workflow** | A versioned JSON graph of typed nodes (triggers, agent steps, verify, judge, approval gates, actions, branches, loops...). |
+| **Workflow instance** | One execution of a pinned Workflow version. Its nodes compile to Tasks/Runs/Approvals/actions. |
+| **Template** | An importable data package (org, teams, roles, workflows, schedules, defaults) with parameters. Never code. |
+| **Mechanism vs value** | Code provides mechanisms and invariants (gates exist, scopes only narrow, audit, kill, fail-closed). Data provides values (who, what, when, how much). |
 | **Scope / Access Request / Access Grant** | A Scope is a permission an agent holds (paths, tools, domains, USD, tokens). An Access Request asks for a missing Scope. An Access Grant is a narrow, time-boxed Scope. |
 | **Approval** | A single-use, expiring decision bound to a Proposal/action hash. |
 | **Spend Request / Ledger / Envelope / Experiment** | See section 7. |
@@ -214,7 +226,7 @@ interface Adapter {
 | Worktrees, maxTurns, per-agent tools | partial | ours | The Dispatcher creates worktrees. Role specifics go in role prompt + Brief. AGENTS.md/CLAUDE.md stay under 40 lines. |
 | Code quality | comparable | lower for small models | Open models default to `cheap` and `open_ok` tasks (A16). |
 
-### 4.7 Routing: default task-type → tier config (`org/routing.json`, editable)
+### 4.7 Routing: default task-type → tier config (data in `org/routing.json`, from template `defaults-v1`, edited in the Routing editor)
 
 | Task type | Tier | Notes |
 |---|---|---|
@@ -263,8 +275,8 @@ Escalation (kept from the scaffold router): risk high, more than 8 files, or a f
 ```
 - `@any-api` / `@local` expand to every detected provider of that kind, in a configured order.
 - **Filters on every pick:** data class allowed (section 11.3), not degraded, token envelope available, family constraint (judge), `open_ok` for local/small models on code.
-- **Private routing is locked in engine code (C13), not config.** `privateAllowed(provider)` returns true only for (a) the `claude-code` adapter authenticated by **subscription** (Claude Max), or (b) a `fleet-loop` provider whose `baseUrl` resolves to loopback (`127.0.0.1`, `::1`, unix socket). Config that lists `private` on any other provider is rejected at load time with an error. Using a LAN/Tailscale GPU box needs an ADR + code change.
-- **Fail closed:** for any Brief containing `private` data, or any Run for a Department whose `dataClass` is `private` (Relationships, Personal, Health), the effective chain is `classChains.private` filtered by `privateAllowed`. If nothing is available, the Task goes to `blocked: private_provider_unavailable` and the Department pauses. It **never** falls through to the tier chain. A contract test proves this for every configured provider.
+- **Private eligibility is an owner-locked setting (C13 + C17).** Each provider has `privateEligible: boolean`. The default (template `defaults-v1`) is true only for (a) the `claude-code` adapter authenticated by **subscription** (Claude Max) and (b) `fleet-loop` providers whose `baseUrl` resolves to loopback. Setting it true on any other provider is a **risk-widening change** (section 26.3): owner re-auth + typed confirmation + audited diff, and the UI warns that it breaks C13. Agents, workflows and template imports can never set it. The *mechanism* (fail closed, below) is code and can't be configured off.
+- **Fail closed:** for any Brief containing `private` data, or any Run for a Department whose `dataClass` is `private` (Relationships, Personal, Health), the effective chain is `classChains.private` filtered by `privateEligible`. If nothing is available, the Task goes to `blocked: private_provider_unavailable` and the Department pauses. It **never** falls through to the tier chain. A contract test proves this for every configured provider.
 - No model ID is hard-coded in engine code.
 
 **Failover flow:** section 6.5.
@@ -320,6 +332,15 @@ Approval     { id; actionHash; kind; summary; requestedBy; approverRequired; sta
 AccessRequest / AccessGrant / Scope { as v0.1 }
 ▲AuditEvent  { seq; prevHash; hash; ts; actor; action; target; dataClass?; provider?; secretName?; outcome; reason? }
 ▲SecretRef   { name /* Infisical path */; service: 'publisherd'|'paymentd'|'launcher'; purpose; rotationDays }
+▲▲Team       { id; departmentId; name; managerAgentId; memberAgentIds; connectionIds; workflowIds; envelopeId; autonomy /* ≤ department */; status }
+▲▲Connection { id; teamId; connectorId; connectorVersion; account: { handle; displayName; owner: 'llc'|'personal' }; auth: { mode: 'api'|'browser'|'manual'; secretRefs?; profileId? };
+               posting: { mode; dailyLimit; quietHours; unavailableAfterHours? }; config /* validated by connector manifest */; health; status }
+▲▲ConnectorManifest { id; version; platform; capabilities; actions[{ id; effect: 'read'|'write_external'; inputSchema; outputSchema; authModes }]; authModes; configSchema;
+               requiredSecrets; rateLimits; tosRisk; netDomains; trust: 'builtin'|'signed'|'unsigned' }
+▲▲Workflow   { id; version; name; teamId?; params; nodes[]; edges[]; status: 'draft'|'active'|'archived'; createdBy; validatedAt }
+▲▲WorkflowInstance { id; workflowId; workflowVersion /* pinned */; trigger; status; nodeStates; startedAt; endedAt; sim: boolean }
+▲▲ConfigVersion { kind; id; version; hash; actor; ts; diffPath; riskWidening: boolean }
+(Exact JSON Schemas: docs/PHASE-1-PLAN.md section 3. ▲ = new in v0.2, ▲▲ = new in v1.1.)
 ```
 
 ---
@@ -337,6 +358,7 @@ AccessRequest / AccessGrant / Scope { as v0.1 }
 8. **Graduation to real card** after the clean period (section 7.5).
 
 ### 6.2 "Here's what I learned" → post (per-channel mode, C6)
+*Since v1.1 this flow is the workflow template `wf-learning-to-linkedin` (graph in section 27.8). The steps below describe what that template does. None of it is engine code.*
 1. Tej tells the CoS (UI chat, CLI, or phone drop into `brain/raw/inbox/`).
 2. `brain.intake` writes raw (`trust: owner`). The Librarian compiles it to wiki (facts with evidence, MOC update, glossary).
 3. The Schedule creates `post.draft` for the channel's Manager (Goal G3 by default, or G1 for YouTube).
@@ -475,7 +497,9 @@ Departments can serve multiple Goals (e.g. Content serves G1 and G3). Every Task
 
 ---
 
-### 8.4 Starter org (C10): full life org from day one
+### 8.4 Starter org (C10): full life org from day one, shipped as template `org-full-life`
+*This table is the template's content. Importing it creates editable departments, teams, roles and agents. Tej can delete, rename or restructure any of it in the Org editor (C17).*
+
 Titles are display names until Tej renames them in the UI (naming convention: `"<Title>"` now, any name later, `namedAfterRealPerson` set when it's a real person; S4). Departments marked *dormant* exist with a Director and a weekly check-in only, so they cost almost nothing until Tej gives them work.
 
 | Department | Director (tier) | Managers → Employees (Phase 1 roles in **bold**) | Goals | Data class | Autonomy | Phase 1 state |
@@ -582,6 +606,7 @@ Practical note: subscription CLIs (Claude Max, Codex) and API providers have the
 - **Rotation:** `rotationDays` per SecretRef (default 90). A UI badge shows when rotation is due. Rotation after any suspected leak or `fleet stop --revoke`.
 
 ### 11.5 Browser-automation sessions and cookies
+*Superseded in detail by section 28.5 (per-Connection profiles, agent-driven browsing under policy). The rules below still apply.*
 - One **persistent Playwright context per channel**, owned by `fleet-pub`, stored in `exec/browser/<channelId>/`, **age-encrypted at rest** (decrypted to a `0700` temp dir only while publisherd uses it, re-encrypted and wiped on close).
 - Login happens once by Tej in a headed window launched by publisherd (`fleet channel login <id>`). Credentials typed by Tej go to the site, not the fleet. Optional username/password from Infisical for re-login.
 - Agents never get the browser, the profile, cookies or CDP access. They supply structured payloads only. Posting scripts are deterministic per platform. When an LLM-driven step is unavoidable (UI drift), it runs inside publisherd's sandbox with a domain allow-list, no other credentials, screenshot evidence, and a step cap.
@@ -660,7 +685,16 @@ Sources are self-reported by her. The article author's analysis is treated separ
 ---
 
 ## 15. UI scope
-React 18 + Vite + TS, PixiJS v8 office, TanStack Query + WS, Tailwind, served by fleetd. Mobile-responsive. **Phase 1 builds the first three screens (C14):** approvals inbox (phone-first), kanban, simple office. The rest follow in roadmap order.
+React 18 + Vite + TS, PixiJS v8 office, TanStack Query + WS, Tailwind, served by fleetd. Mobile-responsive. **Phase 1 milestone M1 builds the first three screens (C14):** approvals inbox (phone-first), kanban, simple office (+ a read-only workflow view with run overlay). **Milestone M2 adds every editor (C17)**, all rendered from the same JSON Schemas:
+- **Org editor:** departments, teams, roles, agents, display names, tiers, native tools, scopes, budgets, autonomy (≤ parent).
+- **Workflow builder** (section 27.7).
+- **Connections manager + Create-team wizard** (section 28.2).
+- **Schedule editor:** cron/interval pickers, catch-up policy, pause/postpone.
+- **Policy/threshold editor:** approval thresholds, caps, autonomy, data-class rules. Risk-widening fields are marked and need owner confirmation.
+- **Provider/model-routing editor:** detected providers, tier maps, failover chains, private eligibility (owner-locked), prices.
+- **Templates:** import (preview diff + params) and export.
+- **First-run wizard:** the same forms in a guided sequence.
+- **Version history** on every object (diff, revert).
 - **Approvals inbox:** one tap. Verdict + evidence thumbnails, ToS badge, "auto-posts in Xh if unanswered" countdown for `auto_when_unavailable`.
 - **Portfolio:** goal shares, floors, WIP usage, ROI trend, the weekly reallocation proposal.
 - **Kanban:** filter by Goal/Department. Single-owner avatar. The verify column shows Verdict state.
@@ -685,7 +719,9 @@ As v0.1: `company/org/*.json` + `engine/prompts/` generate `.claude/agents/*.md`
 tula-fleet/                       # engine repo (shareable)
   engine/
     fleetd/{api,ws,scheduler,dispatcher,policy,ledger,portfolio,brain,verify,metrics,coach,meetings,audit,crypto}/
-    gateway/  adapters/{claude-code,codex,fleet-loop}/  router/  schema/  hooks/  prompts/  skills/  templates/
+    gateway/  adapters/{claude-code,codex,fleet-loop}/  router/  schema/  hooks/  prompts/  skills/
+    workflow/{engine,validate,nodes,sim}/  connectors/{builtin/manual,builtin/brain,builtin/notify,linkedin,youtube}/  config/
+    templates/                   # DATA packages only: org-full-life, wf-learning-to-linkedin, team-youtube-channel, defaults-v1
     cli/                          # fleet init|start|stop|sync|doctor|approve|reindex|eval|backup|export|import|keys|channel|goal|loop|swarm
     publisherd/  paymentd/
   ui/
@@ -704,7 +740,7 @@ $FLEET_HOME/  (default ~/.tula-fleet; never inside the engine repo)
 
 **Phase 0: Foundations (1 week).** The tasks are P0-1 to P0-7 in PHASE-1-PLAN.md, including every scaffold bug in section 21. *Accept:* tests green; `tsc --strict` passes; a self-approval write is denied; doctor fails on an unencrypted disk.
 
-**Phase 1: Thin vertical slice (2-3 weeks; backlog in PHASE-1-PLAN.md; C15).** Slice: learned → brain → LinkedIn draft → verifier (+ judge if a second family is linked) → Verdict → approval inbox (phone) → `manual+copy`. Includes the Claude Code adapter, gateway (`brain.intake`, `task.*`, `publish.stage`, `handoff.write`, `evidence.attach`, `skill.*`), scheduler with catch-up, scorecards with outcome metrics, kill switch, nightly backup. *Accept:* overnight note → staged, verified draft by 08:35. One-tap approve on phone. Scorecard shows cost per accepted post. The STOP file halts a Run within 2s. **The same Task resumed on Codex (or a local model) from its Handoff produces a draft.** A backup restore test passes.
+**Phase 1 (4-5 weeks; backlog in PHASE-1-PLAN.md v1.1).** M1 (weeks 1-3): the C15 slice runs as the workflow template `wf-learning-to-linkedin` on the generic engine, with a manual connection. M2 (weeks 3-5): every editor, the builder, the Create-team wizard, template import/export and the first-run wizard. M1 slice: learned → brain → LinkedIn draft → verifier (+ judge if a second family is linked) → Verdict → approval inbox (phone) → `manual+copy`. Includes the Claude Code adapter, gateway (`brain.intake`, `task.*`, `publish.stage`, `handoff.write`, `evidence.attach`, `skill.*`), scheduler with catch-up, scorecards with outcome metrics, kill switch, nightly backup. *Accept:* overnight note → staged, verified draft by 08:35. One-tap approve on phone. Scorecard shows cost per accepted post. The STOP file halts a Run within 2s. **The same Task resumed on Codex (or a local model) from its Handoff produces a draft.** A backup restore test passes.
 
 **Phase 2: Org, meetings, portfolio, isolation (2-3 weeks).** Org editor, CoS intake routing, `task.delegate`, meetings, ADR/Excalidraw, Council. Portfolio allocator + WIP + weekly review. **OS-user isolation on the laptop** (`fleet-agent`, `fleet-pub`). Infisical identities. *Accept:* the isolation check passes, so `fleet-agent` cannot read `exec/` or keychain items. A 3-item meeting for under $1.50. Weekly reallocation proposal generated from real data.
 
@@ -752,7 +788,7 @@ Every known scaffold defect is a Phase 0 task in PHASE-1-PLAN.md. **(verified)**
 | P0-1 | **Scripts pointing at missing files (verified):** `doctor`, `brain:lint`, `canvas`, `dash`, `demo`, `access` in package.json, and `new-adr.ts` referenced by the adr skill. | Remove them now. Each comes back with the slice that creates the file. CI check: every package.json script target exists. |
 | P0-1 | **tsc errors (verified):** `Cannot find type definition file for 'bun'` (deps not installed, `@types/bun: latest`). `strict: false`. Untyped params in `route.ts` etc. | Pin `@types/bun` and `typescript`, `strict: true`, add types, `bun run typecheck` in CI. |
 | P0-1 | `common.md` tells agents to use `skill.ts <skill> --index`, but that flag doesn't exist (it only works because index is the default). | Replace with gateway `skill.index` (P1-2). Keep the CLI as a debug tool with a real `--index` flag. |
-| P0-7 | CEO agent `id: "tej"` impersonates the Owner. Org mixes roles and instances. Native `Agent(child,...)` delegation syntax is unverified. | Rename to `cos`. Split `org/{departments,roles,agents}.json`. Generate `.claude/agents` via the claude-code adapter. Org delegation goes through `task.delegate` (Phase 2). |
+| P0-7 | CEO agent `id: "tej"` impersonates the Owner. Org mixes roles and instances. Native `Agent(child,...)` delegation syntax is unverified. | Rename to `cos` inside the `org-full-life` **template** (data). Split `org/{departments,teams,roles,agents}.json`. A template importer creates them, and a generator that works on any org emits `.claude/agents` (v1.1: no fixed org in code). Org delegation goes through `task.delegate` (Phase 2). |
 | P0-6 | `providers.json` too thin. `.claude/settings.json` `"agent": "tej"` key unverified. | New providers schema (section 4.8). Drop the key. |
 | P1-6 | `pre-compact.ts` writes a placeholder handoff. | A synthesized handoff with the section 5 schema. |
 | P1-3 | `EXTERNAL_CMD` regex can be bypassed (`curl -X POST`, `python -c`...). | Accepted as a known limit of the secondary layer. The primary control is no credentials in agent env + gateway-only external actions. |
@@ -798,7 +834,7 @@ Round 1: money mode, entity, private data policy, provider order, hosting, posti
 ---
 
 ## 25. Safe defaults Tej can override (one place)
-Change any of these in the UI Settings page or in the named file. The scheduler picks up the change on the next tick.
+All of these are values in the importable template `defaults-v1`, applied on first import. Change them in the matching UI editor or file. Effects follow section 26.5 (tightening applies immediately; widening applies on the next run and needs owner confirmation).
 
 | ID | Default | File / setting | Was |
 |---|---|---|---|
@@ -813,4 +849,197 @@ Change any of these in the UI Settings page or in the named file. The scheduler 
 | S9 | Experiments pool 20% of budget; revenue 30/30 reserve/draw split around the locked 40% reinvest | `org/finance.json` | A3 remainder |
 | S10 | Meeting cost cap $1.50; Run cap `maxRunUsd` $0.50 (mid) / $2 (deep); daily cap $10 (locked) | `org/limits.json` | new |
 | S11 | Daily LinkedIn draft at 08:30 local on weekdays, catch-up `once`; daily digest 07:30 | `org/schedules.json` | new |
-| S12 | Private data uses Claude Max only via subscription; an Anthropic API key is **not** private-allowed (strict reading of C13) | engine constant (change = ADR) | new |
+| S12 | Private data uses Claude Max only via subscription; an Anthropic API key is **not** private-eligible (strict reading of C13) | `org/providers.json` `privateEligible` (owner-locked, risk-widening) | new |
+
+---
+
+## 26. Configuration as data (C17)
+
+### 26.1 Principle
+The engine repo ships **mechanisms** (fleetd, gateway, dispatcher, workflow engine, node executors, policy engine, connectors, UI) and **schemas**. Everything that describes *this* company is **data** in `$FLEET_HOME`: org, departments, teams, roles (prompts, tools, scopes, tiers), agents, workflows, schedules, connections, providers/routing, budgets, thresholds, autonomy, limits, data-class rules, skills selection, templates. The engine must start and work with an **empty** company. All starter content ships as templates under `engine/templates/` (data packages, section 26.6).
+
+| Was hard-coded in v1.0 | Now |
+|---|---|
+| Full-life org table (8.4, C10) | template `org-full-life` |
+| LinkedIn pipeline roles + flow (6.2, P1-10) | template `wf-learning-to-linkedin` + role templates `roles-content`, `roles-verification` |
+| Task-type → tier table (4.7), failover chains (4.8) | `defaults-v1` → `org/routing.json`, `org/providers.json` |
+| Thresholds, caps, autonomy defaults (7.4, 9, C11) | `defaults-v1` → `org/policy.json`, `org/limits.json` |
+| S1-S12 | `defaults-v1` values |
+| `privateAllowed()` engine constant | `privateEligible` owner-locked provider field |
+| Schedules (12) | `org/schedules.json` / workflow trigger nodes |
+| Channel modes (10.5) | per-Connection settings (28.3) |
+
+### 26.2 Invariants that stay in code (mechanisms, not configurable off)
+1. Governed state changes only through fleetd (gateway/REST). Agents can't write config, approvals, grants, audit, ledger or tasks.
+2. **Effective permission = role scopes ∩ team ∩ department ∩ company policy ∩ grants.** Workflows, templates and grants can only narrow it. A grant is always ≤ the granter's authority.
+3. Every `write_external` action needs a valid Approval bound to the exact payload hash, *or* a Connection posting mode that permits auto plus the auto-policy passing. Posting modes above `manual` are owner-only settings.
+4. Verdicts and approvals are bound to hashes. Changing a payload invalidates them.
+5. Secrets are never displayed, returned, logged or put in prompts. They're resolved only inside execution services.
+6. Data-class taint propagates. Fail closed for private data when no eligible provider exists.
+7. The kill switch, audit chain, budget hard caps and per-Run caps always apply.
+8. Every config write is validated against its schema and semantic rules. Invalid config never becomes active.
+
+### 26.3 Risk-widening changes (owner-only, re-auth, audited diff)
+Raising autonomy. Posting mode above `manual`. Adding a `write_external` action to a workflow. Removing or weakening an approval/verify gate. Widening role scopes or native tools. Raising budgets, caps or thresholds. Enabling `privateEligible` on a provider. Adding a Connection or switching its auth mode. Installing a non-builtin connector. Importing a template that does any of the above. These need the Owner session + passkey/PIN re-auth. The confirmation screen shows the exact diff and a risk summary. Agents may only **propose** such changes (as a diff Task for Tej).
+
+### 26.4 Persistence (UI and file edits)
+- UI → `PUT /api/config/{kind}/{id}` with `expectedVersion` (optimistic concurrency) → Zod + semantic validation (section 27.3 for workflows) → risk classification (26.3) → `store.write` → **auto-commit** in the `$FLEET_HOME` git repo (`config(<kind>/<id>): v<n> by <actor>`) → `ConfigVersion` + audit event → WS `config.changed`.
+- One file per object (`org/teams/<id>.json`, `workflows/<id>.json`...), with stable key ordering and pretty-printing for clean diffs.
+- **History/undo:** every object has versions (git history + `ConfigVersion` index). The UI shows diffs and can **revert** (a revert is a new version, and widening reverts follow 26.3).
+- **Hand edits:** a file watcher validates edits. Valid edits apply like UI edits (actor `file`, and a risk-widening hand edit is **held** as pending until Tej confirms in the UI). Invalid files are rejected, the last-good version stays active, and the UI shows the error with file:line.
+
+### 26.5 How changes take effect on running work
+| Change | Effect |
+|---|---|
+| Tightening (lower autonomy, caps, disable connection, pause schedule/team, kill) | **Immediate (hot)**. Running Runs that now violate policy are stopped at their next tool call. |
+| Widening (26.3) | After owner confirmation, applies to **new** Runs/instances only |
+| Role prompt/tools/tier, routing, providers | Next Run (the Brief and scope token are built at Run start) |
+| Workflow edit | New instances use the new version. Running instances keep their **pinned** version. Optional "migrate at safe point" (only at `wait`/`approval` nodes, owner-confirmed, validated against instance state). |
+| Schedule edit | Next scheduler tick |
+| Connection settings | Next action execution (limits/quiet hours re-checked at execution) |
+
+### 26.6 Templates (import/export)
+- **Package:** a directory or `.zip` with `template.json` (`id, version, kinds[], requires: { schemaVersion, connectors[] }, params: JSON Schema, description`) plus data files with `{{param}}` placeholders.
+- **Import:** pick → fill params (form from the param schema) → **preview diff** (create/update/conflict per object) → resolve conflicts (rename / merge / skip) → validate everything as a dry run → apply as one change set (one commit, one undo). Risk-widening content goes through 26.3.
+- **Export:** select objects → bundle. Secrets, secret values, browser profiles, account handles (off by default), private-class data and run history are **never** exported. Secret *refs* become placeholders.
+- **Shipped templates (Phase 1):** `defaults-v1`, `org-full-life`, `roles-content`, `roles-verification`, `wf-learning-to-linkedin`, `team-youtube-channel` (manual connection by default).
+
+---
+
+## 27. Workflow engine and visual builder (C19)
+
+### 27.1 Model
+`Workflow` (versioned graph) → `WorkflowInstance` (pinned version, trigger payload, node states) → node executions. **Agent-type nodes compile to Tasks + Runs** through the normal dispatcher (routing, failover, data-class, 35% handoff/restart, scorecards). Approval nodes compile to Approvals. Action nodes go to execution services via Connections. Instance state is durable (`workflows/instances/<id>/state.json` + an events chain), so an instance resumes after a restart.
+
+### 27.2 Node types (Phase 1 set)
+| Type | Purpose | Key config |
+|---|---|---|
+| `trigger.schedule` / `trigger.manual` / `trigger.event` / `trigger.webhook` | Start an instance | cron + tz + catchUp; button; event type filter (e.g. `brain.intake`); webhook (local path + HMAC secret ref, Tailscale-only) |
+| `agent` | One agent step = one Task | `roleId` (or team member), `tierOverride` (≤ role max), `briefTemplate` (inputs by reference), `acceptance[]`, `doneCondition`, `outputSchema`, `maxUsd` |
+| `verify` | Fresh verifier Run on a Proposal | verifier role, rubric/skill, hidden tests ref |
+| `judge` | Cross-family grading | rubric, `familyPolicy: other_than_implementer` |
+| `approval` | Owner/delegated gate | approver (`owner` / role), payload ref, expiry, postpone allowed |
+| `action` | Connector action through a Connection | `connectionId`, `actionId`, input bindings. `effect` comes from the manifest |
+| `branch` | Condition | **JSON Logic** expression over bound data (data-only, no code execution) |
+| `fanout` / `fanin` | Parallel branches | fan-out over a list or N branches; fan-in `all` / `any` / `n_of` |
+| `loop` | Repeat | `forEach` or `until` (JSON Logic) with required `maxIterations` and `maxUsd` |
+| `wait` | Delay | duration / until time / until event, with timeout |
+| `notify` | Push/digest | builtin `notify` connector (ntfy) |
+| `set` | Map data | JSON Logic mapping into a typed output |
+| `subworkflow` | Call another workflow | `workflowId@version`, param bindings. Inherits the caller's narrowed scope |
+
+Data passes along typed edges. Node inputs bind with references like `{"$ref": "nodes.draft.output.contentHash"}`, checked at save time against each node's `outputSchema`.
+
+### 27.3 Validation (save time, in fleetd; inline errors in the UI)
+1. **Schema:** every node config is valid against its node-type schema.
+2. **Graph:** at least one trigger, every node reachable, no cycles except through `loop` nodes, fan-in matches fan-out, every terminal path ends.
+3. **Types:** every binding resolves, and the producer's output schema is compatible with the consumer's input schema.
+4. **References:** roles, agents, teams, connections, sub-workflows (pinned versions) and connector actions all exist and are active.
+5. **Scope check:** each agent node's role has the tools/scopes the node needs. `tierOverride` ≤ the role's max tier. Actions use only Connections bound to the workflow's team (or ones explicitly shared with it). Sub-workflows can't widen scope.
+6. **Data-class taint:** a node's output class is the max of its inputs. Private-tainted data can't flow into a node whose role, provider chain or connection isn't private-eligible, and never into a `write_external` action unless the Connection is private-allowed (default: none).
+7. **Gate rule:** every path from a trigger to a `write_external` action must pass a `verify` node and an `approval` node bound to the same payload hash, **unless** the Connection's posting mode permits auto (owner-set). The validator computes this per path.
+8. **Budget:** estimated cost per instance (from node `maxUsd` + historical medians) ≤ the team envelope and daily cap share. Loops and fan-outs need explicit caps.
+9. **Classification:** the diff against the previous version is classified (internal vs risk-widening, 26.3).
+
+### 27.4 Permission boundary (precise)
+- **Who edits:** only the Owner session saves workflows. Agents (Directors, CoS) may submit a *proposed* workflow version, stored as a draft and shown to Tej as a diff Approval.
+- **What a workflow can do:** nothing its nodes' roles, team and connections couldn't already do. The workflow engine runs with **no authority of its own**. Each node runs under a scope token = the role's effective scope (26.2.2) ∩ the node's optional narrowing. The engine itself only creates Tasks/Approvals and calls execution services with approval tokens it can't forge (signed by the policy engine after checks).
+- **External-facing edits:** any change that adds, removes or reconfigures an `action` with `effect: write_external`, an `approval`/`verify` gate on such a path, a trigger of type `webhook`, or a binding into an external action's payload is risk-widening. It needs owner re-auth and is audited with the full diff.
+- **Runtime guard:** even with a valid saved workflow, the action executor re-checks (at execution time) the approval/verdict hash, the connection mode, limits, quiet hours, the kill switch and budget. Saved structure is never trusted alone.
+
+### 27.5 Execution semantics
+Deterministic state machine in fleetd. One worker per instance step. **Idempotency key** per node execution (`instanceId:nodeId:iteration`), so a restart never double-posts. Per-node retry policy (default 2, exponential backoff), and failure routes to an optional `onError` edge, else the instance becomes `failed` with a notification. The kill switch pauses all instances (`paused_killed`) and resume restarts from the last completed node. Instance and node states appear on the kanban (Tasks) and in the builder overlay.
+
+### 27.6 Dry-run and simulation
+- **Validate + estimate:** static checks plus a cost/time estimate.
+- **Simulate:** runs the graph with `sim: true`. Agent nodes return outputs from a chosen fixture (a recorded past run, or hand-entered sample output). Approvals can be auto-answered by the simulator. Actions write to a sandbox log only (the gateway and execution services **reject** any real action for `sim` instances). Simulation produces a normal event stream, so the builder overlay and the office replay show exactly what would happen. No spend, no external effects.
+
+### 27.7 Builder UI
+- **Canvas library: @xyflow/react (React Flow).** MIT-licensed, mature, custom node components, minimap, fits the React stack. Alternatives: Rete.js (heavier plugin model), a custom PixiJS canvas (too much effort; Pixi stays for the office).
+- Palette of node types (generated from node-type schemas + installed connector actions). The inspector form is rendered from the node's JSON Schema (`@rjsf/core` with custom widgets for role/connection/ref pickers and a cron builder).
+- Live validation badges per node/edge, a "Simulate" button, a run-history picker with overlay (status color, duration, cost, attempts per node), version history with visual diff, and a "Save" that opens the 26.3 confirmation when risk-widening.
+- Works on desktop. Phone shows read-only view + run overlay.
+
+### 27.8 Template `wf-learning-to-linkedin` (the C15 slice as data)
+`trigger.event(brain.intake, source=owner)` → `agent(Curator: compile to wiki with evidence)` → `wait(until next weekday 08:30, or trigger.schedule join)` → `agent(Writer: draft 2 variants; outputSchema {text, variants, claims[]})` → `agent(Editor: voice check)` → `verify(Verifier: claims↔facts, rubric linkedin-voice)` → `judge(other family; skipped with weak flag if unavailable)` → `branch(verdict.pass)` → **true:** `approval(owner, payload=contentHash)` → `action(connection: linkedin-personal [manual connector], actionId: post.manual)` → waits for the "posted" URL → `notify(done)`. **false:** loop back to the Writer with findings (`loop maxIterations 2`) → then `notify(needs attention)`.
+
+---
+
+## 28. Teams, connections and the connector framework (C18)
+
+### 28.1 Team
+A Team lives in a Department: one Manager agent, member agents created from Role templates, its Connections, its Workflows, an envelope, and an autonomy override ≤ the Department's. Example: "YouTube: Main channel" team bound to one YouTube channel. A second channel = a second team (or a second connection on the same team if Tej wants one team to run both).
+
+### 28.2 Create-team wizard (UI)
+1. Pick a Department (or create one).
+2. Pick a team template (e.g. `team-youtube-channel`) or start blank.
+3. Choose role templates for the Manager and members, name them, set tiers (≤ role max) and budget.
+4. **Attach connections:** choose a connector (platform) → choose auth mode (api / browser / manual) → fill the manifest-rendered form → for API, pick Infisical secret refs; for browser, run "Log in now" → posting mode (default `manual`) → daily limits, quiet hours → ToS risk acknowledgement.
+5. Pick workflows from templates (bound to this team's connections) or open the builder.
+6. Review: a diff of everything created, with risk-widening items highlighted. Owner confirms (26.3), then the change is applied as one change set.
+
+### 28.3 Connection rules
+- Exactly one external account per Connection and exactly one owning Team. Several Connections per platform are allowed.
+- Each Connection has its own auth mode, posting mode (`manual` / `approve_then_auto` / `auto_when_unavailable` / `auto`), daily limit, quiet hours, ToS badge and health status (`ok` / `needs_login` / `rate_limited` / `error` / `disabled`).
+- Actions on a Connection only run inside its Team's workflows (or workflows the Team explicitly shares it with).
+
+### 28.4 Auth mode `api` (Infisical)
+- The Connection stores **refs only**: `{ project, environment, path, keys[] }` + which execution service identity reads them (e.g. `publisherd`). The UI shows refs plus "exists ✓ / last rotated <date>", never values. There is no "reveal" button anywhere.
+- Ref validation: the execution service checks the refs exist through Infisical's API using its own identity. The result (exists / missing / forbidden) goes back to fleetd, never the value.
+- Injection happens at execution time inside the execution service (11.4). For OAuth platforms (YouTube Data API, LinkedIn), the refresh token lives in Infisical. The connector's OAuth helper runs the consent flow in a headed window, writes tokens directly to Infisical via the service identity, and fleetd never sees them.
+
+### 28.5 Auth mode `browser`
+**Tooling decision: Playwright persistent context** (`launchPersistentContext`, Chromium), one profile per Connection.
+| Option | Verdict |
+|---|---|
+| **Playwright persistent context** | **Chosen.** Mature, scriptable, persistent profiles, accessibility snapshots for element refs, tracing/screenshots for evidence, headed login. Runs inside publisherd. If Bun's Playwright support is incomplete, publisherd's browser worker runs on Node LTS (A37). |
+| Puppeteer | Viable, but Chrome-only and a weaker locator/trace story. |
+| LLM-native frameworks (Browser Use, Stagehand) | Not as the base. They may be added later as *drivers* inside the same sandbox, but they add injection surface. |
+| Tej's real Chrome via an extension (e.g. Claude in Chrome) | **Rejected:** shares his main profile and every logged-in site, so there's no credential boundary (the poteto anti-pattern). |
+| Cloud browsers | Rejected for now: sessions and cookies leave the machine. |
+
+**How the agent drives it, under policy:**
+- The browser agent's Run gets **only** `browser.*` gateway tools + `evidence.attach` + `handoff.write`. No file write, shell, web search, brain write or other connections (capability separation).
+- `browser.*` is proxied by publisherd. The agent never touches CDP, cookies or the profile: `browser.open(connectionId)`, `browser.snapshot()` (accessibility tree + visible text, **wrapped as untrusted**), `browser.click(ref)`, `browser.type(ref, text | {$ref: payload field})`, `browser.upload(stagedFileRef)`, `browser.screenshot()`, `browser.submit(ref)`.
+- `browser.submit` (the final Post/Publish/Send click) is allowed only with a valid approval token for the payload hash (or connection auto-policy). Typed text must match the approved payload (publisherd compares hashes of the text it types against the approved payload, so the agent can't alter content).
+- A navigation allow-list comes from the connector manifest `netDomains`. There's a step cap (default 40), per-step audit (action + ref, no cookies), and screenshot evidence at submit.
+- **Session health:** a scheduled probe (connector-defined logged-in check) runs every 6h and before every action. On failure: `needs_login` → notify Tej → `fleet connection login <id>` or the UI button opens a **headed** window (locally, or noVNC over Tailscale on the VPS). 2FA/CAPTCHA are always handed to Tej, never solved by the agent.
+- Profiles are age-encrypted at rest, decrypted to a `0700` temp dir only while in use, owned by `fleet-pub`, never exported or backed up in plaintext. `forget` securely deletes the profile.
+
+**Threat model (browser):**
+| Threat | Control |
+|---|---|
+| Cookie/session theft | Profile owned by a separate OS user, encrypted at rest; the agent has no filesystem/CDP access; no cookies in logs or evidence |
+| Shared profile across teams | One profile per Connection; no reuse; publisherd refuses a profileId bound to another Connection |
+| Prompt injection from page content | Snapshot text wrapped untrusted; the browser Run has no other tools; submit needs an approval hash match; typed content must equal the approved payload; domain allow-list |
+| ToS violation / account ban | Per-connection ToS badge + acknowledgement, daily limits, quiet hours, human-like pacing; Tej's call (C6) |
+| Account lockout / security challenge | Stop on challenge detection, mark `needs_login`, notify Tej; never retry logins automatically |
+| Exfiltration via typed fields | `browser.type` only accepts payload refs or short literals ≤ 200 chars matching a policy; no reading of other tabs |
+
+### 28.6 Auth mode `manual`
+The action produces a "do this yourself" card (copy text, download asset, open URL) in the approvals inbox. Tej marks it done with a URL. No credentials, no automation. This is the default for every new Connection and the only mode Phase 1 executes.
+
+### 28.7 Connector framework
+- **Manifest** (JSON, schema in PHASE-1-PLAN section 3): `id, version, platform, description, authModes, configSchema, requiredSecrets (per auth mode), actions[] { id, title, effect, inputSchema, outputSchema, authModes, rateLimit }, healthCheck, rateLimits, tosRisk per auth mode, netDomains, trust`.
+- **Implementation module:** `export default { manifest, actions: { [id]: (ctx, input) => output }, health(ctx), oauth?(ctx) }`. `ctx` gives the resolved config, a secret accessor (only the manifest-declared fields, only inside execution services), an HTTP client restricted to `netDomains`, a browser handle (browser mode), evidence/screenshot helpers and a logger with redaction.
+- The UI renders connection forms, action inputs in the builder, and ToS badges from the manifest. **Adding a platform = adding a connector**, with no engine changes.
+
+### 28.8 Connector trust model
+- **Builtin** (in the engine repo, reviewed, CI-tested, contract tests against recorded fixtures) are the only ones loaded in Phase 1.
+- **Third-party (Phase 4+):** installed into `$FLEET_HOME/connectors/<id>@<version>/`, pinned by content hash, signature verified (minisign/sigstore key list in config), owner-confirmed install (risk-widening). They run as **separate subprocesses** under the execution service's OS user, with a scrubbed env, a temp working dir only, network only via publisherd's egress proxy restricted to the manifest's `netDomains`, and secrets passed per call for declared fields only. A crash or timeout kills only the subprocess.
+- Connector code never runs inside fleetd or agent processes.
+
+### 28.9 Phase 1 connector set
+- `builtin/manual`: actions `post.manual`, `upload.manual`, `task.manual` for any platform. Executes in Phase 1.
+- `builtin/brain` (intake/read for triggers and agent nodes) and `builtin/notify` (ntfy). Internal, no external effect except push.
+- `linkedin` and `youtube` **manifests** (actions such as `post.create`, `video.upload`, `video.update_metadata`, `analytics.read`, with auth modes api/browser/manual) with `status: planned`. Connections can be created now in `manual` mode and switched to api/browser when Phase 4 implements those actions.
+
+---
+
+## 29. Assumptions added in v1.1
+| ID | Assumption | Status |
+|---|---|---|
+| A37 | Playwright may need Node LTS for publisherd's browser worker if Bun support is incomplete | verify in Phase 4 |
+| A38 | JSON Logic is expressive enough for branch/loop/set nodes | [safe default] |
+| A39 | @xyflow/react + @rjsf/core for the builder and schema-driven forms | [safe default] |
+| A40 | Only the Owner session saves config. Agents propose diffs. | [safe default] |
