@@ -1,0 +1,10 @@
+{
+  "id": "e-curator",
+  "displayName": "Curator",
+  "roleId": "curator",
+  "parentAgentId": "mgr-librarian",
+  "departmentId": "brain",
+  "teamId": "knowledge",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

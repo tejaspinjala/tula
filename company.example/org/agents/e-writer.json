@@ -1,0 +1,10 @@
+{
+  "id": "e-writer",
+  "displayName": "Writer",
+  "roleId": "writer",
+  "parentAgentId": "mgr-linkedin",
+  "departmentId": "content",
+  "teamId": "linkedin",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

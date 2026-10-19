@@ -1,0 +1,10 @@
+{
+  "id": "e-coder",
+  "displayName": "Coder",
+  "roleId": "engineer",
+  "parentAgentId": "mgr-app",
+  "departmentId": "engineering",
+  "teamId": "apps",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

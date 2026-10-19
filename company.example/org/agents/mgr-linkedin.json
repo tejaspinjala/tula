@@ -1,0 +1,10 @@
+{
+  "id": "mgr-linkedin",
+  "displayName": "LinkedIn PM",
+  "roleId": "manager-linkedin",
+  "parentAgentId": "dir-content",
+  "departmentId": "content",
+  "teamId": "linkedin",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

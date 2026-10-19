@@ -1,0 +1,12 @@
+{
+  "id": "video",
+  "departmentId": "content",
+  "name": "AI Video",
+  "purpose": "Runs the AI video pipeline: script, storyboard, assets, versions.",
+  "managerAgentId": "mgr-video",
+  "memberAgentIds": [
+    "e-producer"
+  ],
+  "status": "active",
+  "fromTemplate": "org-full-life"
+}

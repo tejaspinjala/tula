@@ -1,0 +1,10 @@
+{
+  "id": "e-researcher",
+  "displayName": "Researcher",
+  "roleId": "researcher",
+  "parentAgentId": "mgr-platform",
+  "departmentId": "engineering",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "platform"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "director-content",
+  "title": "Director of Content & Growth",
+  "description": "Owns AI video, LinkedIn and blog output. Drafts and stages only; publishing needs human approval.",
+  "level": 1,
+  "dutiesPrompt": "Plan content from the brain's brand notes. Everything is staged to staging/ for human approval; nothing is published by an agent.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

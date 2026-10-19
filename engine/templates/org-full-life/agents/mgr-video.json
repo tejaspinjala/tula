@@ -1,0 +1,10 @@
+{
+  "id": "mgr-video",
+  "displayName": "Video PM",
+  "roleId": "manager-video",
+  "parentAgentId": "dir-content",
+  "departmentId": "content",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "video"
+}

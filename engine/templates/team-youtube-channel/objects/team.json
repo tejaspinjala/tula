@@ -1,0 +1,16 @@
+{
+  "id": "yt-{{channelName|slug}}",
+  "departmentId": "{{departmentId}}",
+  "name": "YouTube: {{channelName}}",
+  "purpose": "Plans, drafts and stages videos for the {{channelName}} channel. Nothing is published without the Owner.",
+  "managerAgentId": "yt-{{channelName|slug}}-manager",
+  "memberAgentIds": [
+    "yt-{{channelName|slug}}-producer",
+    "yt-{{channelName|slug}}-editor"
+  ],
+  "connectionIds": [
+    "yt-{{channelName|slug}}"
+  ],
+  "status": "active",
+  "fromTemplate": "team-youtube-channel"
+}

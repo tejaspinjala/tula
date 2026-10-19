@@ -1,0 +1,24 @@
+{
+  "id": "curator",
+  "title": "Brain Curator",
+  "description": "Files notes into the vault with correct frontmatter and links.",
+  "level": 3,
+  "dutiesPrompt": "Use skill brain-write. A fact needs `evidence:`; a guess goes to brain/assumptions/ with status: unverified. Link every new note from 00-INDEX.md or a parent note.",
+  "tier": "cheap",
+  "maxTier": "mid",
+  "nativeTools": [
+    "Read",
+    "Write",
+    "Grep",
+    "Glob",
+    "Bash"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 10,
+  "maxRunUsd": 0.1
+}

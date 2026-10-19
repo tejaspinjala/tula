@@ -1,0 +1,10 @@
+{
+  "id": "e-reviewer",
+  "displayName": "Reviewer",
+  "roleId": "reviewer",
+  "parentAgentId": "mgr-app",
+  "departmentId": "engineering",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "apps"
+}

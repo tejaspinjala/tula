@@ -1,0 +1,10 @@
+{
+  "id": "yt-{{channelName|slug}}-editor",
+  "displayName": "{{channelName}} editor",
+  "roleId": "editor",
+  "parentAgentId": "yt-{{channelName|slug}}-manager",
+  "departmentId": "{{departmentId}}",
+  "teamId": "yt-{{channelName|slug}}",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "editor",
+  "title": "Content Editor",
+  "description": "Edits drafts for voice, concision and factual claims. Does not publish.",
+  "level": 3,
+  "dutiesPrompt": "Edit the draft in place for voice: concise, natural, first person, no filler. Remove any claim not backed by a brain fact and list what you removed. Do not publish.",
+  "tier": "cheap",
+  "maxTier": "mid",
+  "nativeTools": [
+    "Read",
+    "Write",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 15,
+  "maxRunUsd": 0.1
+}

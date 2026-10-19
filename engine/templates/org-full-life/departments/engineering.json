@@ -1,0 +1,11 @@
+{
+  "id": "engineering",
+  "name": "Engineering",
+  "directorAgentId": "dir-eng",
+  "purpose": "Owns building and shipping software. Splits work into vertical slices and assigns project managers.",
+  "autonomy": "L1",
+  "dataClass": "internal",
+  "goalIds": [],
+  "status": "active",
+  "room": "eng"
+}

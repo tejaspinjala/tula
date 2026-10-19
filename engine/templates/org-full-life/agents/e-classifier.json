@@ -1,0 +1,10 @@
+{
+  "id": "e-classifier",
+  "displayName": "Classifier",
+  "roleId": "classifier",
+  "parentAgentId": "mgr-platform",
+  "departmentId": "engineering",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "platform"
+}

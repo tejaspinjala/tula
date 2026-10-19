@@ -1,0 +1,12 @@
+{
+  "id": "linkedin",
+  "departmentId": "content",
+  "name": "LinkedIn & Blog",
+  "purpose": "Runs LinkedIn posts and blog articles.",
+  "managerAgentId": "mgr-linkedin",
+  "memberAgentIds": [
+    "e-writer"
+  ],
+  "status": "active",
+  "fromTemplate": "org-full-life"
+}

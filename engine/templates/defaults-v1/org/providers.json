@@ -1,0 +1,45 @@
+{
+  "providers": {
+    "claude-max": {
+      "adapter": "claude-code",
+      "family": "anthropic",
+      "auth": "subscription",
+      "tiers": {
+        "cheap": "haiku",
+        "mid": "sonnet",
+        "deep": "opus"
+      },
+      "dataClasses": [
+        "public",
+        "internal",
+        "private"
+      ],
+      "privateEligible": true
+    }
+  },
+  "failover": {
+    "deep": [
+      "claude-max",
+      "PAUSE"
+    ],
+    "mid": [
+      "claude-max",
+      "PAUSE"
+    ],
+    "cheap": [
+      "claude-max",
+      "PAUSE"
+    ]
+  },
+  "classChains": {
+    "private": [
+      "claude-max",
+      "PAUSE"
+    ]
+  },
+  "taskOverrides": {
+    "judge": {
+      "preferFamilyOtherThan": "$implementer"
+    }
+  }
+}

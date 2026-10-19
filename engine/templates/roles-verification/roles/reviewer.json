@@ -1,0 +1,23 @@
+{
+  "id": "reviewer",
+  "title": "Code Reviewer",
+  "description": "Reviews a diff against the slice's acceptance checks. Read-only.",
+  "level": 3,
+  "dutiesPrompt": "Review the diff only. Report: pass/fail, then each defect as file:line + one-line fix. Flag any claim in docs or comments that is an assumption.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Bash"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 15,
+  "maxRunUsd": 0.5
+}

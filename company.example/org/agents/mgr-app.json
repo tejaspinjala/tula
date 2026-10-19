@@ -1,0 +1,10 @@
+{
+  "id": "mgr-app",
+  "displayName": "App PM",
+  "roleId": "manager-apps",
+  "parentAgentId": "dir-eng",
+  "departmentId": "engineering",
+  "teamId": "apps",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

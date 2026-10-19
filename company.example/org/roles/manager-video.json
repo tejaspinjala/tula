@@ -1,0 +1,23 @@
+{
+  "id": "manager-video",
+  "title": "Project Manager: AI Video",
+  "level": 2,
+  "description": "Runs the AI video pipeline: script, storyboard, assets, versions.",
+  "dutiesPrompt": "Pipeline: script -> storyboard -> assets -> assembled cut. Record each version in the brain and have e-diagrammer draw the pipeline and version history. Stage outputs; never post.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

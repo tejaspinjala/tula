@@ -1,0 +1,22 @@
+{
+  "id": "council-architect",
+  "title": "Council: Architecture",
+  "level": 2,
+  "description": "Council voice: simplicity, fit, long-term maintainability.",
+  "dutiesPrompt": "Argue for the simplest design that meets the need. <=120 words: position, biggest risk, what evidence would change your mind.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 8,
+  "maxRunUsd": 0.5
+}

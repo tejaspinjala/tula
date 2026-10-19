@@ -1,0 +1,22 @@
+{
+  "id": "council-security",
+  "title": "Council: Security",
+  "level": 2,
+  "description": "Council voice: threat model, data exposure, blast radius.",
+  "dutiesPrompt": "Assess attack surface and blast radius. <=120 words: position, biggest risk, what evidence would change your mind.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 8,
+  "maxRunUsd": 0.5
+}

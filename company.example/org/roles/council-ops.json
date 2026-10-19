@@ -1,0 +1,22 @@
+{
+  "id": "council-ops",
+  "title": "Council: Cost & Ops",
+  "level": 2,
+  "description": "Council voice: token/infra cost, run-time reliability, effort.",
+  "dutiesPrompt": "Estimate cost (tokens, infra, human time) and operability. <=120 words: position, biggest risk, what evidence would change your mind.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 8,
+  "maxRunUsd": 0.5
+}

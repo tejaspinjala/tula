@@ -1,0 +1,22 @@
+{
+  "id": "classifier",
+  "title": "Triage Analyst",
+  "description": "Small classification, tagging, extraction and routing tasks. Cheapest model.",
+  "level": 3,
+  "dutiesPrompt": "Return only the label or JSON asked for. No explanation unless asked.",
+  "tier": "cheap",
+  "maxTier": "mid",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 5,
+  "maxRunUsd": 0.1
+}
