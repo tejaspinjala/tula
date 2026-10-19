@@ -12,7 +12,7 @@ const DENY_CMD: [RegExp, string][] = [
   [/\bchmod\s+-R\s+777\b/, 'chmod -R 777'],
   [/:\(\)\s*\{/, 'fork bomb'],
 ];
-const SECRET_PATH = /(^|[\s\/\"'=<>])\.env(\.|$|[\s\"';&|)])|id_(rsa|ed25519)|\.pem($|[\s\"';&|)])|\.aws\/credentials|(^|[\s\/\"'=])\.ssh\//;
+const SECRET_PATH = /(^|[\s\/\"'=<>])\.env(\.|$|[\s\"';&|)])|id_(rsa|ed25519)|\.pem($|[\s\"';&|)])|\.aws\/credentials|(^|[\s\/\"'=])\.ssh($|[\s\/\"';&|)])/;
 const SECRET_CONTENT: RegExp[] = [
   /AKIA[0-9A-Z]{16}/,
   /-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/,
