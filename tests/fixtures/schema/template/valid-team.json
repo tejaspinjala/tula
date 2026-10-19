@@ -1,0 +1,47 @@
+{
+  "id": "team-youtube-channel",
+  "version": "1.0.0",
+  "title": "YouTube channel team",
+  "description": "Manager + 2 members + manual connection",
+  "kinds": [
+    "team",
+    "agent",
+    "connection",
+    "workflow"
+  ],
+  "requires": {
+    "schemaVersion": "1.1",
+    "connectors": [
+      "youtube"
+    ],
+    "templates": [
+      "roles-content"
+    ]
+  },
+  "params": {
+    "type": "object",
+    "required": [
+      "channelName"
+    ],
+    "properties": {
+      "channelName": {
+        "type": "string"
+      }
+    }
+  },
+  "files": [
+    {
+      "kind": "team",
+      "path": "teams/youtube.json"
+    },
+    {
+      "kind": "connection",
+      "path": "connections/youtube.json"
+    },
+    {
+      "kind": "workflow",
+      "path": "workflows/wf-video.json"
+    }
+  ],
+  "riskWidening": true
+}

@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "providers",
+  "type": "object",
+  "properties": {
+    "providers": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{1,40}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      }
+    },
+    "failover": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/tier"
+      },
+      "additionalProperties": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^(?:[a-z0-9][a-z0-9-]{1,40}|@any-api|@local|PAUSE)$"
+        }
+      }
+    },
+    "classChains": {
+      "description": "per data class chains; private is filtered by privateEligible and never falls through",
+      "type": "object",
+      "properties": {
+        "private": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9][a-z0-9-]{1,40}|@any-api|@local|PAUSE)$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskOverrides": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "preferFamilyOtherThan": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "prices": {
+      "description": "per-model prices",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "inUsdPerMtok": {
+            "type": "number",
+            "minimum": 0
+          },
+          "outUsdPerMtok": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cacheReadUsdPerMtok": {
+            "type": "number",
+            "minimum": 0
+          },
+          "usdPerQuotaUnit": {
+            "description": "subscription providers: API-equivalent USD per quota unit",
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "providers",
+    "failover"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "fleet-loop"
+          ]
+        },
+        "family": {
+          "description": "model family for judge independence; \"mixed\" for routers",
+          "type": "string",
+          "minLength": 1
+        },
+        "auth": {
+          "type": "string",
+          "enum": [
+            "subscription",
+            "api_key",
+            "none"
+          ]
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "secretRef": {
+          "description": "Infisical path of the API key; never the key",
+          "type": "string",
+          "pattern": "^\\/?[A-Za-z0-9_-]+(?:\\/[A-Za-z0-9_.-]+)*$"
+        },
+        "tiers": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/tier"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "dataClasses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dataClass"
+          }
+        },
+        "privateEligible": {
+          "type": "boolean",
+          "x-ownerLocked": true,
+          "description": "OWNER-LOCKED. May this provider receive private-class data? Only the Owner may change it; enabling is risk-widening (SPEC 4.8, 26.3)."
+        },
+        "disabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "adapter",
+        "tiers",
+        "dataClasses",
+        "privateEligible"
+      ],
+      "additionalProperties": false
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "cheap",
+        "mid",
+        "deep"
+      ]
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    }
+  }
+}

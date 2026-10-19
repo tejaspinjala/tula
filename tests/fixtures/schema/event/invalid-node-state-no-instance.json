@@ -1,0 +1,13 @@
+{
+  "_why": "workflow events need workflowInstanceId",
+  "_path": [
+    "workflowInstanceId"
+  ],
+  "ts": "2026-10-18T10:30:00-05:00",
+  "type": "workflow.node.state",
+  "source": "fleetd",
+  "nodeId": "draft",
+  "data": {
+    "status": "done"
+  }
+}

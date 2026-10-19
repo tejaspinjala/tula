@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "policy",
+  "type": "object",
+  "properties": {
+    "spendApprovals": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "one_off",
+              "recurring",
+              "new_vendor"
+            ]
+          },
+          "minUsd": {
+            "$ref": "#/$defs/usd"
+          },
+          "maxUsd": {
+            "$ref": "#/$defs/usd"
+          },
+          "approverByAutonomy": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "L0",
+                "L1",
+                "L2",
+                "L3"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "finance",
+                "finance_auto"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "match",
+          "approverByAutonomy"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "dailySpendCapUsdByAutonomy": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "L0",
+          "L1",
+          "L2",
+          "L3"
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/usd"
+      }
+    },
+    "financeAutoApproveMaxUsd": {
+      "description": "Finance may approve paper spends up to this amount after deterministic checks",
+      "$ref": "#/$defs/usd"
+    },
+    "externalActionApprover": {
+      "type": "string",
+      "const": "owner",
+      "description": "every external action goes to the Owner unless a connection posting mode permits auto"
+    },
+    "autonomy": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3"
+          ]
+        },
+        "maxWithoutPasskey": {
+          "type": "string",
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3"
+          ]
+        },
+        "autoPostingRequires": {
+          "type": "string",
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3"
+          ],
+          "description": "posting modes above manual need at least this department level"
+        }
+      },
+      "required": [
+        "default",
+        "maxWithoutPasskey",
+        "autoPostingRequires"
+      ],
+      "additionalProperties": false
+    },
+    "tripwires": {
+      "type": "object",
+      "properties": {
+        "tokenBurnMultiplier": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "× the 7-day median per hour"
+        },
+        "gateDenialsPerHour": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tokenBurnMultiplier",
+        "gateDenialsPerHour"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "spendApprovals",
+    "dailySpendCapUsdByAutonomy",
+    "financeAutoApproveMaxUsd",
+    "externalActionApprover",
+    "autonomy",
+    "tripwires"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "usd": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "access-grant",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "requestId": {
+      "$ref": "#/$defs/id"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "$ref": "#/$defs/id"
+    },
+    "taskId": {
+      "$ref": "#/$defs/id"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "grantedBy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "agentId | 'policy:auto' | 'owner'"
+    },
+    "granterAuthorityHash": {
+      "description": "hash of granter's effective scope at grant time; grant must be a subset",
+      "$ref": "#/$defs/sha256"
+    },
+    "escalationPath": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "revoked"
+      ]
+    },
+    "maxUses": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "createdAt": {
+      "$ref": "#/$defs/ts"
+    },
+    "expiresAt": {
+      "$ref": "#/$defs/ts"
+    }
+  },
+  "required": [
+    "id",
+    "requestId",
+    "agentId",
+    "scope",
+    "grantedBy",
+    "granterAuthorityHash",
+    "reason",
+    "status",
+    "createdAt",
+    "expiresAt"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,15}_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Entity id: <prefix>_<26 Crockford base32>, as produced by engine/lib/ids.ts newId()"
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "write": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shell": {
+          "description": "allowed command prefixes",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gatewayTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nativeTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "netDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dataClasses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dataClass"
+          }
+        },
+        "usd": {
+          "$ref": "#/$defs/usd"
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret"
+      ]
+    },
+    "usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    }
+  }
+}

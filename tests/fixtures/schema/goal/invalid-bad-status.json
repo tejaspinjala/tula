@@ -1,0 +1,17 @@
+{
+  "_why": "status is active | paused | done | killed",
+  "_path": [
+    "status"
+  ],
+  "id": "g3-career-brand",
+  "title": "Career + brand",
+  "keyResults": [
+    {
+      "id": "posts-week",
+      "metric": "linkedin_posts_per_week",
+      "target": 3,
+      "source": "connection:linkedin-personal"
+    }
+  ],
+  "status": "deleted"
+}

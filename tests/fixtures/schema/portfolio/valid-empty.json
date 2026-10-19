@@ -1,0 +1,7 @@
+{
+  "goals": [],
+  "reallocateEvery": "weekly",
+  "maxShiftPerWeek": 0.1,
+  "graceWeeks": 4,
+  "lastReview": "2026-10-18T09:00:00Z"
+}

@@ -1,0 +1,19 @@
+{
+  "_why": "dailyTokenCapUsd is ≥ 0",
+  "_path": [
+    "dailyTokenCapUsd"
+  ],
+  "dailyTokenCapUsd": -10,
+  "maxRunUsd": {
+    "mid": 0.5,
+    "deep": 2
+  },
+  "meetingCapUsd": 1.5,
+  "wip": {
+    "projectsPerGoal": 2,
+    "runningTasksPerGoal": 3,
+    "runningTasksCompany": 6
+  },
+  "maxConcurrentExperiments": 3,
+  "handoffCtxPct": 35
+}

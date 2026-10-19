@@ -1,0 +1,337 @@
+{
+  "id": "wf-every-node-type",
+  "version": 1,
+  "name": "Every node type",
+  "description": "Fixture covering all 17 node types",
+  "teamId": "linkedin-personal",
+  "params": {
+    "type": "object",
+    "properties": {
+      "connectionId": {
+        "type": "string"
+      }
+    }
+  },
+  "status": "draft",
+  "nodes": [
+    {
+      "id": "every-weekday",
+      "type": "trigger.schedule",
+      "config": {
+        "cron": "30 8 * * 1-5",
+        "tz": "America/Chicago",
+        "catchUp": "once"
+      }
+    },
+    {
+      "id": "manual",
+      "type": "trigger.manual",
+      "config": {
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "intake",
+      "type": "trigger.event",
+      "config": {
+        "eventType": "brain.intake",
+        "filter": {
+          "==": [
+            {
+              "var": "source"
+            },
+            "owner"
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook",
+      "type": "trigger.webhook",
+      "config": {
+        "hmacSecretRef": "/hooks/LEARNING_HMAC"
+      }
+    },
+    {
+      "id": "draft",
+      "type": "agent",
+      "label": "Writer: draft",
+      "position": {
+        "x": 200,
+        "y": 0
+      },
+      "config": {
+        "roleId": "writer",
+        "tierOverride": "mid",
+        "briefTemplate": "Draft a post from {{inputs.note}}",
+        "acceptance": [
+          "2 variants"
+        ],
+        "doneCondition": {
+          "kind": "schema",
+          "spec": "output"
+        },
+        "skills": [
+          "voice"
+        ],
+        "narrowScope": {
+          "read": [
+            "brain/wiki/**"
+          ]
+        }
+      },
+      "inputs": {
+        "note": {
+          "from": "nodes.compile.output.notePath"
+        },
+        "max": {
+          "value": 2
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "retry": {
+        "max": 2,
+        "backoffSec": 30
+      },
+      "onError": "edge",
+      "maxUsd": 0.5
+    },
+    {
+      "id": "check",
+      "type": "verify",
+      "config": {
+        "roleId": "verifier",
+        "proposalFrom": "nodes.draft.output.contentHash",
+        "rubric": "linkedin-voice"
+      }
+    },
+    {
+      "id": "grade",
+      "type": "judge",
+      "config": {
+        "roleId": "judge",
+        "rubric": "linkedin-voice",
+        "familyPolicy": "other_than_implementer",
+        "onUnavailable": "skip_weak"
+      }
+    },
+    {
+      "id": "owner-ok",
+      "type": "approval",
+      "config": {
+        "approver": "owner",
+        "payloadFrom": "nodes.draft.output.contentHash",
+        "expiresHours": 24
+      }
+    },
+    {
+      "id": "post",
+      "type": "action",
+      "config": {
+        "connectionId": "linkedin-personal",
+        "actionId": "post.manual",
+        "approvalFrom": "owner-ok"
+      }
+    },
+    {
+      "id": "passed",
+      "type": "branch",
+      "config": {
+        "condition": {
+          "==": [
+            {
+              "var": "verdict.decision"
+            },
+            "pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "split",
+      "type": "fanout",
+      "config": {
+        "branches": 3,
+        "maxParallel": 2
+      }
+    },
+    {
+      "id": "join",
+      "type": "fanin",
+      "config": {
+        "mode": "n_of",
+        "n": 2
+      }
+    },
+    {
+      "id": "retry-draft",
+      "type": "loop",
+      "config": {
+        "until": {
+          "var": "passed"
+        },
+        "maxIterations": 2,
+        "maxUsd": 1
+      }
+    },
+    {
+      "id": "morning",
+      "type": "wait",
+      "config": {
+        "untilCron": "30 8 * * 1-5",
+        "timeoutSec": 172800
+      }
+    },
+    {
+      "id": "tell",
+      "type": "notify",
+      "config": {
+        "message": "Posted",
+        "priority": "default"
+      }
+    },
+    {
+      "id": "shape",
+      "type": "set",
+      "config": {
+        "mapping": {
+          "title": {
+            "var": "draft.title"
+          },
+          "count": 2
+        }
+      }
+    },
+    {
+      "id": "sub",
+      "type": "subworkflow",
+      "config": {
+        "workflowId": "wf-voice-check",
+        "version": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "intake",
+      "to": "split"
+    },
+    {
+      "id": "e2",
+      "from": "every-weekday",
+      "to": "split"
+    },
+    {
+      "id": "e3",
+      "from": "manual",
+      "to": "split"
+    },
+    {
+      "id": "e4",
+      "from": "hook",
+      "to": "split"
+    },
+    {
+      "id": "e5",
+      "from": "split",
+      "to": "draft",
+      "port": "each"
+    },
+    {
+      "id": "e6",
+      "from": "draft",
+      "to": "join"
+    },
+    {
+      "id": "e7",
+      "from": "join",
+      "to": "shape"
+    },
+    {
+      "id": "e8",
+      "from": "shape",
+      "to": "sub"
+    },
+    {
+      "id": "e9",
+      "from": "sub",
+      "to": "check"
+    },
+    {
+      "id": "e10",
+      "from": "check",
+      "to": "grade"
+    },
+    {
+      "id": "e11",
+      "from": "grade",
+      "to": "passed"
+    },
+    {
+      "id": "e12",
+      "from": "passed",
+      "to": "owner-ok",
+      "port": "true"
+    },
+    {
+      "id": "e13",
+      "from": "passed",
+      "to": "retry-draft",
+      "port": "false"
+    },
+    {
+      "id": "e14",
+      "from": "retry-draft",
+      "to": "draft",
+      "port": "each"
+    },
+    {
+      "id": "e15",
+      "from": "retry-draft",
+      "to": "tell",
+      "port": "done"
+    },
+    {
+      "id": "e16",
+      "from": "owner-ok",
+      "to": "morning"
+    },
+    {
+      "id": "e17",
+      "from": "morning",
+      "to": "post"
+    },
+    {
+      "id": "e18",
+      "from": "post",
+      "to": "tell"
+    },
+    {
+      "id": "e19",
+      "from": "draft",
+      "to": "tell",
+      "port": "error"
+    }
+  ],
+  "limits": {
+    "maxUsdPerInstance": 5,
+    "maxConcurrentInstances": 1
+  },
+  "createdBy": "owner",
+  "updatedAt": "2026-10-18T09:00:00Z"
+}

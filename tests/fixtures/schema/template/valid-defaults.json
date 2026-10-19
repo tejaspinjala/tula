@@ -1,0 +1,17 @@
+{
+  "id": "defaults-v1",
+  "version": "1.0.0",
+  "kinds": [
+    "providers",
+    "routing",
+    "policy",
+    "limits"
+  ],
+  "requires": {},
+  "files": [
+    {
+      "kind": "providers",
+      "path": "org/providers.json"
+    }
+  ]
+}

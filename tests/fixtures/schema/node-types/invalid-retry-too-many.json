@@ -1,0 +1,16 @@
+{
+  "_why": "retry.max is at most 5",
+  "_path": [
+    "retry",
+    "max"
+  ],
+  "id": "tell",
+  "type": "notify",
+  "config": {
+    "message": "Posted",
+    "priority": "default"
+  },
+  "retry": {
+    "max": 9
+  }
+}

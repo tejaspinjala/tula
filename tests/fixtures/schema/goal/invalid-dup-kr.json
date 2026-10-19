@@ -1,0 +1,25 @@
+{
+  "_why": "key result ids are unique",
+  "_path": [
+    "keyResults",
+    1,
+    "id"
+  ],
+  "id": "g3-career-brand",
+  "title": "Career + brand",
+  "keyResults": [
+    {
+      "id": "posts-week",
+      "metric": "linkedin_posts_per_week",
+      "target": 3,
+      "source": "connection:linkedin-personal"
+    },
+    {
+      "id": "posts-week",
+      "metric": "linkedin_posts_per_week",
+      "target": 3,
+      "source": "connection:linkedin-personal"
+    }
+  ],
+  "status": "active"
+}

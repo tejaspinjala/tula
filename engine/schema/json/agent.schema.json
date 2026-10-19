@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "roleId": {
+      "$ref": "#/$defs/slug"
+    },
+    "parentAgentId": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/slug"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "null only for the top agent under the Owner"
+    },
+    "departmentId": {
+      "$ref": "#/$defs/slug"
+    },
+    "teamId": {
+      "$ref": "#/$defs/slug"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "avatar": {
+      "type": "string"
+    },
+    "namedAfterRealPerson": {
+      "type": "boolean",
+      "description": "S4: label only; never used externally or for tone mimicry"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "retired"
+      ]
+    },
+    "coachingNoteIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "displayName",
+    "roleId",
+    "parentAgentId",
+    "departmentId",
+    "namedAfterRealPerson",
+    "status"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Configuration object id: lowercase letters, digits and dashes, 2-64 chars"
+    }
+  }
+}

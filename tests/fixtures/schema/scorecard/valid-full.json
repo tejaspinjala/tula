@@ -1,0 +1,30 @@
+{
+  "runId": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "agentId": "writer",
+  "roleId": "writer",
+  "provider": "claude-max",
+  "model": "sonnet",
+  "tokensIn": 1000,
+  "tokensOut": 200,
+  "costUsd": 0.02,
+  "turns": 4,
+  "wallMs": 30000,
+  "peakCtxPct": 22,
+  "outcome": "handoff",
+  "taskId": "task_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "goalId": "g3",
+  "cacheRead": 10,
+  "quotaUnits": 1,
+  "retries": 0,
+  "gateDenials": 1,
+  "accessRequests": 0,
+  "helperCount": 0,
+  "loopFlags": [
+    "waste"
+  ],
+  "acceptanceMet": true,
+  "verdict": "pass",
+  "judgeIndependence": "weak",
+  "reworkOf": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T1",
+  "failover": false
+}

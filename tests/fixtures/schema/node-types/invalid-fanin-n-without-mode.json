@@ -1,0 +1,13 @@
+{
+  "_why": "`n` is only allowed (and required) for mode n_of",
+  "_path": [
+    "config",
+    "n"
+  ],
+  "id": "j",
+  "type": "fanin",
+  "config": {
+    "mode": "all",
+    "n": 2
+  }
+}

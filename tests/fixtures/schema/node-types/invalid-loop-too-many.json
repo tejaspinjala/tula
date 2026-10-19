@@ -1,0 +1,14 @@
+{
+  "_why": "loop maxIterations is at most 20",
+  "_path": [
+    "config",
+    "maxIterations"
+  ],
+  "id": "l",
+  "type": "loop",
+  "config": {
+    "forEach": "nodes.a.output.items",
+    "maxIterations": 50,
+    "maxUsd": 1
+  }
+}

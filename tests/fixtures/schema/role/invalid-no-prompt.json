@@ -1,0 +1,27 @@
+{
+  "_why": "dutiesPrompt is required",
+  "_path": [
+    "dutiesPrompt"
+  ],
+  "id": "writer",
+  "title": "Writer",
+  "level": 3,
+  "tier": "mid",
+  "maxTier": "mid",
+  "nativeTools": [
+    "Read"
+  ],
+  "gatewayTools": [
+    "brain.read",
+    "task.output",
+    "handoff.write"
+  ],
+  "scope": {
+    "read": [
+      "brain/wiki/**"
+    ],
+    "write": []
+  },
+  "maxTurns": 30,
+  "maxRunUsd": 0.5
+}

@@ -1,0 +1,23 @@
+{
+  "_why": "currency is the literal USD",
+  "_path": [
+    "currency"
+  ],
+  "id": "spend_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "requesterAgentId": "content-director",
+  "goalId": "g1-content",
+  "envelopeId": "env-content",
+  "amount": 10,
+  "currency": "EUR",
+  "vendor": "namecheap",
+  "item": "domain",
+  "why": "channel landing page",
+  "expectedRoi": {
+    "metric": "signups",
+    "value": 20,
+    "horizonDays": 30
+  },
+  "status": "draft",
+  "mode": "paper",
+  "createdAt": "2026-10-18T09:00:00Z"
+}

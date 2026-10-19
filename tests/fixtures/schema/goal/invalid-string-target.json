@@ -1,0 +1,19 @@
+{
+  "_why": "target is a number",
+  "_path": [
+    "keyResults",
+    0,
+    "target"
+  ],
+  "id": "g3-career-brand",
+  "title": "Career + brand",
+  "keyResults": [
+    {
+      "id": "posts-week",
+      "metric": "linkedin_posts_per_week",
+      "target": "three",
+      "source": "connection:linkedin-personal"
+    }
+  ],
+  "status": "active"
+}

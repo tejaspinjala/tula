@@ -1,0 +1,21 @@
+{
+  "_why": "a connection without a team is rejected (exactly one owning team)",
+  "_path": [
+    "teamId"
+  ],
+  "id": "linkedin-personal",
+  "connectorId": "manual",
+  "connectorVersion": "0.1.0",
+  "account": {
+    "displayName": "Tej on LinkedIn",
+    "owner": "personal"
+  },
+  "auth": {
+    "mode": "manual"
+  },
+  "posting": {
+    "mode": "manual",
+    "dailyLimit": 1
+  },
+  "status": "active"
+}

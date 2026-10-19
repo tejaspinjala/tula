@@ -1,0 +1,10 @@
+{
+  "name": "Tula Fleet",
+  "ownerName": "Owner",
+  "currency": "USD",
+  "timezone": "America/Chicago",
+  "moneyMode": "paper",
+  "autonomyMax": "L2",
+  "legalEntity": "Example LLC",
+  "killSwitch": false
+}

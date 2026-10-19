@@ -1,0 +1,17 @@
+{
+  "_why": "an overnight schedule needs a doneCondition",
+  "_path": [
+    "doneCondition"
+  ],
+  "id": "linkedin-weekday",
+  "cron": "30 8 * * 1-5",
+  "tz": "America/Chicago",
+  "creates": {
+    "kind": "workflow",
+    "workflowId": "wf-learning-to-linkedin",
+    "triggerNodeId": "every-weekday"
+  },
+  "catchUp": "once",
+  "status": "active",
+  "overnight": true
+}

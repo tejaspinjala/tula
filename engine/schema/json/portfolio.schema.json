@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio",
+  "type": "object",
+  "properties": {
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "goalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "budgetShare": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "tokenShare": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "floorShare": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "wipLimit": {
+            "type": "object",
+            "properties": {
+              "projects": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "runningTasks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "projects",
+              "runningTasks"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "goalId",
+          "budgetShare",
+          "tokenShare",
+          "floorShare",
+          "wipLimit"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "personal": {
+      "description": "S2: fixed token share for personal departments, outside ROI reallocation",
+      "type": "object",
+      "properties": {
+        "tokenShare": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "departmentIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slug"
+          }
+        }
+      },
+      "required": [
+        "tokenShare",
+        "departmentIds"
+      ],
+      "additionalProperties": false
+    },
+    "reallocateEvery": {
+      "type": "string",
+      "const": "weekly"
+    },
+    "maxShiftPerWeek": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "graceWeeks": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "lastReview": {
+      "$ref": "#/$defs/ts"
+    }
+  },
+  "required": [
+    "goals",
+    "reallocateEvery",
+    "maxShiftPerWeek",
+    "graceWeeks"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Configuration object id: lowercase letters, digits and dashes, 2-64 chars"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "RFC 3339 date-time"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "daily-digest",
+  "departmentId": "ceo-office",
+  "goalId": "g2",
+  "cron": "30 7 * * *",
+  "tz": "UTC",
+  "creates": {
+    "kind": "task",
+    "title": "Daily digest",
+    "taskType": "digest",
+    "ownerAgentId": "chief-of-staff",
+    "acceptance": [
+      "sent"
+    ]
+  },
+  "overnight": true,
+  "status": "paused",
+  "postponeUntil": "2026-10-21T09:00:00Z",
+  "doneCondition": {
+    "kind": "command",
+    "spec": "test -f digest.md"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "_why": "next is required",
+  "_path": [
+    "next"
+  ],
+  "runId": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "taskId": "task_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "owner": "writer",
+  "inputs": [
+    "brain/wiki/zod.md"
+  ],
+  "doneCondition": {
+    "kind": "tests",
+    "spec": "bun test tests/unit/schema",
+    "timeoutSec": 600
+  },
+  "status": "met",
+  "evidence": [
+    {
+      "kind": "test_output",
+      "ref": "runs/run_x/test.log",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "trust": "agent",
+  "writtenAt": "2026-10-18T10:30:00-05:00"
+}

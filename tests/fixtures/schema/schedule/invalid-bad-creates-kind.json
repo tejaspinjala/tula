@@ -1,0 +1,17 @@
+{
+  "_why": "creates.kind is workflow | task",
+  "_path": [
+    "creates",
+    "kind"
+  ],
+  "id": "linkedin-weekday",
+  "cron": "30 8 * * 1-5",
+  "tz": "America/Chicago",
+  "creates": {
+    "kind": "script",
+    "workflowId": "wf-learning-to-linkedin",
+    "triggerNodeId": "every-weekday"
+  },
+  "catchUp": "once",
+  "status": "active"
+}

@@ -1,0 +1,23 @@
+{
+  "_why": "at least one spend approval rule",
+  "_path": [
+    "spendApprovals"
+  ],
+  "spendApprovals": [],
+  "dailySpendCapUsdByAutonomy": {
+    "L1": 25,
+    "L2": 25,
+    "L3": 50
+  },
+  "financeAutoApproveMaxUsd": 5,
+  "externalActionApprover": "owner",
+  "autonomy": {
+    "default": "L1",
+    "maxWithoutPasskey": "L2",
+    "autoPostingRequires": "L3"
+  },
+  "tripwires": {
+    "tokenBurnMultiplier": 3,
+    "gateDenialsPerHour": 20
+  }
+}

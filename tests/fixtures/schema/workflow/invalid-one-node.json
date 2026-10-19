@@ -1,0 +1,28 @@
+{
+  "_why": "a workflow has at least 2 nodes",
+  "_path": [
+    "nodes"
+  ],
+  "id": "wf-learning-to-linkedin",
+  "version": 2,
+  "name": "Learning to LinkedIn",
+  "status": "active",
+  "nodes": [
+    {
+      "id": "intake",
+      "type": "trigger.event",
+      "config": {
+        "eventType": "brain.intake",
+        "filter": {
+          "==": [
+            {
+              "var": "source"
+            },
+            "owner"
+          ]
+        }
+      }
+    }
+  ],
+  "edges": []
+}

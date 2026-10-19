@@ -1,0 +1,12 @@
+{
+  "kind": "team",
+  "id": "linkedin-personal",
+  "version": 3,
+  "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "commit": "a1b2c3d",
+  "actor": "owner",
+  "ts": "2026-10-18T09:00:00Z",
+  "status": "active",
+  "riskWidening": false,
+  "effective": "now"
+}
