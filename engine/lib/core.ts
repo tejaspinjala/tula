@@ -14,6 +14,10 @@ export interface HookEvent {
   transcript_path?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  tool_use_id?: string;
+  tool_response?: unknown;
+  error?: string;
+  is_interrupt?: boolean;
   prompt?: string;
   last_assistant_message?: string;
   source?: string;
