@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+*.pem
+fleet/state/
+fleet/approvals/pending/
+fleet/approvals/approved/
+fleet/approvals/denied/
+brain/.obsidian/workspace*.json
+brain/.obsidian/cache
+.DS_Store
+.claude/settings.local.json
+.import/

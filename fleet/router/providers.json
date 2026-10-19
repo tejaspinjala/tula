@@ -1,0 +1,8 @@
+{
+  "_doc": "Agent-agnostic seam. Agents and the router only ever speak in tiers (cheap/mid/deep). Change `active` (or FLEET_PROVIDER) and run `npm run sync` to retarget the whole fleet. Add a provider by adding a tier->model map and an adapter in fleet/runtime/.",
+  "active": "claude-code",
+  "providers": {
+    "claude-code": { "cheap": "haiku", "mid": "sonnet", "deep": "opus", "runtime": "claude-code" },
+    "custom": { "cheap": "", "mid": "", "deep": "", "runtime": "generic", "_todo": "fill model ids + implement fleet/runtime/generic.ts" }
+  }
+}
