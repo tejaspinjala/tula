@@ -25,7 +25,7 @@
       "match": ["brain", "note", "file this", "learning", "pattern", "vault"] },
     { "id": "diagram", "employee": "e-diagrammer", "skills": ["adr-excalidraw"],
       "match": ["diagram", "excalidraw", "adr", "decision record", "flow chart"] },
-    { "id": "council", "employee": "council-chair", "skills": ["council"], "tier": "deep",
+    { "id": "council", "employee": "council-chair", "skills": ["council"], "tier": "deep", "council": true,
       "match": ["architecture", "choose between", "should we", "migrate", "rewrite", "which stack", "irreversible", "trade-off", "tradeoff"] }
   ]
 }

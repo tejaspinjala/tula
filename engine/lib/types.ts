@@ -33,6 +33,8 @@ export interface RouteRule {
   tier?: Tier;
   skills?: string[];
   maxTurns?: number;
+  /** this rule means 'convene the decision council' (data, so the router names no rule) */
+  council?: boolean;
   match: string[];
 }
 

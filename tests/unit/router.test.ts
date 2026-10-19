@@ -1,10 +1,11 @@
 import { test, expect, beforeAll, afterAll, describe } from 'bun:test';
 import { route, loadCfg, type RouterCfg } from '../../engine/router/route.ts';
-import { useRepoProject } from '../helpers.ts';
+import path from 'node:path';
+import { repoRoot, useRepoProject } from '../helpers.ts';
 
 let restore: () => void;
 let cfg: RouterCfg;
-beforeAll(() => { restore = useRepoProject(); cfg = loadCfg(); });
+beforeAll(async () => { restore = useRepoProject(); cfg = await loadCfg(path.join(repoRoot, 'company.example')); });
 afterAll(() => restore());
 
 describe('route()', () => {

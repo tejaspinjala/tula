@@ -1,19 +1,15 @@
-import { test, expect, beforeAll, afterAll } from 'bun:test';
+import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import { renderAll, renderAgent } from '../../engine/scripts/sync-agents.ts';
-import { useRepoProject } from '../helpers.ts';
+import path from 'node:path';
+import { renderAgent, syncAgents } from '../../engine/adapters/claude-code/generate.ts';
+import { repoRoot } from '../helpers.ts';
 
-let restore: () => void;
-beforeAll(() => { restore = useRepoProject(); });
-afterAll(() => restore());
-
-test('renderAll() matches the committed .claude/agents files (sync --check)', () => {
-  const out = renderAll();
-  expect(out.length).toBeGreaterThan(0);
-  for (const { file, text } of out) {
-    expect(fs.existsSync(file), `${file} missing; run: bun run sync`).toBe(true);
-    expect(fs.readFileSync(file, 'utf8'), `${file} stale; run: bun run sync`).toBe(text);
-  }
+test('sync --check: the committed .claude/agents match what company.example generates', async () => {
+  const r = await syncAgents({ home: path.join(repoRoot, 'company.example'), outDir: repoRoot, check: true });
+  expect(r.total).toBeGreaterThan(0);
+  expect(r.changed, 'stale files; run: bun run sync').toEqual([]);
+  expect(r.removed, 'stale generated files; run: bun run sync').toEqual([]);
+  for (const f of fs.readdirSync(path.join(repoRoot, '.claude/agents'))) expect(f.endsWith('.md')).toBe(true);
 });
 
 test('renderAgent expands Agent tool into children and drops it for leaves', () => {
