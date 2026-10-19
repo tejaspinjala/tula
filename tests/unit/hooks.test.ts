@@ -32,6 +32,11 @@ describe('security-gate decide()', () => {
     expect(decide({ tool_name: 'Read', tool_input: { file_path: '/app/.env' } })).toMatchObject({ decision: 'deny' });
     expect(decide({ tool_name: 'Read', tool_input: { file_path: '/app/.env.local' } })).toMatchObject({ decision: 'deny' });
     expect(decide(bash('cat ./.env'))).toMatchObject({ decision: 'deny' });
+    expect(decide(bash('cat .env'))).toMatchObject({ decision: 'deny' });
+    expect(decide(bash('source .env && echo hi'))).toMatchObject({ decision: 'deny' });
+    expect(decide(bash('cat server.pem | head'))).toMatchObject({ decision: 'deny' });
+    expect(decide(bash('ls ~/.ssh'))).toMatchObject({ decision: 'deny' });
+    expect(decide(bash('echo environment'))).toMatchObject({ decision: 'allow' });
   });
   test('denies writing secret content', () => {
     const key = 'AKIA' + 'ABCDEFGHIJKLMNOP';
