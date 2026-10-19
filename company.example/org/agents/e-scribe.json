@@ -1,0 +1,10 @@
+{
+  "id": "e-scribe",
+  "displayName": "Scribe",
+  "roleId": "scribe",
+  "parentAgentId": "mgr-app",
+  "departmentId": "engineering",
+  "teamId": "apps",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

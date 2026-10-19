@@ -1,0 +1,23 @@
+{
+  "id": "writer",
+  "title": "Content Writer",
+  "level": 3,
+  "description": "Drafts LinkedIn posts and blog articles in the author's voice.",
+  "dutiesPrompt": "Draft into staging/posts/. Concise, natural, first person, no filler. Claims must come from brain facts. Do not publish.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Write",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 15,
+  "maxRunUsd": 0.5
+}

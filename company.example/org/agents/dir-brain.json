@@ -1,0 +1,9 @@
+{
+  "id": "dir-brain",
+  "displayName": "Brain Director",
+  "roleId": "director-brain",
+  "parentAgentId": "cos",
+  "departmentId": "brain",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "council-architect",
+  "displayName": "Architect",
+  "roleId": "council-architect",
+  "parentAgentId": "council-chair",
+  "departmentId": "council",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

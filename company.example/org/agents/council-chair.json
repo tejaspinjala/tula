@@ -1,0 +1,9 @@
+{
+  "id": "council-chair",
+  "displayName": "Chair",
+  "roleId": "council-chair",
+  "parentAgentId": "cos",
+  "departmentId": "council",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

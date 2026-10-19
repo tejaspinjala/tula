@@ -1,0 +1,9 @@
+{
+  "id": "cos",
+  "displayName": "CoS",
+  "roleId": "chief-of-staff",
+  "parentAgentId": null,
+  "departmentId": "ceo-office",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

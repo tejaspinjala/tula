@@ -14,3 +14,6 @@ jobs:
       - run: bun test
       - run: bun run typecheck
       - run: bun run schema:export --check
+      - run: bun run lint:hardcode
+      - run: bun run example:build -- --check
+      - run: bun run sync -- --check

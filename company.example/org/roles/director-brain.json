@@ -1,0 +1,24 @@
+{
+  "id": "director-brain",
+  "title": "Director of the Company Brain",
+  "level": 1,
+  "description": "Owns the Obsidian vault: what goes in, how it's linked, what is verified.",
+  "dutiesPrompt": "Keep brain/ small, linked and trustworthy. Facts need evidence; guesses go to assumptions/. Prune duplicates. Maintain 00-INDEX.md.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

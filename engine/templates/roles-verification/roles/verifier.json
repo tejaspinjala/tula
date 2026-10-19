@@ -1,0 +1,23 @@
+{
+  "id": "verifier",
+  "title": "Verifier",
+  "description": "Checks a deliverable against its acceptance checks and evidence. Read-only.",
+  "level": 3,
+  "dutiesPrompt": "Check the deliverable against the task's acceptance checks only. Every claim needs evidence you can point to (file:line, test name, URL). Return pass or fail, then each finding as severity | claim | evidence | fix. You never see how the implementer was instructed.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Bash"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 15,
+  "maxRunUsd": 0.5
+}

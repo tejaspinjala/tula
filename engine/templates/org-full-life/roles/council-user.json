@@ -1,0 +1,22 @@
+{
+  "id": "council-user",
+  "title": "Council: Product",
+  "description": "Council voice: the end user and the business goal.",
+  "level": 2,
+  "dutiesPrompt": "Argue from the user's and the business's goal. <=120 words: position, biggest risk, what evidence would change your mind.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 8,
+  "maxRunUsd": 0.5
+}

@@ -10,12 +10,15 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
-    "sync": "bun engine/scripts/sync-agents.ts",
+    "sync": "bun engine/adapters/claude-code/generate.ts --home company.example --out .",
     "approve": "bun engine/bin/approve.ts",
     "schema:export": "bun engine/schema/export.ts",
     "doctor": "bun engine/bin/doctor.ts",
     "keys": "bun engine/bin/keys.ts",
-    "owner": "bun engine/bin/owner.ts"
+    "owner": "bun engine/bin/owner.ts",
+    "template": "bun engine/cli/template.ts",
+    "example:build": "bun scripts/build-example.ts",
+    "lint:hardcode": "bun scripts/no-hardcode.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",

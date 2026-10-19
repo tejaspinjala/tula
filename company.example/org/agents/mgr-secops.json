@@ -1,0 +1,10 @@
+{
+  "id": "mgr-secops",
+  "displayName": "SecOps PM",
+  "roleId": "manager-secops",
+  "parentAgentId": "dir-sec",
+  "departmentId": "security",
+  "teamId": "secops",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

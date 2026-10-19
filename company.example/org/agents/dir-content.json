@@ -1,0 +1,9 @@
+{
+  "id": "dir-content",
+  "displayName": "Content Director",
+  "roleId": "director-content",
+  "parentAgentId": "cos",
+  "departmentId": "content",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

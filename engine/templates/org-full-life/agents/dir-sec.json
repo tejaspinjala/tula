@@ -1,0 +1,9 @@
+{
+  "id": "dir-sec",
+  "displayName": "Security Director",
+  "roleId": "director-security",
+  "parentAgentId": "cos",
+  "departmentId": "security",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

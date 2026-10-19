@@ -1,0 +1,9 @@
+{
+  "id": "council-ops",
+  "displayName": "Ops & Cost",
+  "roleId": "council-ops",
+  "parentAgentId": "council-chair",
+  "departmentId": "council",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

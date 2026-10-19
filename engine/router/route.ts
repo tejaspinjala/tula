@@ -1,7 +1,10 @@
 #!/usr/bin/env bun
 // Deterministic task router. Costs zero tokens. Usage:
 //   bun engine/router/route.ts --task "wire the save button to POST /orders" [--files 3] [--risk high] [--failures 1]
-import { loadJSON } from '../lib/core.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadJSON, p as projectPath } from '../lib/core.ts';
+import { loadOrg } from '../adapters/claude-code/generate.ts';
 import type { Org, Providers, RouteRule, Routes, Tier } from '../lib/types.ts';
 
 const ORDER: Tier[] = ['cheap', 'mid', 'deep'];
@@ -31,15 +34,26 @@ export interface RouteResult {
   reasons: string[];
 }
 
-export function loadCfg(): RouterCfg {
+/**
+ * Where the org comes from: `orgDir`, else $FLEET_HOME when it has agents, else the repo's `company.example`
+ * (the starter templates imported into a home). The org is data; the router never names an agent.
+ */
+export function orgDirFor(orgDir?: string): string {
+  if (orgDir) return orgDir;
+  const home = process.env.FLEET_HOME;
+  if (home && fs.existsSync(path.join(home, 'org', 'agents'))) return home;
+  return projectPath('company.example');
+}
+
+export async function loadCfg(orgDir?: string): Promise<RouterCfg> {
   return {
-    org: loadJSON<Org>('engine/org.json'),
+    org: (await loadOrg(orgDirFor(orgDir))).org,
     routes: loadJSON<Routes>('engine/router/routes.json'),
     providers: loadJSON<Providers>('engine/router/providers.json'),
   };
 }
 
-export function route(task: string, opts: RouteOpts = {}, cfg: RouterCfg = loadCfg()): RouteResult {
+export function route(task: string, opts: RouteOpts = {}, cfg: RouterCfg): RouteResult {
   const { files = 0, risk = 'low', failures = 0 } = opts;
   const text = String(task).toLowerCase();
   let best: RouteRule | null = null;
@@ -76,7 +90,7 @@ export function route(task: string, opts: RouteOpts = {}, cfg: RouterCfg = loadC
     escalated: idx > base,
     skills: rule.skills ?? d.skills,
     maxTurns: rule.maxTurns ?? node.maxTurns ?? d.maxTurns,
-    council: rule.id === 'council',
+    council: rule.council === true,
     reasons,
   };
 }
@@ -86,5 +100,5 @@ if (import.meta.main) {
   const get = (k: string, dflt?: string): string | undefined => { const i = a.indexOf('--' + k); return i >= 0 ? a[i + 1] : dflt; };
   const task = get('task');
   if (!task) { console.error('usage: route.ts --task "<text>" [--files N] [--risk low|high] [--failures N]'); process.exit(2); }
-  console.log(JSON.stringify(route(task, { files: Number(get('files', '0')), risk: get('risk', 'low'), failures: Number(get('failures', '0')) }), null, 2));
+  console.log(JSON.stringify(route(task, { files: Number(get('files', '0')), risk: get('risk', 'low'), failures: Number(get('failures', '0')) }, await loadCfg()), null, 2));
 }

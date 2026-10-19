@@ -1,0 +1,10 @@
+{
+  "id": "mgr-platform",
+  "displayName": "Platform PM",
+  "roleId": "manager-platform",
+  "parentAgentId": "dir-eng",
+  "departmentId": "engineering",
+  "teamId": "platform",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

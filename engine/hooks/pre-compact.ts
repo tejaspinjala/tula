@@ -9,7 +9,7 @@ import { readStdin, p, ensureDir } from '../lib/core.ts';
 export function handoffPath(ev: HookEvent, now = new Date()): string {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
   const who = (ev.agent_type || 'tej').replace(/[^a-z0-9-]/gi, '');
-  return p('brain', 'runs', `${stamp}-${who}-compact.md`);
+  return p('brain', 'runs', `${stamp}-${who}-compact.md`); // no-hardcode-ok: the brain dir is layout, not an org id
 }
 
 export function handoffBody(ev: HookEvent, git = ''): string {
@@ -44,6 +44,6 @@ if (import.meta.main) {
   let git = '';
   try { git = execSync('git status --short | head -30', { cwd: p('.'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { /* not a repo */ }
   const f = handoffPath(ev);
-  ensureDir(p('brain', 'runs'));
+  ensureDir(p('brain', 'runs')); // no-hardcode-ok: layout path
   fs.writeFileSync(f, handoffBody(ev, git));
 }

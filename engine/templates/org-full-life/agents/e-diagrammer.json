@@ -1,0 +1,10 @@
+{
+  "id": "e-diagrammer",
+  "displayName": "Diagrammer",
+  "roleId": "diagrammer",
+  "parentAgentId": "mgr-app",
+  "departmentId": "engineering",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "apps"
+}

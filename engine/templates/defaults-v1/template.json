@@ -1,0 +1,33 @@
+{
+  "id": "defaults-v1",
+  "version": "1.0.0",
+  "title": "Defaults v1",
+  "description": "Starter providers, routing, approval policy and limits. Every value is editable; nothing here is engine code.",
+  "kinds": [
+    "providers",
+    "routing",
+    "policy",
+    "limits"
+  ],
+  "requires": {
+    "schemaVersion": "1.1"
+  },
+  "files": [
+    {
+      "kind": "providers",
+      "path": "org/providers.json"
+    },
+    {
+      "kind": "routing",
+      "path": "org/routing.json"
+    },
+    {
+      "kind": "policy",
+      "path": "org/policy.json"
+    },
+    {
+      "kind": "limits",
+      "path": "org/limits.json"
+    }
+  ]
+}

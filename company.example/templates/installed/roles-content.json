@@ -1,0 +1,27 @@
+{
+  "id": "roles-content",
+  "version": "1.0.0",
+  "params": {},
+  "objects": [
+    {
+      "kind": "role",
+      "id": "channel-manager",
+      "sha256": "e3758fb065dad53d41b798cfe31d1e0c224e0970729fade19b80c4c4a47c4b52"
+    },
+    {
+      "kind": "role",
+      "id": "editor",
+      "sha256": "d3383bb3057b733f48a04dad6348b643d84d2a7bcf3eccac725ac116c120a561"
+    },
+    {
+      "kind": "role",
+      "id": "producer",
+      "sha256": "bbce5d0698ad1bed58e89b3d819c6c8573f29fe0902dfee3f6cbfb708428f895"
+    },
+    {
+      "kind": "role",
+      "id": "writer",
+      "sha256": "620b3ec7a929538165b03c1db36fd536b186be293dd44fcd50761392836efbd9"
+    }
+  ]
+}

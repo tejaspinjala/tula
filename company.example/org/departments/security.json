@@ -1,0 +1,11 @@
+{
+  "id": "security",
+  "name": "Security & Compliance",
+  "directorAgentId": "dir-sec",
+  "purpose": "Reviews risk, secrets and external actions. Can veto any slice.",
+  "autonomy": "L1",
+  "dataClass": "internal",
+  "goalIds": [],
+  "status": "active",
+  "room": "sec"
+}

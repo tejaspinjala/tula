@@ -1,0 +1,10 @@
+{
+  "id": "e-producer",
+  "displayName": "Producer",
+  "roleId": "producer",
+  "parentAgentId": "mgr-video",
+  "departmentId": "content",
+  "namedAfterRealPerson": false,
+  "status": "active",
+  "teamId": "video"
+}

@@ -1,0 +1,105 @@
+{
+  "defaultTier": "mid",
+  "taskTypes": [
+    {
+      "taskType": "classify",
+      "tier": "cheap"
+    },
+    {
+      "taskType": "extract",
+      "tier": "cheap"
+    },
+    {
+      "taskType": "code.implement",
+      "tier": "mid"
+    },
+    {
+      "taskType": "code.review",
+      "tier": "mid"
+    },
+    {
+      "taskType": "docs.write",
+      "tier": "cheap"
+    },
+    {
+      "taskType": "research",
+      "tier": "mid"
+    },
+    {
+      "taskType": "post.draft",
+      "tier": "mid"
+    },
+    {
+      "taskType": "judge",
+      "tier": "mid",
+      "judgeFamily": "other_than_implementer"
+    },
+    {
+      "taskType": "cos.plan",
+      "tier": "deep",
+      "notes": "planning"
+    },
+    {
+      "taskType": "council.decide",
+      "tier": "deep",
+      "minTier": "deep",
+      "notes": "irreversible or costly decisions"
+    }
+  ],
+  "keywords": [
+    {
+      "id": "classify",
+      "match": [
+        "classify",
+        "label",
+        "tag",
+        "triage",
+        "categorize"
+      ],
+      "taskType": "classify"
+    },
+    {
+      "id": "review",
+      "match": [
+        "review",
+        "audit diff",
+        "pr review"
+      ],
+      "taskType": "code.review"
+    },
+    {
+      "id": "research",
+      "match": [
+        "research",
+        "compare",
+        "investigate",
+        "look up"
+      ],
+      "taskType": "research"
+    },
+    {
+      "id": "architecture",
+      "match": [
+        "architecture",
+        "choose between",
+        "migrate",
+        "rewrite",
+        "irreversible"
+      ],
+      "taskType": "council.decide"
+    }
+  ],
+  "classifier": {
+    "taskType": "classify",
+    "tier": "cheap"
+  },
+  "escalation": {
+    "riskHigh": 1,
+    "filesOver": 8,
+    "filesStep": 1,
+    "failedAttempt": 1
+  },
+  "flagFloors": {
+    "irreversible": "deep"
+  }
+}

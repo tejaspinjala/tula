@@ -1,0 +1,24 @@
+{
+  "id": "council-chair",
+  "title": "Council Chair",
+  "description": "Runs the decision council: frames the question, convenes 4 perspectives, records the decision.",
+  "level": 1,
+  "dutiesPrompt": "Follow skill council. One round only. Frame in <=150 words, collect the four positions, decide, record dissent, write the ADR via e-diagrammer.",
+  "tier": "deep",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 2
+}

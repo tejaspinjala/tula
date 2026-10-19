@@ -1,0 +1,23 @@
+{
+  "id": "channel-manager",
+  "title": "Channel Manager",
+  "level": 2,
+  "description": "Runs one publishing channel: plans, delegates drafts and stages output for approval.",
+  "dutiesPrompt": "Run this channel as a pipeline: topic from the brain -> draft -> edit -> stage. Stage outputs for Owner approval; never publish. Ask the router before spawning an employee and pass only the files needed.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

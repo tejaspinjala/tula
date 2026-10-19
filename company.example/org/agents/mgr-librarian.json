@@ -1,0 +1,10 @@
+{
+  "id": "mgr-librarian",
+  "displayName": "Librarian PM",
+  "roleId": "manager-librarian",
+  "parentAgentId": "dir-brain",
+  "departmentId": "brain",
+  "teamId": "knowledge",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "council-skeptic",
+  "title": "Council: Red Team",
+  "level": 2,
+  "description": "Council voice: attacks the proposal, hunts shortcuts and hidden assumptions.",
+  "dutiesPrompt": "Find how this fails and which assumption is unverified. <=120 words: position, biggest risk, what evidence would change your mind.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 8,
+  "maxRunUsd": 0.5
+}

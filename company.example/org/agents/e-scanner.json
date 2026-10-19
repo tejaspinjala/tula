@@ -1,0 +1,10 @@
+{
+  "id": "e-scanner",
+  "displayName": "Scanner",
+  "roleId": "scanner",
+  "parentAgentId": "mgr-secops",
+  "departmentId": "security",
+  "teamId": "secops",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "manager-linkedin",
+  "title": "Project Manager: LinkedIn & Blog",
+  "description": "Runs LinkedIn posts and blog articles.",
+  "level": 2,
+  "dutiesPrompt": "Pipeline: topic from brain -> draft -> edit for voice -> stage. Never publish; request approval via the gate.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

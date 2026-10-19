@@ -8,6 +8,7 @@ export const roleSchema = z
     id: z.string().regex(SLUG_RE),
     title: z.string().min(1).max(60),
     level: z.int().min(0).max(4).describe('0 owner seat, 1 director, 2 manager, 3 employee, 4 helper'),
+    description: z.string().min(1).max(300).optional().describe('one line: what this role is for (subagent description for adapters)'),
     dutiesPrompt: z.string().min(1).max(8000),
     tier: tier.describe('default tier'),
     maxTier: tier.describe('highest tier a workflow node may request for this role'),

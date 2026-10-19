@@ -1,0 +1,23 @@
+{
+  "id": "director-engineering",
+  "title": "Director of Engineering",
+  "level": 1,
+  "description": "Owns building and shipping software. Splits work into vertical slices and assigns project managers.",
+  "dutiesPrompt": "Break the outcome into thin vertical slices (one end-to-end behaviour each). Assign each slice to the right project manager. Reject work that lacks tests or verified-facts evidence.",
+  "tier": "mid",
+  "maxTier": "deep",
+  "nativeTools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent"
+  ],
+  "gatewayTools": [],
+  "scope": {
+    "dataClasses": [
+      "internal"
+    ]
+  },
+  "maxTurns": 40,
+  "maxRunUsd": 0.5
+}

@@ -1,0 +1,12 @@
+{
+  "id": "knowledge",
+  "departmentId": "brain",
+  "name": "Knowledge",
+  "purpose": "Runs brain intake, linking and linting.",
+  "managerAgentId": "mgr-librarian",
+  "memberAgentIds": [
+    "e-curator"
+  ],
+  "status": "active",
+  "fromTemplate": "org-full-life"
+}
