@@ -1,0 +1,23 @@
+{
+  "_why": "acceptance needs at least one criterion (minItems 1)",
+  "_path": [
+    "acceptance"
+  ],
+  "id": "task_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "projectId": "linkedin-weekly",
+  "goalId": "g3-career-brand",
+  "title": "Draft LinkedIn post about Zod schemas",
+  "ownerAgentId": "writer",
+  "acceptance": [],
+  "doneCondition": {
+    "kind": "rubric",
+    "spec": "linkedin-voice"
+  },
+  "status": "ready",
+  "priority": 1,
+  "risk": "low",
+  "dataClass": "internal",
+  "createdAt": "2026-10-18T09:00:00Z",
+  "updatedAt": "2026-10-18T09:00:00Z",
+  "version": 1
+}

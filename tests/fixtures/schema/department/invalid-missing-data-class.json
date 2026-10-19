@@ -1,0 +1,15 @@
+{
+  "_why": "dataClass is required on a department",
+  "_path": [
+    "dataClass"
+  ],
+  "id": "content",
+  "name": "Content",
+  "directorAgentId": "content-director",
+  "autonomy": "L1",
+  "goalIds": [
+    "g1-content",
+    "g3-career-brand"
+  ],
+  "status": "active"
+}

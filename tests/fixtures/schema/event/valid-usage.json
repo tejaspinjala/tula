@@ -1,0 +1,16 @@
+{
+  "ts": "2026-10-18T10:30:00-05:00",
+  "type": "usage",
+  "source": "otel",
+  "runId": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "usage": {
+    "model": "sonnet",
+    "in": 1200,
+    "out": 300,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "costUsd": 0.01,
+    "quotaUnits": 1
+  },
+  "ctxPct": 12
+}

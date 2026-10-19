@@ -1,0 +1,90 @@
+{
+  "_why": "secretRef must be a reference, not the key itself",
+  "_path": [
+    "providers",
+    "openrouter",
+    "secretRef"
+  ],
+  "providers": {
+    "claude-max": {
+      "adapter": "claude-code",
+      "family": "anthropic",
+      "auth": "subscription",
+      "tiers": {
+        "cheap": "haiku",
+        "mid": "sonnet",
+        "deep": "opus"
+      },
+      "dataClasses": [
+        "public",
+        "internal",
+        "private"
+      ],
+      "privateEligible": true
+    },
+    "ollama": {
+      "adapter": "fleet-loop",
+      "family": "qwen",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "tiers": {
+        "cheap": "qwen-small"
+      },
+      "dataClasses": [
+        "public",
+        "internal",
+        "private"
+      ],
+      "privateEligible": true
+    },
+    "openrouter": {
+      "adapter": "fleet-loop",
+      "family": "mixed",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "secretRef": "sk-or-v1-0123456789abcdef0123456789abcdef",
+      "tiers": {
+        "cheap": "small",
+        "mid": "medium"
+      },
+      "dataClasses": [
+        "public"
+      ],
+      "privateEligible": false
+    }
+  },
+  "failover": {
+    "deep": [
+      "claude-max",
+      "@any-api",
+      "PAUSE"
+    ],
+    "mid": [
+      "claude-max",
+      "@any-api",
+      "@local",
+      "PAUSE"
+    ],
+    "cheap": [
+      "claude-max",
+      "@local"
+    ]
+  },
+  "classChains": {
+    "private": [
+      "claude-max",
+      "@local",
+      "PAUSE"
+    ]
+  },
+  "taskOverrides": {
+    "judge": {
+      "preferFamilyOtherThan": "$implementer"
+    }
+  },
+  "prices": {
+    "sonnet": {
+      "inUsdPerMtok": 3,
+      "outUsdPerMtok": 15,
+      "usdPerQuotaUnit": 0.01
+    }
+  }
+}

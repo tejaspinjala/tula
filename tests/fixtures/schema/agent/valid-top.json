@@ -1,0 +1,15 @@
+{
+  "id": "chief-of-staff",
+  "displayName": "Chief of Staff",
+  "roleId": "chief-of-staff",
+  "parentAgentId": null,
+  "departmentId": "ceo-office",
+  "teamId": "ceo",
+  "projectId": "p1",
+  "avatar": "cos.png",
+  "namedAfterRealPerson": true,
+  "status": "active",
+  "coachingNoteIds": [
+    "cn-1"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "youtube-main",
+  "departmentId": "content",
+  "name": "YouTube: Main channel",
+  "purpose": "long-form videos",
+  "managerAgentId": "youtube-manager",
+  "memberAgentIds": [],
+  "connectionIds": [
+    "youtube-main"
+  ],
+  "workflowIds": [
+    "wf-video"
+  ],
+  "goalIds": [
+    "g1-content"
+  ],
+  "envelopeId": "env-yt",
+  "autonomy": "L1",
+  "dataClass": "public",
+  "status": "dormant",
+  "fromTemplate": "team-youtube-channel"
+}

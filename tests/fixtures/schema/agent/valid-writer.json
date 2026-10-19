@@ -1,0 +1,9 @@
+{
+  "id": "writer",
+  "displayName": "Writer",
+  "roleId": "writer",
+  "parentAgentId": "linkedin-manager",
+  "departmentId": "content",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

@@ -1,0 +1,27 @@
+{
+  "_why": "escalation is required",
+  "_path": [
+    "escalation"
+  ],
+  "defaultTier": "mid",
+  "taskTypes": [
+    {
+      "taskType": "classify",
+      "tier": "cheap"
+    },
+    {
+      "taskType": "post.draft",
+      "tier": "mid"
+    },
+    {
+      "taskType": "judge",
+      "tier": "mid",
+      "judgeFamily": "other_than_implementer"
+    },
+    {
+      "taskType": "cos.plan",
+      "tier": "deep",
+      "notes": "planning"
+    }
+  ]
+}

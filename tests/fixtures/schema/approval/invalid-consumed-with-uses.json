@@ -1,0 +1,16 @@
+{
+  "_why": "a consumed approval has usesLeft 0",
+  "_path": [
+    "usesLeft"
+  ],
+  "id": "apr_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "kind": "publish",
+  "actionHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "summary": "Post LinkedIn draft v2",
+  "requestedBy": "linkedin-manager",
+  "approverRequired": "owner",
+  "status": "consumed",
+  "usesLeft": 1,
+  "createdAt": "2026-10-18T09:00:00Z",
+  "expiresAt": "2026-10-21T09:00:00Z"
+}

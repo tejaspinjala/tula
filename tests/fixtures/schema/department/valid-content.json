@@ -1,0 +1,12 @@
+{
+  "id": "content",
+  "name": "Content",
+  "directorAgentId": "content-director",
+  "autonomy": "L1",
+  "dataClass": "public",
+  "goalIds": [
+    "g1-content",
+    "g3-career-brand"
+  ],
+  "status": "active"
+}

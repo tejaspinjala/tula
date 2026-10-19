@@ -1,0 +1,13 @@
+{
+  "_why": "an agent cannot be its own parent",
+  "_path": [
+    "parentAgentId"
+  ],
+  "id": "writer",
+  "displayName": "Writer",
+  "roleId": "writer",
+  "parentAgentId": "writer",
+  "departmentId": "content",
+  "namedAfterRealPerson": false,
+  "status": "active"
+}

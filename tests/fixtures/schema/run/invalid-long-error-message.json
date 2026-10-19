@@ -1,0 +1,24 @@
+{
+  "_why": "error.message is capped at 500 chars",
+  "_path": [
+    "error",
+    "message"
+  ],
+  "id": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "taskId": "task_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "agentId": "writer",
+  "roleId": "writer",
+  "adapter": "claude-code",
+  "provider": "claude-max",
+  "family": "anthropic",
+  "model": "sonnet",
+  "tier": "mid",
+  "startedAt": "2026-10-18T09:00:00Z",
+  "status": "running",
+  "briefPath": "runs/run_x/brief.md",
+  "scopeTokenId": "st-1",
+  "error": {
+    "class": "other",
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+}

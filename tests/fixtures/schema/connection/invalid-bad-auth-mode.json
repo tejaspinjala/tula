@@ -1,0 +1,23 @@
+{
+  "_why": "auth mode is api | browser | manual",
+  "_path": [
+    "auth",
+    "mode"
+  ],
+  "id": "linkedin-personal",
+  "teamId": "linkedin-personal",
+  "connectorId": "manual",
+  "connectorVersion": "0.1.0",
+  "account": {
+    "displayName": "Tej on LinkedIn",
+    "owner": "personal"
+  },
+  "auth": {
+    "mode": "oauth"
+  },
+  "posting": {
+    "mode": "manual",
+    "dailyLimit": 1
+  },
+  "status": "active"
+}

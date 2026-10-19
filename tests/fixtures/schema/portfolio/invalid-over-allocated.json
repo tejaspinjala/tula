@@ -1,0 +1,49 @@
+{
+  "_why": "budget shares sum above 1",
+  "_path": [
+    "goals"
+  ],
+  "goals": [
+    {
+      "goalId": "g1-content",
+      "budgetShare": 0.9,
+      "tokenShare": 0.35,
+      "floorShare": 0.15,
+      "wipLimit": {
+        "projects": 2,
+        "runningTasks": 3
+      }
+    },
+    {
+      "goalId": "g2-tula",
+      "budgetShare": 0.35,
+      "tokenShare": 0.3,
+      "floorShare": 0.15,
+      "wipLimit": {
+        "projects": 2,
+        "runningTasks": 3
+      }
+    },
+    {
+      "goalId": "g3-career-brand",
+      "budgetShare": 0.25,
+      "tokenShare": 0.25,
+      "floorShare": 0.15,
+      "wipLimit": {
+        "projects": 2,
+        "runningTasks": 3
+      }
+    }
+  ],
+  "personal": {
+    "tokenShare": 0.1,
+    "departmentIds": [
+      "relationships",
+      "personal",
+      "health"
+    ]
+  },
+  "reallocateEvery": "weekly",
+  "maxShiftPerWeek": 0.1,
+  "graceWeeks": 4
+}

@@ -1,0 +1,20 @@
+{
+  "id": "health",
+  "name": "Health",
+  "directorAgentId": "health-director",
+  "purpose": "plans",
+  "autonomy": "L1",
+  "envelopeId": "env-health",
+  "tools": [
+    "Read"
+  ],
+  "scope": {
+    "dataClasses": [
+      "private"
+    ]
+  },
+  "dataClass": "private",
+  "goalIds": [],
+  "status": "dormant",
+  "room": "gym"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "vrd_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "taskId": "task_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "proposalHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "verifierRunId": "run_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "independence": "strong",
+  "decision": "pass",
+  "reasons": [
+    "claims verified"
+  ],
+  "issuedBy": "linkedin-manager",
+  "issuedAt": "2026-10-18T10:30:00-05:00"
+}

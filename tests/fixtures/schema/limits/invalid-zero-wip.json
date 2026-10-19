@@ -1,0 +1,20 @@
+{
+  "_why": "WIP limits are ≥ 1",
+  "_path": [
+    "wip",
+    "runningTasksCompany"
+  ],
+  "dailyTokenCapUsd": 10,
+  "maxRunUsd": {
+    "mid": 0.5,
+    "deep": 2
+  },
+  "meetingCapUsd": 1.5,
+  "wip": {
+    "projectsPerGoal": 2,
+    "runningTasksPerGoal": 3,
+    "runningTasksCompany": 0
+  },
+  "maxConcurrentExperiments": 3,
+  "handoffCtxPct": 35
+}

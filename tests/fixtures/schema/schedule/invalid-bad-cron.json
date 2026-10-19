@@ -1,0 +1,16 @@
+{
+  "_why": "cron must have 5 fields",
+  "_path": [
+    "cron"
+  ],
+  "id": "linkedin-weekday",
+  "cron": "every morning",
+  "tz": "America/Chicago",
+  "creates": {
+    "kind": "workflow",
+    "workflowId": "wf-learning-to-linkedin",
+    "triggerNodeId": "every-weekday"
+  },
+  "catchUp": "once",
+  "status": "active"
+}

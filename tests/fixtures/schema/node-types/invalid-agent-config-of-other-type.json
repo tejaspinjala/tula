@@ -1,0 +1,12 @@
+{
+  "_why": "config is checked against the schema of the node type (agent has no `cron`)",
+  "_path": [
+    "config"
+  ],
+  "id": "a",
+  "type": "agent",
+  "config": {
+    "cron": "* * * * *",
+    "tz": "UTC"
+  }
+}

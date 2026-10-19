@@ -1,0 +1,14 @@
+{
+  "kind": "team",
+  "id": "linkedin-personal",
+  "version": 3,
+  "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "actor": "file",
+  "ts": "2026-10-18T09:00:00Z",
+  "status": "pending_confirmation",
+  "riskWidening": true,
+  "effective": "now",
+  "reasons": [
+    "raises autonomy"
+  ]
+}

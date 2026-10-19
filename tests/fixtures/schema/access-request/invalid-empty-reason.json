@@ -1,0 +1,17 @@
+{
+  "_why": "reason must be non-empty",
+  "_path": [
+    "reason"
+  ],
+  "id": "areq_01JAB3Z9X8K7M6N5P4Q3R2S1T0",
+  "agentId": "writer",
+  "scope": {
+    "read": [
+      "brain/wiki/brand/**"
+    ]
+  },
+  "reason": "",
+  "status": "requested",
+  "createdAt": "2026-10-18T09:00:00Z",
+  "expiresAt": "2026-10-21T09:00:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "_why": "loop requires maxIterations",
+  "_path": [
+    "config",
+    "maxIterations"
+  ],
+  "id": "l",
+  "type": "loop",
+  "config": {
+    "forEach": "nodes.a.output.items",
+    "maxUsd": 1
+  }
+}

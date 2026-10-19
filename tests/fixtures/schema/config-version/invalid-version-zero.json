@@ -1,0 +1,16 @@
+{
+  "_why": "version starts at 1",
+  "_path": [
+    "version"
+  ],
+  "kind": "team",
+  "id": "linkedin-personal",
+  "version": 0,
+  "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "commit": "a1b2c3d",
+  "actor": "owner",
+  "ts": "2026-10-18T09:00:00Z",
+  "status": "active",
+  "riskWidening": false,
+  "effective": "now"
+}
