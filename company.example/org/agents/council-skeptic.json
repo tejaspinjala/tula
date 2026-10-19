@@ -1,9 +1,0 @@
-{
-  "id": "council-skeptic",
-  "displayName": "Skeptic",
-  "roleId": "council-skeptic",
-  "parentAgentId": "council-chair",
-  "departmentId": "council",
-  "namedAfterRealPerson": false,
-  "status": "active"
-}

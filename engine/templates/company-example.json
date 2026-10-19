@@ -1,9 +1,0 @@
-{
-  "_doc": "The starter templates imported to build company.example/ (scripts/build-example.ts).",
-  "templates": [
-    "org-full-life",
-    "defaults-v1",
-    "roles-content",
-    "roles-verification"
-  ]
-}

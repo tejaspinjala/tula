@@ -1,9 +1,0 @@
-{
-  "_why": "type must be one of the Phase 1 node types",
-  "_path": [
-    "type"
-  ],
-  "id": "x",
-  "type": "script",
-  "config": {}
-}

@@ -1,9 +1,0 @@
-{
-  "id": "dir-eng",
-  "displayName": "Eng Director",
-  "roleId": "director-engineering",
-  "parentAgentId": "cos",
-  "departmentId": "engineering",
-  "namedAfterRealPerson": false,
-  "status": "active"
-}

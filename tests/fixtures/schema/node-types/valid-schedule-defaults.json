@@ -1,8 +1,0 @@
-{
-  "id": "tick",
-  "type": "trigger.schedule",
-  "config": {
-    "cron": "0 7 * * *",
-    "tz": "UTC"
-  }
-}

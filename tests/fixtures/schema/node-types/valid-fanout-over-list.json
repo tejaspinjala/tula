@@ -1,7 +1,0 @@
-{
-  "id": "each",
-  "type": "fanout",
-  "config": {
-    "over": "nodes.list.output.items"
-  }
-}

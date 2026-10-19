@@ -1,9 +1,0 @@
-{
-  "id": "council-user",
-  "displayName": "User Voice",
-  "roleId": "council-user",
-  "parentAgentId": "council-chair",
-  "departmentId": "council",
-  "namedAfterRealPerson": false,
-  "status": "active"
-}

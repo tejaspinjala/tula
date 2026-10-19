@@ -1,9 +1,0 @@
-{
-  "id": "council-security",
-  "displayName": "Security",
-  "roleId": "council-security",
-  "parentAgentId": "council-chair",
-  "departmentId": "council",
-  "namedAfterRealPerson": false,
-  "status": "active"
-}
