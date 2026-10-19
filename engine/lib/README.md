@@ -1,0 +1,37 @@
+# engine/lib: store, locks, hash chains (P0-3)
+
+Tests: `tests/unit/lib/*.test.ts`. Repeat the concurrency tests: `tests/run-repeat.sh 20`.
+
+## ids.ts
+Does: `newId(prefix)` returns `<prefix>_<10 base32 time chars><16 base32 random chars>`; ids sort by creation ms as strings, are strictly increasing within one process (same ms or clock going back), and carry 80 random bits from `crypto.randomBytes`.
+Proof: ids-paths.test.ts "format", "sorts by creation time", "strictly increasing within one millisecond", "a clock that goes backwards".
+Interface: `newId(prefix, now?) -> string`; `isId(x, prefix?) -> boolean`; `assertId`; `idTime(id) -> ms`. Prefix must match `/^[a-z][a-z0-9]{0,15}$/`.
+Unverified: ordering between ids made by different processes in the same millisecond is random, not creation order.
+
+## paths.ts
+Does: `resolveInside(root, ...segments)` joins segments (each may contain `/`) under realpath(root) and throws `PathError` on `..`, `.`, empty components, absolute segments, drive letters, backslashes, NUL bytes, and any existing symlink along the path whose realpath is outside the root or dangling. `fleetHome()` is `$FLEET_HOME` (must be absolute) or `~/.tula-fleet`; `fleetPath(...)` = `resolveInside(fleetHome(), ...)`.
+Proof: ids-paths.test.ts "rejects ../ traversal", "rejects absolute segments, backslashes and NUL bytes", "rejects symlink escapes", "normal nested paths".
+Interface: `resolveInside(absRoot, ...segments) -> absolute path`.
+Unverified / not guaranteed: the check is done once, at call time. A process that swaps a directory for a symlink between the check and the later open (TOCTOU) is not stopped.
+
+## lock.ts
+Does: `withLock(file, fn, { timeoutMs = 10s, staleMs = 30s })` creates `<file>.lock` with `O_CREAT|O_EXCL` holding `{pid, host, ts, token}`, retries with capped exponential backoff + jitter, throws `LockTimeoutError` after `timeoutMs`, and always releases in `finally`. Release deletes the lockfile only if it still holds our token. A lock is stale if its pid is dead on this host, or its `ts` is older than `staleMs` (an unparseable lockfile: its mtime). Stale locks are broken under a short `<file>.lock.break` mutex after re-checking the exact lockfile bytes. If our lock was replaced while `fn` ran, `withLock` throws `LockLostError`.
+Proof: lock.test.ts "mutual exclusion across 8 real processes", "takes over a stale lock whose pid is dead", "older than staleMs", "does not take over a fresh lock from another host", "times out", "release is token-safe", "LockLostError". Removing `O_EXCL` makes the three multi-process tests fail (checked by hand during P0-3).
+Interface: `withLock<T>(file, (handle) => T | Promise<T>, opts) -> Promise<T>`; `acquire`/`release` for advanced use.
+Not guaranteed:
+- A holder that runs longer than `staleMs` can be taken over while still alive; mutual exclusion is then lost (store.write re-checks the token right before rename and refuses, but other side effects of `fn` are not undone).
+- Locks from another host are only broken by age (pid liveness cannot be checked remotely). PID reuse on the same host can make a dead holder look alive until `staleMs`.
+- There is a narrow race when an aged-out but alive holder releases at the same instant a waiter breaks its lock. It needs `staleMs` to be exceeded first.
+- Not designed or tested for network filesystems (NFS/SMB: `O_EXCL` and rename semantics vary).
+
+## store.ts
+Does: `write(path, data, schema)` runs `schema.parse(data)` first (on failure nothing touches disk), then under the lock writes pretty JSON of the parsed value to `.<name>.tmp-<pid>-<hex>` in the same directory, fsyncs it, re-checks the lock token, renames over the target, and fsyncs the directory. `read` parses and validates (no lock: readers see the old or the new file). `update(path, schema, fn)` is a locked read-modify-write: reads (validated, `undefined` if missing), calls `fn`, validates and writes the result. `sweepTemp(dir)` deletes temp files whose pid is dead on this host or that are older than 60s. Errors are `StoreError` with `code` `not_found | bad_json | validation | invalid_path`. `schema` is any `{ parse(input: unknown): T }` (Zod schemas fit).
+Proof: store.test.ts "50 concurrent writer processes lose no updates", "process crash at after_temp_write / before_rename leaves the old file intact" (child process exits mid-write via `__setFaultInjector`), "validation failure writes nothing", "read: ... coded StoreError", "update: ... a bad current file blocks the update", "sweepTemp removes only abandoned temp files".
+Interface: all async; paths must be absolute (build them with `resolveInside`). `__setFaultInjector` is for tests only.
+Not guaranteed: durability depends on the OS and disk honouring `fsync` (some disks/VMs/macOS without `F_FULLFSYNC` may not). Directory fsync errors `EINVAL/EISDIR/EPERM/EBADF` are ignored. Parent directories are created with `mkdir -p` and those new directory entries are not fsynced. A power loss itself was not tested, only a process crash.
+
+## chain.ts
+Does: `append(file, payload)` under the lock reads only the file's tail (backwards in 4 KiB chunks), checks the last line's own hash, and appends `{seq, ts, prevHash, payload, hash}` as canonical JSON with `hash = sha256(canonical({seq, ts, prevHash, payload}))`, `seq` from 1, first `prevHash` = 64 zeros, then fsyncs. A tail without a trailing newline throws `ChainError('torn_tail')`; with `{ repair: true }` only the bytes after the last newline are cut. A complete but bad last line always throws `corrupt_tail`. `verify(file, { expect? })` walks the file and returns `{ok:true, count, head}` or `{ok:false, atSeq, reason}` with reasons `bad_json | bad_shape | seq_mismatch | prev_hash_mismatch | hash_mismatch | torn_tail | truncated | head_mismatch`. `canonicalJson` sorts keys and throws on values that do not round-trip (undefined, NaN, Date, BigInt, functions).
+Proof: chain.test.ts "20 concurrent appender processes", "tampered payload", "with a recomputed hash ... next seq", "deleting a middle line", "swapping two lines", "cutting bytes out of the middle", "editing prevHash", "truncation at a line boundary", "torn last line", "a corrupt (complete) last line", "verify of an empty or missing file".
+Interface: `append(file, JsonValue, opts) -> Promise<ChainEntry>`; `verify(file, {expect?}) -> VerifyResult` (sync); `head(file) -> {seq, hash} | null`.
+Not guaranteed: the chain is unkeyed, so someone who can write the file can rewrite it end to end with valid hashes, and cutting lines off the end is invisible without a recorded head (`verify(file, { expect: head })`). Tamper evidence relies on the head being stored elsewhere (spec 11.7: backup and digest). `verify` reads the whole file each call.
