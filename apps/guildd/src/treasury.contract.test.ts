@@ -293,6 +293,15 @@ describe('Treasury routes', () => {
   test('the ledger lists in pages, and its hash chain verifies', async () => {
     const who = await signedIn()
     const g = who.guildId
+    const empty = pageBody.parse(
+      await (await send('GET', `/guilds/${g}/treasury/entries`, who.auth)).json()
+    )
+    expect(empty.items).toEqual([])
+    await send('POST', `/guilds/${g}/treasury/revenue`, who.auth, {
+      key: 'first',
+      amountCents: 1000,
+      evidence: 'inv',
+    })
     const first = pageBody.parse(
       await (await send('GET', `/guilds/${g}/treasury/entries?limit=1`, who.auth)).json()
     )
@@ -305,7 +314,7 @@ describe('Treasury routes', () => {
     )
     expect(bad.status).toBe(400)
     const verdict = await send('GET', `/guilds/${g}/treasury/verify`, who.auth)
-    expect(await verdict.json()).toEqual({ intact: true, entries: 2 })
+    expect(await verdict.json()).toEqual({ intact: true, entries: 4 })
     expect((await send('GET', `/guilds/${g}/treasury/spends`, who.auth)).status).toBe(200)
   })
 })
