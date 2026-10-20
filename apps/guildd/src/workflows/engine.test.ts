@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
+import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
 import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemorySealStore } from '../adapters/memory-seal-store'
@@ -27,6 +28,7 @@ async function setup() {
       return this.calls > this.pauseAfter
     },
   })
+  const handoffs = new MemoryHandoffStore()
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const engine = new WorkflowEngine({
     store: new MemoryWorkflowStore(clock),
@@ -35,8 +37,9 @@ async function setup() {
     tripwires,
     proposals,
     seals: new MemorySealStore(clock),
+    handoffs,
   })
-  return { engine, quests, config, guild, proposals, tripwires }
+  return { engine, quests, config, guild, proposals, tripwires, handoffs }
 }
 
 /** Two agents in a row (a plain brief, then the sealed announcement), then the gate. */
@@ -259,4 +262,218 @@ test('two concurrent seeds leave exactly one version', async () => {
   const { engine, guild } = await setup()
   await Promise.all([engine.seedTemplates(guild), engine.seedTemplates(guild)])
   expect((await engine.get(guild, 'learning-to-linkedin'))?.version.version).toBe(1)
+})
+
+const handoffOf = (artifact: string) => ({
+  goal: 'Finished',
+  doneCondition: 'Done',
+  met: true,
+  evidence: [],
+  openItems: [],
+  artifacts: [artifact],
+})
+
+const fanOut = (join: 'all' | 'any' = 'all'): WorkflowGraph => ({
+  nodes: [
+    { id: 'start', type: 'trigger.manual' },
+    {
+      id: 'fan',
+      type: 'subagents',
+      hallId: 'heralds',
+      templateId: 'herald-brief',
+      briefs: ['Research topic A', 'Research topic B'],
+      join,
+      maxUsd: 1,
+    },
+  ],
+  edges: [{ from: 'start', to: 'fan' }],
+})
+
+const crew: WorkflowGraph = {
+  nodes: [
+    { id: 'start', type: 'trigger.manual' },
+    {
+      id: 'crew',
+      type: 'team',
+      hallId: 'heralds',
+      goal: 'Ship the launch notes',
+      maxMembers: 2,
+      maxQuests: 3,
+      maxUsd: 1,
+    },
+  ],
+  edges: [{ from: 'start', to: 'crew' }],
+}
+
+const status = async (engine: WorkflowEngine, guild: string, instance: string, node: string) =>
+  (await engine.state(guild, instance))?.nodes.find((n) => n.id === node)
+
+test('a subagents node posts one coordinating Quest naming its briefs, and reaches done with the children`s result refs', async () => {
+  const { engine, quests, guild, handoffs } = await setup()
+  await mustSave(engine, guild, 'fan', fanOut())
+  await engine.confirm(guild, 'fan', 1)
+  const run = await engine.run(guild, 'fan', { runKey: 'k' })
+  if (!run.ok) {
+    throw new Error(`run refused: ${run.error}`)
+  }
+  expect(await engine.run(guild, 'fan', { runKey: 'k' })).toMatchObject({ created: false })
+  const all = (await quests.list(guild, { limit: 10 })).quests
+  expect(all).toHaveLength(1)
+  const parent = all[0]
+  expect(parent).toMatchObject({ templateId: 'herald-brief', campaignId: run.instance.id })
+  expect(parent?.doneCondition).toContain('Research topic A')
+  expect(parent?.doneCondition).toContain('await_children')
+  expect(await status(engine, guild, run.instance.id, 'fan')).toMatchObject({
+    status: 'queued',
+    questId: parent?.id,
+    refs: [],
+  })
+
+  const claimed = await quests.claim(guild, { leaseMs: 60_000, maxActive: 4 })
+  if (!claimed) {
+    throw new Error('nothing to claim')
+  }
+  const kids = []
+  for (const [i, brief] of ['A', 'B'].entries()) {
+    const spawned = await quests.spawn(guild, {
+      parentId: claimed.id,
+      attempt: claimed.attempts,
+      briefHash: `h${i}`,
+      child: {
+        templateId: 'herald-brief',
+        hallId: 'heralds',
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: `Topic ${brief}`,
+        ownerId: 'heralds-member-2',
+        doneCondition: `Research ${brief}`,
+        roundLimit: 2,
+      },
+      maxChildren: 3,
+      maxDepth: 2,
+    })
+    if (!spawned.ok) {
+      throw new Error('spawn refused')
+    }
+    kids.push(spawned.quest)
+  }
+  await quests.park(
+    guild,
+    claimed.id,
+    claimed.attempts,
+    kids.map((k) => k.id),
+    'all'
+  )
+  expect((await status(engine, guild, run.instance.id, 'fan'))?.status).toBe('queued')
+  for (const [i, kid] of kids.entries()) {
+    const c = await quests.claim(guild, { leaseMs: 60_000, maxActive: 4, questId: kid.id })
+    if (!c) {
+      throw new Error('child not claimable')
+    }
+    await handoffs.record(
+      guild,
+      kid.id,
+      c.attempts,
+      'heralds-member-2',
+      handoffOf(String(i).repeat(64))
+    )
+    await quests.complete(guild, kid.id, c.attempts)
+  }
+  const resumed = await quests.claim(guild, { leaseMs: 60_000, maxActive: 4, questId: claimed.id })
+  if (!resumed) {
+    throw new Error('parent not resumed')
+  }
+  expect((await status(engine, guild, run.instance.id, 'fan'))?.status).toBe('running')
+  await quests.complete(guild, claimed.id, resumed.attempts)
+  expect(await status(engine, guild, run.instance.id, 'fan')).toMatchObject({
+    status: 'done',
+    refs: ['0'.repeat(64), '1'.repeat(64)],
+  })
+})
+
+test('a team node starts a Captain-led Campaign and reaches done with the board Quests` result refs', async () => {
+  const { engine, quests, guild, handoffs } = await setup()
+  await mustSave(engine, guild, 'crew', crew)
+  await engine.confirm(guild, 'crew', 1)
+  const run = await engine.run(guild, 'crew', { runKey: 'k' })
+  if (!run.ok) {
+    throw new Error(`run refused: ${run.error}`)
+  }
+  expect(await engine.run(guild, 'crew', { runKey: 'k' })).toMatchObject({ created: false })
+  const plan = (await quests.list(guild, { limit: 10 })).quests
+  expect(plan).toHaveLength(1)
+  expect(plan[0]).toMatchObject({ templateId: 'team-plan', ownerId: 'heralds-captain' })
+  expect(plan[0]?.title).toContain('Ship the launch notes')
+  const campaignId = plan[0]?.campaignId ?? ''
+  expect(campaignId.startsWith(run.instance.id)).toBe(true)
+  expect(await status(engine, guild, run.instance.id, 'crew')).toMatchObject({
+    status: 'queued',
+    refs: [],
+  })
+
+  const captain = await quests.claim(guild, { leaseMs: 60_000, maxActive: 4 })
+  if (!captain) {
+    throw new Error('captain not claimed')
+  }
+  const board = []
+  for (const n of [1, 2]) {
+    const posted = await quests.postBoard(guild, {
+      parentId: captain.id,
+      attempt: captain.attempts,
+      jobKey: `board:${n}`,
+      campaignId,
+      quest: {
+        templateId: 'herald-brief',
+        hallId: 'heralds',
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: `Section ${n}`,
+        ownerId: 'heralds-member-2',
+        doneCondition: `Write ${n}`,
+        roundLimit: 2,
+        blockedBy: [],
+      },
+      maxQuests: 3,
+    })
+    if (!posted.ok) {
+      throw new Error('board refused')
+    }
+    board.push(posted.quest)
+  }
+  await quests.complete(guild, captain.id, captain.attempts)
+  expect((await status(engine, guild, run.instance.id, 'crew'))?.status).toBe('running')
+  for (const [i, q] of board.entries()) {
+    const c = await quests.claim(guild, { leaseMs: 60_000, maxActive: 4, questId: q.id })
+    if (!c) {
+      throw new Error('board Quest not claimable')
+    }
+    await handoffs.record(
+      guild,
+      q.id,
+      c.attempts,
+      'heralds-member-2',
+      handoffOf(String(i + 5).repeat(64))
+    )
+    await quests.complete(guild, q.id, c.attempts)
+    if (i === 0) {
+      expect((await status(engine, guild, run.instance.id, 'crew'))?.status).toBe('running')
+    }
+  }
+  expect(await status(engine, guild, run.instance.id, 'crew')).toMatchObject({
+    status: 'done',
+    refs: ['5'.repeat(64), '6'.repeat(64)],
+  })
+})
+
+test('a fan-out node is widening: a new one, or a changed brief list, waits for confirmation', async () => {
+  const { engine, guild } = await setup()
+  expect(await mustSave(engine, guild, 'fan', fanOut())).toMatchObject({ status: 'pending' })
+  await engine.confirm(guild, 'fan', 1)
+  const edited = fanOut()
+  const node = edited.nodes.find((n) => n.id === 'fan')
+  if (node?.type !== 'subagents') {
+    throw new Error('graph changed')
+  }
+  node.briefs = ['Research something else']
+  expect(await mustSave(engine, guild, 'fan', edited)).toMatchObject({ status: 'pending' })
 })

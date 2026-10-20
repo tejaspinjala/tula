@@ -1,4 +1,5 @@
 import type { ConfigStore } from '../ports/config-store'
+import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
@@ -25,6 +26,8 @@ export interface WorkflowEngineDeps {
   tripwires: TripwireStore
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealStore, 'forQuest'>
+  /** Reads the Handoffs whose artifacts are a `subagents` or `team` node's result refs. */
+  handoffs: Pick<HandoffStore, 'get'>
 }
 
 /** The outcome of {@link WorkflowEngine.save}. */
@@ -68,7 +71,14 @@ export type NodeStatus =
 /** The state of one instance: its nodes and their statuses. */
 export interface RunState {
   instance: WorkflowInstance
-  nodes: { id: string; type: string; status: NodeStatus; questId: string | null }[]
+  nodes: {
+    id: string
+    type: string
+    status: NodeStatus
+    questId: string | null
+    /** A `subagents` or `team` node's output: the artifact hashes its finished Quests produced. */
+    refs: string[]
+  }[]
 }
 
 const AGENT_STATUS = {
@@ -324,6 +334,7 @@ export class WorkflowEngine {
         id: node.id,
         type: node.type,
         questId: quest?.id ?? null,
+        refs: [],
         status: await this.statusOf(guildId, node, quest),
       })
     }
