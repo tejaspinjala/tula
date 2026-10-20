@@ -218,8 +218,12 @@ export class PgIdentityStore implements IdentityStore {
     event: IdentityEvent
   ): Promise<void> {
     await this.db.withGuild(guildId, async (tx) => {
-      await tx`update identity_sessions set reauth_hash = ${hash}, reauth_expires_at = ${expiresAt}
-           where guild_id = ${guildId} and session_id = ${sessionId}`
+      const updated =
+        await tx`update identity_sessions set reauth_hash = ${hash}, reauth_expires_at = ${expiresAt}
+           where guild_id = ${guildId} and session_id = ${sessionId} returning 1`
+      if (updated.length === 0) {
+        throw new Error('unknown session')
+      }
       await this.append(tx, event)
     })
   }

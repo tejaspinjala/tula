@@ -143,8 +143,10 @@ export class MemoryIdentityStore implements IdentityStore {
       if (key.startsWith(`${guildId}/`) && session.id === sessionId) {
         this.sessions.set(key, { ...session, reauthHash: hash, reauthExpiresAt: expiresAt })
         this.record(guildId, event)
+        return
       }
     }
+    throw new Error('unknown session')
   }
 }
 

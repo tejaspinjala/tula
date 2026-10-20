@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
 import {
@@ -113,7 +114,19 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         registration.response.clientDataJSON,
         assertion.response.signature,
         reAssertion.response.signature,
+        ...[founding.token, session.token, reauth.proof].map((v) =>
+          createHash('sha256').update(v).digest('base64url')
+        ),
       ]
+      const publicKey = registration.response.publicKey
+      if (publicKey) {
+        secrets.push(publicKey)
+      }
+      for (const event of events) {
+        const keys = Object.keys(event.payload ?? {})
+        const allowed = [[], ['credentialId'], ['sessionId']].map((k) => JSON.stringify(k))
+        expect(allowed).toContain(JSON.stringify(keys))
+      }
       for (const secret of secrets) {
         expect(serialised).not.toContain(secret)
       }

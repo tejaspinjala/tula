@@ -53,3 +53,65 @@ test('outstanding challenges per guild are capped, keeping the newest', async ()
   expect(await rows(guildId)).toBe(MAX_OUTSTANDING_CHALLENGES)
   expect(await store.takeChallenge(guildId, oldest.id)).toBeNull()
 })
+
+class DownKeys extends MemoryKeyProvider {
+  override macFor(): Promise<never> {
+    return Promise.reject(new Error('keys down'))
+  }
+}
+
+const down = new PgIdentityStore(db, new DownKeys())
+const note = { type: 'identity.test', payload: {} }
+const cred = { id: 'cred-1', publicKey: new Uint8Array(4), counter: 0, transports: [] }
+
+async function count(guildId: string, table: string): Promise<number> {
+  const [row] =
+    await owner`select count(*)::int as n from ${owner(table)} where guild_id = ${guildId}`
+  return Number(row?.n)
+}
+
+test('a failing event append rolls back saveSession, setReauth, issueFounding and foundCredential', async () => {
+  const guildId = await db.foundGuild({ name: 'Atomic', goal: 'g' })
+  const session = {
+    id: crypto.randomUUID(),
+    tokenHash: 'th',
+    expiresAt: new Date(T0.getTime() + 60_000),
+    reauthHash: null,
+    reauthExpiresAt: null,
+  }
+  const events0 = await count(guildId, 'events')
+  await expect(down.saveSession(guildId, session, note)).rejects.toThrow('keys down')
+  expect(await count(guildId, 'identity_sessions')).toBe(0)
+  expect(await count(guildId, 'events')).toBe(events0)
+
+  await store.saveSession(guildId, session, note)
+  const events1 = await count(guildId, 'events')
+  await expect(
+    down.setReauth(guildId, session.id, 'rh', new Date(T0.getTime() + 1000), note)
+  ).rejects.toThrow('keys down')
+  const [row] = await owner`select reauth_hash from identity_sessions where guild_id = ${guildId}`
+  expect(row?.reauth_hash).toBeNull()
+  expect(await count(guildId, 'events')).toBe(events1)
+
+  await expect(
+    down.issueFounding(guildId, 'fh', new Date(T0.getTime() + 1000), note)
+  ).rejects.toThrow('keys down')
+  expect(await count(guildId, 'identity_founding')).toBe(0)
+  expect(await count(guildId, 'events')).toBe(events1)
+
+  await store.issueFounding(guildId, 'fh', new Date(T0.getTime() + 60_000), note)
+  const events2 = await count(guildId, 'events')
+  await expect(down.foundCredential(guildId, cred, 'fh', T0, [note])).rejects.toThrow('keys down')
+  expect(await count(guildId, 'identity_credentials')).toBe(0)
+  expect(await count(guildId, 'identity_founding')).toBe(1)
+  expect(await count(guildId, 'events')).toBe(events2)
+})
+
+test('setReauth for an unknown session appends no event', async () => {
+  const guildId = await db.foundGuild({ name: 'NoSession', goal: 'g' })
+  const before = await count(guildId, 'events')
+  await expect(
+    store.setReauth(guildId, crypto.randomUUID(), 'rh', new Date(T0.getTime() + 1000), note)
+  ).rejects.toThrow()
+  expect(await count(guildId, 'events')).toBe(before)
+})
