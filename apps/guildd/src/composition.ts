@@ -153,7 +153,8 @@ export async function compose(
       new SealEngine({ store: new PgSealStore(db, keys, clock), config, identity }),
     secrets,
     proposals:
-      overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
+      overrides.proposals ??
+      new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config }),
     notes,
     quests,
     mcp,

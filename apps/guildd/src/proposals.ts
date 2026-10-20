@@ -1,3 +1,4 @@
+import { guildContentPolicy } from './guild-config'
 import type { ConfigStore } from './ports/config-store'
 import type {
   NewProposal,
@@ -31,7 +32,10 @@ export class ProposalEngine {
 
   /** Stores the Proposal with its Verdict. Idempotent per content hash. */
   async propose(guildId: string, input: NewProposal): Promise<Proposal> {
-    const findings = runChecks(input.content, this.policy)
+    const policy = this.config
+      ? guildContentPolicy((await this.config.current(guildId)).config)
+      : this.policy
+    const findings = runChecks(input.content, policy)
     return this.store.propose(guildId, input, { passed: allPassed(findings), findings })
   }
 
