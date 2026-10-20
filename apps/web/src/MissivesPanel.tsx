@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { missiveCount, useLiveEvents } from './live-events'
 import { type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
@@ -16,6 +17,8 @@ export function MissivesPanel({ session }: { session: Session | null }) {
   const [missives, setMissives] = useState<HallMissive[]>([])
   const [next, setNext] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
+  // A `missive.sent` event means the list is stale: refetch the first page (text only by route).
+  const sentCount = missiveCount(useLiveEvents())
 
   useEffect(() => {
     if (!session) {
@@ -51,6 +54,14 @@ export function MissivesPanel({ session }: { session: Session | null }) {
     }
   }, [session, hallId])
   useEffect(() => refresh(), [refresh])
+  const seen = useRef(sentCount)
+  useEffect(() => {
+    if (seen.current === sentCount) {
+      return
+    }
+    seen.current = sentCount
+    return refresh()
+  }, [sentCount, refresh])
 
   const older = async () => {
     if (!session || next === null) {

@@ -18,6 +18,7 @@ import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
+import { LiveEvents } from './live-events'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -387,7 +388,9 @@ export function GamePanel({
         quests={quests}
         navigate={navigate}
       />
-      {children({ hallControls, focusWorld })}
+      <LiveEvents.Provider value={events}>
+        {children({ hallControls, focusWorld })}
+      </LiveEvents.Provider>
     </section>
   )
 }
