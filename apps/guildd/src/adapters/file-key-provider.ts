@@ -1,4 +1,4 @@
-import { link, mkdir, open, unlink } from 'node:fs/promises'
+import { type FileHandle, link, mkdir, open, stat, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { DerivedKeyProvider } from './derived-key-provider'
@@ -7,6 +7,12 @@ const keyFile = z
   .string()
   .trim()
   .regex(/^[0-9a-f]{64}$/)
+
+/** Writes the master secret into the freshly created temp file; replaceable so tests can fail it. */
+type KeyWriter = (handle: FileHandle) => Promise<void>
+
+const writeFreshKey: KeyWriter = (handle) =>
+  handle.writeFile(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex'))
 
 /** Whether `error` is a Node filesystem error with the given code. */
 function hasCode(error: unknown, code: string): boolean {
@@ -17,6 +23,10 @@ function hasCode(error: unknown, code: string): boolean {
  * Local-file adapter for {@link KeyProvider}: the master secret is 64 hex chars in a file that only
  * its owner may access (directory 0700, file 0600), outside Postgres. Development and single-host
  * use; the Keychain or a KMS can replace it behind the same port.
+ *
+ * Requires a filesystem that supports hard links (`link(2)`) in the key directory: the file is
+ * published by hard-linking a private temp file, which is what makes creation atomic. Filesystems
+ * without hard links (some network and FAT-style mounts) are not supported and `open` fails there.
  */
 export class FileKeyProvider extends DerivedKeyProvider {
   /**
@@ -27,9 +37,12 @@ export class FileKeyProvider extends DerivedKeyProvider {
    * access. With `create: false` (production) a missing file throws and nothing is created, so a
    * lost key never silently becomes a new one that orphans the audit chain and the vault.
    */
-  static async open(path: string, options: { create?: boolean } = {}): Promise<FileKeyProvider> {
+  static async open(
+    path: string,
+    options: { create?: boolean; writeKey?: KeyWriter } = {}
+  ): Promise<FileKeyProvider> {
     if (options.create ?? true) {
-      await FileKeyProvider.create(path)
+      await FileKeyProvider.create(path, options.writeKey ?? writeFreshKey)
     }
     const handle = await open(path, 'r')
     try {
@@ -44,12 +57,19 @@ export class FileKeyProvider extends DerivedKeyProvider {
   }
 
   /** Atomically creates the key file with a fresh master unless one already exists. */
-  private static async create(path: string): Promise<void> {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  private static async create(path: string, writeKey: KeyWriter): Promise<void> {
+    const dir = dirname(path)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    if (((await stat(dir)).mode & 0o077) !== 0) {
+      throw new Error(`key directory ${dir} must be accessible by its owner only (mode 0700)`)
+    }
     const temp = `${path}.${crypto.randomUUID()}.tmp`
     const fresh = await open(temp, 'wx', 0o600)
     try {
-      await fresh.writeFile(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex'))
+      await writeKey(fresh)
+    } catch (error) {
+      await unlink(temp)
+      throw error
     } finally {
       await fresh.close()
     }

@@ -1,6 +1,7 @@
 import type { TenantTx } from '../db/client'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import type {
+  IdentityEvent,
   IdentityStore,
   StoredChallenge,
   StoredCredential,
@@ -14,15 +15,26 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly challenges = new Map<string, StoredChallenge>()
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
+  private readonly events = new Map<string, IdentityEvent[]>()
+
+  /** The audit events appended for the guild so far, in order. */
+  eventsOf(guildId: string): IdentityEvent[] {
+    return [...(this.events.get(guildId) ?? [])]
+  }
+
+  private record(guildId: string, ...events: IdentityEvent[]) {
+    this.events.set(guildId, [...(this.events.get(guildId) ?? []), ...events])
+  }
 
   async listCredentials(guildId: string) {
     return [...(this.credentials.get(guildId) ?? [])]
   }
 
-  async saveCredential(guildId: string, credential: StoredCredential) {
+  async saveCredential(guildId: string, credential: StoredCredential, event: IdentityEvent) {
     const list = this.credentials.get(guildId) ?? []
     if (!list.some((c) => c.id === credential.id)) {
       this.credentials.set(guildId, [...list, credential])
+      this.record(guildId, event)
     }
   }
 
@@ -43,7 +55,10 @@ export class MemoryIdentityStore implements IdentityStore {
       }
     }
     this.challenges.set(`${prefix}${challenge.id}`, challenge)
-    const mine = [...this.challenges].filter(([key]) => key.startsWith(prefix))
+    // The cap is per kind, so unauthenticated sign-in begins cannot evict a pending reauth.
+    const mine = [...this.challenges].filter(
+      ([key, held]) => key.startsWith(prefix) && held.kind === challenge.kind
+    )
     // Map iteration is insertion order, so a stable sort by expiry keeps ties oldest-first.
     mine.sort((a, b) => a[1].expiresAt.getTime() - b[1].expiresAt.getTime())
     for (const [key] of mine.slice(0, Math.max(0, mine.length - MAX_OUTSTANDING_CHALLENGES))) {
@@ -51,8 +66,15 @@ export class MemoryIdentityStore implements IdentityStore {
     }
   }
 
-  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date, _tx?: TenantTx) {
+  async issueFounding(
+    guildId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    event: IdentityEvent,
+    _tx?: TenantTx
+  ) {
     this.founding.set(guildId, { tokenHash, expiresAt })
+    this.record(guildId, event)
   }
 
   async hasFounding(guildId: string, tokenHash: string, now: Date) {
@@ -65,7 +87,8 @@ export class MemoryIdentityStore implements IdentityStore {
     guildId: string,
     credential: StoredCredential,
     tokenHash: string,
-    now: Date
+    now: Date,
+    events: IdentityEvent[]
   ) {
     const held = this.founding.get(guildId)
     if (
@@ -78,6 +101,7 @@ export class MemoryIdentityStore implements IdentityStore {
     }
     this.founding.delete(guildId)
     this.credentials.set(guildId, [credential])
+    this.record(guildId, ...events)
     return true
   }
 
@@ -102,20 +126,30 @@ export class MemoryIdentityStore implements IdentityStore {
     return challenge
   }
 
-  async saveSession(guildId: string, session: StoredSession) {
+  async saveSession(guildId: string, session: StoredSession, event: IdentityEvent) {
     this.sessions.set(`${guildId}/${session.tokenHash}`, session)
+    this.record(guildId, event)
   }
 
   async findSession(guildId: string, tokenHash: string) {
     return this.sessions.get(`${guildId}/${tokenHash}`) ?? null
   }
 
-  async setReauth(guildId: string, sessionId: string, hash: string, expiresAt: Date) {
+  async setReauth(
+    guildId: string,
+    sessionId: string,
+    hash: string,
+    expiresAt: Date,
+    event: IdentityEvent
+  ) {
     for (const [key, session] of this.sessions) {
       if (key.startsWith(`${guildId}/`) && session.id === sessionId) {
         this.sessions.set(key, { ...session, reauthHash: hash, reauthExpiresAt: expiresAt })
+        this.record(guildId, event)
+        return
       }
     }
+    throw new Error('unknown session')
   }
 }
 

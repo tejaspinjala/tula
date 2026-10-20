@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
 import {
@@ -19,6 +20,8 @@ export interface IdentityContractSubject {
   newGuild: () => Promise<string>
   rpId: string
   origin: string
+  /** The guild's audit events, in order, as the chained event log holds them. */
+  events: (guildId: string) => Promise<{ type: string; payload: unknown }[]>
 }
 
 /** The failure code a call rejects with, or `no_error` when it resolves. */
@@ -62,6 +65,72 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         await s.key.assert(begin.options)
       )
     }
+
+    test('founding, sign-in and re-auth each append a non-secret event of ids only', async () => {
+      const subject = await make()
+      const guildId = await subject.newGuild()
+      const key = await SoftwareAuthenticator.create(subject.rpId, subject.origin)
+      const founding = await subject.identity.issueFoundingToken(guildId)
+      const begin = await subject.identity.beginRegistration(guildId, {
+        foundingToken: founding.token,
+      })
+      const registration = await key.register(begin.options)
+      const { credentialId } = await subject.identity.finishRegistration(
+        guildId,
+        begin.challengeId,
+        registration
+      )
+      const signBegin = await subject.identity.beginSignIn(guildId)
+      const assertion = await key.assert(signBegin.options)
+      const session = await subject.identity.finishSignIn(guildId, signBegin.challengeId, assertion)
+      const reBegin = await subject.identity.beginReauth(session.token)
+      const reAssertion = await key.assert(reBegin.options)
+      const reauth = await subject.identity.finishReauth(
+        session.token,
+        reBegin.challengeId,
+        reAssertion
+      )
+
+      const events = (await subject.events(guildId)).filter((e) => e.type.startsWith('identity.'))
+      expect(events.map((e) => e.type)).toEqual([
+        'identity.founding_token_issued',
+        'identity.founding_token_spent',
+        'identity.passkey_registered',
+        'identity.signed_in',
+        'identity.reauthenticated',
+      ])
+      expect(
+        JSON.stringify(events.find((e) => e.type === 'identity.passkey_registered'))
+      ).toContain(credentialId)
+      const serialised = JSON.stringify(events)
+      const secrets = [
+        founding.token,
+        session.token,
+        reauth.proof,
+        begin.options.challenge,
+        signBegin.options.challenge,
+        reBegin.options.challenge,
+        registration.response.attestationObject,
+        registration.response.clientDataJSON,
+        assertion.response.signature,
+        reAssertion.response.signature,
+        ...[founding.token, session.token, reauth.proof].map((v) =>
+          createHash('sha256').update(v).digest('base64url')
+        ),
+      ]
+      const publicKey = registration.response.publicKey
+      if (publicKey) {
+        secrets.push(publicKey)
+      }
+      for (const event of events) {
+        const keys = Object.keys(event.payload ?? {})
+        const allowed = [[], ['credentialId'], ['sessionId']].map((k) => JSON.stringify(k))
+        expect(allowed).toContain(JSON.stringify(keys))
+      }
+      for (const secret of secrets) {
+        expect(serialised).not.toContain(secret)
+      }
+    })
 
     test('registering then signing in yields a session bound to that guild', async () => {
       const s = await registered()
@@ -162,7 +231,8 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         await failure(
           a.identity.finishSignIn(guildB, atB.challengeId, await a.key.assert(atB.options))
         )
-      ).toBe('unknown_credential')
+        // A guild without a passkey gets decoy options, whose challenge is never stored.
+      ).toBe('invalid_challenge')
 
       const fromA = await a.identity.beginSignIn(a.guildId)
       expect(
@@ -331,6 +401,73 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       expect(await s.identity.consumeReauth(session.token, proof)).toBe(true)
       expect(await s.identity.consumeReauth(session.token, proof)).toBe(false)
       expect(await s.identity.checkReauth(session.token, proof)).toBe(false)
+    })
+
+    test('sign-in begin for an unknown guild answers with decoy options shaped like a real guild', async () => {
+      const s = await registered()
+      const real = await s.identity.beginSignIn(s.guildId)
+      const unknown = crypto.randomUUID()
+      const decoy = await s.identity.beginSignIn(unknown)
+      expect(Object.keys(decoy).sort()).toEqual(Object.keys(real).sort())
+      expect(Object.keys(decoy.options).sort()).toEqual(Object.keys(real.options).sort())
+      const entryKeys = (o: typeof real.options) =>
+        (o.allowCredentials ?? []).map((c) => Object.keys(c).sort().join())
+      expect(new Set(entryKeys(decoy.options))).toEqual(new Set(entryKeys(real.options)))
+      expect(decoy.challengeId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(decoy.options.rpId).toBe(real.options.rpId)
+      // Stable per guild, so repeated probes cannot tell a decoy from a real credential list.
+      const again = await s.identity.beginSignIn(unknown)
+      expect(again.options.allowCredentials).toEqual(decoy.options.allowCredentials)
+      expect(decoy.options.allowCredentials?.[0]?.id).not.toBe(
+        real.options.allowCredentials?.[0]?.id
+      )
+      // A decoy challenge can never be finished.
+      expect(
+        await failure(
+          s.identity.finishSignIn(unknown, decoy.challengeId, await s.key.assert(real.options))
+        )
+      ).toBe('invalid_challenge')
+    })
+
+    test('decoy options vary across guilds in credential count, id length and transports', async () => {
+      const s = await registered()
+      const shapes = new Set<string>()
+      for (let i = 0; i < 40; i++) {
+        const { options } = await s.identity.beginSignIn(crypto.randomUUID())
+        const creds = options.allowCredentials ?? []
+        expect(creds.length).toBeGreaterThanOrEqual(1)
+        expect(creds.length).toBeLessThanOrEqual(2)
+        shapes.add(
+          JSON.stringify([
+            creds.length,
+            creds.map((c) => Buffer.from(c.id, 'base64url').length),
+            creds.map((c) => c.transports ?? null),
+          ])
+        )
+        for (const c of creds) {
+          expect([16, 32, 64]).toContain(Buffer.from(c.id, 'base64url').length)
+        }
+      }
+      expect(shapes.size).toBeGreaterThan(4)
+    })
+
+    test('sign-in begin for a malformed guild id also answers with decoy options', async () => {
+      const s = await registered()
+      const decoy = await s.identity.beginSignIn('not-a-guild')
+      expect(decoy.options.allowCredentials?.length).toBeGreaterThanOrEqual(1)
+    })
+
+    test('unauthenticated sign-in begins never evict a pending reauth challenge', async () => {
+      const s = await registered()
+      const session = await signIn(s)
+      const reauth = await s.identity.beginReauth(session.token)
+      const response = await s.key.assert(reauth.options)
+      for (let i = 0; i < MAX_OUTSTANDING_CHALLENGES + 5; i++) {
+        s.clock.advance(1)
+        await s.identity.beginSignIn(s.guildId)
+      }
+      const proof = await s.identity.finishReauth(session.token, reauth.challengeId, response)
+      expect(await s.identity.checkReauth(session.token, proof.proof)).toBe(true)
     })
 
     test('outstanding challenges are capped per guild, evicting the oldest', async () => {

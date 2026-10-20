@@ -4,7 +4,7 @@ import { createApp, websocket } from './app'
 import { createDb, type Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent } from './events'
-import { createHarness } from './testing/harness'
+import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
@@ -41,7 +41,11 @@ function countingApp(
     db: counting,
     objectStore: harness.adapters.objectStore,
     identity: harness.adapters.identity,
+    rateLimiter: harness.adapters.rateLimiter,
+    rateLimits: UNLIMITED_RATE_LIMITS,
     secrets: harness.adapters.secrets,
+    config: harness.adapters.config,
+    notes: harness.adapters.notes,
     keys,
     devGuildHeader: true,
     eventPollMs: 600_000,
@@ -65,7 +69,7 @@ describe('event stream fan-out', () => {
     const sockets: WebSocket[] = []
     try {
       for (let g = 0; g < 3; g++) {
-        const id = await db.foundGuild({ name: `G${g}`, goal: 'g' })
+        const id = await harness.foundGuild({ name: `G${g}`, goal: 'g' })
         for (let i = 0; i < 5; i++) {
           sockets.push(await wsOpen(`${s.base}/guilds/${id}/events`, id))
         }
@@ -95,7 +99,7 @@ describe('event stream fan-out', () => {
 
   test('one notify costs one fetch for the guild, however many sockets listen', async () => {
     const s = countingApp()
-    const id = await db.foundGuild({ name: 'Fan', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Fan', goal: 'g' })
     const received: number[][] = []
     const sockets: WebSocket[] = []
     try {
@@ -127,7 +131,7 @@ describe('event stream fan-out', () => {
 
   test('a socket over the per-guild cap is refused with 429', async () => {
     const s = countingApp({ maxSocketsPerGuild: 2 })
-    const id = await db.foundGuild({ name: 'Cap', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Cap', goal: 'g' })
     const sockets: WebSocket[] = []
     try {
       for (let i = 0; i < 2; i++) {
@@ -147,7 +151,7 @@ describe('event stream fan-out', () => {
 
   test('simultaneous upgrades over the cap never admit more than the cap', async () => {
     const s = countingApp({ maxSocketsPerGuild: 3 })
-    const id = await db.foundGuild({ name: 'Race', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Race', goal: 'g' })
     const sockets: WebSocket[] = []
     try {
       const outcomes = await Promise.all(
@@ -176,7 +180,7 @@ describe('event stream fan-out', () => {
 
   test('a slow consumer whose buffer exceeds the threshold is closed with 1013', async () => {
     const hubDb = createDb(harness.appUrl)
-    const id = await db.foundGuild({ name: 'Slow', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Slow', goal: 'g' })
     const hub = createEventHub(hubDb, { pollMs: 600_000, maxBufferedBytes: 1000 })
     const closed: Array<[number, string]> = []
     const sent: string[] = []

@@ -56,6 +56,14 @@ const baseSchema = z.object({
    * where a missing file is an error; elsewhere defaults and is created 0600 if missing.
    */
   KEY_FILE: z.string().min(1).optional(),
+  /**
+   * `true` when exactly one trusted reverse proxy fronts guildd: rate limits then key on the last
+   * `X-Forwarded-For` hop instead of the socket address. Anything but true/false fails at boot.
+   */
+  TRUST_PROXY: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 

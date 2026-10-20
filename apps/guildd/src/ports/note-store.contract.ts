@@ -1,0 +1,139 @@
+import { describe, expect, test } from 'bun:test'
+import { NoteError, type NoteStore } from './note-store'
+
+/** A store under test; a database-backed store needs real guilds. */
+export interface NoteStoreFixture {
+  store: NoteStore
+  newGuild: () => Promise<string>
+}
+
+const fact = { kind: 'text', claim: 'fact', evidence: 'ticket #1' } as const
+
+/** The NoteStore contract, run against every adapter. `make` returns a fresh store. */
+export function noteStoreContract(name: string, make: () => Promise<NoteStoreFixture>) {
+  describe(`NoteStore contract: ${name}`, () => {
+    test('adding then editing keeps every version', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const note = await store.add(g, { ...fact, title: 'Deploys', body: 'ship on friday' })
+      expect(note).toMatchObject({ version: 1, trust: 'fact', evidence: 'ticket #1' })
+      const edited = await store.edit(g, note.id, { body: 'never ship on friday' })
+      expect(edited).toMatchObject({ id: note.id, version: 2, title: 'Deploys' })
+      const detail = await store.get(g, note.id)
+      expect(detail?.note.body).toBe('never ship on friday')
+      expect(detail?.versions.map((v) => [v.version, v.body])).toEqual([
+        [1, 'ship on friday'],
+        [2, 'never ship on friday'],
+      ])
+    })
+
+    test('a fact without evidence is rejected; an assumption is quarantined', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const bad = store.add(g, { kind: 'text', claim: 'fact', title: 'T', body: 'b' })
+      await expect(bad).rejects.toMatchObject({ code: 'evidence_required' })
+      await expect(bad).rejects.toBeInstanceOf(NoteError)
+      const guess = await store.add(g, { kind: 'text', claim: 'assumption', title: 'G', body: 'b' })
+      expect(guess.trust).toBe('quarantined')
+      await expect(store.edit(g, guess.id, { claim: 'fact' })).rejects.toMatchObject({
+        code: 'evidence_required',
+      })
+      const promoted = await store.edit(g, guess.id, { claim: 'fact', evidence: 'measured' })
+      expect(promoted).toMatchObject({ trust: 'fact', evidence: 'measured', version: 2 })
+    })
+
+    test('editing an unknown note is not_found', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await expect(store.edit(g, crypto.randomUUID(), { title: 'x' })).rejects.toMatchObject({
+        code: 'not_found',
+      })
+      expect(await store.get(g, crypto.randomUUID())).toBeNull()
+    })
+
+    test('a [[wiki link]] creates a backlink on the target, and editing it away removes it', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'Release Process', body: 'steps' })
+      const source = await store.add(g, {
+        ...fact,
+        title: 'Retro',
+        body: 'see [[release process]] and [[Nowhere]]',
+      })
+      expect((await store.get(g, target.id))?.backlinks).toEqual([
+        { id: source.id, title: 'Retro' },
+      ])
+      await store.edit(g, source.id, { body: 'no links now' })
+      expect((await store.get(g, target.id))?.backlinks).toEqual([])
+    })
+
+    test('a link note stores a url', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const n = await store.add(g, {
+        kind: 'link',
+        claim: 'assumption',
+        title: 'Docs',
+        body: 'https://example.com/docs',
+      })
+      expect(n.kind).toBe('link')
+    })
+
+    test('list is paginated in id order', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      for (const t of ['a', 'b', 'c']) {
+        await store.add(g, { ...fact, title: t, body: t })
+      }
+      const first = await store.list(g, { limit: 2 })
+      expect(first.notes).toHaveLength(2)
+      expect(first.next).toBe(first.notes[1]?.id ?? '')
+      const second = await store.list(g, { after: first.next ?? '', limit: 2 })
+      expect(second.notes).toHaveLength(1)
+      expect(second.next).toBeNull()
+      const ids = [...first.notes, ...second.notes].map((n) => n.id)
+      expect(ids).toEqual([...ids].sort())
+    })
+
+    test('search matches every term in the current version, case-insensitively, and paginates', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const a = await store.add(g, { ...fact, title: 'Caching', body: 'Redis speeds reads' })
+      await store.add(g, { ...fact, title: 'Queues', body: 'Redis streams too' })
+      await store.add(g, { ...fact, title: 'Other', body: 'unrelated' })
+      const hits = await store.search(g, 'REDIS', { limit: 10 })
+      expect(hits.notes.map((n) => n.title).sort()).toEqual(['Caching', 'Queues'])
+      const both = await store.search(g, 'redis reads', { limit: 10 })
+      expect(both.notes.map((n) => n.id)).toEqual([a.id])
+      expect((await store.search(g, 'redis', { limit: 1 })).next).not.toBeNull()
+      expect((await store.search(g, '   ', { limit: 10 })).notes).toEqual([])
+      await store.edit(g, a.id, { body: 'now memcached' })
+      expect((await store.search(g, 'reads', { limit: 10 })).notes).toEqual([])
+      const moved = await store.search(g, 'memcached', { limit: 10 })
+      expect(moved.notes.map((n) => n.id)).toEqual([a.id])
+    })
+
+    test("another guild cannot see, search, edit or link to a guild's notes", async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      const secret = await store.add(a, { ...fact, title: 'Alpha', body: 'zebra plan' })
+      expect((await store.search(b, 'zebra', { limit: 10 })).notes).toEqual([])
+      expect((await store.list(b, { limit: 10 })).notes).toEqual([])
+      expect(await store.get(b, secret.id)).toBeNull()
+      await expect(store.edit(b, secret.id, { title: 'x' })).rejects.toMatchObject({
+        code: 'not_found',
+      })
+      await store.add(b, { ...fact, title: 'Beta', body: 'links [[alpha]]' })
+      expect((await store.get(a, secret.id))?.backlinks).toEqual([])
+    })
+
+    test('two same-tick edits both land as distinct versions', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const n = await store.add(g, { ...fact, title: 'Race', body: 'v1' })
+      await Promise.all([store.edit(g, n.id, { body: 'v2' }), store.edit(g, n.id, { body: 'v3' })])
+      expect((await store.get(g, n.id))?.versions.map((v) => v.version)).toEqual([1, 2, 3])
+    })
+  })
+}

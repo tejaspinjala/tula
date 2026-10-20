@@ -3,6 +3,7 @@ import postgres from 'postgres'
 import { z } from 'zod'
 import { createDb } from '../db/client'
 import { secretStoreContract } from '../ports/secret-store.contract'
+import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgSecretStore } from './pg-secret-store'
@@ -24,12 +25,12 @@ async function stored(guildId: string, ref: string): Promise<Uint8Array | null> 
 
 secretStoreContract('postgres', async () => ({
   store: new PgSecretStore(db, new MemoryKeyProvider()),
-  newGuild: () => db.foundGuild({ name: 'Vault', goal: 'g' }),
+  newGuild: () => foundTestGuild(db, { name: 'Vault', goal: 'g' }),
   stored,
 }))
 
 test('the data key is stored wrapped, and a different KeyProvider cannot decrypt', async () => {
-  const guild = await db.foundGuild({ name: 'Vault', goal: 'g' })
+  const guild = await foundTestGuild(db, { name: 'Vault', goal: 'g' })
   const store = new PgSecretStore(db, new MemoryKeyProvider())
   await store.add(guild, 'openai', 'sk-wrapped-check')
   const [row] = await owner`select wrapped_key from vault_keys where guild_id = ${guild}`
@@ -39,7 +40,7 @@ test('the data key is stored wrapped, and a different KeyProvider cannot decrypt
 })
 
 test('adding a secret appends an event carrying the ref and never the value', async () => {
-  const guild = await db.foundGuild({ name: 'Vault', goal: 'g' })
+  const guild = await foundTestGuild(db, { name: 'Vault', goal: 'g' })
   await new PgSecretStore(db, new MemoryKeyProvider()).add(guild, 'openai', 'sk-event-leak')
   const events =
     await owner`select type, payload from events where guild_id = ${guild} order by seq`

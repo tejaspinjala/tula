@@ -8,6 +8,7 @@
         "@biomejs/biome": "^2.5.15",
         "@types/bun": "^1.4.3",
         "husky": "^9.1.7",
+        "postgres": "^3.4.9",
         "typescript": "^7.0.2",
         "zod": "^4.6.7",
       },

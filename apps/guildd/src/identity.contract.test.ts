@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { MemoryClock } from './adapters/memory-clock'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
+import { verifyChain } from './audit-chain'
 import { createDb, type TenantTx } from './db/client'
+import { eventsAfter } from './events'
 import { REAUTH_TTL_MS } from './ports/identity'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
@@ -87,7 +89,7 @@ describe('passkey sign-in over HTTP', () => {
   test('a session cannot act on another guild', async () => {
     const { guildId, key } = await foundWithPasskey()
     const { token } = await signIn(guildId, key)
-    const other = await harness.adapters.db.foundGuild({ name: 'Other-secret', goal: 'g' })
+    const other = await harness.foundGuild({ name: 'Other-secret', goal: 'g' })
     const res = await harness.request(`/guilds/${other}`, {
       headers: { authorization: `Bearer ${token}` },
     })
@@ -175,8 +177,9 @@ describe('founding is atomic with the founding token', () => {
         return issued
       }
     }
-    const identity = new FlakyIdentity(new PgIdentityStore(db), {
+    const identity = new FlakyIdentity(new PgIdentityStore(db, harness.adapters.keys), {
       clock: new MemoryClock(new Date('2026-01-01T00:00:00.000Z')),
+      keys: harness.adapters.keys,
       rpId: 'localhost',
       rpName: 'Guildhall',
       origin: ORIGIN,
@@ -211,5 +214,27 @@ describe('founding is atomic with the founding token', () => {
       await flaky.close()
       await db.close()
     }
+  })
+})
+
+describe('identity events in the audit chain', () => {
+  test('a full founding, sign-in and re-auth flow leaves the chain intact, one entry per event', async () => {
+    const { guildId, key } = await foundWithPasskey()
+    const { token } = await signIn(guildId, key)
+    await reauth(token, key)
+    const { verdict, events } = await harness.adapters.db.withGuild(guildId, async (tx) => ({
+      verdict: await verifyChain(tx, harness.adapters.keys),
+      events: await eventsAfter(tx, 0),
+    }))
+    expect(events.map((e) => e.type)).toEqual([
+      'guild.founded',
+      'identity.founding_token_issued',
+      'config.seeded',
+      'identity.founding_token_spent',
+      'identity.passkey_registered',
+      'identity.signed_in',
+      'identity.reauthenticated',
+    ])
+    expect(verdict).toEqual({ intact: true, entries: events.length })
   })
 })

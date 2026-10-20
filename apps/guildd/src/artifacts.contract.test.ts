@@ -15,7 +15,7 @@ afterAll(async () => {
 const enc = (text: string) => new TextEncoder().encode(text)
 
 async function found(name: string): Promise<string> {
-  return harness.adapters.db.foundGuild({ name, goal: `${name} goal` })
+  return harness.foundGuild({ name, goal: `${name} goal` })
 }
 
 function store(guild: string, text: string, cls = 'report', method = 'PUT') {
@@ -114,7 +114,7 @@ describe('artifact limits', () => {
   test('a chunked body over the cap without content-length gets 413', async () => {
     const capped = await createHarness({ app: { maxArtifactBytes: 1024 } })
     try {
-      const guild = await capped.adapters.db.foundGuild({ name: 'Big', goal: 'g' })
+      const guild = await capped.foundGuild({ name: 'Big', goal: 'g' })
       const chunk = new Uint8Array(400)
       const body = new ReadableStream<Uint8Array>({
         pull(controller) {
@@ -145,7 +145,7 @@ describe('artifact limits', () => {
       },
     })
     try {
-      const guild = await hung.adapters.db.foundGuild({ name: 'Hang', goal: 'g' })
+      const guild = await hung.foundGuild({ name: 'Hang', goal: 'g' })
       const put = await hung.request('/artifacts?class=report', {
         method: 'PUT',
         headers: { 'x-guild-id': guild },
@@ -167,7 +167,7 @@ describe('artifact events reach live streams', () => {
   test('artifact.stored is pushed within a second even with a long fallback poll', async () => {
     const live = await createHarness({ app: { eventPollMs: 10_000 } })
     try {
-      const guild = await live.adapters.db.foundGuild({ name: 'Live', goal: 'g' })
+      const guild = await live.foundGuild({ name: 'Live', goal: 'g' })
       const ws = new WebSocket(`${live.listen()}/guilds/${guild}/events`, {
         headers: { 'x-guild-id': guild },
       })

@@ -5,11 +5,15 @@ import { verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
+import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { Clock } from './ports/clock'
+import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import type { RateLimiter } from './ports/rate-limiter'
 import {
   MAX_SECRET_PAGE,
   SecretExistsError,
@@ -17,6 +21,7 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
@@ -30,8 +35,18 @@ export interface AppDeps {
   keys: KeyProvider
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
+  /** Versioned guild config: Halls, roster, Seal Policy, caps; widening changes wait for re-auth. */
+  config: ConfigStore
+  /** The Archive: notes with version history, backlinks and full-text search. */
+  notes: NoteStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
+  /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
+  rateLimiter: RateLimiter
+  /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
+  trustProxy?: boolean
+  /** Per-route limit overrides; defaults to {@link DEFAULT_RATE_LIMITS}. */
+  rateLimits?: Partial<RateLimits>
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
   eventPollMs?: number
   /** Milliseconds before an ObjectStore call is abandoned with a 504; defaults to 10000. */
@@ -62,6 +77,21 @@ const checkSecretsBody = z.object({ refs: z.array(secretRef).min(1).max(MAX_SECR
 const secretPage = z.object({
   after: secretRef.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SECRET_PAGE).default(50),
+})
+const notePage = z.object({
+  after: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
+  q: z.string().max(500).optional(),
+})
+const putConfigBody = z.object({ config: guildConfig })
+const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
+const versionPage = z.object({
+  after: configVersion.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_CONFIG_PAGE).default(50),
+})
+const rosterPage = z.object({
+  after: z.string().max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_CONFIG_PAGE).default(50),
 })
 const artifactClass = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const artifactHash = z.string().regex(/^[0-9a-f]{64}$/)
@@ -131,6 +161,18 @@ export function createApp(deps: AppDeps): Hono {
   })
   app.get('/health', (c) => c.json({ status: 'ok', time: deps.clock.now().toISOString() }))
 
+  // Unauthenticated identity routes are rate limited per client and per guild (429 + Retry-After).
+  const limitsOf = { ...DEFAULT_RATE_LIMITS, ...deps.rateLimits }
+  const limited = (route: keyof RateLimits) =>
+    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false)
+  app.post('/guilds', limited('founding'))
+  app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
+  app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
+  app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
+  app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+  app.post('/session/reauth/begin', limited('reauth'))
+  app.post('/session/reauth/finish', limited('reauth'))
+
   app.post('/guilds', async (c) => {
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
@@ -141,6 +183,8 @@ export function createApp(deps: AppDeps): Hono {
     let foundingToken = ''
     const id = await deps.db.foundGuildChained(body.data, deps.keys, async (tx, guildId) => {
       foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
+      // The Steward, Heralds Hall and locked Halls are seeded in the founding transaction.
+      await deps.config.seed(guildId, tx)
     })
     return c.json({ id, foundingToken }, 201)
   })
@@ -223,21 +267,20 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // Unknown guilds get decoy options from the provider, so this answers the same for every id.
   app.post('/guilds/:id/sign-in/begin', async (c) => {
-    const guild = await ceremonyGuild(c)
-    return guild
-      ? c.json(await deps.identity.beginSignIn(guild))
-      : c.json({ error: 'not_found' }, 404)
+    return c.json(await deps.identity.beginSignIn(c.req.param('id')))
   })
 
   app.post('/guilds/:id/sign-in/finish', async (c) => {
     const guild = await ceremonyGuild(c)
     const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
-    if (!guild) {
-      return c.json({ error: 'not_found' }, 404)
-    }
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
+    }
+    if (!guild) {
+      // Same answer as a known guild given a challenge it never issued.
+      return c.json({ error: 'invalid_challenge' }, 400)
     }
     const session = await deps.identity.finishSignIn(
       guild,
@@ -366,6 +409,240 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return c.json({ results: await deps.secrets.check(caller, body.data.refs) })
+  })
+
+  // The Archive. Note writes are events (appended by the NoteStore in the write's transaction).
+  // A guild that is not the caller's is indistinguishable from one that does not exist.
+  async function archiveCaller(c: Context): Promise<{ guild: string } | Response> {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    return { guild: caller }
+  }
+
+  function noteFailure(c: Context, error: unknown): Response {
+    if (error instanceof NoteError) {
+      return error.code === 'not_found'
+        ? c.json({ error: 'not_found' }, 404)
+        : c.json({ error: error.code }, 422)
+    }
+    throw error
+  }
+
+  app.post('/guilds/:id/archive/notes', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const body = newNote.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    try {
+      return c.json(await deps.notes.add(who.guild, body.data), 201)
+    } catch (error) {
+      return noteFailure(c, error)
+    }
+  })
+
+  app.patch('/guilds/:id/archive/notes/:noteId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const noteId = uuid.safeParse(c.req.param('noteId'))
+    const body = noteFields.partial().safeParse(await c.req.json().catch(() => null))
+    if (!noteId.success || !body.success) {
+      return c.json(
+        { error: noteId.success ? 'invalid_request' : 'not_found' },
+        noteId.success ? 400 : 404
+      )
+    }
+    try {
+      return c.json(await deps.notes.edit(who.guild, noteId.data, body.data))
+    } catch (error) {
+      return noteFailure(c, error)
+    }
+  })
+
+  app.get('/guilds/:id/archive/notes/:noteId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const noteId = uuid.safeParse(c.req.param('noteId'))
+    const detail = noteId.success ? await deps.notes.get(who.guild, noteId.data) : null
+    return detail ? c.json(detail) : c.json({ error: 'not_found' }, 404)
+  })
+
+  // Lists notes, or full-text searches them with `?q=`.
+  app.get('/guilds/:id/archive/notes', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = notePage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      q: c.req.query('q'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const paging = {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+    }
+    return c.json(
+      page.data.q === undefined
+        ? await deps.notes.list(who.guild, paging)
+        : await deps.notes.search(who.guild, page.data.q, paging)
+    )
+  })
+
+  // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
+  // writes config, and agents have no session, so no agent-facing route can change it. A widening
+  // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
+  /** The calling session's guild when it is `:id`, else a ready response. */
+  async function sessionGuildFor(c: Context): Promise<{ guild: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return { res: c.json({ error: 'not_found' }, 404) }
+    }
+    return { guild: session.guildId }
+  }
+
+  function configFailure(c: Context, error: unknown): Response {
+    if (error instanceof ConfigError) {
+      return error.code === 'not_found'
+        ? c.json({ error: 'not_found' }, 404)
+        : c.json({ error: error.code }, 409)
+    }
+    throw error
+  }
+
+  app.get('/guilds/:id/config', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      return c.json(await deps.config.current(caller))
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.get('/guilds/:id/config/versions', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const page = versionPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.config.history(caller, {
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
+    )
+  })
+
+  // The ledger view's roster: the Steward plus Halls (with Captain and Members), paginated by Hall id.
+  app.get('/guilds/:id/roster', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const page = rosterPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    try {
+      const { config } = await deps.config.current(caller)
+      const halls = config.halls
+        .filter((h) => page.data.after === undefined || h.id > page.data.after)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      const items = halls.slice(0, page.data.limit)
+      const last = items.at(-1)
+      return c.json({
+        steward: config.steward,
+        halls: items,
+        next: halls.length > page.data.limit && last ? last.id : null,
+      })
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.put('/guilds/:id/config', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = putConfigBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_config' }, 400)
+    }
+    try {
+      const result = await deps.config.propose(who.guild, body.data.config)
+      return c.json(result, result.status === 'pending' ? 202 : 200)
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.post('/guilds/:id/config/versions/:version/restore', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const version = configVersion.safeParse(c.req.param('version'))
+    if (!version.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      const result = await deps.config.restore(who.guild, version.data)
+      return c.json(result, result.status === 'pending' ? 202 : 200)
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.post('/guilds/:id/config/versions/:version/confirm', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const version = configVersion.safeParse(c.req.param('version'))
+    if (c.req.param('id') !== check.guildId || !version.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      await deps.config.confirm(check.guildId, version.data)
+      return c.json({ version: version.data, status: 'applied' })
+    } catch (error) {
+      return configFailure(c, error)
+    }
   })
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not

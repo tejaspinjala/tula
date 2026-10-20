@@ -35,6 +35,73 @@ services:
       timeout: 3s
       retries: 10
 
+  # Scheduled backups (profile `backup`: `docker compose --profile backup up -d`). Postgres gets a
+  # custom-format dump per interval, object storage a mirror. The KEY_FILE master key is NOT here:
+  # back it up separately (docs/runbooks/backup-restore.md).
+  # One-shot: the shared volume is created root-owned, but backup-objects runs as the image's
+  # non-root user (uid 65532), so prepare the two directories once with the right owners.
+  backup-init:
+    profiles: [backup]
+    image: cgr.dev/chainguard/busybox:latest@sha256:f7d9063f22547e726221275158930e5033be3c6d8340c6867afb7d0d779fad8d
+    user: root
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - mkdir -p /backups/postgres /backups/objects && chown 65532:65532 /backups/objects
+    volumes:
+      - backup-data:/backups
+
+  backup-postgres:
+    profiles: [backup]
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    depends_on:
+      backup-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: guildhall
+      PGPASSWORD: guildhall
+      PGDATABASE: guildhall
+      BACKUP_INTERVAL_SECONDS: '${BACKUP_INTERVAL_SECONDS:-86400}'
+      BACKUP_KEEP: '${BACKUP_KEEP:-14}'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        while true; do
+          out="/backups/postgres/guildhall-$$(date -u +%Y%m%dT%H%M%SZ).dump"
+          mkdir -p /backups/postgres
+          pg_dump -Fc -f "$$out.partial" && mv "$$out.partial" "$$out"
+          ls -1t /backups/postgres/*.dump | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -f
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+    volumes:
+      - backup-data:/backups
+
+  backup-objects:
+    profiles: [backup]
+    image: cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6
+    depends_on:
+      backup-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_source: http://guildhall:guildhall-dev-secret@minio:9000
+      BACKUP_INTERVAL_SECONDS: '${BACKUP_INTERVAL_SECONDS:-86400}'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        while true; do
+          mc mirror --overwrite source /backups/objects
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+    volumes:
+      - backup-data:/backups
+
 volumes:
+  backup-data:
   postgres-data:
   minio-data:

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { PasskeyPanel } from './PasskeyPanel'
 import type { Session } from './passkeys'
+import { RosterPanel } from './RosterPanel'
 import { VaultPanel } from './VaultPanel'
 
 /** Ledger-view shell: keyboard-navigable, with a skip link, landmarks and passkey sign-in. */
@@ -26,6 +28,8 @@ export function App() {
           <a href="#passkey-heading">Passkey</a>
           <a href="#artifact-heading">Artifacts</a>
           <a href="#vault-heading">Vault</a>
+          <a href="#roster-heading">Roster</a>
+          <a href="#archive-heading">Archive</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -33,6 +37,8 @@ export function App() {
         <PasskeyPanel session={session} onSession={setSession} />
         <ArtifactViewer session={session} />
         <VaultPanel session={session} />
+        <RosterPanel session={session} />
+        <ArchivePanel session={session} />
       </main>
     </>
   )

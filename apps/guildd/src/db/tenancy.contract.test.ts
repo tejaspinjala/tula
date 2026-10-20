@@ -22,8 +22,8 @@ describe('cross-guild isolation', () => {
   })
 
   test('A cannot update B rows', async () => {
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
-    const b = await db.foundGuild({ name: 'B', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
+    const b = await harness.foundGuild({ name: 'B', goal: 'g' })
     const updated = await db.withGuild(
       a,
       (tx) => tx`update guilds set name = 'pwned' where guild_id = ${b} returning guild_id`
@@ -34,8 +34,8 @@ describe('cross-guild isolation', () => {
   })
 
   test('A inserting a row for B fails identically whether or not B exists (no unique/FK leak)', async () => {
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
-    const b = await db.foundGuild({ name: 'B', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
+    const b = await harness.foundGuild({ name: 'B', goal: 'g' })
     const attempt = (target: string) =>
       db
         .withGuild(
@@ -55,7 +55,7 @@ describe('cross-guild isolation', () => {
 
 describe('hardening', () => {
   test('found_guild inside a tenant transaction restores that guild context', async () => {
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
     const seen = await db.withGuild(a, async (tx) => {
       await tx`select found_guild('Other', 'g')`
       return tx`select guild_id from guilds`
@@ -105,7 +105,7 @@ describe('hardening', () => {
 
 describe('tenant context', () => {
   test('is transaction-local: a reused pooled connection sees nothing of the previous guild', async () => {
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
     const one = postgres(harness.appUrl, { max: 1 })
     try {
       await one.begin(async (tx) => {
