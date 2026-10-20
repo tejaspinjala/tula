@@ -173,3 +173,11 @@ test('opening the Bag puts the ▶ cursor on the first row, not on the Close but
   expect(document.activeElement).toBe(options(m.host)[0] as HTMLElement)
   await m.unmount()
 })
+
+test('a page inside the Bag has one wood border: its sections are flat, not framed again', async () => {
+  const m = await mount(bag({ page: 'treasury' }, calls()))
+  const body = m.host.querySelector('.bag-body')
+  expect(body?.querySelector('section.work.work-flat')).not.toBeNull()
+  expect(body?.querySelector('[data-variant="paper"]')).toBeNull()
+  await m.unmount()
+})
