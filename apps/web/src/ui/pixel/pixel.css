@@ -265,6 +265,8 @@
 
 /* Meter. */
 .px-meter {
+  width: 100%;
+  min-width: calc(var(--px) * 100);
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -420,6 +422,8 @@
 
 /* Slot grid. */
 .px-slotgrid {
+  max-width: 100%;
+  overflow-x: auto;
   display: grid;
   grid-template-columns: repeat(var(--cols, 4), calc(var(--px) * 32));
   gap: calc(var(--px) * 2);
@@ -676,6 +680,9 @@
 
 .px-sink-note {
   margin: calc(var(--px) * 3) 0 0;
+  align-self: flex-start;
+  padding: 0 calc(var(--px) * 3);
+  background: var(--px-paper);
   color: var(--px-text-muted);
   font-size: var(--text-sm);
 }
@@ -691,7 +698,7 @@
   .px-itemget,
   .px-walker,
   .px-dialogue-more,
-  .px-menu-item::before,
+  .px-menu-item[aria-selected="true"]::before,
   .px-meter-fill {
     animation: none;
     transition: none;

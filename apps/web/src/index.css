@@ -529,7 +529,7 @@ thead th {
 
 .brand {
   font-family: var(--font-serif);
-  font-size: var(--text-lg);
+  font-size: var(--head-md);
   font-weight: 700;
   margin: 0;
   flex: 1;
