@@ -10,6 +10,8 @@ export const startTeamCampaignInput = z.strictObject({
   hall: z.string().min(1).max(64),
   campaignId: queueQuest.shape.campaignId.unwrap(),
   goal: z.string().trim().min(1).max(1500),
+  /** Quests that must be done before the Captain starts planning (a workflow node after other work). */
+  blockedBy: queueQuest.shape.blockedBy.optional(),
 })
 /** Input to {@link startTeamCampaign}. */
 export type StartTeamCampaignInput = z.infer<typeof startTeamCampaignInput>
@@ -62,6 +64,7 @@ export async function startTeamCampaign(
     dataClass: template.dataClass,
     title: `Plan the Campaign: ${input.goal}`.slice(0, 200),
     ownerId: captain.id,
+    blockedBy: input.blockedBy ?? [],
     doneCondition: `${template.doneCondition}: ${input.goal}`,
     roundLimit: template.roundLimit,
   })
