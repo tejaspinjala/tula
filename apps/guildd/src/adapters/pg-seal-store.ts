@@ -370,7 +370,7 @@ export class PgSealStore implements SealStore {
           select seal_id from seals
           where guild_id = ${guildId} and (
             (status = 'requested' and expires_at <= ${now})
-            or (status = 'approved' and decided_at <= ${approvedBefore}))
+            or (status in ('approved', 'released') and decided_at <= ${approvedBefore}))
           order by seal_id limit ${EXPIRE_BATCH})
         returning ${tx.unsafe(COLUMNS)}`
       // UPDATE ... RETURNING has no defined order; sort so events land in a stable sequence.

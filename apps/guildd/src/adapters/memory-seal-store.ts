@@ -296,7 +296,7 @@ export class MemorySealStore implements SealStore {
       const lapsedRequest = seal.status === 'requested' && this.read(seal).status === 'expired'
       const lapsedApproval =
         window !== undefined &&
-        seal.status === 'approved' &&
+        (seal.status === 'approved' || seal.status === 'released') &&
         seal.decidedAt !== null &&
         Date.parse(seal.decidedAt) + window <= now
       if (lapsedRequest || lapsedApproval) {
