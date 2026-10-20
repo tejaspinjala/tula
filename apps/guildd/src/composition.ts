@@ -48,6 +48,7 @@ import {
   loadPlatformOperators,
   loadResearchEnv,
   loadSandboxEnv,
+  loadSandboxStartTimeoutMs,
   loadSubscriptionEnv,
   loadVapidEnv,
   loadWebauthnEnv,
@@ -66,6 +67,16 @@ import { SealEngine } from './seals'
 import { Summon } from './summon'
 import { Treasury } from './treasury'
 import { WorkflowEngine } from './workflows/engine'
+
+/** Logs a worker-start cleanup that failed: ids and the error name only, never content. */
+function reportStartCleanup(
+  error: unknown,
+  context: { guildId: string; questId: string; sandboxId: string }
+): void {
+  process.stderr.write(
+    `${JSON.stringify({ event: 'dispatch.start_cleanup_failed', ...context, error: error instanceof Error ? error.name : 'unknown' })}\n`
+  )
+}
 
 /**
  * The single composition root: wires adapters into the app.
@@ -102,6 +113,7 @@ export async function compose(
   const gateStore = new PgGateStore(db, keys)
   // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
   const sandboxes = overrides.sandboxes ?? sandboxRunnerFor(loadSandboxEnv())
+  const sandboxStartTimeoutMs = loadSandboxStartTimeoutMs()
   const vapid = loadVapidEnv()
   // Subscription providers run the host's own `claude` CLI; off unless the host opts in (ADR-0008).
   const subscriptionEnv = loadSubscriptionEnv()
@@ -293,6 +305,8 @@ export async function compose(
         gateway,
         mcp,
         sandboxes,
+        sandboxStartTimeoutMs,
+        onError: reportStartCleanup,
       }),
     gateway,
     sandboxes,
@@ -306,6 +320,8 @@ export async function compose(
         gateway,
         mcp,
         sandboxes,
+        sandboxStartTimeoutMs,
+        onError: reportStartCleanup,
         clock,
         subscriptionEnabled: subscriptionProvider !== undefined,
       }),

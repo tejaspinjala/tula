@@ -90,7 +90,10 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   async start(guildId: string, spec: SandboxSpec): Promise<Sandbox> {
-    const sandboxId = `gh-sbx-${crypto.randomUUID()}`
+    const sandboxId = spec.sandboxId ?? `gh-sbx-${crypto.randomUUID()}`
+    if (!/^gh-sbx-[0-9a-f-]{36}$/.test(sandboxId)) {
+      throw new SandboxError('invalid_env')
+    }
     const env: Record<string, string> = {
       ...this.options.env,
       GUILDHALL_QUEST_ID: spec.questId,
@@ -191,6 +194,9 @@ export class DockerSandboxRunner implements SandboxRunner {
         ...(target === 'all' ? [] : ['--filter', `label=${GUILD_LABEL}=${target.guildId}`]),
         ...(target !== 'all' && target.questId !== undefined
           ? ['--filter', `label=${QUEST_LABEL}=${target.questId}`]
+          : []),
+        ...(target !== 'all' && target.sandboxId !== undefined
+          ? ['--filter', `label=${SANDBOX_LABEL}=${target.sandboxId}`]
           : []),
       ],
       { timeoutMs: this.timeoutMs }

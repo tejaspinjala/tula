@@ -1,4 +1,4 @@
-import { startRun } from './dispatch'
+import { type StartRunDeps, startRun } from './dispatch'
 import { questConcurrency } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import type { ModelGateway } from './model-gateway'
@@ -51,9 +51,11 @@ export interface SummonDeps {
   quests: QuestQueue
   tripwires: TripwireStore
   gates: Pick<GateStore, 'isBarred'>
-  gateway: Pick<ModelGateway, 'openRun' | 'runRevoked'>
+  gateway: Pick<ModelGateway, 'openRun' | 'revokeRun' | 'runRevoked'>
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
+  sandboxStartTimeoutMs?: number | undefined
+  onError?: StartRunDeps['onError']
   clock: Clock
   /** Whether the host has enabled `subscription` providers; they are refused otherwise. */
   subscriptionEnabled?: boolean
