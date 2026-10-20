@@ -67,6 +67,24 @@ export const submitProposalArgs = z.strictObject({
     )
     .max(MAX_EVIDENCE_LINKS),
 })
+/**
+ * Arguments of `spawn_subquest`: a title, the brief (which becomes the Sub-Quest's done-condition),
+ * a Quest template, and optionally another Hall (the parent's own by default).
+ */
+export const spawnSubquestArgs = z.strictObject({
+  lease: leaseHandle,
+  title: z.string().trim().min(1).max(200),
+  brief: z.string().trim().min(1).max(2000),
+  template: z.string().min(1).max(64),
+  hall: z.string().min(1).max(64).optional(),
+})
+/** How `await_children` waits: for every Sub-Quest (the default) or the first one done. */
+export const awaitChildrenArgs = z.strictObject({
+  lease: leaseHandle,
+  mode: z.enum(['all', 'any']).default('all'),
+})
+/** Arguments of `child_results`: the lease alone. */
+export const childResultsArgs = z.strictObject({ lease: leaseHandle })
 /** Arguments of `complete_quest`; the Handoff is checked separately, for an actionable error. */
 export const completeQuestArgs = z.strictObject({ lease: leaseHandle, handoff: z.unknown() })
 
@@ -127,6 +145,27 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     description:
       'File the final draft as a Proposal for the leased Quest; returns its hash and the Verdict. Call it before complete_quest on a Quest that needs a Seal.',
     args: submitProposalArgs,
+  },
+  {
+    name: 'spawn_subquest',
+    roles: SENIOR_ROLES,
+    description:
+      'Spawn a Sub-Quest for another Member to run; returns its id. Bounded by the guild’s spawn caps (spawn_cap, depth_cap).',
+    args: spawnSubquestArgs,
+  },
+  {
+    name: 'await_children',
+    roles: SENIOR_ROLES,
+    description:
+      'Wait for your Sub-Quests (mode all, or any). If they are not done you give up the worker slot (waiting: true) and the Quest resumes, on a new attempt, when they finish.',
+    args: awaitChildrenArgs,
+  },
+  {
+    name: 'child_results',
+    roles: SENIOR_ROLES,
+    description:
+      'Read each Sub-Quest’s status and, once done, its result: an artifact hash and a short summary.',
+    args: childResultsArgs,
   },
   {
     name: 'complete_quest',

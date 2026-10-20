@@ -1,22 +1,36 @@
 import { z } from 'zod'
 import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
-import { questConcurrency } from '../guild-config'
+import {
+  hallAcceptsQuests,
+  questConcurrency,
+  spawnChildrenCap,
+  spawnDepthCap,
+} from '../guild-config'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { NoteError, type NoteStore } from '../ports/note-store'
-import type { ObjectStore } from '../ports/object-store'
-import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
+import { hashBytes, type ObjectStore } from '../ports/object-store'
+import {
+  type DataClass,
+  hasLiveLease,
+  type Quest,
+  QuestError,
+  type QuestQueue,
+  waitMet,
+} from '../ports/quest-queue'
 import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
 import type { ProposalEngine } from '../proposals'
-import { QUEST_TEMPLATES } from '../quests'
+import { chooseHallOwner, QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
 import {
+  awaitChildrenArgs,
+  childResultsArgs,
   claimQuestArgs,
   completeQuestArgs,
   getArtifactArgs,
@@ -29,6 +43,7 @@ import {
   readArchiveArgs,
   readBriefArgs,
   roleToolNames,
+  spawnSubquestArgs,
   submitProposalArgs,
   TOOL_CATALOG,
   type ToolDef,
@@ -103,6 +118,25 @@ const requiresSeal = (quest: Quest): boolean =>
   QUEST_TEMPLATES.find((t) => t.id === quest.templateId)?.requiresSeal ?? false
 
 type Id = string | number | null
+
+/** Longest summary of a Sub-Quest's result a parent reads. */
+const SUMMARY_CHARS = 280
+
+/** One Sub-Quest as its parent sees it. */
+interface ChildReport {
+  childId: string
+  title: string
+  status: Quest['state']
+  error?: Quest['lastError']
+  result: { artifact: string | null; summary: string } | null
+}
+
+const DATA_CLASS_ORDER: readonly DataClass[] = ['public', 'internal', 'private']
+
+/** The more sensitive of two data classes: a Sub-Quest never handles data less guarded than its parent's. */
+function stricter(a: DataClass, b: DataClass): DataClass {
+  return DATA_CLASS_ORDER.indexOf(a) >= DATA_CLASS_ORDER.indexOf(b) ? a : b
+}
 
 class Denied extends Error {
   constructor(readonly code: string) {
@@ -318,6 +352,13 @@ export class McpGateway {
         )
       case 'submit_proposal':
         return this.submitProposal(caller, submitProposalArgs.parse(args))
+      case 'spawn_subquest':
+        return this.spawnSubquest(caller, spawnSubquestArgs.parse(args))
+      case 'await_children':
+        return this.awaitChildren(caller, awaitChildrenArgs.parse(args).mode)
+      case 'child_results':
+        childResultsArgs.parse(args)
+        return ok({ children: await this.childReport(caller, await this.childQuests(caller)) })
       case 'read_archive':
         return this.readArchive(caller, readArchiveArgs.parse(args))
       case 'write_archive':
@@ -551,6 +592,131 @@ export class McpGateway {
       passed: proposal.verdict.passed,
       findings: proposal.verdict.findings,
     })
+  }
+
+  /**
+   * Spawns a Sub-Quest of the leased Quest. The Hall defaults to the parent's; another Hall must
+   * accept Quests, and a private Hall only takes work from a parent whose data class is private.
+   * The child inherits the stricter of its parent's and its template's data class. The caps are the
+   * guild's current ones and are enforced with the write, so a refusal leaves no row.
+   */
+  private async spawnSubquest(
+    caller: Caller,
+    a: z.infer<typeof spawnSubquestArgs>
+  ): Promise<ToolReply> {
+    const { guild, quest } = caller
+    const template = QUEST_TEMPLATES.find((t) => t.id === a.template)
+    if (!template) {
+      return refuse('unknown_template')
+    }
+    const hallId = a.hall ?? quest.hallId
+    const { config } = await this.deps.config.current(guild)
+    const accepts = hallAcceptsQuests(config, hallId)
+    if (!accepts.ok) {
+      return refuse(accepts.error)
+    }
+    if (
+      config.halls.find((h) => h.id === hallId)?.kind === 'private' &&
+      quest.dataClass !== 'private'
+    ) {
+      return refuse('private_hall')
+    }
+    if (await this.deps.tripwires.isPaused(guild, hallId)) {
+      return refuse('hall_paused')
+    }
+    const ownerId = chooseHallOwner(config, hallId, template.rank, undefined)
+    if (ownerId === null) {
+      return refuse('unknown_owner')
+    }
+    try {
+      const spawned = await this.deps.quests.spawn(guild, {
+        parentId: quest.id,
+        attempt: quest.attempts,
+        briefHash: hashBytes(
+          new TextEncoder().encode(JSON.stringify([a.title, a.brief, a.template, hallId]))
+        ),
+        child: {
+          templateId: template.id,
+          hallId,
+          rank: template.rank,
+          dataClass: stricter(quest.dataClass, template.dataClass),
+          title: a.title,
+          ownerId,
+          doneCondition: a.brief,
+          roundLimit: template.roundLimit,
+        },
+        maxChildren: spawnChildrenCap(config),
+        maxDepth: spawnDepthCap(config),
+      })
+      return spawned.ok
+        ? ok({ childId: spawned.quest.id, depth: spawned.link.depth, created: spawned.created })
+        : refuse(spawned.error)
+    } catch (error) {
+      if (error instanceof QuestError) {
+        return refuse(error.code)
+      }
+      throw error
+    }
+  }
+
+  /** The Quests the leased Quest spawned, in spawn order. */
+  private async childQuests(caller: Caller): Promise<Quest[]> {
+    const { guild, quest } = caller
+    const links = await this.deps.quests.children(guild, quest.id)
+    const found = await Promise.all(links.map((l) => this.deps.quests.get(guild, l.childId)))
+    return found.flatMap((c) => (c ? [c] : []))
+  }
+
+  /** Each Sub-Quest's status and, once it is done, its result: the first artifact and the Handoff's goal as a short summary. */
+  private async childReport(caller: Caller, children: readonly Quest[]): Promise<ChildReport[]> {
+    const report: ChildReport[] = []
+    for (const child of children) {
+      const stored =
+        child.state === 'done'
+          ? await this.deps.handoffs.get(caller.guild, child.id, child.attempts)
+          : null
+      report.push({
+        childId: child.id,
+        title: child.title,
+        status: child.state,
+        ...(child.state === 'dead' ? { error: child.lastError } : {}),
+        result: stored
+          ? {
+              artifact: stored.handoff.artifacts[0] ?? null,
+              summary: stored.handoff.goal.slice(0, SUMMARY_CHARS),
+            }
+          : null,
+      })
+    }
+    return report
+  }
+
+  /**
+   * Returns the Sub-Quests' results if the fan-in is already met. Otherwise parks the Quest on
+   * them, giving up its worker slot (`waiting: true`): it is requeued, and the dispatcher claims it
+   * again, on a new attempt, once they finish.
+   */
+  private async awaitChildren(caller: Caller, mode: 'all' | 'any'): Promise<ToolReply> {
+    const { guild, quest } = caller
+    const children = await this.childQuests(caller)
+    if (children.length === 0) {
+      return refuse('no_children')
+    }
+    const report = await this.childReport(caller, children)
+    const ids = children.map((c) => c.id)
+    const waiting: Quest = { ...quest, waitingOn: ids, waitMode: mode }
+    if (waitMet(waiting, new Map(children.map((c) => [c.id, c])))) {
+      return ok({ waiting: false, children: report })
+    }
+    try {
+      await this.deps.quests.park(guild, quest.id, quest.attempts, ids, mode)
+    } catch (error) {
+      if (error instanceof QuestError) {
+        return refuse(error.code)
+      }
+      throw error
+    }
+    return ok({ waiting: true, children: report })
   }
 
   private async getArtifact(caller: Caller, hash: string): Promise<ToolReply> {
