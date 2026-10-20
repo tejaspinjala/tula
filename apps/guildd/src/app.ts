@@ -368,7 +368,7 @@ export function createApp(deps: AppDeps): Hono {
   // Unauthenticated identity routes are rate limited per client and per guild (429 + Retry-After).
   const limitsOf = { ...DEFAULT_RATE_LIMITS, ...deps.rateLimits }
   const limited = (route: keyof RateLimits) =>
-    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false)
+    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false, callerGuild)
   app.post('/guilds', limited('founding'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
