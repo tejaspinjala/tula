@@ -49,6 +49,16 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await queue.list(g, { limit: 10 })).quests).toHaveLength(1)
     })
 
+    test('a list can be narrowed to one Campaign', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const inA = await queue.post(g, quest({ jobKey: 'a1', campaignId: 'camp-a' }))
+      await queue.post(g, quest({ jobKey: 'b1', campaignId: 'camp-b' }))
+      await queue.post(g, quest({ jobKey: 'n1' }))
+      const page = await queue.list(g, { limit: 10, campaignId: 'camp-a' })
+      expect(page.quests.map((x) => x.id)).toEqual([inA.quest.id])
+    })
+
     test('a paused Hall has no Quest claimed until it resumes; other Halls still are', async () => {
       const { queue, newGuild, setHallPaused } = await make()
       const g = await newGuild()
