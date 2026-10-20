@@ -46,6 +46,34 @@ export async function eventsAfter(
   }))
 }
 
+/** Where a replay stops: after a seq, or after an instant. */
+export type EventBound = { seq: number } | { time: string } | null
+
+/**
+ * One page of the log for replay: events with seq greater than `after`, up to `limit`, no later
+ * than `bound`. `next` is the cursor for the following page, null when the page reaches the bound.
+ */
+export async function eventsHistory(
+  tx: TenantTx,
+  after: number,
+  limit: number,
+  bound: EventBound
+): Promise<{ events: GuildEvent[]; next: number | null }> {
+  const untilSeq = bound && 'seq' in bound ? bound.seq : Number.MAX_SAFE_INTEGER
+  const untilTime = bound && 'time' in bound ? bound.time : '9999-12-31T23:59:59.999Z'
+  const rows = await tx`
+    select seq, type, payload, occurred_at from events
+    where seq > ${after} and seq <= ${untilSeq} and occurred_at <= ${untilTime}
+    order by seq limit ${limit + 1}`
+  const events = rows.slice(0, limit).map((r) => ({
+    seq: Number(r.seq),
+    type: String(r.type),
+    payload: r.payload,
+    occurredAt: new Date(r.occurred_at).toISOString(),
+  }))
+  return { events, next: rows.length > limit ? (events.at(-1)?.seq ?? null) : null }
+}
+
 /** The highest seq in the tenant's log, 0 when empty. */
 export async function headSeq(tx: TenantTx): Promise<number> {
   const [row] = await tx`select coalesce(max(seq), 0) as seq from events`
