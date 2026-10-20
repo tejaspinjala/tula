@@ -165,6 +165,32 @@ describe('Bar the Gates routes', () => {
     expect(await harness.adapters.quests.claim(b.guildId, lease)).not.toBeNull()
   })
 
+  test('a global bar answers in under 2 s with 300 guilds and refuses every one of them', async () => {
+    const op = await signedIn()
+    operators.push(op.memberId)
+    const guilds: string[] = []
+    for (let i = 0; i < 300; i += 25) {
+      guilds.push(
+        ...(await Promise.all(
+          Array.from({ length: 25 }, () => harness.foundGuild({ name: 'Crowd', goal: 'g' }))
+        ))
+      )
+    }
+    try {
+      const started = performance.now()
+      const res = await send('POST', '/gates/bar', op.auth)
+      const elapsed = performance.now() - started
+      expect(res.status).toBe(201)
+      expect(elapsed).toBeLessThan(2000)
+      for (const g of guilds) {
+        expect((await harness.adapters.gates.status(g)).global).toBe(true)
+      }
+    } finally {
+      await send('POST', '/gates/lift', { ...op.auth, 'x-reauth-proof': await op.proof() })
+      operators.splice(operators.indexOf(op.memberId), 1)
+    }
+  }, 120_000)
+
   test('only a platform operator can bar or lift every guild, not any Guild Master', async () => {
     const op = await signedIn()
     const other = await signedIn()
