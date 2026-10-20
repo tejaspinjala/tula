@@ -144,6 +144,7 @@ describe('sandbox settings', () => {
     EGRESS_PROXY_URL: 'http://egress-proxy:3128',
     SANDBOX_GATEWAY_URL: 'http://guildd:3000',
   }
+  const tls = { SANDBOX_GATEWAY_URL: 'https://guildd.example:3000' }
   test('defaults to the memory runner outside production', () => {
     expect(loadSandboxEnv({ NODE_ENV: 'development' })).toEqual({ kind: 'memory' })
   })
@@ -195,7 +196,20 @@ describe('sandbox settings', () => {
     expect(() => loadSandboxEnv({ NODE_ENV: 'production', SANDBOX_RUNNER: 'memory' })).toThrow(
       /SANDBOX_RUNNER/
     )
-    expect(loadSandboxEnv({ NODE_ENV: 'production', ...docker }).kind).toBe('docker')
+    expect(loadSandboxEnv({ NODE_ENV: 'production', ...docker, ...tls }).kind).toBe('docker')
+  })
+  test('production needs an https gateway URL; the proxy may stay http on the internal network', () => {
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production', ...docker })).toThrow(
+      /SANDBOX_GATEWAY_URL/
+    )
+    expect(loadSandboxEnv({ NODE_ENV: 'development', ...docker }).kind).toBe('docker')
+    const loaded = loadSandboxEnv({ NODE_ENV: 'production', ...docker, ...tls })
+    expect(loaded.kind === 'docker' && loaded.proxyUrl).toBe('http://egress-proxy:3128')
+  })
+  test('production refuses the dev guild header', () => {
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', DEV_GUILD_HEADER: 'true' })).toThrow(
+      /DEV_GUILD_HEADER must not be true in production/
+    )
   })
 })
 
