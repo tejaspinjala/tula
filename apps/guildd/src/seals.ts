@@ -109,7 +109,9 @@ export class SealEngine {
    * in this one call, so the reservation token lives only in a local variable and is never stored
    * or returned. If `effect` throws, the Seal stays reserved: the external action may have
    * happened, so only the Guild Master (re-auth) can resolve it, by releasing the stale
-   * reservation or marking it posted. A crash between reserve and consume does the same.
+   * reservation or marking it posted. A crash between reserve and consume does the same. The
+   * production post path is `POST /seals/:id/posted` by the Guild Master; this is the worker-side
+   * primitive for #57 and later.
    */
   async publish(
     guildId: string,

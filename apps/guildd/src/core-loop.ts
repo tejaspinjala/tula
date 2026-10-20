@@ -6,19 +6,26 @@ import type { SealEngine } from './seals'
 /** Collaborators of {@link reconcileSeals}. */
 export interface CoreLoopDeps {
   quests: QuestQueue
-  seals: Pick<SealStore, 'forQuest'>
+  seals: Pick<SealStore, 'forQuest' | 'expireDue'>
 }
+
+/** Hours an approved Seal may wait to be posted when the caller passes no window (72). */
+const DEFAULT_POST_WINDOW_MS = 72 * 3_600_000
 
 /**
  * Settles every Quest of the guild held in `awaiting_seal` whose Seal for the Quest's current
  * round has ended: consumed or posted finishes it; denied or expired sends it to a revision round
  * or the dead letters (see `QuestQueue.settleSeal`). Deterministic and keyed by quest id, so
- * a rerun, or two workers at once, change nothing. Returns how many Quests it settled.
+ * a rerun, or two workers at once, change nothing. First expires approved Seals never posted
+ * within `postWindowMs` (the guild's `caps.sealPostWindowHours`), so their Quests are freed.
+ * Returns how many Quests it settled.
  */
 export async function reconcileSeals(
   deps: CoreLoopDeps,
-  guildId: string
+  guildId: string,
+  postWindowMs: number = DEFAULT_POST_WINDOW_MS
 ): Promise<{ settled: number }> {
+  await deps.seals.expireDue(guildId, { approvedWindowMs: postWindowMs })
   let settled = 0
   let after: string | undefined
   do {
@@ -96,7 +103,7 @@ export async function requestQuestSeal(
 /** Collaborators of {@link requestPendingSeals}. */
 export interface PendingSealDeps extends SealRequestDeps {
   quests: Pick<QuestQueue, 'list' | 'settleSeal'>
-  sealStore: Pick<SealStore, 'forQuest'>
+  sealStore: Pick<SealStore, 'forQuest' | 'expireDue'>
 }
 
 /**

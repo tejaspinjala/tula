@@ -1,5 +1,5 @@
 import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
-import { questConcurrency } from './guild-config'
+import { questConcurrency, sealPostWindowMs } from './guild-config'
 import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
@@ -231,11 +231,15 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   if (await deps.gates.isBarred(guildId)) {
     return { status: 'barred' }
   }
-  await reconcileSeals({ quests: deps.quests, seals: deps.sealStore }, guildId)
+  const { config } = await deps.config.current(guildId)
+  await reconcileSeals(
+    { quests: deps.quests, seals: deps.sealStore },
+    guildId,
+    sealPostWindowMs(config)
+  )
   await requestPendingSeals(deps, guildId)
   // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
   await watchHalls(deps, guildId)
-  const { config } = await deps.config.current(guildId)
   const claimed = await deps.quests.claim(guildId, {
     leaseMs: DISPATCH_LEASE_MS,
     maxActive: questConcurrency(config),

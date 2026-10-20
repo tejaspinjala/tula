@@ -356,15 +356,21 @@ export class PgSealStore implements SealStore {
     })
   }
 
-  async expireDue(guildId: string): Promise<number> {
+  async expireDue(guildId: string, opts?: { approvedWindowMs?: number }): Promise<number> {
     const now = this.clock.now()
+    // An approved Seal decided at or before this instant was never posted; with no window it is the epoch, which none is.
+    const approvedBefore = new Date(
+      opts?.approvedWindowMs === undefined ? 0 : now.getTime() - opts.approvedWindowMs
+    )
     return this.db.withGuild(guildId, async (tx) => {
       // Bounded: at most EXPIRE_BATCH per call, so a read never does unbounded writes.
       const rows = await tx`
         update seals set status = 'expired'
         where guild_id = ${guildId} and seal_id in (
           select seal_id from seals
-          where guild_id = ${guildId} and status = 'requested' and expires_at <= ${now}
+          where guild_id = ${guildId} and (
+            (status = 'requested' and expires_at <= ${now})
+            or (status = 'approved' and decided_at <= ${approvedBefore}))
           order by seal_id limit ${EXPIRE_BATCH})
         returning ${tx.unsafe(COLUMNS)}`
       // UPDATE ... RETURNING has no defined order; sort so events land in a stable sequence.

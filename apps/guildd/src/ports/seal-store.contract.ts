@@ -175,6 +175,20 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect(await store.expireDue(g)).toBe(0)
     })
 
+    test('expireDue with a window expires an approved Seal never posted, and only once the window passes', async () => {
+      const { store, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
+      const window = 3_600_000
+      expect(await store.expireDue(g)).toBe(0)
+      clock.advance(window - 1)
+      expect(await store.expireDue(g, { approvedWindowMs: window })).toBe(0)
+      clock.advance(1)
+      expect(await store.expireDue(g, { approvedWindowMs: window })).toBe(1)
+      expect((await store.get(g, seal.id))?.status).toBe('expired')
+    })
+
     test('the store binds the hash of the text itself: a Seal reports sha256(text)', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
