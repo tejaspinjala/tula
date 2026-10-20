@@ -18,7 +18,10 @@ export interface BarOutcome {
 export interface GatesDeps {
   store: GateStore
   /** Revokes every run token of a guild for good; the model gateway. */
-  runs: { revokeGuildRuns(guildId: string): Promise<number> }
+  runs: {
+    revokeGuildRuns(guildId: string): Promise<number>
+    revokeAllRuns(): Promise<number>
+  }
   sandboxes: Pick<SandboxRunner, 'kill'>
   /** Guild ids in id order after `after`, at most `limit`; a global bar revokes every guild's tokens. */
   guildIds: (after: string | undefined, limit: number) => Promise<string[]>
