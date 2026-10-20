@@ -39,7 +39,7 @@ One unit of work with exactly one owner and a done-condition.
 _Avoid_: task, ticket
 
 **Sub-Quest**:
-A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; it inherits its parent's data class.
+A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; its data class is the stricter of its parent's and its template's.
 _Avoid_: subtask, child task
 
 **Campaign**:
@@ -55,12 +55,12 @@ One run of a pinned Workflow version. Its Quests share one Campaign, the instanc
 _Avoid_: job
 
 **Quest Board**:
-The kanban of a Hall's Quests.
+The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests onto it under a Campaign (`post_to_board`), and the Hall's Members claim them in parallel, up to the Hall's `maxConcurrentMembers`. A Campaign holds at most `maxQuestsPerCampaign` board Quests (board Quests only; Sub-Quests are bounded by the spawn caps). The Hall cap counts live-leased active Quests only, so a parked parent or a Quest awaiting a Seal holds no slot, and the Captain's own plan Quest is outside it, so a cap of one still runs one Member.
 _Avoid_: backlog
 
 **Missive**:
-A small typed message on the quest bus carrying ids and hashes, never large content.
-_Avoid_: message, notification
+A short note (up to 2000 characters) one Member of a Hall sends another Member of the same Hall, or the whole Hall (`send_missive`, `read_missives`). Capped per Quest (`maxMissivesPerQuest`, refused as `missive_cap`). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame, and the Guild Master reads a Hall's Missives in the ledger. Hall-scoped in v1; cross-Hall Missives are the Milestone 2 extension. Work products travel as Handoffs (ids and hashes), not Missives.
+_Avoid_: DM, chat, message, notification
 
 **Inquiry**:
 One precise question from one Hall to another, answered once and filed in the Archive.
@@ -173,6 +173,9 @@ A passkey was added to the guild (payload: credential id).
 **identity.signed_in**:
 A passkey sign-in opened a session (payload: session id).
 
+**identity.signed_out**:
+A session was ended by sign-out and its token stopped working (payload: session id).
+
 **identity.reauthenticated**:
 A session re-authenticated with its passkey and received a short-lived proof (payload: session id).
 
@@ -214,6 +217,15 @@ Event types appended to the chained event log by Bar the Gates and by the Quest,
 
 **gates.barred** / **gates.lifted**:
 The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and the acting member id in the acting guild's own chain only). A global bar or lift is also told to every other guild's chain with the bar id and scope only, never who acted.
+
+**quest.claimed**:
+A Member's Quest was leased (payload: quest id, hall id, attempt, member id, and `hall`, the Hall again under the name the Quest Board shows; ids and a number only).
+
+**campaign.started** / **campaign.finished**:
+A team Campaign (one with a board Quest) got its first board Quest / the last in-flight Quest of a team Campaign settled, done or dead (payload: campaign id only). Campaigns with no board Quest, such as workflow instances, never emit them.
+
+**missive.sent**:
+A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { canonicalJson } from './audit-chain'
+import { characterLook } from './look-catalogue'
 import { type ContentPolicy, DEFAULT_POLICY } from './verdict'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
@@ -11,10 +12,17 @@ const MAX_ITEMS = 50
 /** A worker agent's rank; maps to a model tier in routing, never to a model id here. */
 export const memberRank = z.enum(['apprentice', 'journeyman', 'adept'])
 
-const agent = z.object({ id: slug, name: displayName })
+/** The addressee of a Missive to a whole Hall, so no Member, Captain or Steward may carry it as an id. */
+const agentId = slug.refine((id) => id !== 'hall', { message: 'hall is a reserved id' })
+
+const agent = z.object({ id: agentId, name: displayName })
 
 /** A Member: a worker agent with a rank. */
-export const member = agent.extend({ rank: memberRank })
+export const member = agent.extend({
+  rank: memberRank,
+  /** Overrides the look generated from the Member id; cosmetic, so changing it is neutral. */
+  look: characterLook.optional(),
+})
 
 /** A Hall: a department of the guild, with its Captain and Members. */
 export const hall = z.object({
@@ -28,6 +36,13 @@ export const hall = z.object({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
+  /**
+   * Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when
+   * absent. Raising it widens risk. Only live-leased `active` Quests count (a parked parent or a
+   * Quest awaiting a Seal holds no slot), and the Captain's own plan Quest is outside it, so a cap of
+   * 1 still runs one Member.
+   */
+  maxConcurrentMembers: z.number().int().min(1).max(1000).optional(),
 })
 
 /** Seal Policy levels, strictest first: what needs a Seal and what agents may do alone. */
@@ -84,6 +99,10 @@ export const caps = z.object({
   maxChildrenPerQuest: z.number().int().min(0).max(20).optional(),
   /** How deep sub-Quests may nest; {@link DEFAULT_MAX_SPAWN_DEPTH} when absent. Raising it widens risk. */
   maxSpawnDepth: z.number().int().min(0).max(5).optional(),
+  /** Board Quests a Captain may post under one Campaign; {@link DEFAULT_MAX_QUESTS_PER_CAMPAIGN} when absent. Counts board Quests only (Sub-Quests are bounded by the spawn caps). Raising it widens risk. */
+  maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
+  /** Missives one Quest may send; {@link DEFAULT_MAX_MISSIVES_PER_QUEST} when absent. Raising it widens risk. */
+  maxMissivesPerQuest: z.number().int().min(0).max(200).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -110,6 +129,39 @@ export function spawnDepthCap(config: GuildConfig): number {
   return config.caps.maxSpawnDepth ?? DEFAULT_MAX_SPAWN_DEPTH
 }
 
+/** Quests a Captain may post under one Campaign when the config sets no cap. */
+export const DEFAULT_MAX_QUESTS_PER_CAMPAIGN = 10
+
+/** The guild's cap on Quests posted to the Quest Board under one Campaign. */
+export function campaignQuestCap(config: GuildConfig): number {
+  return config.caps.maxQuestsPerCampaign ?? DEFAULT_MAX_QUESTS_PER_CAMPAIGN
+}
+
+/** Missives one Quest may send when the config sets no cap. */
+export const DEFAULT_MAX_MISSIVES_PER_QUEST = 20
+
+/** The guild's cap on Missives one Quest may send (all its attempts). */
+export function missiveCap(config: GuildConfig): number {
+  return config.caps.maxMissivesPerQuest ?? DEFAULT_MAX_MISSIVES_PER_QUEST
+}
+
+/** Concurrent Members of a Hall when its cap is unset: no limit beyond the guild's Quest concurrency. */
+export const DEFAULT_MAX_CONCURRENT_MEMBERS = 1000
+
+/** The most Quests of `hall` that may hold a live lease at once. */
+export function hallMemberCap(hall: Pick<Hall, 'maxConcurrentMembers'>): number {
+  return hall.maxConcurrentMembers ?? DEFAULT_MAX_CONCURRENT_MEMBERS
+}
+
+/** The per-Hall live-lease caps a claim enforces: only Halls that set `maxConcurrentMembers` appear. */
+export function hallCaps(config: GuildConfig): Record<string, number> {
+  return Object.fromEntries(
+    config.halls.flatMap((h) =>
+      h.maxConcurrentMembers === undefined ? [] : [[h.id, h.maxConcurrentMembers]]
+    )
+  )
+}
+
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
 
@@ -123,6 +175,8 @@ export const contentPolicy = z.object({
   maxLength: z.number().int().min(1).max(20_000),
   bannedTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
   requiredTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+  /** True lets a draft that talks about the task through the Verdict; absent means rejected. */
+  allowMetaDrafts: z.boolean().optional(),
 })
 
 /** The guild's effective content policy for Verdicts. */
@@ -317,7 +371,8 @@ type Member = GuildConfig['halls'][number]['members'][number]
 
 function memberNoWider(prev: Member, next: Member): boolean {
   return (
-    RANKS.indexOf(next.rank) <= RANKS.indexOf(prev.rank) && othersSame(prev, next, ['name', 'rank'])
+    RANKS.indexOf(next.rank) <= RANKS.indexOf(prev.rank) &&
+    othersSame(prev, next, ['name', 'rank', 'look'])
   )
 }
 
@@ -333,7 +388,16 @@ function hallNoWider(prev: Hall, next: Hall): boolean {
       const before = members.get(m.id)
       return before !== undefined && memberNoWider(before, m)
     }) &&
-    othersSame(prev, next, ['name', 'kind', 'locked', 'privateEligible', 'captain', 'members'])
+    hallMemberCap(next) <= hallMemberCap(prev) &&
+    othersSame(prev, next, [
+      'name',
+      'kind',
+      'locked',
+      'privateEligible',
+      'captain',
+      'members',
+      'maxConcurrentMembers',
+    ])
   )
 }
 
@@ -367,9 +431,10 @@ function policyNoWider(prev: ContentPolicy, next: ContentPolicy): boolean {
   }
   return (
     next.maxLength <= prev.maxLength &&
+    (next.allowMetaDrafts !== true || prev.allowMetaDrafts === true) &&
     covers(next.bannedTerms, prev.bannedTerms) &&
     covers(next.requiredTerms, prev.requiredTerms) &&
-    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms'])
+    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms', 'allowMetaDrafts'])
   )
 }
 
@@ -391,6 +456,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     sealPostWindowMs(next) <= sealPostWindowMs(prev) &&
     spawnChildrenCap(next) <= spawnChildrenCap(prev) &&
     spawnDepthCap(next) <= spawnDepthCap(prev) &&
+    campaignQuestCap(next) <= campaignQuestCap(prev) &&
+    missiveCap(next) <= missiveCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -398,6 +465,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'sealPostWindowHours',
       'maxChildrenPerQuest',
       'maxSpawnDepth',
+      'maxQuestsPerCampaign',
+      'maxMissivesPerQuest',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
@@ -427,7 +496,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   )
 }
 
-/** Drops display names at every depth, leaving only what can carry risk. */
+/** Drops display names and Member looks at every depth, leaving only what can carry risk. */
 function withoutNames(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutNames)
@@ -435,7 +504,7 @@ function withoutNames(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([k]) => k !== 'name')
+        .filter(([k]) => k !== 'name' && k !== 'look')
         .map(([k, v]) => [k, withoutNames(v)])
     )
   }

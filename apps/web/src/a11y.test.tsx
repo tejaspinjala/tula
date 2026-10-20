@@ -11,6 +11,7 @@ import { CostTablePanel } from './CostTablePanel'
 import { FoundGuildPanel } from './FoundGuildPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
+import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import { webAuthnBrowser } from './passkeys'
@@ -78,7 +79,7 @@ beforeAll(() => {
         return Response.json(history)
       }
       if (url.endsWith('/gates')) {
-        return Response.json({ guild: true, global: false })
+        return Response.json({ guild: true, global: false, operator: true })
       }
       if (url.includes('/learning/suggestions')) {
         return Response.json({ suggestions: [suggestion], next: null })
@@ -136,6 +137,7 @@ const panels: Array<[string, ReactElement]> = [
   ['Tripwires', <TripwirePanel key="t" session={session} />],
   ['Treasury', <TreasuryPanel key="tr" session={session} />],
   ['Quest Board', <QuestBoardPanel key="q" session={session} />],
+  ['Hall missives', <MissivesPanel key="mi" session={session} />],
   ['Costs', <CostTablePanel key="c" session={session} />],
   ['Timeline', <TimelinePanel key="tl" session={session} />],
   ['Gates', <GatesPanel key="g" session={session} />],

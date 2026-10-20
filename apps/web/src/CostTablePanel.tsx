@@ -3,6 +3,7 @@ import {
   type CostGroup,
   type CostPerPost,
   type CostRow,
+  campaignLabel,
   costPerPostText,
   formatDollars,
   loadCostPerPost,
@@ -117,7 +118,9 @@ export function CostTablePanel({ session }: { session: Session | null }) {
                 <tbody>
                   {posts.campaigns.map((c) => (
                     <tr key={c.campaignId ?? 'none'}>
-                      <th scope="row">{c.campaignId ?? 'No Campaign'}</th>
+                      <th scope="row" title={c.campaignId ?? undefined}>
+                        {campaignLabel(c.campaignId)}
+                      </th>
                       <td>{c.posts}</td>
                       <td>{formatDollars(c.costMicros)}</td>
                       <td>{costPerPostText(c)}</td>

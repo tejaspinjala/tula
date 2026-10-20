@@ -7,6 +7,7 @@ export const CHECK_NAMES = [
   'required_terms',
   'links',
   'private_data',
+  'meta_draft',
 ] as const
 /** One check name. */
 export type CheckName = (typeof CHECK_NAMES)[number]
@@ -25,6 +26,8 @@ export interface ContentPolicy {
   maxLength: number
   bannedTerms: string[]
   requiredTerms: string[]
+  /** True lets a draft that talks about doing the task through. Absent or false rejects meta-drafts; setting it is widening. */
+  allowMetaDrafts?: boolean | undefined
 }
 
 /** The policy used until guild config carries its own banned and required terms. */
@@ -118,6 +121,29 @@ function privateCheck(content: string): Finding {
   }
 }
 
+const META_DRAFT_PATTERNS: readonly RegExp[] = [
+  /\bi(?:'|\u2019)?m (?:now )?(?:ready|happy|glad|here|going|about) to\b/i,
+  /\bi am (?:now )?(?:ready|happy|glad|here|going|about) to\b/i,
+  /\bi(?:'|\u2019)?ll (?:draft|write|create|compose|prepare|help|work)\b/i,
+  /\bi (?:will|can|could|would|shall) (?:\w+ )?(?:draft|write|create|compose|prepare|help|work)\b/i,
+  /\bas an ai\b/i,
+  /\b(?:let me|allow me to) (?:draft|write|create|compose|prepare|help)\b/i,
+]
+
+function metaDraftCheck(content: string, policy: ContentPolicy): Finding {
+  if (policy.allowMetaDrafts === true) {
+    return { check: 'meta_draft', passed: true, detail: 'meta-drafts allowed by policy' }
+  }
+  const passed = !META_DRAFT_PATTERNS.some((p) => p.test(content))
+  return {
+    check: 'meta_draft',
+    passed,
+    detail: passed
+      ? 'reads as the deliverable itself'
+      : 'talks about doing the task instead of doing it',
+  }
+}
+
 /** Runs every deterministic check over `content`; pure, so the same content always gives the same findings. */
 export function runChecks(content: string, policy: ContentPolicy): Finding[] {
   return [
@@ -126,6 +152,7 @@ export function runChecks(content: string, policy: ContentPolicy): Finding[] {
     requiredCheck(content, policy),
     linksCheck(content),
     privateCheck(content),
+    metaDraftCheck(content, policy),
   ]
 }
 

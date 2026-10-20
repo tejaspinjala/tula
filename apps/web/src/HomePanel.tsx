@@ -1,8 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Badge, type Tone } from './Badge'
 import { costPerPostText, loadCostPerPost } from './costs'
-import { barGates, describeGates, loadGates } from './gates'
-import { PasskeyRequestError, type Session } from './passkeys'
+import { barGates, describeGates, liftGates, loadGates } from './gates'
+import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import { BOARD_STATES, groupByState, loadQuests } from './quests'
 import { listSeals } from './seals'
 import { describeSummon, loadSummon } from './summon'
@@ -93,6 +93,16 @@ export function HomePanel({
     }
   }, [session, reloadGates])
 
+  const lift = useCallback(async () => {
+    try {
+      await liftGates(session, 'guild', fetch, webAuthnBrowser)
+      setBarred('The guild bar is lifted.')
+      reloadGates()
+    } catch (e) {
+      setBarred(e instanceof PasskeyRequestError ? `Refused: ${e.code}` : 'The request failed.')
+    }
+  }, [session, reloadGates])
+
   const open = (path: string) => (event: { preventDefault: () => void }) => {
     event.preventDefault()
     navigate(path)
@@ -140,9 +150,15 @@ export function HomePanel({
             </p>
           )}
           <div className="actions">
-            <button type="button" className="btn btn-danger" onClick={bar}>
-              Bar the Gates
-            </button>
+            {gates.state === 'ok' && gates.data.guild ? (
+              <button type="button" className="btn btn-primary" onClick={lift}>
+                Lift the bar
+              </button>
+            ) : (
+              <button type="button" className="btn btn-danger" onClick={bar}>
+                Bar the Gates
+              </button>
+            )}
             <a href="/gates" className="btn" onClick={open('/gates')}>
               Gates settings
             </a>

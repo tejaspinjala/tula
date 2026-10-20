@@ -33,7 +33,7 @@ const outcomeBody = z.object({
   revokedRuns: z.number(),
   killedSandboxes: z.number(),
 })
-const statusBody = z.object({ guild: z.boolean(), global: z.boolean() })
+const statusBody = z.object({ guild: z.boolean(), global: z.boolean(), operator: z.boolean() })
 
 function send(method: string, path: string, headers: Record<string, string>, body?: unknown) {
   return harness.request(path, {
@@ -113,7 +113,7 @@ describe('Bar the Gates routes', () => {
     expect(again.status).toBe(200)
     expect(
       statusBody.parse(await (await send('GET', `/guilds/${g}/gates`, who.auth)).json())
-    ).toEqual({ guild: true, global: false })
+    ).toEqual({ guild: true, global: false, operator: false })
   })
 
   test('lifting needs passkey re-authentication; the bar holds without it', async () => {
@@ -167,7 +167,11 @@ describe('Bar the Gates routes', () => {
       expect(await harness.adapters.quests.claim(b.guildId, lease)).toBeNull()
       expect(
         statusBody.parse(await (await send('GET', `/guilds/${b.guildId}/gates`, b.auth)).json())
-      ).toEqual({ guild: false, global: true })
+      ).toEqual({ guild: false, global: true, operator: false })
+      // The status tells the caller whether it may bar or lift every guild.
+      expect(
+        statusBody.parse(await (await send('GET', `/guilds/${a.guildId}/gates`, a.auth)).json())
+      ).toMatchObject({ operator: true })
       expect((await send('POST', '/gates/lift', a.auth)).status).toBe(403)
       expect(await harness.adapters.quests.claim(b.guildId, lease)).toBeNull()
     } finally {

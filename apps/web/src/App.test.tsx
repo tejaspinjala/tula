@@ -14,13 +14,26 @@ const urls: string[] = []
 let foundingIsOpen = false
 let foundingStatus = 200
 let signInStatus = 200
+/** Whether guildd holds a live cookie session for this browser (what a reload would find). */
+let cookieLive = false
+const requests: { url: string; method: string; headers: Headers }[] = []
 
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
   globalThis.fetch = Object.assign(
-    async (input: string | URL | Request) => {
+    async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input)
       urls.push(url)
+      requests.push({ url, method: init?.method ?? 'GET', headers: new Headers(init?.headers) })
+      if (url === '/api/session' && !init?.method) {
+        return cookieLive
+          ? Response.json({ guildId: guild })
+          : Response.json({ error: 'unauthenticated' }, { status: 401 })
+      }
+      if (url === '/api/session/logout') {
+        cookieLive = false
+        return new Response(null, { status: 204 })
+      }
       if (url === '/api/health') {
         return Response.json({ status: 'ok' })
       }
@@ -33,6 +46,10 @@ beforeAll(() => {
         return Response.json({ challengeId: 'c1', options })
       }
       if (url.endsWith('/sign-in/finish')) {
+        if (signInStatus === 200 && new Headers(init?.headers).get('x-session-mode') === 'cookie') {
+          cookieLive = true
+          return Response.json({ guildId: guild })
+        }
         return signInStatus === 200
           ? Response.json({ token: 'tok', guildId: guild })
           : Response.json({ error: 'verification_failed' }, { status: signInStatus })
@@ -60,8 +77,12 @@ const browser = {
   get: async () => ({ signed: true }),
 }
 
-async function mount() {
+async function mount(opts: { keepSession?: boolean } = {}) {
   urls.length = 0
+  requests.length = 0
+  if (!opts.keepSession) {
+    cookieLive = false
+  }
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
@@ -141,6 +162,7 @@ test('signed in, only the active view renders and the nav moves between views', 
     'Treasury and Costs',
     'Roster and Summon',
     'Guild',
+    'Workflows',
     'Gates',
     'Timeline',
     'Vault and Settings',
@@ -317,4 +339,72 @@ test('the active tab is scrolled into view (F2)', async () => {
   HTMLElement.prototype.scrollIntoView = original
   expect(scrolled).toContain('Quest Board')
   await act(async () => root.unmount())
+})
+
+test('Sign out resets the document title to Guildhall (shot 51)', async () => {
+  const { host, root } = await signedIn('/seals')
+  expect(document.title).toBe('Seals | Guildhall')
+  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  expect(document.title).toBe('Guildhall')
+  await act(async () => root.unmount())
+})
+
+test('an unknown path redirects to / and keeps the query string, so ?seal= survives', async () => {
+  const { host, root } = await signedIn('/no-such-view?seal=abc')
+  expect(window.location.pathname).toBe('/')
+  expect(window.location.search).toBe('?seal=abc')
+  expect(host.querySelector('#seals-title')).not.toBeNull()
+  await act(async () => root.unmount())
+})
+
+test('the phone More menu closes on Escape, on a tap outside, and from its own toggle (shot 50)', async () => {
+  const { host, root } = await signedIn('/')
+  const nav = () => host.querySelector('nav') as HTMLElement
+  const expanded = () => nav().querySelector('.nav-more button')?.getAttribute('aria-expanded')
+  await click(button(nav(), 'More'))
+  expect(expanded()).toBe('true')
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(expanded()).toBe('false')
+  await click(button(nav(), 'More'))
+  await act(async () => {
+    document.getElementById('main')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+  })
+  expect(expanded()).toBe('false')
+  await click(button(nav(), 'More'))
+  await click(button(nav(), 'Close'))
+  expect(expanded()).toBe('false')
+  await act(async () => root.unmount())
+})
+
+test('a reload keeps the Guild Master signed in through the cookie, with no passkey prompt', async () => {
+  const first = await signedIn('/timeline')
+  await act(async () => first.root.unmount())
+  const { host, root } = await mount({ keepSession: true })
+  expect(host.textContent).toContain('Ember Guild')
+  expect(window.location.pathname).toBe('/timeline')
+  expect(urls).not.toContain('/api/sign-in/begin')
+  await act(async () => root.unmount())
+})
+
+test('sign-in asks for a cookie session and no request carries a bearer token', async () => {
+  const { root } = await signedIn()
+  const finish = requests.find((r) => r.url === '/api/sign-in/finish')
+  expect(finish?.headers.get('x-session-mode')).toBe('cookie')
+  const bearers = requests
+    .map((r) => r.headers.get('authorization'))
+    .filter((h) => h?.includes('tok'))
+  expect(bearers).toEqual([])
+  await act(async () => root.unmount())
+})
+
+test('Sign out revokes the session on guildd, and a reload stays signed out', async () => {
+  const { host, root } = await signedIn()
+  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  expect(requests.some((r) => r.url === '/api/session/logout' && r.method === 'POST')).toBe(true)
+  await act(async () => root.unmount())
+  const again = await mount({ keepSession: true })
+  expect(button(again.host, 'Sign in with passkey')).toBeTruthy()
+  await act(async () => again.root.unmount())
 })

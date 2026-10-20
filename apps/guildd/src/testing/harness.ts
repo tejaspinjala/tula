@@ -38,6 +38,8 @@ export const UNLIMITED_RATE_LIMITS = {
   'push-subscribe': { client: NO_LIMIT, guild: NO_LIMIT },
   'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
   'events-history': { client: NO_LIMIT, guild: NO_LIMIT },
+  'missives-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'session-check': { client: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */
@@ -59,6 +61,7 @@ export interface HarnessOptions {
       | 'secrets'
       | 'config'
       | 'notes'
+      | 'missives'
       | 'seals'
       | 'proposals'
       | 'workflows'
@@ -71,6 +74,7 @@ export interface HarnessOptions {
       | 'suggestions'
       | 'streamTickets'
       | 'pushStore'
+      | 'guildMasterLooks'
       | 'pushNotifier'
       | 'vapidPublicKey'
       | 'platformOperators'
@@ -143,6 +147,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       secrets: composed.secrets,
       config: composed.config,
       notes: composed.notes,
+      missives: composed.missives,
       seals: composed.seals,
       proposals: composed.proposals,
       workflows: composed.workflows,
@@ -153,6 +158,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       learning: composed.learning,
       streamTickets: composed.streamTickets,
       pushStore: composed.pushStore,
+      guildMasterLooks: composed.guildMasterLooks,
       pushNotifier: composed.pushNotifier,
       pushRelay: composed.pushRelay,
       gateway: composed.gateway,

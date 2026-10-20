@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import { Badge } from '../Badge'
+import { LookPicker, LookPreview } from '../game/LookPicker'
+import { choiceFor } from '../game/look'
+import { GUILD_CAPS, guildCapValue, HALL_CAP, setGuildCap, setHallCap, widenedCaps } from './caps'
 import {
   addMember,
   type BuilderConfig,
@@ -10,6 +14,7 @@ import {
   rename,
   setCaptain,
   setHallSettings,
+  setLook,
   setRank,
 } from './model'
 
@@ -17,6 +22,8 @@ const RANKS: BuilderMember['rank'][] = ['apprentice', 'journeyman', 'adept']
 
 /** Props of {@link Inspector}. */
 export interface InspectorProps {
+  /** The config in force, to mark a raised cap as widening before save (a hint; the server decides). */
+  saved: BuilderConfig
   config: BuilderConfig
   selected: string | null
   onChange: (next: BuilderConfig) => void
@@ -45,7 +52,75 @@ function DeleteWithConfirm({ what, onConfirm }: { what: string; onConfirm: () =>
   )
 }
 
-function HallEditor({ hall, config, onChange, onSelect }: InspectorProps & { hall: BuilderHall }) {
+function CapInput({
+  label,
+  value,
+  min,
+  max,
+  hint,
+  widening,
+  onValue,
+}: {
+  label: string
+  value: number | undefined
+  min: number
+  max: number
+  hint: string
+  widening: boolean
+  onValue: (value: number | null) => void
+}) {
+  return (
+    <label>
+      {label}
+      <input
+        type="number"
+        aria-label={label}
+        min={min}
+        max={max}
+        value={value ?? ''}
+        onChange={(e) => {
+          const parsed = e.target.value === '' ? null : Number(e.target.value)
+          if (parsed === null || Number.isInteger(parsed)) {
+            onValue(parsed)
+          }
+        }}
+      />
+      <span className="muted">{` ${min} to ${max}. ${hint} `}</span>
+      {widening && <Badge tone="warn">Widening: needs your passkey</Badge>}
+    </label>
+  )
+}
+
+function GuildCaps({ saved, config, onChange }: InspectorProps) {
+  const widened = widenedCaps(saved, config)
+  return (
+    <section aria-labelledby="guild-caps-heading" className="inspector-caps">
+      <h3 id="guild-caps-heading" className="sub-title">
+        Guild caps
+      </h3>
+      {GUILD_CAPS.map((f) => (
+        <CapInput
+          key={f.key}
+          label={f.label}
+          value={guildCapValue(config, f.key)}
+          min={f.min}
+          max={f.max}
+          hint={`Default ${f.fallback}.`}
+          widening={widened.includes(`guild:${f.key}`)}
+          onValue={(v) => onChange(setGuildCap(config, f.key, v ?? f.fallback))}
+        />
+      ))}
+    </section>
+  )
+}
+
+function HallEditor({
+  hall,
+  saved,
+  config,
+  onChange,
+  onSelect,
+}: InspectorProps & { hall: BuilderHall }) {
   return (
     <>
       <label>
@@ -97,7 +172,15 @@ function HallEditor({ hall, config, onChange, onSelect }: InspectorProps & { hal
         <h3 id="caps-heading" className="sub-title">
           Caps
         </h3>
-        <p className="muted">No per-Hall caps can be set yet.</p>
+        <CapInput
+          label="Member cap"
+          value={hall.maxConcurrentMembers}
+          min={HALL_CAP.min}
+          max={HALL_CAP.max}
+          hint="Members of this Hall working at once. Empty means no limit."
+          widening={widenedCaps(saved, config).includes(`hall:${hall.id}`)}
+          onValue={(v) => onChange(setHallCap(config, hall.id, v))}
+        />
       </section>
     </>
   )
@@ -114,6 +197,7 @@ function MemberEditor({
   const siblings = hall?.members ?? []
   const at = siblings.findIndex((m) => m.id === member.id)
   const neighbour = siblings[at + 2]
+  const look = member.look ?? choiceFor(member.id)
   return (
     <>
       <label>
@@ -142,6 +226,16 @@ function MemberEditor({
           ))}
         </select>
       </label>
+      <fieldset className="look-editor">
+        <legend>Look</legend>
+        <LookPreview look={look} label={`${member.name}'s look`} />
+        <LookPicker look={look} onChange={(next) => onChange(setLook(config, member.id, next))} />
+        {member.look && (
+          <button type="button" onClick={() => onChange(setLook(config, member.id, null))}>
+            Reset look
+          </button>
+        )}
+      </fieldset>
       <label>
         Move to Hall
         <select
@@ -224,7 +318,10 @@ export function Inspector(props: InspectorProps) {
         </label>
       )}
       {!hall && !member && !captain && (
-        <p className="muted">Select a Hall, Captain or Member to edit it.</p>
+        <>
+          <p className="muted">Select a Hall, Captain or Member to edit it.</p>
+          <GuildCaps {...props} />
+        </>
       )}
     </section>
   )

@@ -15,6 +15,7 @@ const questBody = z.object({
   roundLimit: z.number(),
   attempts: z.number(),
   lastError: z.string().nullable(),
+  campaignId: z.string().nullable().default(null),
 })
 const linkBody = z.object({ parentId: z.string(), childId: z.string() })
 const pageBody = z.object({
@@ -30,6 +31,21 @@ export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
 export function childrenOf(quests: readonly BoardQuest[], parentId: string): BoardQuest[] {
   return quests.filter((q) => q.parentId === parentId)
 }
+/** The Campaigns present on the board, each once, sorted; Quests with no Campaign add none. */
+export function campaignsOf(quests: readonly BoardQuest[]): string[] {
+  return [...new Set(quests.flatMap((q) => (q.campaignId === null ? [] : [q.campaignId])))].sort()
+}
+
+/** The Quests of one Campaign in board order, or all of them when `campaignId` is null. */
+export function inCampaign(quests: readonly BoardQuest[], campaignId: string | null): BoardQuest[] {
+  return campaignId === null ? [...quests] : quests.filter((q) => q.campaignId === campaignId)
+}
+
+/** The Member who claimed a Quest (its owner, once it has been leased at least once), or null while unclaimed. */
+export function claimerOf(quest: BoardQuest): string | null {
+  return quest.attempts > 0 ? quest.ownerId : null
+}
+
 /** The Quest Board's columns, in lifecycle order. */
 export const BOARD_STATES = QUEST_STATES
 

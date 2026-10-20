@@ -208,6 +208,17 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       expect(await s.identity.resolveSession(session.token)).toBeNull()
     })
 
+    test('revoking a session ends it at once, and again is harmless', async () => {
+      const s = await registered()
+      const session = await signIn(s)
+      const other = await signIn(s)
+      await s.identity.revokeSession(session.token)
+      expect(await s.identity.resolveSession(session.token)).toBeNull()
+      expect(await s.identity.resolveSession(other.token)).not.toBeNull()
+      await s.identity.revokeSession(session.token)
+      await s.identity.revokeSession('not-a-token')
+    })
+
     test('a challenge expires', async () => {
       const s = await registered()
       const begin = await s.identity.beginSignIn(s.guildId)

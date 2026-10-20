@@ -7,9 +7,10 @@ import { GamePanel } from './GamePanel'
 import { GatesPanel } from './GatesPanel'
 import { HomePanel } from './HomePanel'
 import { LearningPanel } from './LearningPanel'
+import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
-import type { Session } from './passkeys'
+import { endSession, type Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { useRoute, VIEWS, type ViewId } from './router'
@@ -19,6 +20,7 @@ import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
+import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 /** How many views get their own tab on a phone; the rest sit behind More. */
 const PHONE_TABS = 4
@@ -38,7 +40,12 @@ function ViewBody({
     case 'home':
       return <HomePanel session={session} navigate={navigate} />
     case 'hall':
-      return <GamePanel session={session} navigate={navigate} />
+      return (
+        <>
+          <GamePanel session={session} navigate={navigate} />
+          <MissivesPanel session={session} />
+        </>
+      )
     case 'quests':
       return <QuestBoardPanel session={session} />
     case 'seals':
@@ -68,6 +75,8 @@ function ViewBody({
       )
     case 'guild':
       return <BuilderPanel session={session} />
+    case 'workflows':
+      return <WorkflowPanel session={session} />
     case 'gates':
       return (
         <>
@@ -122,7 +131,34 @@ export function Shell({
       ?.querySelector<HTMLElement>('[aria-current="page"]')
       ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [active])
-  const signOut = () => {
+  useEffect(() => {
+    return () => {
+      document.title = 'Guildhall'
+    }
+  }, [])
+  useEffect(() => {
+    if (!moreOpen) {
+      return
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMoreOpen(false)
+      }
+    }
+    const onPointer = (event: Event) => {
+      if (event.target instanceof Node && !nav.current?.contains(event.target)) {
+        setMoreOpen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPointer)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onPointer)
+    }
+  }, [moreOpen])
+  const signOut = async () => {
+    await endSession(fetch)
     navigate('/')
     onSession(null)
   }
@@ -162,7 +198,7 @@ export function Shell({
               data-active-inside={activeIndex >= PHONE_TABS ? 'true' : undefined}
               onClick={() => setMoreOpen((open) => !open)}
             >
-              More
+              {moreOpen ? 'Close' : 'More'}
             </button>
           </li>
         </ul>

@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { CharacterPanel } from './CharacterPanel'
+import { initialTalk, talkReducer } from './game/interact'
+import type { LookChoice } from './game/look'
+import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
-import { readEventFrame, sceneSummary } from './game/text'
+import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
+import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
+import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
+import { TalkDialog } from './TalkDialog'
 
 const MAX_RECONNECT_MS = 10_000
 
@@ -26,12 +33,18 @@ export function GamePanel({
   navigate: (path: string) => void
 }) {
   const [roster, setRoster] = useState<Roster | null>(null)
-  const [quests, setQuests] = useState<SceneQuest[]>([])
+  const [quests, setQuests] = useState<(SceneQuest & { state: string })[]>([])
+  const [talk, dispatchTalk] = useReducer(talkReducer, initialTalk)
   const [events, setEvents] = useState<ReplayEvent[]>([])
   const [position, setPosition] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [roomSlot, setRoomSlot] = useState<number | null>(null)
+  // The Guild Master's saved look (from the server), and whether the customization screen is open.
+  const [look, setLook] = useState<LookChoice | null>(null)
+  const [customizing, setCustomizing] = useState(false)
+  const [missiveTexts, setMissiveTexts] = useState<Record<string, string>>({})
+  const asked = useRef(new Set<string>())
   const frame = useRef<HTMLDivElement | null>(null)
   const handle = useRef<GameHandle | null>(null)
   const lastSeq = useRef(0)
@@ -58,6 +71,7 @@ export function GamePanel({
                 title: q.title,
                 hallId: q.hallId,
                 ownerId: q.ownerId,
+                state: q.state,
               }))
             )
           }
@@ -110,6 +124,10 @@ export function GamePanel({
     }
 
     lastSeq.current = 0
+    // The character is cosmetic: if it cannot load, the hall still draws the default one.
+    loadGuildMasterLook(session, fetch)
+      .then((saved) => !closed && setLook(saved))
+      .catch(() => undefined)
     Promise.all([
       loadRoster(session, fetch),
       loadQuests(session, fetch),
@@ -126,6 +144,7 @@ export function GamePanel({
             title: q.title,
             hallId: q.hallId,
             ownerId: q.ownerId,
+            state: q.state,
           }))
         )
         setEvents(history)
@@ -141,6 +160,23 @@ export function GamePanel({
     }
   }, [session])
 
+  // Events carry Missive ids only: the real text is read through the session-guarded Hall route.
+  useEffect(() => {
+    if (!session) {
+      return
+    }
+    for (const hallId of hallsToFetch(events, missiveTexts)) {
+      const key = `${hallId}:${events.length}`
+      if (asked.current.has(key)) {
+        continue
+      }
+      asked.current.add(key)
+      loadMissives(session, fetch, hallId, { limit: 50 })
+        .then((page) => setMissiveTexts((known) => mergeTexts(known, page.missives)))
+        .catch(() => undefined)
+    }
+  }, [session, events, missiveTexts])
+
   const at = position === null ? events.length : Math.min(position, events.length)
   const scene = useMemo(
     () =>
@@ -150,9 +186,10 @@ export function GamePanel({
             quests,
             events,
             upTo: at >= events.length ? null : (events[at - 1]?.seq ?? 0),
+            missiveTexts,
           })
         : null,
-    [roster, quests, events, at]
+    [roster, quests, events, at, missiveTexts]
   )
 
   // Boot Phaser on demand (a dynamic import keeps it out of the main bundle).
@@ -174,6 +211,8 @@ export function GamePanel({
           ),
           onOpenSeal: () => open.current('/seals'),
           onRoom: setRoomSlot,
+          onNear: (target) => dispatchTalk({ type: 'near', target }),
+          onInteract: () => dispatchTalk({ type: 'interact' }),
         })
         handle.current = started
       })
@@ -199,11 +238,20 @@ export function GamePanel({
     const id = setInterval(() => {
       if (scene && handle.current) {
         handle.current.render(scene)
+        if (look) {
+          handle.current.setLook(look)
+        }
         clearInterval(id)
       }
     }, 250)
     return () => clearInterval(id)
-  }, [scene])
+  }, [scene, look])
+
+  useEffect(() => {
+    if (look) {
+      handle.current?.setLook(look)
+    }
+  }, [look])
 
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
 
@@ -239,8 +287,8 @@ export function GamePanel({
                 <option value="">choose a room</option>
                 <option value="entrance">Entrance</option>
                 {(scene?.rooms ?? []).map((room, slot) => (
-                  <option key={room.hallId} value={slot}>
-                    {room.name}
+                  <option key={room.hallId} value={slot} disabled={room.locked}>
+                    {teleportLabel(room)}
                   </option>
                 ))}
               </select>
@@ -261,7 +309,37 @@ export function GamePanel({
             <span className="muted">
               {position === null ? 'live' : `event ${at} of ${events.length}`}
             </span>
+            <button type="button" onClick={() => setCustomizing((open) => !open)}>
+              Customize character
+            </button>
           </div>
+          {customizing && (
+            <CharacterPanel
+              session={session}
+              fetcher={fetch}
+              saved={look}
+              onPreview={(draft) => handle.current?.setLook(draft)}
+              onSaved={(stored) => {
+                setLook(stored)
+                setCustomizing(false)
+              }}
+              onCancel={() => setCustomizing(false)}
+            />
+          )}
+          {/* Above the canvas, so on a phone it is never under the bottom navigation. */}
+          <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
+            {talk.near && talk.open === null && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => dispatchTalk({ type: 'interact' })}
+              >
+                {talk.near.kind === 'sealDesk'
+                  ? 'Open the Seal desk (E)'
+                  : `Talk to ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+              </button>
+            )}
+          </p>
           <div ref={frame} className="game-frame" data-testid="game-frame" />
           <p role="status" aria-live="polite" className="muted" data-testid="game-summary">
             {summary}
@@ -272,6 +350,15 @@ export function GamePanel({
               roomSlot !== null
             )}
           </p>
+          <TalkDialog
+            session={session}
+            fetcher={fetch}
+            state={talk}
+            dispatch={dispatchTalk}
+            scene={scene}
+            quests={quests}
+            navigate={navigate}
+          />
           {(failed || loadError) && (
             <p role="alert" className="muted">
               The guild hall could not load everything; retrying through the stream.

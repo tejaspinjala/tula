@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  campaignQuestCap,
   classifyChange,
   defaultConfig,
   type GuildConfig,
@@ -7,8 +8,10 @@ import {
   guildContentPolicy,
   guildTreasury,
   hallAcceptsQuests,
+  hallMemberCap,
   isLearningRepoAllowed,
   learningRepoAllowlist,
+  missiveCap,
   questConcurrency,
   sealPostWindowMs,
   spawnChildrenCap,
@@ -86,6 +89,66 @@ describe('classifyChange', () => {
       )
     }
     expect(spawnChildrenCap({ ...base, caps: { ...base.caps, maxChildrenPerQuest: 5 } })).toBe(5)
+  })
+  test('the campaign cap defaults to 10; raising it is widening, lowering applies at once', () => {
+    expect(campaignQuestCap(base)).toBe(10)
+    const raised = { ...base, caps: { ...base.caps, maxQuestsPerCampaign: 20 } }
+    expect(campaignQuestCap(raised)).toBe(20)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+    expect(classifyChange(base, { ...base, caps: { ...base.caps, maxQuestsPerCampaign: 2 } })).toBe(
+      'tightening'
+    )
+    expect(
+      guildConfig.safeParse({ ...base, caps: { ...base.caps, maxQuestsPerCampaign: 101 } }).success
+    ).toBe(false)
+  })
+  test('the Missive cap defaults to 20 per Quest; raising it is widening, lowering applies at once', () => {
+    expect(missiveCap(base)).toBe(20)
+    const raised = { ...base, caps: { ...base.caps, maxMissivesPerQuest: 50 } }
+    expect(missiveCap(raised)).toBe(50)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+    expect(classifyChange(base, { ...base, caps: { ...base.caps, maxMissivesPerQuest: 2 } })).toBe(
+      'tightening'
+    )
+    expect(
+      guildConfig.safeParse({ ...base, caps: { ...base.caps, maxMissivesPerQuest: 201 } }).success
+    ).toBe(false)
+  })
+  test('the id `hall` is reserved for Missives: no Member or Captain may take it', () => {
+    const [first, ...rest] = base.halls
+    if (!first) {
+      throw new Error('the default config has a Hall')
+    }
+    const asMember = { ...first, members: [{ id: 'hall', name: 'X', rank: 'apprentice' as const }] }
+    const asCaptain = { ...first, captain: { id: 'hall', name: 'X' } }
+    for (const bad of [asMember, asCaptain]) {
+      expect(guildConfig.safeParse({ ...base, halls: [bad, ...rest] }).success).toBe(false)
+    }
+    expect(guildConfig.safeParse(base).success).toBe(true)
+  })
+  test('a Hall member cap is unlimited when unset; raising it is widening, lowering applies at once', () => {
+    const withCap = (n: number | undefined): GuildConfig => ({
+      ...base,
+      halls: base.halls.map((h) =>
+        h.id === 'heralds' ? { ...h, ...(n === undefined ? {} : { maxConcurrentMembers: n }) } : h
+      ),
+    })
+    const heralds = (c: GuildConfig) => {
+      const found = c.halls.find((h) => h.id === 'heralds')
+      if (!found) {
+        throw new Error('no heralds')
+      }
+      return found
+    }
+    expect(hallMemberCap(heralds(base))).toBe(1000)
+    expect(hallMemberCap(heralds(withCap(2)))).toBe(2)
+    expect(classifyChange(withCap(2), withCap(3))).toBe('widening')
+    expect(classifyChange(withCap(2), withCap(undefined))).toBe('widening')
+    expect(classifyChange(withCap(3), withCap(2))).toBe('tightening')
+    expect(classifyChange(withCap(undefined), withCap(2))).toBe('tightening')
+    expect(guildConfig.safeParse(withCap(0)).success).toBe(false)
   })
   test('the Seal post window defaults to 72 hours, and raising it is widening', () => {
     expect(sealPostWindowMs(base)).toBe(72 * 3_600_000)
@@ -389,9 +452,43 @@ describe('content policy', () => {
     expect(classifyChange(withPolicy(policy), base)).toBe('widening')
   })
 
+  test('allowing meta-drafts is widening, and forbidding them again is tightening', () => {
+    const allowing = { ...base, contentPolicy: { ...policy, allowMetaDrafts: true } }
+    expect(classifyChange(withPolicy(policy), allowing)).toBe('widening')
+    expect(classifyChange(allowing, withPolicy(policy))).toBe('tightening')
+    expect(guildConfig.safeParse(allowing).success).toBe(true)
+  })
+
   test('an unchanged policy is neutral, and an unknown policy field fails closed', () => {
     expect(classifyChange(withPolicy(policy), withPolicy({ ...policy }))).toBe('neutral')
     const extra = { ...base, contentPolicy: { ...policy, allowLinks: true } }
     expect(classifyChange(withPolicy(policy), extra)).toBe('widening')
+  })
+})
+
+describe('Member look overrides', () => {
+  const base = defaultConfig()
+  const look = { body: 1, outfitStyle: 3, outfitColor: 2, hairStyle: 1, hairColor: 5 }
+  const withLook = (value: unknown): unknown => ({
+    ...base,
+    halls: base.halls.map((h) =>
+      h.id === 'heralds'
+        ? { ...h, members: h.members.map((m, i) => (i === 0 ? { ...m, look: value } : m)) }
+        : h
+    ),
+  })
+
+  test('a look is kept when the config parses, and setting or changing it is neutral', () => {
+    const set = guildConfig.parse(withLook(look))
+    expect(set.halls[0]?.members[0]).toMatchObject({ look })
+    expect(classifyChange(base, set)).toBe('neutral')
+    const changed = guildConfig.parse(withLook({ ...look, hairColor: 0 }))
+    expect(classifyChange(set, changed)).toBe('neutral')
+  })
+
+  test('a look naming a part outside the catalogue is refused', () => {
+    expect(guildConfig.safeParse(withLook({ ...look, outfitStyle: 99 })).success).toBe(false)
+    expect(guildConfig.safeParse(withLook({ ...look, cape: 1 })).success).toBe(false)
+    expect(guildConfig.safeParse(withLook({ ...look, body: -1 })).success).toBe(false)
   })
 })

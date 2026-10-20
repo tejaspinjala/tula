@@ -123,3 +123,75 @@ export function seatsIn(
   }
   return seats
 }
+
+/** The tile of a room's Quest Board: the top row below the label, near the far corner. */
+export function questBoardIn(layout: HallLayout, room: TileRect): { x: number; y: number } {
+  const y = room.y + 1
+  for (let x = room.x + room.w - 3; x > room.x + 1; x--) {
+    if (layout.walkable(x, y)) {
+      return { x, y }
+    }
+  }
+  return { x: room.x + room.w - 3, y }
+}
+
+/** Distinct walkable tiles where apprentices stand: the row under the work row, from the right. */
+export function apprenticeSeats(
+  layout: HallLayout,
+  room: TileRect,
+  count: number
+): { x: number; y: number }[] {
+  const board = questBoardIn(layout, room)
+  const seats: { x: number; y: number }[] = []
+  for (const y of [room.y + 3, room.y + 5]) {
+    for (let x = room.x + room.w - 2; x > room.x && seats.length < count; x--) {
+      if (layout.walkable(x, y) && !(x === board.x && y === board.y)) {
+        seats.push({ x, y })
+      }
+    }
+  }
+  return seats
+}
+
+/**
+ * The map's walkable test minus the doorways of rooms that are locked or empty: a closed door
+ * blocks entry. `rooms` is in slot order; a doorway past its end belongs to an empty room.
+ */
+export function withClosedDoors(
+  layout: HallLayout,
+  rooms: readonly { locked: boolean }[]
+): (x: number, y: number) => boolean {
+  const closed = layout.doorways.filter((_door, index) => rooms[index]?.locked ?? true)
+  return (x, y) =>
+    layout.walkable(x, y) &&
+    !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
+}
+
+/** The zoom that fills a frame with the hall (to two places), never below a quarter. */
+export function fitZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  const fill = Math.min(frameW / worldW, frameH / worldH)
+  return Math.max(0.25, Math.floor(fill * 100) / 100)
+}
+
+/** The zoom the hall opens at: the fit, but never below a readable one. */
+export function openZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  return Math.max(1, fitZoom(frameW, frameH, worldW, worldH))
+}
+
+/** Where a speech bubble centres for a speaker at pixel `(x, y)`: above, unless that covers a room label. */
+export function bubbleCentreY(
+  rooms: readonly TileRect[],
+  tileSize: number,
+  x: number,
+  y: number
+): number {
+  const above = y - 26
+  // A room's label is a 20px band under its top edge; a 20px bubble above the speaker would cover it.
+  const covers = rooms.some((room) => {
+    const top = room.y * tileSize
+    return (
+      x >= room.x * tileSize && x < (room.x + room.w) * tileSize && y > top && above - 10 < top + 20
+    )
+  })
+  return covers ? y + 26 : above
+}

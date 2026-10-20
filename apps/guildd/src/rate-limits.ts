@@ -27,6 +27,8 @@ export type RateRoute =
   | 'push-subscribe'
   | 'learning-scan'
   | 'events-history'
+  | 'missives-read'
+  | 'session-check'
   | 'workflow-read'
   | 'workflow-write'
   | 'workflow-run'
@@ -105,6 +107,9 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'learning-scan': writeLimits(3, 6),
   // History reads page through the whole chain and fold it, so they are bounded per client and guild.
   'events-history': writeLimits(60, 240),
+  'missives-read': writeLimits(60, 240),
+  // Session checks and sign-outs are cheap reads, but unauthenticated callers can hammer them.
+  'session-check': { client: { limit: 120, windowMs: MINUTE } },
   // Workflow reads page stored graphs; saves validate a graph; a run posts Quests: tightest.
   'workflow-read': writeLimits(60, 240),
   'workflow-write': writeLimits(20, 60),
@@ -235,6 +240,8 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'push-subscribe': 'session',
   'learning-scan': 'session',
   'events-history': 'session',
+  'missives-read': 'session',
+  'session-check': 'unauthenticated',
   'workflow-read': 'session',
   'workflow-write': 'session',
   'workflow-run': 'session',

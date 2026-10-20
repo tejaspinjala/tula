@@ -1,5 +1,5 @@
 import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
-import { questConcurrency, sealPostWindowMs } from './guild-config'
+import { hallCaps, questConcurrency, sealPostWindowMs } from './guild-config'
 import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
@@ -265,6 +265,7 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   const claimed = await deps.quests.claim(guildId, {
     leaseMs: DISPATCH_LEASE_MS,
     maxActive: questConcurrency(config),
+    hallCaps: hallCaps(config),
   })
   if (claimed === null) {
     return { status: 'idle' }
