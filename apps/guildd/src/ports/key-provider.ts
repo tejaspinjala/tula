@@ -10,6 +10,11 @@ export interface KeyProvider {
    * Deterministic: the same inputs give the same MAC, across instances over the same custody.
    */
   mac(guildId: string, purpose: string, data: Uint8Array): Promise<string>
+  /**
+   * Resolves the key for `guildId` and `purpose` once and returns a signer over it, so bulk work
+   * (verifying a whole chain) pays for key derivation once. Agrees with {@link KeyProvider.mac}.
+   */
+  macFor(guildId: string, purpose: string): Promise<(data: Uint8Array) => Promise<string>>
   /** Encrypts `plaintext` for `guildId` (authenticated, bound to the guild); the result is opaque. */
   wrap(guildId: string, plaintext: Uint8Array): Promise<Uint8Array>
   /** Reverses {@link KeyProvider.wrap}; rejects on tampering or when `guildId` differs. */

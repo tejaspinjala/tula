@@ -31,6 +31,13 @@ export function keyProviderContract(
       expect(await provider.mac(guildA, 'audit', bytes('y'))).not.toBe(base)
     })
 
+    test('macFor returns a signer that agrees with mac', async () => {
+      const { provider } = await make()
+      const sign = await provider.macFor(guildA, 'audit')
+      expect(await sign(bytes('x'))).toBe(await provider.mac(guildA, 'audit', bytes('x')))
+      expect(await sign(bytes('y'))).toBe(await provider.mac(guildA, 'audit', bytes('y')))
+    })
+
     test('two independent custodies disagree on the same mac', async () => {
       const one = await make()
       const two = await make()

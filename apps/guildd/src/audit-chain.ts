@@ -26,12 +26,9 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-async function macOf(
-  keys: KeyProvider,
-  guildId: string,
-  prev: string,
-  event: EventRow
-): Promise<string> {
+type Signer = (data: Uint8Array) => Promise<string>
+
+async function macOf(sign: Signer, prev: string, event: EventRow): Promise<string> {
   const message = JSON.stringify([
     prev,
     event.seq,
@@ -39,7 +36,7 @@ async function macOf(
     event.occurredAt,
     canonicalJson(event.payload),
   ])
-  return keys.mac(guildId, PURPOSE, new TextEncoder().encode(message))
+  return sign(new TextEncoder().encode(message))
 }
 
 /** Reads events after `afterSeq` with the timestamp at full microsecond precision, in UTC. */
@@ -69,6 +66,7 @@ async function guildOf(tx: TenantTx): Promise<string> {
  */
 export async function extendChain(tx: TenantTx, keys: KeyProvider): Promise<void> {
   const guild = await guildOf(tx)
+  const sign = await keys.macFor(guild, PURPOSE)
   await tx`select pg_advisory_xact_lock(hashtextextended(${`audit-chain:${guild}`}, 0))`
   const [head] = await tx`select seq, mac from audit_chain order by seq desc limit 1`
   let lastSeq = Number(head?.seq ?? 0)
@@ -79,7 +77,7 @@ export async function extendChain(tx: TenantTx, keys: KeyProvider): Promise<void
       return
     }
     for (const event of events) {
-      const mac = await macOf(keys, guild, prev, event)
+      const mac = await macOf(sign, prev, event)
       await tx`insert into audit_chain (guild_id, seq, prev_mac, mac)
         values (${guild}, ${event.seq}, ${prev}, ${mac})`
       prev = mac
@@ -90,10 +88,13 @@ export async function extendChain(tx: TenantTx, keys: KeyProvider): Promise<void
 
 /**
  * Recomputes the guild's whole chain from its events and reports the first entry that is missing,
- * edited, out of order, unlinked from its predecessor, or has no event behind it.
+ * edited, out of order, unlinked from its predecessor, or has no event behind it. The key is
+ * resolved once per call. Truncation of the chain's tail is not detectable from the database alone;
+ * it is detected by checkpoints (#31).
  */
 export async function verifyChain(tx: TenantTx, keys: KeyProvider): Promise<ChainVerdict> {
   const guild = await guildOf(tx)
+  const sign = await keys.macFor(guild, PURPOSE)
   let lastSeq = 0
   let prev = GENESIS
   for (;;) {
@@ -113,7 +114,7 @@ export async function verifyChain(tx: TenantTx, keys: KeyProvider): Promise<Chai
       if (String(entry.prev_mac) !== prev) {
         return { intact: false, firstBadSeq: event.seq, reason: 'does not link to previous MAC' }
       }
-      const expected = await macOf(keys, guild, prev, event)
+      const expected = await macOf(sign, prev, event)
       if (String(entry.mac) !== expected) {
         return { intact: false, firstBadSeq: event.seq, reason: 'MAC does not match the event' }
       }

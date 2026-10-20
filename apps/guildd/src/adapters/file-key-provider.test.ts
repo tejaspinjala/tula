@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { keyProviderContract } from '../ports/key-provider.contract'
 import { FileKeyProvider } from './file-key-provider'
 
@@ -35,4 +35,26 @@ test('a corrupt key file fails at open instead of being replaced', async () => {
   const path = join(await freshDir(), 'master.key')
   await writeFile(path, 'not a key')
   await expect(FileKeyProvider.open(path)).rejects.toThrow()
+})
+
+test('a key file readable by group or others is rejected', async () => {
+  const path = join(await freshDir(), 'master.key')
+  await writeFile(path, 'a'.repeat(64))
+  await chmod(path, 0o644)
+  await expect(FileKeyProvider.open(path)).rejects.toThrow(/0600|permission|mode/i)
+})
+
+test('concurrent opens on a fresh path agree on one key and leave no temp files', async () => {
+  const path = join(await freshDir(), 'master.key')
+  const guild = crypto.randomUUID()
+  const opened = await Promise.all(Array.from({ length: 8 }, () => FileKeyProvider.open(path)))
+  const macs = await Promise.all(opened.map((p) => p.mac(guild, 'audit', new Uint8Array([7]))))
+  expect(new Set(macs).size).toBe(1)
+  expect(await readdir(dirname(path))).toEqual(['master.key'])
+})
+
+test('the key directory is created owner-only', async () => {
+  const dir = join(await freshDir(), 'keys')
+  await FileKeyProvider.open(join(dir, 'master.key'))
+  expect((await stat(dir)).mode & 0o777).toBe(0o700)
 })

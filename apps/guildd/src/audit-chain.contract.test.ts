@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { appendEvent } from './events'
+import type { KeyProvider } from './ports/key-provider'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 
@@ -199,5 +201,51 @@ describe('audit chain', () => {
     const id = await found()
     const res = await harness.request(`/guilds/${id}/audit/verify`)
     expect(res.status).toBe(401)
+  })
+})
+
+describe('founding is chained atomically', () => {
+  test('a KeyProvider failure while founding leaves nothing behind, and a retry founds one intact guild', async () => {
+    const real = new MemoryKeyProvider()
+    let failing = true
+    const flaky: KeyProvider = {
+      wrap: (g, p) => real.wrap(g, p),
+      unwrap: (g, w) => real.unwrap(g, w),
+      macFor: async (g, purpose) => {
+        if (failing) {
+          throw new Error('key custody down')
+        }
+        return real.macFor(g, purpose)
+      },
+      mac: async (g, purpose, d) => {
+        if (failing) {
+          throw new Error('key custody down')
+        }
+        return real.mac(g, purpose, d)
+      },
+    }
+    const h = await createHarness({ app: { keys: flaky } })
+    try {
+      const name = `Atomic-${crypto.randomUUID()}`
+      const found = () =>
+        h.request('/guilds', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, goal: 'g' }),
+        })
+      expect((await found()).status).toBe(500)
+      expect((await h.owner`select 1 from guilds where name = ${name}`).length).toBe(0)
+      failing = false
+      const res = await found()
+      expect(res.status).toBe(201)
+      const id = z.object({ id: z.string() }).parse(await res.json()).id
+      expect((await h.owner`select 1 from guilds where name = ${name}`).length).toBe(1)
+      const verdict = await h.request(`/guilds/${id}/audit/verify`, {
+        headers: { 'x-guild-id': id },
+      })
+      expect(Verdict.parse(await verdict.json())).toEqual({ intact: true, entries: 1 })
+    } finally {
+      await h.close()
+    }
   })
 })

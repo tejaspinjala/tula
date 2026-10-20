@@ -1,7 +1,7 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { extendChain, verifyChain } from './audit-chain'
+import { verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
@@ -124,9 +124,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
     }
-    const id = await deps.db.foundGuild(body.data)
-    // found_guild writes guild.founded in SQL, where the MAC key is not; chain it right away.
-    await deps.db.withGuild(id, (tx) => extendChain(tx, deps.keys))
+    const id = await deps.db.foundGuildChained(body.data, deps.keys)
     return c.json({ id }, 201)
   })
 

@@ -33,7 +33,7 @@ export abstract class DerivedKeyProvider implements KeyProvider {
   }
 
   /** @inheritdoc */
-  async mac(guildId: string, purpose: string, data: Uint8Array): Promise<string> {
+  async macFor(guildId: string, purpose: string): Promise<(data: Uint8Array) => Promise<string>> {
     const raw = await this.derive(`mac:${purpose}:${guildId}`)
     const key = await crypto.subtle.importKey(
       'raw',
@@ -42,7 +42,12 @@ export abstract class DerivedKeyProvider implements KeyProvider {
       false,
       ['sign']
     )
-    return toHex(await crypto.subtle.sign('HMAC', key, data.slice()))
+    return async (data) => toHex(await crypto.subtle.sign('HMAC', key, data.slice()))
+  }
+
+  /** @inheritdoc */
+  async mac(guildId: string, purpose: string, data: Uint8Array): Promise<string> {
+    return (await this.macFor(guildId, purpose))(data)
   }
 
   private async wrapKey(guildId: string): Promise<CryptoKey> {
