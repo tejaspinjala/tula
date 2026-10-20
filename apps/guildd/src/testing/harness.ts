@@ -8,6 +8,16 @@ import { createDb } from '../db/client'
 import { foundTestGuild } from './found-guild'
 import { testDbUrl } from './test-db'
 
+const NO_LIMIT = { limit: 1_000_000_000, windowMs: 60_000 }
+/** Limits so high they never trip; the harness default, for tests that are not about limits. */
+export const UNLIMITED_RATE_LIMITS = {
+  'signin-begin': { client: NO_LIMIT, guild: NO_LIMIT },
+  'passkeys-begin': { client: NO_LIMIT, guild: NO_LIMIT },
+  'passkeys-finish': { client: NO_LIMIT, guild: NO_LIMIT },
+  'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
+  founding: { client: NO_LIMIT },
+}
+
 /** Options for {@link createHarness}. */
 export interface HarnessOptions {
   /** Instant the memory clock starts at. */
@@ -27,6 +37,9 @@ export interface HarnessOptions {
       | 'objectStoreTimeoutMs'
       | 'maxArtifactBytes'
       | 'eventPollMs'
+      | 'rateLimiter'
+      | 'rateLimits'
+      | 'trustProxy'
     >
   >
 }
@@ -59,6 +72,8 @@ export async function createHarness(options: HarnessOptions = {}) {
     keys,
     devGuildHeader: options.devGuildHeader ?? true,
     eventPollMs: options.app?.eventPollMs ?? 25,
+    // Tests found many guilds and sign in from one in-process address, so limits stay off unless a test sets them.
+    rateLimits: options.app?.rateLimits ?? UNLIMITED_RATE_LIMITS,
   })
   const servers: Array<ReturnType<typeof Bun.serve>> = []
   return {
@@ -70,6 +85,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       objectStore,
       memoryStore,
       identity: composed.identity,
+      rateLimiter: composed.rateLimiter,
       secrets: composed.secrets,
       config: composed.config,
       notes: composed.notes,
@@ -80,7 +96,8 @@ export async function createHarness(options: HarnessOptions = {}) {
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */
-    request: (path: string, init?: RequestInit) => Promise.resolve(app.request(path, init)),
+    request: (path: string, init?: RequestInit, env?: unknown) =>
+      Promise.resolve(app.request(path, init, env)),
     /** Serves guildd on an ephemeral local port (for WebSocket tests); returns its ws base URL. */
     listen() {
       const server = Bun.serve({ port: 0, fetch: app.fetch, websocket })

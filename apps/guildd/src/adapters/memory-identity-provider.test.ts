@@ -1,6 +1,7 @@
 import { identityContract } from '../ports/identity.contract'
 import { MemoryClock } from './memory-clock'
 import { MemoryIdentityStore } from './memory-identity-provider'
+import { MemoryKeyProvider } from './memory-key-provider'
 import { WebAuthnIdentityProvider } from './webauthn-identity-provider'
 
 identityContract('memory', async () => {
@@ -10,6 +11,7 @@ identityContract('memory', async () => {
   return {
     identity: new WebAuthnIdentityProvider(store, {
       clock,
+      keys: new MemoryKeyProvider(),
       rpId: 'localhost',
       rpName: 'Guildhall',
       origin,

@@ -231,7 +231,8 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         await failure(
           a.identity.finishSignIn(guildB, atB.challengeId, await a.key.assert(atB.options))
         )
-      ).toBe('unknown_credential')
+        // A guild without a passkey gets decoy options, whose challenge is never stored.
+      ).toBe('invalid_challenge')
 
       const fromA = await a.identity.beginSignIn(a.guildId)
       expect(
@@ -400,6 +401,73 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       expect(await s.identity.consumeReauth(session.token, proof)).toBe(true)
       expect(await s.identity.consumeReauth(session.token, proof)).toBe(false)
       expect(await s.identity.checkReauth(session.token, proof)).toBe(false)
+    })
+
+    test('sign-in begin for an unknown guild answers with decoy options shaped like a real guild', async () => {
+      const s = await registered()
+      const real = await s.identity.beginSignIn(s.guildId)
+      const unknown = crypto.randomUUID()
+      const decoy = await s.identity.beginSignIn(unknown)
+      expect(Object.keys(decoy).sort()).toEqual(Object.keys(real).sort())
+      expect(Object.keys(decoy.options).sort()).toEqual(Object.keys(real.options).sort())
+      const entryKeys = (o: typeof real.options) =>
+        (o.allowCredentials ?? []).map((c) => Object.keys(c).sort().join())
+      expect(new Set(entryKeys(decoy.options))).toEqual(new Set(entryKeys(real.options)))
+      expect(decoy.challengeId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(decoy.options.rpId).toBe(real.options.rpId)
+      // Stable per guild, so repeated probes cannot tell a decoy from a real credential list.
+      const again = await s.identity.beginSignIn(unknown)
+      expect(again.options.allowCredentials).toEqual(decoy.options.allowCredentials)
+      expect(decoy.options.allowCredentials?.[0]?.id).not.toBe(
+        real.options.allowCredentials?.[0]?.id
+      )
+      // A decoy challenge can never be finished.
+      expect(
+        await failure(
+          s.identity.finishSignIn(unknown, decoy.challengeId, await s.key.assert(real.options))
+        )
+      ).toBe('invalid_challenge')
+    })
+
+    test('decoy options vary across guilds in credential count, id length and transports', async () => {
+      const s = await registered()
+      const shapes = new Set<string>()
+      for (let i = 0; i < 40; i++) {
+        const { options } = await s.identity.beginSignIn(crypto.randomUUID())
+        const creds = options.allowCredentials ?? []
+        expect(creds.length).toBeGreaterThanOrEqual(1)
+        expect(creds.length).toBeLessThanOrEqual(2)
+        shapes.add(
+          JSON.stringify([
+            creds.length,
+            creds.map((c) => Buffer.from(c.id, 'base64url').length),
+            creds.map((c) => c.transports ?? null),
+          ])
+        )
+        for (const c of creds) {
+          expect([16, 32, 64]).toContain(Buffer.from(c.id, 'base64url').length)
+        }
+      }
+      expect(shapes.size).toBeGreaterThan(4)
+    })
+
+    test('sign-in begin for a malformed guild id also answers with decoy options', async () => {
+      const s = await registered()
+      const decoy = await s.identity.beginSignIn('not-a-guild')
+      expect(decoy.options.allowCredentials?.length).toBeGreaterThanOrEqual(1)
+    })
+
+    test('unauthenticated sign-in begins never evict a pending reauth challenge', async () => {
+      const s = await registered()
+      const session = await signIn(s)
+      const reauth = await s.identity.beginReauth(session.token)
+      const response = await s.key.assert(reauth.options)
+      for (let i = 0; i < MAX_OUTSTANDING_CHALLENGES + 5; i++) {
+        s.clock.advance(1)
+        await s.identity.beginSignIn(s.guildId)
+      }
+      const proof = await s.identity.finishReauth(session.token, reauth.challengeId, response)
+      expect(await s.identity.checkReauth(session.token, proof.proof)).toBe(true)
     })
 
     test('outstanding challenges are capped per guild, evicting the oldest', async () => {

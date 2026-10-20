@@ -21,6 +21,7 @@ import {
   type ReauthProof,
   SESSION_TTL_MS,
 } from '../ports/identity'
+import type { KeyProvider } from '../ports/key-provider'
 import type {
   IdentityStore,
   StoredChallenge,
@@ -31,6 +32,8 @@ import type {
 /** Relying-party settings and collaborators for the embedded WebAuthn core. */
 export interface WebAuthnIdentityConfig {
   clock: Clock
+  /** Derives the stable fake credential ids that decoy sign-in options carry for unknown guilds. */
+  keys: KeyProvider
   /** Relying-party id: the registrable domain the passkeys are scoped to. */
   rpId: string
   rpName: string
@@ -39,6 +42,18 @@ export interface WebAuthnIdentityConfig {
 }
 
 const guildPrefix = z.uuid()
+
+/** Credential id sizes in bytes that real authenticators produce. */
+const DECOY_ID_BYTES = [16, 32, 64]
+/** Transport sets real registrations produce; empty when the authenticator reports none. */
+const DECOY_TRANSPORTS: Array<Array<'internal' | 'hybrid' | 'usb' | 'nfc' | 'ble'>> = [
+  [],
+  ['internal'],
+  ['hybrid', 'internal'],
+  ['usb'],
+  ['nfc', 'usb'],
+  ['ble'],
+]
 
 function randomToken(): string {
   return isoBase64URL.fromBuffer(crypto.getRandomValues(new Uint8Array(32)))
@@ -171,6 +186,12 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   }
 
   async beginSignIn(guildId: string) {
+    const credentials = guildPrefix.safeParse(guildId).success
+      ? await this.store.listCredentials(guildId)
+      : []
+    if (credentials.length === 0) {
+      return this.decoySignIn(guildId)
+    }
     const options = await this.requestOptions(guildId)
     const challengeId = await this.saveChallenge(guildId, 'signin', options.challenge, null)
     return { challengeId, options }
@@ -276,6 +297,39 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       return null
     }
     return { guildId: guildId.data, session }
+  }
+
+  /**
+   * Options for a guild that is unknown (or has no passkey yet), shaped like a real guild's. Every
+   * variable part is derived from keyed MACs of the guild id, so it is stable per guild, varies
+   * across guilds and is unguessable: 1 or 2 credentials, each id 16, 32 or 64 bytes, with
+   * transports drawn from the sets real registrations produce (including none). The challenge id
+   * is random and nothing is stored, so it can never be finished.
+   * Callers cannot tell unknown guilds from known ones by status or shape. Residual: a known guild
+   * costs database reads and writes that a decoy does not, so response time can still differ
+   * slightly; the rate limits bound how many probes an attacker gets to measure it.
+   */
+  private async decoySignIn(guildId: string) {
+    const mac = (purpose: string) =>
+      this.config.keys.mac(guildId, purpose, new TextEncoder().encode('sign-in'))
+    const shape = Buffer.from(await mac('decoy-shape'), 'hex')
+    const count = 1 + ((shape[0] ?? 0) % 2)
+    const allowCredentials = []
+    for (let i = 0; i < count; i++) {
+      const length = DECOY_ID_BYTES[(shape[1 + i] ?? 0) % DECOY_ID_BYTES.length] ?? 32
+      const transports = DECOY_TRANSPORTS[(shape[3 + i] ?? 0) % DECOY_TRANSPORTS.length] ?? []
+      const bytes = Buffer.concat([
+        Buffer.from(await mac(`decoy-credential:${i}:0`), 'hex'),
+        Buffer.from(await mac(`decoy-credential:${i}:1`), 'hex'),
+      ]).subarray(0, length)
+      allowCredentials.push({ id: isoBase64URL.fromBuffer(new Uint8Array(bytes)), transports })
+    }
+    const options = await generateAuthenticationOptions({
+      rpID: this.config.rpId,
+      userVerification: 'required',
+      allowCredentials,
+    })
+    return { challengeId: crypto.randomUUID(), options }
   }
 
   private async requestOptions(guildId: string) {

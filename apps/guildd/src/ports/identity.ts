@@ -31,7 +31,7 @@ export const CHALLENGE_TTL_MS = 5 * 60 * 1000
 
 /** How long a founding token stays valid (15 minutes). */
 export const FOUNDING_TTL_MS = 15 * 60 * 1000
-/** Outstanding ceremony challenges kept per guild; the oldest are evicted beyond this. */
+/** Outstanding ceremony challenges kept per guild and per kind; the oldest of a kind are evicted beyond this. */
 export const MAX_OUTSTANDING_CHALLENGES = 20
 
 /** A signed-in session, bound to exactly one guild. */

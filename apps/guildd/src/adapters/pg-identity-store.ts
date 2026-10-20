@@ -90,8 +90,10 @@ export class PgIdentityStore implements IdentityStore {
       await tx`insert into identity_challenges
           (guild_id, challenge_id, kind, challenge, session_id, founding_hash, expires_at)
         values (${guildId}, ${c.id}, ${c.kind}, ${c.challenge}, ${c.sessionId}, ${c.foundingHash}, ${c.expiresAt})`
+      // The cap is per kind, so unauthenticated sign-in begins cannot evict a pending reauth.
       await tx`delete from identity_challenges where guild_id = ${guildId} and challenge_id in (
-          select challenge_id from identity_challenges where guild_id = ${guildId}
+          select challenge_id from identity_challenges
+          where guild_id = ${guildId} and kind = ${c.kind}
           order by expires_at desc, challenge_id offset ${MAX_OUTSTANDING_CHALLENGES})`
     })
   }

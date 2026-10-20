@@ -4,7 +4,7 @@ import { createApp, websocket } from './app'
 import { createDb, type Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent } from './events'
-import { createHarness } from './testing/harness'
+import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
@@ -41,6 +41,8 @@ function countingApp(
     db: counting,
     objectStore: harness.adapters.objectStore,
     identity: harness.adapters.identity,
+    rateLimiter: harness.adapters.rateLimiter,
+    rateLimits: UNLIMITED_RATE_LIMITS,
     secrets: harness.adapters.secrets,
     config: harness.adapters.config,
     notes: harness.adapters.notes,

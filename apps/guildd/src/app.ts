@@ -13,6 +13,7 @@ import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import type { RateLimiter } from './ports/rate-limiter'
 import {
   MAX_SECRET_PAGE,
   SecretExistsError,
@@ -20,6 +21,7 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
@@ -39,6 +41,12 @@ export interface AppDeps {
   notes: NoteStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
+  /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
+  rateLimiter: RateLimiter
+  /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
+  trustProxy?: boolean
+  /** Per-route limit overrides; defaults to {@link DEFAULT_RATE_LIMITS}. */
+  rateLimits?: Partial<RateLimits>
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
   eventPollMs?: number
   /** Milliseconds before an ObjectStore call is abandoned with a 504; defaults to 10000. */
@@ -153,6 +161,16 @@ export function createApp(deps: AppDeps): Hono {
   })
   app.get('/health', (c) => c.json({ status: 'ok', time: deps.clock.now().toISOString() }))
 
+  // Unauthenticated identity routes are rate limited per client and per guild (429 + Retry-After).
+  const limitsOf = { ...DEFAULT_RATE_LIMITS, ...deps.rateLimits }
+  const limited = (route: keyof RateLimits) =>
+    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false)
+  app.post('/guilds', limited('founding'))
+  app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
+  app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
+  app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
+  app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+
   app.post('/guilds', async (c) => {
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
@@ -247,21 +265,20 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // Unknown guilds get decoy options from the provider, so this answers the same for every id.
   app.post('/guilds/:id/sign-in/begin', async (c) => {
-    const guild = await ceremonyGuild(c)
-    return guild
-      ? c.json(await deps.identity.beginSignIn(guild))
-      : c.json({ error: 'not_found' }, 404)
+    return c.json(await deps.identity.beginSignIn(c.req.param('id')))
   })
 
   app.post('/guilds/:id/sign-in/finish', async (c) => {
     const guild = await ceremonyGuild(c)
     const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
-    if (!guild) {
-      return c.json({ error: 'not_found' }, 404)
-    }
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
+    }
+    if (!guild) {
+      // Same answer as a known guild given a challenge it never issued.
+      return c.json({ error: 'invalid_challenge' }, 400)
     }
     const session = await deps.identity.finishSignIn(
       guild,
