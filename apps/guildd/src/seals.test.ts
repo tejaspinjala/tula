@@ -153,4 +153,58 @@ describe('SealEngine', () => {
       )
     ).toEqual({ ok: false, reason: 'expired' })
   })
+
+  describe('publish: reserve and consume in one call, the token never leaves it', () => {
+    async function approved(text: string) {
+      const e = await engine()
+      const seal = await e.seals.requestSeal(e.guild, { ...proposal, text, evidence: 'pass' })
+      await e.seals.decide(
+        e.guild,
+        seal.id,
+        { verdict: 'approved', expectedHash: seal.actionHash },
+        master
+      )
+      return { ...e, seal }
+    }
+
+    test('runs the effect while reserved, then consumes the Seal', async () => {
+      const { seals, guild, seal } = await approved('hello')
+      const seen: string[] = []
+      const out = await seals.publish(guild, seal.id, 'hello', async () => {
+        seen.push((await seals.get(guild, seal.id))?.status ?? 'missing')
+      })
+      expect(out).toMatchObject({ ok: true })
+      expect(seen).toEqual(['reserved'])
+      expect((await seals.get(guild, seal.id))?.status).toBe('consumed')
+    })
+
+    test('a crash in the effect leaves the Seal reserved, and a second publish cannot reuse it', async () => {
+      const { seals, guild, seal, clock } = await approved('hello')
+      await expect(
+        seals.publish(guild, seal.id, 'hello', async () => {
+          throw new Error('worker died')
+        })
+      ).rejects.toThrow('worker died')
+      expect((await seals.get(guild, seal.id))?.status).toBe('reserved')
+      let ran = false
+      const again = await seals.publish(guild, seal.id, 'hello', async () => {
+        ran = true
+      })
+      expect(again).toMatchObject({ ok: false })
+      expect(ran).toBe(false)
+      clock.advance(11 * 60 * 1000)
+      expect((await seals.get(guild, seal.id))?.stale).toBe(true)
+    })
+
+    test('an unapproved Seal runs no effect', async () => {
+      const { seals, guild } = await engine()
+      const seal = await seals.requestSeal(guild, { ...proposal, text: 'x', evidence: 'e' })
+      let ran = false
+      const out = await seals.publish(guild, seal.id, 'x', async () => {
+        ran = true
+      })
+      expect(out).toEqual({ ok: false, reason: 'not_approved' })
+      expect(ran).toBe(false)
+    })
+  })
 })

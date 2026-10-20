@@ -102,6 +102,22 @@ export class SealEngine {
     return this.store.reserve(guildId, id, text)
   }
 
+  /**
+   * Publishes an approved Seal's exact `text`: reserves it, runs `effect`, then consumes it, all
+   * in this one call, so the reservation token lives only in a local variable and is never stored
+   * or returned. If `effect` throws, the Seal stays reserved: the external action may have
+   * happened, so only the Guild Master (re-auth) can resolve it, by releasing the stale
+   * reservation or marking it posted. A crash between reserve and consume does the same.
+   */
+  async publish(
+    guildId: string,
+    id: string,
+    text: string,
+    effect: () => Promise<void>
+  ): Promise<SealResult> {
+    throw new Error('not implemented')
+  }
+
   /** Consumes the reservation held by `token` for exactly `text`; a Seal is single-use. */
   consume(guildId: string, id: string, use: { text: string; token: string }): Promise<SealResult> {
     return this.store.consume(guildId, id, use)
