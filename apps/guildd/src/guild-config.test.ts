@@ -4,6 +4,7 @@ import {
   defaultConfig,
   type GuildConfig,
   guildConfig,
+  guildContentPolicy,
   guildTreasury,
   hallAcceptsQuests,
   isLearningRepoAllowed,
@@ -315,5 +316,57 @@ describe('learning repo allowlist', () => {
     expect(isLearningRepoAllowed(config, 'tula-solutions/guildhall')).toBe(true)
     expect(isLearningRepoAllowed(withRepos(['o/r']), 'o/r2')).toBe(false)
     expect(isLearningRepoAllowed(base, 'o/r')).toBe(false)
+  })
+})
+
+describe('content policy', () => {
+  const base = defaultConfig()
+  const policy = { maxLength: 500, bannedTerms: ['free money'], requiredTerms: ['guildhall'] }
+  const withPolicy = (contentPolicy: typeof policy) => ({ ...base, contentPolicy })
+
+  test('defaults when absent, and is read from the config when set', () => {
+    expect(guildContentPolicy(base)).toEqual({
+      maxLength: 3000,
+      bannedTerms: [],
+      requiredTerms: [],
+    })
+    expect(guildContentPolicy(withPolicy(policy))).toEqual(policy)
+  })
+
+  test('tightening: a lower length, more banned terms, more required terms', () => {
+    expect(classifyChange(withPolicy(policy), withPolicy({ ...policy, maxLength: 400 }))).toBe(
+      'tightening'
+    )
+    expect(
+      classifyChange(
+        withPolicy(policy),
+        withPolicy({ ...policy, bannedTerms: ['free money', 'x'] })
+      )
+    ).toBe('tightening')
+    expect(
+      classifyChange(
+        withPolicy(policy),
+        withPolicy({ ...policy, requiredTerms: ['guildhall', 'y'] })
+      )
+    ).toBe('tightening')
+  })
+
+  test('loosening is widening: a longer limit, a banned or required term dropped', () => {
+    expect(classifyChange(withPolicy(policy), withPolicy({ ...policy, maxLength: 501 }))).toBe(
+      'widening'
+    )
+    expect(classifyChange(withPolicy(policy), withPolicy({ ...policy, bannedTerms: [] }))).toBe(
+      'widening'
+    )
+    expect(classifyChange(withPolicy(policy), withPolicy({ ...policy, requiredTerms: [] }))).toBe(
+      'widening'
+    )
+    expect(classifyChange(withPolicy(policy), base)).toBe('widening')
+  })
+
+  test('an unchanged policy is neutral, and an unknown policy field fails closed', () => {
+    expect(classifyChange(withPolicy(policy), withPolicy({ ...policy }))).toBe('neutral')
+    const extra = { ...base, contentPolicy: { ...policy, allowLinks: true } }
+    expect(classifyChange(withPolicy(policy), extra)).toBe('widening')
   })
 })

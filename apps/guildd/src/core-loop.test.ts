@@ -1,9 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
+import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryIdentityStore } from './adapters/memory-identity-provider'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySealStore } from './adapters/memory-seal-store'
-import { reconcileSeals } from './core-loop'
+import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
+import { reconcileSeals, requestQuestSeal } from './core-loop'
 import { SEAL_TTL_MS } from './ports/seal-store'
+import { ProposalEngine } from './proposals'
+import { SealEngine } from './seals'
+import type { ContentPolicy } from './verdict'
 
 async function setup(roundLimit = 2) {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
@@ -67,5 +75,76 @@ describe('reconcileSeals', () => {
     await s.ask(1)
     expect((await reconcileSeals(s.deps, s.guild)).settled).toBe(0)
     expect((await s.quests.get(s.guild, s.quest.id))?.state).toBe('awaiting_seal')
+  })
+})
+
+describe('requestQuestSeal', () => {
+  async function gate(roundLimit = 2, policy?: ContentPolicy) {
+    const s = await setup(roundLimit)
+    const config = new MemoryConfigStore(s.clock)
+    await config.seed(s.guild)
+    const identityStore = new MemoryIdentityStore()
+    identityStore.found(s.guild)
+    const identity = new WebAuthnIdentityProvider(identityStore, {
+      clock: s.clock,
+      keys: new MemoryKeyProvider(),
+      rpId: 'localhost',
+      rpName: 'Guildhall',
+      origin: 'http://localhost:5173',
+    })
+    const proposals = new ProposalEngine({
+      store: new MemoryProposalStore(s.clock),
+      ...(policy ? { policy } : {}),
+    })
+    const deps = {
+      quests: s.quests,
+      proposals,
+      seals: new SealEngine({ store: s.seals, config, identity }),
+    }
+    const draft = (content: string) =>
+      proposals.propose(s.guild, {
+        questId: s.quest.id,
+        author: 'heralds-member-1',
+        kind: 'post',
+        content,
+      })
+    return { ...s, deps, draft }
+  }
+
+  test('a passing Verdict requests a Seal bound to the Proposal hash and the Quest round', async () => {
+    const g = await gate()
+    const proposal = await g.draft('Hello guild')
+    const result = await requestQuestSeal(g.deps, g.guild, g.quest)
+    expect(result.outcome).toBe('requested')
+    const seal = await g.seals.forQuest(g.guild, g.quest.id)
+    expect(seal).toMatchObject({
+      actionHash: proposal.hash,
+      text: 'Hello guild',
+      round: g.quest.round,
+      status: 'requested',
+    })
+    expect((await requestQuestSeal(g.deps, g.guild, g.quest)).outcome).toBe('requested')
+    expect((await g.seals.forQuest(g.guild, g.quest.id))?.id).toBe(seal?.id)
+    expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('awaiting_seal')
+  })
+
+  test('a failing Verdict requests no Seal: a revision round, then the dead letters', async () => {
+    const g = await gate(2, { maxLength: 100, bannedTerms: ['free money'], requiredTerms: [] })
+    await g.draft('Get free money')
+    const first = await requestQuestSeal(g.deps, g.guild, g.quest)
+    expect(first.outcome).toBe('rejected')
+    expect(await g.seals.forQuest(g.guild, g.quest.id)).toBeNull()
+    expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('queued')
+    const again = await g.quests.claim(g.guild, { leaseMs: 60_000, maxActive: 5 })
+    const second = await g.quests.submitForSeal(g.guild, g.quest.id, again?.attempts ?? 0)
+    await g.draft('More free money')
+    await requestQuestSeal(g.deps, g.guild, second)
+    expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('dead')
+  })
+
+  test('a Quest with no Proposal is left as it is', async () => {
+    const g = await gate()
+    expect((await requestQuestSeal(g.deps, g.guild, g.quest)).outcome).toBe('no_proposal')
+    expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('awaiting_seal')
   })
 })

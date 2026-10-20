@@ -165,4 +165,18 @@ export class PgProposalStore implements ProposalStore {
       }
     })
   }
+
+  async latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
+    if (!z.uuid().safeParse(questId).success) {
+      return null
+    }
+    return this.db.withGuild(guildId, async (tx) => {
+      const [found] = await tx`
+        select ${tx.unsafe(SELECT)} from proposals p
+        join verdicts v on v.guild_id = p.guild_id and v.proposal_hash = p.content_hash
+        where p.guild_id = ${guildId} and p.quest_id = ${questId}
+        order by p.created_at desc, p.proposal_id desc limit 1`
+      return found ? toProposal(row.parse(found)) : null
+    })
+  }
 }

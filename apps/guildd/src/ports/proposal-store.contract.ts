@@ -32,6 +32,18 @@ export function proposalStoreContract(name: string, make: () => Promise<Proposal
       expect(await store.verdictFor(g, hash)).toEqual(p.verdict)
     })
 
+    test('the latest Proposal of a Quest is found by its Quest, in its own guild only', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const input = draft('Quest text')
+      expect(await store.latestForQuest(g, input.questId)).toBeNull()
+      const stored = await store.propose(g, input, { passed: true, findings: PASS })
+      expect(await store.latestForQuest(g, input.questId)).toEqual(stored)
+      expect(await store.latestForQuest(g, crypto.randomUUID())).toBeNull()
+      expect(await store.latestForQuest(other, input.questId)).toBeNull()
+    })
+
     test('one changed character is a different hash, and the old Verdict does not apply to it', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

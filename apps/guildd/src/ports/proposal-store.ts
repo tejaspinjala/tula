@@ -60,4 +60,6 @@ export interface ProposalStore {
   list(guildId: string, page: { after?: string; limit: number }): Promise<ProposalPage>
   /** The Verdict bound to exactly this Proposal hash, or null; the Seal and Core Loop gate on it. */
   verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null>
+  /** The most recently stored Proposal of the Quest (a revision round drafts a new one), or null. */
+  latestForQuest(guildId: string, questId: string): Promise<Proposal | null>
 }

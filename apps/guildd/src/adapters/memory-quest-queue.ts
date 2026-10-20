@@ -1,6 +1,7 @@
 import type { Clock } from '../ports/clock'
 import {
   type ClaimOptions,
+  cascadeDeadTransitions,
   claimTransition,
   completeTransition,
   expireTransition,
@@ -69,6 +70,19 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   private apply(guildId: string, t: Transition): Quest {
+    this.record(guildId, t)
+    if (t.event === 'quest.dead') {
+      for (const dependent of cascadeDeadTransitions(
+        [...this.guild(guildId).byId.values()],
+        t.quest.id
+      )) {
+        this.record(guildId, dependent)
+      }
+    }
+    return t.quest
+  }
+
+  private record(guildId: string, t: Transition): void {
     this.guild(guildId).byId.set(t.quest.id, t.quest)
     if (t.event) {
       this.onEvent(guildId, t.event, {
@@ -77,7 +91,6 @@ export class MemoryQuestQueue implements QuestQueue {
         attempt: t.quest.attempts,
       })
     }
-    return t.quest
   }
 
   async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
