@@ -150,7 +150,7 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     name: 'spawn_subquest',
     roles: SENIOR_ROLES,
     description:
-      'Spawn a Sub-Quest for another Member to run; returns its id. Bounded by the guild’s spawn caps (spawn_cap, depth_cap).',
+      'Spawn a Sub-Quest for another Member to run; returns its id. Bounded by the guild’s spawn caps (spawn_cap, depth_cap). Idempotent only within one attempt: a resumed or retried attempt must call child_results first and not spawn the same work again, or it will hit spawn_cap.',
     args: spawnSubquestArgs,
   },
   {

@@ -916,6 +916,30 @@ describe('MCP gateway', () => {
       expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(3)
     })
 
+    test('a resumed attempt that spawns the same brief again hits the cap and writes nothing', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      const kids = []
+      for (const n of [1, 2, 3]) {
+        kids.push(childId(await spawn(s, parent, { brief: `${brief} ${n}` })))
+      }
+      await callTool(s.transport, 'await_children', { lease: parent })
+      for (const id of kids) {
+        await new ScriptedMember(s.transport, { goal: 'ok', output: () => id }).runLeased(
+          await childLease(s, id)
+        )
+      }
+      const resumed = await s.quests.claim(s.guild, { leaseMs: 60_000, maxActive: 10 })
+      expect(resumed?.attempts).toBe(2)
+      const second = lease.parse(await s.gateway.lease(s.guild, resumed as Quest))
+      // The key includes the attempt, so only the cap stops the repeat: a resumed Member reads child_results.
+      expect(await spawn(s, second, { brief: `${brief} 1` })).toMatchObject({
+        isError: true,
+        data: { error: 'spawn_cap' },
+      })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(4)
+    })
+
     test('a retried spawn returns the same Sub-Quest and writes nothing more', async () => {
       const s = await setup()
       const parent = await parentOf(s)
