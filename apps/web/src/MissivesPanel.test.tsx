@@ -8,8 +8,10 @@ const realFetch = globalThis.fetch
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 const { MissivesPanel } = await import('./MissivesPanel')
+const { LiveEvents } = await import('./live-events')
 
 const urls: string[] = []
+const fresh: ReturnType<typeof missive>[] = []
 const missive = (id: string, from: string, to: string, text: string) => ({
   id,
   from,
@@ -51,6 +53,7 @@ beforeAll(() => {
       if (url.includes('/halls/heralds/missives')) {
         return Response.json({
           missives: [
+            ...fresh,
             missive('m3', 'heralds-member-2', 'heralds-captain', '<b>Which tone?</b>'),
             missive('m2', 'heralds-captain', 'heralds-member-2', 'Warm and brief.'),
           ],
@@ -127,4 +130,40 @@ test('signed out, it asks for a passkey and reads nothing', async () => {
   expect(m.host.textContent).toContain('Sign in')
   expect(urls).toEqual([])
   await m.unmount()
+})
+
+test('a new Missive arrives live: missive.sent refetches the list by route', async () => {
+  fresh.length = 0
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const sent = {
+    seq: 9,
+    type: 'missive.sent',
+    payload: { missiveId: 'm9', hall: 'heralds', from: 'heralds-captain' },
+    occurredAt: '2026-01-01T00:00:00.000Z',
+  }
+  await act(async () => {
+    root.render(
+      <LiveEvents.Provider value={[]}>
+        <MissivesPanel session={session} />
+      </LiveEvents.Provider>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  expect(host.querySelectorAll('[data-testid="missive"]')).toHaveLength(2)
+  fresh.push(missive('m9', 'heralds-captain', 'hall', 'Fresh from the road.'))
+  await act(async () => {
+    root.render(
+      <LiveEvents.Provider value={[sent]}>
+        <MissivesPanel session={session} />
+      </LiveEvents.Provider>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const rows = [...host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
+  expect(rows).toHaveLength(3)
+  expect(rows[0]).toContain('Fresh from the road.')
+  await act(async () => root.unmount())
+  fresh.length = 0
 })
