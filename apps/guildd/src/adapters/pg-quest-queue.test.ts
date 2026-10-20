@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from 'bun:test'
 import postgres from 'postgres'
 import { createDb } from '../db/client'
+import type { NewQuest } from '../ports/quest-queue'
 import { questQueueContract } from '../ports/quest-queue.contract'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
@@ -27,7 +28,7 @@ test('Quest transitions append events with ids only', async () => {
   const guild = await newGuild()
   const clock = new MemoryClock(START)
   const queue = new PgQuestQueue(db, new MemoryKeyProvider(), clock, () => 0.5)
-  const input = {
+  const input: NewQuest = {
     jobKey: 'ev-1',
     templateId: 'herald-brief',
     hallId: 'heralds',

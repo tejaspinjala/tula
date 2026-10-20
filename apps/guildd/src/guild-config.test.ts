@@ -5,6 +5,7 @@ import {
   type GuildConfig,
   guildConfig,
   hallAcceptsQuests,
+  questConcurrency,
 } from './guild-config'
 
 describe('seeded guild config', () => {
@@ -55,6 +56,13 @@ describe('classifyChange', () => {
     expect(classifyChange(base, { ...base, caps: { ...base.caps, dailySpendCents: 0 } })).toBe(
       'tightening'
     )
+  })
+  test('the Quest concurrency cap defaults, and raising it is widening', () => {
+    expect(questConcurrency(base)).toBe(4)
+    const raised = { ...base, caps: { ...base.caps, concurrentQuests: 9 } }
+    expect(questConcurrency(raised)).toBe(9)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
   })
   test('private eligibility on, unlocking and a new provider are widening', () => {
     const halls = base.halls.map((h) => (h.id === 'health' ? { ...h, privateEligible: true } : h))

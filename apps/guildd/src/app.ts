@@ -13,6 +13,7 @@ import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import {
   MAX_SECRET_PAGE,
@@ -21,6 +22,7 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
@@ -39,6 +41,8 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** The Quest queue: Quests, leases, retries and the dead-letter list. */
+  quests: QuestQueue
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -82,6 +86,14 @@ const notePage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
   q: z.string().max(500).optional(),
+})
+const questPage = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
+  state: questState.optional(),
 })
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
@@ -203,6 +215,15 @@ export function createApp(deps: AppDeps): Hono {
     }
     const parsed = uuid.safeParse(c.req.header('x-guild-id'))
     return parsed.success ? parsed.data : null
+  }
+
+  /**
+   * The caller of a WebSocket upgrade from a browser, which cannot set an Authorization header:
+   * the session token may come as `?access_token=`. Used only by the event stream.
+   */
+  async function queryTokenGuild(c: Context): Promise<string | null> {
+    const token = c.req.query('access_token')
+    return token ? ((await deps.identity.resolveSession(token))?.guildId ?? null) : null
   }
 
   /** Whether the guild exists (the guild row is visible only under its own tenant context). */
@@ -504,6 +525,58 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // Quests. Posting and every transition is an event appended by the QuestQueue. Like the
+  // Archive, a guild that is not the caller's is indistinguishable from one that does not exist.
+  app.post('/guilds/:id/quests', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const body = postQuestInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const result = await postQuest(
+      { config: deps.config, queue: deps.quests },
+      who.guild,
+      body.data
+    )
+    if (!result.ok) {
+      return c.json({ error: result.error }, 422)
+    }
+    return c.json(result.quest, result.created ? 201 : 200)
+  })
+
+  async function questList(c: Context, dead: boolean): Promise<Response> {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = questPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      state: c.req.query('state'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const paging = {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+    }
+    return c.json(
+      dead
+        ? await deps.quests.deadLetters(who.guild, paging)
+        : await deps.quests.list(who.guild, {
+            ...paging,
+            ...(page.data.state ? { state: page.data.state } : {}),
+          })
+    )
+  }
+
+  app.get('/guilds/:id/quests', (c) => questList(c, false))
+  app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))
+
   // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
   // writes config, and agents have no session, so no agent-facing route can change it. A widening
   // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
@@ -731,7 +804,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = await callerGuild(c)
+      const caller = (await callerGuild(c)) ?? (await queryTokenGuild(c))
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }

@@ -49,7 +49,7 @@ export class MemoryQuestQueue implements QuestQueue {
     return fresh
   }
 
-  private require(guildId: string, id: string): Quest {
+  private mustFind(guildId: string, id: string): Quest {
     const found = this.guild(guildId).byId.get(id)
     if (!found) {
       throw new QuestError('not_found')
@@ -103,7 +103,7 @@ export class MemoryQuestQueue implements QuestQueue {
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {
     const now = this.clock.now()
     if (options.questId !== undefined) {
-      const target = this.require(guildId, options.questId)
+      const target = this.mustFind(guildId, options.questId)
       if (hasLiveLease(target, now)) {
         throw new QuestError('already_claimed')
       }
@@ -113,20 +113,20 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   async renew(guildId: string, id: string, attempt: number, leaseMs: number): Promise<Quest> {
-    const t = renewTransition(this.require(guildId, id), attempt, this.clock.now(), leaseMs)
+    const t = renewTransition(this.mustFind(guildId, id), attempt, this.clock.now(), leaseMs)
     return this.apply(guildId, t)
   }
 
   async submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest> {
-    return this.apply(guildId, submitTransition(this.require(guildId, id), attempt))
+    return this.apply(guildId, submitTransition(this.mustFind(guildId, id), attempt))
   }
 
   async complete(guildId: string, id: string, attempt: number): Promise<Quest> {
-    return this.apply(guildId, completeTransition(this.require(guildId, id), attempt))
+    return this.apply(guildId, completeTransition(this.mustFind(guildId, id), attempt))
   }
 
   async fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest> {
-    const quest = this.require(guildId, id)
+    const quest = this.mustFind(guildId, id)
     const delay = retryDelayMs(quest.attempts, this.random())
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }

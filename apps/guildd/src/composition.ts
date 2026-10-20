@@ -3,6 +3,7 @@ import { FileKeyProvider } from './adapters/file-key-provider'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
+import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
@@ -57,6 +58,7 @@ export async function compose(
     config: overrides.config ?? new PgConfigStore(db, keys),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
+    quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
   }
   return { app: createApp(adapters), adapters }
 }

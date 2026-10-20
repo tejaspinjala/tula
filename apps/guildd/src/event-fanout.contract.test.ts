@@ -46,6 +46,7 @@ function countingApp(
     secrets: harness.adapters.secrets,
     config: harness.adapters.config,
     notes: harness.adapters.notes,
+    quests: harness.adapters.quests,
     keys,
     devGuildHeader: true,
     eventPollMs: 600_000,
