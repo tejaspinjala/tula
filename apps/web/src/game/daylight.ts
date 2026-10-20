@@ -42,14 +42,14 @@ export function integerZoom(
   return Math.min(4, Math.max(1, fill))
 }
 
-/** The whole zoom a map opens at: the fit rounded to the nearest whole number (1 to 4). */
+/** The whole zoom a map opens at: the smallest that fills the frame on both axes (1 to 4); the camera follows the Guild Master. */
 export function openZoomWhole(
   frameW: number,
   frameH: number,
   worldW: number,
   worldH: number
 ): number {
-  const fill = Math.round(Math.min(frameW / worldW, frameH / worldH))
+  const fill = Math.ceil(Math.max(frameW / worldW, frameH / worldH))
   return Math.min(4, Math.max(1, fill))
 }
 

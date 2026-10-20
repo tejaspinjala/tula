@@ -46,7 +46,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     parent,
     pixelArt: true,
     render: { roundPixels: true },
-    backgroundColor: '#1b1b26',
+    transparent: true,
     banner: false,
     audio: { noAudio: true },
     disableContextMenu: true,
