@@ -7,6 +7,7 @@ import { Palette } from '../builder/Palette'
 import { formatDollars, loadCosts } from '../costs'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
+import { WorkSection } from '../WorkSection'
 import {
   confirmWorkflowVersion,
   listRuns,
@@ -332,12 +333,9 @@ export function WorkflowPanel({
 
   if (!draft || !id) {
     return (
-      <section aria-labelledby="workflows-heading" className="card">
-        <h2 id="workflows-heading" className="card-title">
-          Workflows
-        </h2>
-        {failed ? <p role="alert">{failed}</p> : <p className="muted">Loading...</p>}
-      </section>
+      <WorkSection id="workflows" title="Workflows">
+        {failed ? <p role="alert">{failed}</p> : <p>Loading...</p>}
+      </WorkSection>
     )
   }
 

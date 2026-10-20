@@ -138,58 +138,28 @@
   right: 0;
   margin-inline: auto;
   bottom: 38%;
-  width: calc(var(--px) * 110);
-  height: calc(var(--px) * 70);
+  width: calc(var(--px) * 96);
+  height: calc(var(--px) * 64);
+  background: url("./assets/pixel/title-hall.png") 0 0 / 100% 100%;
+  image-rendering: pixelated;
 }
 
-.title-wall {
-  position: absolute;
-  inset: calc(var(--px) * 16) 0 0;
-  background: var(--px-wood-500);
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
-}
-
-.title-roof {
-  position: absolute;
-  top: 0;
-  left: calc(var(--px) * -6);
-  right: calc(var(--px) * -6);
-  height: calc(var(--px) * 18);
-  background: var(--px-danger-700);
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
-  z-index: 1;
-}
-
+/* The lit panes sit over the window recesses drawn in the art. */
 .title-window {
   position: absolute;
-  top: calc(var(--px) * 26);
+  top: calc(var(--px) * 28);
   width: calc(var(--px) * 12);
   height: calc(var(--px) * 12);
   background: var(--px-gold-500);
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
-  z-index: 1;
   animation: title-glow 3.2s steps(2) infinite;
 }
 
 .title-window-1 {
-  left: calc(var(--px) * 12);
+  left: calc(var(--px) * 14);
 }
 .title-window-2 {
-  right: calc(var(--px) * 12);
+  left: calc(var(--px) * 70);
   animation-delay: 1.6s;
-}
-
-.title-door {
-  position: absolute;
-  left: 0;
-  right: 0;
-  margin-inline: auto;
-  bottom: 0;
-  width: calc(var(--px) * 16);
-  height: calc(var(--px) * 26);
-  background: var(--px-wood-900);
-  border: calc(var(--px) * 2) solid var(--px-ink);
-  z-index: 1;
 }
 
 .title-cottage {
@@ -317,4 +287,29 @@
 .title-scene[data-still="true"] .title-star,
 .title-scene[data-still="true"] .title-window {
   animation: none;
+}
+
+/* The title dissolves into the world in four steps, then is gone; reduced motion skips it. */
+.scene-fade {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  background: var(--px-wood-900);
+  animation: scene-fade 0.6s steps(4) forwards;
+}
+
+@keyframes scene-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-fade {
+    display: none;
+  }
 }

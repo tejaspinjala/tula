@@ -119,7 +119,6 @@
   min-width: 0;
   min-height: 0;
   border: var(--px) solid var(--px-ink);
-  border-radius: 0;
   background: var(--px-gold-500);
 }
 
@@ -203,4 +202,66 @@
   .react-flow__viewport {
     transition: none;
   }
+}
+
+/* Builder and workflow chrome: the paper plate, its titles and the primary and danger buttons. */
+.card {
+  background: var(--surface);
+  border: calc(var(--px) * 2) solid var(--border);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.card-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  margin: 0;
+}
+
+.sub-title {
+  font-size: var(--text-base);
+  font-weight: 700;
+  margin: var(--space-6) 0 0;
+}
+
+.view-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  margin: 0;
+}
+
+.item {
+  background: var(--surface-2);
+  border: calc(var(--px) * 2) solid var(--border);
+  padding: var(--space-3);
+  list-style: none;
+}
+
+.item + .item {
+  margin-top: var(--space-2);
+}
+
+.btn-primary {
+  background: var(--px-gold-500);
+  color: var(--px-on-gold);
+}
+
+.btn-primary:hover {
+  background: var(--px-wood-100);
+  color: var(--px-on-hover);
+}
+
+.btn-danger {
+  background: var(--danger-solid);
+  color: var(--px-on-danger);
+}
+
+.btn-danger:hover {
+  background: var(--px-danger-400);
+  color: var(--px-on-hover);
+}
+
+.card {
+  box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }

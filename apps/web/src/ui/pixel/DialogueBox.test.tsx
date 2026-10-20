@@ -34,6 +34,15 @@ async function show(extra: { onDone?: () => void; lines?: readonly string[] } = 
   }
 }
 
+test('the button name contains the words on screen (label in name), then says how to go on', async () => {
+  const d = await show()
+  const name = d.box.getAttribute('aria-label') ?? ''
+  expect(name).toContain('Ana')
+  expect(name).toContain(first)
+  expect(name).toContain('Continue')
+  await d.m.unmount()
+})
+
 test('the whole line is in the DOM from the start while only the start of it is revealed', async () => {
   const d = await show()
   expect(d.live()).toBe(first)

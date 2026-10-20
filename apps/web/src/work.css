@@ -152,3 +152,15 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Inside a Bag page the Bag wood frame is the only border: the section is a flat paper surface. */
+.work-flat {
+  padding: calc(var(--px) * 4);
+  background: var(--px-paper);
+  color: var(--px-text);
+}
+
+/* An empty list draws nothing (no stray bar under the Vault before any secret exists). */
+.work-log:empty {
+  display: none;
+}

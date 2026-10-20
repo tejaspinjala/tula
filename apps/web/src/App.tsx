@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   type FoundingState,
   fetchGuild,
@@ -11,6 +11,9 @@ import {
 import { Shell } from './Shell'
 import { SignInPanel } from './SignInPanel'
 import { TitleScene } from './TitleScene'
+
+/** How long the title-to-world fade stays mounted: the 0.6 s CSS animation plus a frame. */
+const FADE_MS = 700
 
 /**
  * The ledger: signed out it shows only sign-in (and founding while it is open); signed in it
@@ -37,6 +40,23 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
       setRestored(true)
     })
   }, [])
+
+  // The title dissolves into the world: a decorative overlay that fades out in steps, then goes.
+  const onTitle = useRef(false)
+  const [fading, setFading] = useState(false)
+  useEffect(() => {
+    if (!session) {
+      onTitle.current = restored
+      return
+    }
+    if (!onTitle.current) {
+      return
+    }
+    onTitle.current = false
+    setFading(true)
+    const timer = setTimeout(() => setFading(false), FADE_MS)
+    return () => clearTimeout(timer)
+  }, [session, restored])
 
   useEffect(() => {
     setGuild(null)
@@ -79,6 +99,14 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   }
 
   return (
-    <Shell session={session} guildName={guild?.name ?? ''} status={status} onSession={setSession} />
+    <>
+      <Shell
+        session={session}
+        guildName={guild?.name ?? ''}
+        status={status}
+        onSession={setSession}
+      />
+      {fading && <div className="scene-fade" aria-hidden="true" />}
+    </>
   )
 }

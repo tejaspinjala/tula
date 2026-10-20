@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { barGates, describeGates, type GatesStatus, liftGates, loadGates } from './gates'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /**
  * Bar the Gates: the Guild Master's kill switch for this guild, and for every guild when the
@@ -36,20 +38,15 @@ export function GatesPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="gates-heading" className="card">
-      <h2 id="gates-heading" className="card-title">
-        Bar the Gates
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to use the Gates.</p>}
+    <WorkSection id="gates" title="Bar the Gates">
+      {!session && <p>Sign in with a passkey to use the Gates.</p>}
       {status && (
-        <p className="mt-4" role={status.guild || status.global ? 'alert' : 'status'}>
-          {describeGates(status)}
-        </p>
+        <p role={status.guild || status.global ? 'alert' : 'status'}>{describeGates(status)}</p>
       )}
       {session && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
+        <div className="work-actions">
+          <PixelButton
+            danger
             onClick={() =>
               run(async (current) => {
                 const done = await barGates(current, 'guild', fetch)
@@ -58,9 +55,8 @@ export function GatesPanel({ session }: { session: Session | null }) {
             }
           >
             Bar this guild
-          </button>
-          <button
-            type="button"
+          </PixelButton>
+          <PixelButton
             onClick={() =>
               run(async (current) => {
                 await liftGates(current, 'guild', fetch, webAuthnBrowser)
@@ -69,11 +65,11 @@ export function GatesPanel({ session }: { session: Session | null }) {
             }
           >
             Lift this guild's bar with passkey
-          </button>
+          </PixelButton>
           {status?.operator && (
             <>
-              <button
-                type="button"
+              <PixelButton
+                danger
                 onClick={() =>
                   run(async (current) => {
                     const done = await barGates(current, 'global', fetch)
@@ -82,9 +78,8 @@ export function GatesPanel({ session }: { session: Session | null }) {
                 }
               >
                 Bar every guild
-              </button>
-              <button
-                type="button"
+              </PixelButton>
+              <PixelButton
                 onClick={() =>
                   run(async (current) => {
                     await liftGates(current, 'global', fetch, webAuthnBrowser)
@@ -93,16 +88,12 @@ export function GatesPanel({ session }: { session: Session | null }) {
                 }
               >
                 Lift the global bar with passkey
-              </button>
+              </PixelButton>
             </>
           )}
         </div>
       )}
-      {message && (
-        <p className="mt-4" role="status">
-          {message}
-        </p>
-      )}
-    </section>
+      {message && <p role="status">{message}</p>}
+    </WorkSection>
   )
 }

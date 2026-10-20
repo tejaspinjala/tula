@@ -4,6 +4,7 @@ import { LookPicker, LookPreview } from './game/LookPicker'
 import { choiceFor, GUILD_MASTER_ID, type LookChoice } from './game/look'
 import { saveGuildMasterLook } from './guild-master-look'
 import type { Session } from './passkeys'
+import { Frame, PixelButton } from './ui/pixel'
 
 /** Props of {@link CharacterPanel}. */
 export interface CharacterPanelProps {
@@ -55,33 +56,30 @@ export function CharacterPanel({
   }
 
   return (
-    <section aria-labelledby="character-heading" className="card character-panel">
-      <h3 id="character-heading" className="sub-title">
-        Your character
-      </h3>
-      <div className="look-editor">
-        <LookPreview look={draft} label="Your character" />
-        <LookPicker look={draft} onChange={change} />
-      </div>
-      <div className="actions">
-        <button type="button" className="btn" disabled={busy} onClick={save}>
-          Save character
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onPreview(start)
-            onCancel()
-          }}
-        >
-          Cancel
-        </button>
-      </div>
-      {failed && (
-        <p role="alert" className="muted">
-          Your character could not be saved. Try again.
-        </p>
-      )}
+    <section aria-labelledby="character-heading" className="character-panel">
+      <Frame variant="paper">
+        <h3 id="character-heading" className="work-sub">
+          Your character
+        </h3>
+        <div className="look-editor">
+          <LookPreview look={draft} label="Your character" />
+          <LookPicker look={draft} onChange={change} />
+        </div>
+        <div className="work-actions">
+          <PixelButton disabled={busy} onClick={save}>
+            Save character
+          </PixelButton>
+          <PixelButton
+            onClick={() => {
+              onPreview(start)
+              onCancel()
+            }}
+          >
+            Cancel
+          </PixelButton>
+        </div>
+        {failed && <p role="alert">Your character could not be saved. Try again.</p>}
+      </Frame>
     </section>
   )
 }

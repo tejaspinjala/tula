@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
+import { WorkSection } from './WorkSection'
 
 /** The roster in the ledger view: the Steward and each Hall with its Captain and Members. */
 export function RosterPanel({ session }: { session: Session | null }) {
@@ -19,16 +20,13 @@ export function RosterPanel({ session }: { session: Session | null }) {
   }, [session])
 
   return (
-    <section aria-labelledby="roster-heading" className="card">
-      <h2 id="roster-heading" className="card-title">
-        Roster
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see the roster.</p>}
+    <WorkSection id="roster" title="Roster">
+      {!session && <p>Sign in with a passkey to see the roster.</p>}
       {failed && <p role="alert">The roster could not be loaded.</p>}
       {roster && (
         <>
-          <p className="mt-4">Steward: {roster.steward.name}</p>
-          <ul aria-label="Halls" className="mt-2 flex flex-col gap-2">
+          <p>Steward: {roster.steward.name}</p>
+          <ul aria-label="Halls" className="work-log">
             {roster.halls.map((hall) => (
               <li key={hall.id}>
                 <strong>{hall.name}</strong>
@@ -48,6 +46,6 @@ export function RosterPanel({ session }: { session: Session | null }) {
           </ul>
         </>
       )}
-    </section>
+    </WorkSection>
   )
 }

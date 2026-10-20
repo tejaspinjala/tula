@@ -202,6 +202,26 @@ function walker(p: Record<string, Rgba>): Uint8Array {
   return encodePng(sheet.width, sheet.height, sheet.px)
 }
 
+/** The title Hall: a stepped gabled roof over a plank wall, window recesses and a door (96 by 64). */
+function titleHall(p: Record<string, Rgba>): Uint8Array {
+  const color = (name: string): Rgba => p[`--px-${name}`] ?? CLEAR
+  const c = canvas(96, 64)
+  for (let y = 0; y < 18; y++) {
+    const inset = Math.round(((17 - y) / 17) * 28)
+    rect(c, inset, y, 96 - inset * 2, 1, color(y % 6 === 5 ? 'danger-400' : 'danger-700'))
+  }
+  rect(c, 6, 18, 84, 46, color('wood-500'))
+  for (let y = 22; y < 64; y += 6) {
+    rect(c, 6, y, 84, 1, color('wood-700'))
+  }
+  rect(c, 14, 28, 12, 12, color('wood-900'))
+  rect(c, 70, 28, 12, 12, color('wood-900'))
+  rect(c, 40, 38, 16, 26, color('wood-900'))
+  rect(c, 42, 40, 12, 24, color('wood-700'))
+  outline(c, color('ink'))
+  return encodePng(c.width, c.height, c.px)
+}
+
 const ICONS: Record<string, readonly string[]> = {
   'icon-star.png': [
     '...##...',
@@ -273,6 +293,7 @@ export async function renderArt(): Promise<Map<string, Uint8Array>> {
   const out = new Map<string, Uint8Array>()
   out.set('wood-frame.png', woodFrame(p))
   out.set('walker.png', walker(p))
+  out.set('title-hall.png', titleHall(p))
   for (const [name, rows] of Object.entries(ICONS)) {
     out.set(name, icon(rows))
   }

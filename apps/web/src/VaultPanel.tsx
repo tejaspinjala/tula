@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
+import { PixelButton } from './ui/pixel'
 import { checkSecrets, listSecrets, type SecretCheck, submitSecret } from './vault'
+import { WorkSection } from './WorkSection'
 
 /** The Vault screen: add a provider key once (after re-authentication) and see which refs resolve. */
 export function VaultPanel({ session }: { session: Session | null }) {
@@ -30,13 +32,10 @@ export function VaultPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="vault-heading" className="card">
-      <h2 id="vault-heading" className="card-title">
-        Vault
-      </h2>
+    <WorkSection id="vault" title="Vault">
       {session ? (
         <form
-          className="mt-4 flex flex-col gap-2"
+          className="work-body"
           onSubmit={(event) => {
             event.preventDefault()
             run('Add secret', async (current) => {
@@ -64,17 +63,15 @@ export function VaultPanel({ session }: { session: Session | null }) {
             value={value}
             onChange={(event) => setValue(event.target.value)}
           />
-          <div className="flex gap-2">
-            <button type="submit" className="btn-primary" disabled={!ref.trim() || !value}>
+          <div className="work-actions">
+            <PixelButton type="submit" disabled={!ref.trim() || !value}>
               Add secret
-            </button>
-            <button type="button" onClick={() => run('Refresh', refresh)}>
-              Refresh
-            </button>
+            </PixelButton>
+            <PixelButton onClick={() => run('Refresh', refresh)}>Refresh</PixelButton>
           </div>
-          <ul aria-label="Secret references">
+          <ul aria-label="Secret references" className="work-log">
             {secrets.map((secret) => (
-              <li key={secret.ref} className="font-mono">
+              <li key={secret.ref} className="mono">
                 {secret.ref}: {secret.status}
               </li>
             ))}
@@ -84,8 +81,8 @@ export function VaultPanel({ session }: { session: Session | null }) {
           </p>
         </form>
       ) : (
-        <p className="mt-4">Sign in with a passkey to use the Vault.</p>
+        <p>Sign in with a passkey to use the Vault.</p>
       )}
-    </section>
+    </WorkSection>
   )
 }

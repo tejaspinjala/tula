@@ -8,6 +8,8 @@ import {
   type SummonStatus,
   startSummon,
 } from './summon'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /** What each Summon step means, shown beside its tick in the panel. */
 export const STEP_LABELS = {
@@ -83,7 +85,7 @@ export function SummonPanel({
 
   const form = session && (
     <form
-      className="mt-4 flex flex-wrap items-end gap-2"
+      className="work-actions"
       onSubmit={(event) => {
         event.preventDefault()
         summon()
@@ -100,24 +102,19 @@ export function SummonPanel({
           ))}
         </select>
       </label>
-      <button type="submit" disabled={profileId === ''}>
+      <PixelButton type="submit" disabled={profileId === ''}>
         Summon with this profile
-      </button>
+      </PixelButton>
     </form>
   )
 
   return (
-    <section aria-labelledby="summon-heading" className="card">
-      <h2 id="summon-heading" className="card-title">
-        Summon your first member
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to summon a member.</p>}
+    <WorkSection id="summon" title="Summon your first member">
+      {!session && <p>Sign in with a passkey to summon a member.</p>}
       {status && (
         <>
-          <p className="mt-4" role="status">
-            {describeSummon(status)}
-          </p>
-          <ul className="mt-2 list-disc pl-6">
+          <p role="status">{describeSummon(status)}</p>
+          <ul className="work-log">
             {status.steps.map((step) => (
               <li key={step.id}>
                 {STEP_LABELS[step.id]}: {step.done ? 'done' : 'not yet'}
@@ -127,18 +124,14 @@ export function SummonPanel({
         </>
       )}
       {status?.complete ? (
-        <details className="mt-4">
+        <details>
           <summary>Summon with another profile</summary>
           {form}
         </details>
       ) : (
         form
       )}
-      {message && (
-        <p className="mt-4" role="status">
-          {message}
-        </p>
-      )}
-    </section>
+      {message && <p role="status">{message}</p>}
+    </WorkSection>
   )
 }

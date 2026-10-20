@@ -281,9 +281,9 @@ const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string }> = {
   },
   no_credential: {
     'sign-in':
-      'No passkey was offered for this address. Open the Hall at the address you founded it from, or use an older passkey with a guild id.',
+      'No passkey was offered for this address, or you set it aside at once. Open the Hall at the address you founded it from, or use an older passkey with a guild id.',
     founding:
-      'Your device offered no way to make a passkey for this address. Try the address you will use every day.',
+      'Your device offered no way to make a passkey for this address, or you set it aside at once. Try the address you will use every day.',
   },
   wrong_address: {
     'sign-in':

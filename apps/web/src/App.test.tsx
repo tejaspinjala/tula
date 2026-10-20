@@ -144,6 +144,9 @@ test('New guild is on the title menu only while founding is open, and opens the 
   expect(headings(host)).not.toContain('Found your guild')
   await click(option(host, 'New guild'))
   expect(headings(host)).toContain('Found your guild')
+  // Keyboard only: the Guild name field has focus, so typing starts at once.
+  expect(document.activeElement?.id).toBe(host.querySelector('input')?.id)
+  expect(document.activeElement?.tagName).toBe('INPUT')
   await act(async () => root.unmount())
 })
 
@@ -286,6 +289,19 @@ test('a passkey the browser cannot offer for this address has its own line, apar
   expect(none).toContain('address')
   expect(new Set([wrong, none, cancelled]).size).toBe(3)
   expect(cancelled).not.toContain('address')
+})
+
+test('signing in fades the title into the world, and the fade is decoration only', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  const { host, root } = await mount()
+  expect(host.querySelector('.scene-fade')).toBeNull()
+  await click(option(host, 'Continue'))
+  const fade = host.querySelector('.scene-fade')
+  expect(fade).not.toBeNull()
+  expect(fade?.getAttribute('aria-hidden')).toBe('true')
+  expect(host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
+  await act(async () => root.unmount())
 })
 
 async function signedIn(path = '/') {

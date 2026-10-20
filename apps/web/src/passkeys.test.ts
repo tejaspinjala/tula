@@ -164,6 +164,11 @@ test('each failure reads as its own in-world line', () => {
   expect(passkeyLine('no_credential', 'sign-in')).toContain('address')
 })
 
+test('the no-passkey line also covers a very fast real cancel', () => {
+  expect(passkeyLine('no_credential', 'sign-in')).toContain('set it aside')
+  expect(passkeyLine('no_credential', 'founding')).toContain('set it aside')
+})
+
 test('a browser that rejects at once with NotAllowedError offered no passkey; a slow one was cancelled', async () => {
   const reject = async () => {
     throw named('NotAllowedError')
