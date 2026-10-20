@@ -29,6 +29,11 @@ const toolReply = z.object({
   error: z.object({ message: z.string() }).optional(),
 })
 
+/** The prompt a Member's model call gets for a Quest; stubbed until the worker builds it from the Brief. */
+export function buildPrompt(_brief: string, _doneCondition: string): string {
+  return ''
+}
+
 /** Why a worker step failed; coded, never the gateway's text. */
 export class WorkerError extends Error {
   constructor(
