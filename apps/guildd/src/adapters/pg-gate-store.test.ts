@@ -3,6 +3,7 @@ import postgres from 'postgres'
 import { z } from 'zod'
 import { createDb } from '../db/client'
 import { gateStoreContract } from '../ports/gate-store.contract'
+import { FAIL_REASONS } from '../ports/quest-queue'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
@@ -58,4 +59,15 @@ test('the cross-guild helper functions are schema-qualified, pinned and app-only
     pub3: false,
     app3: true,
   })
+})
+
+test('release_all_leases refuses a reason outside the allowed failure reasons', async () => {
+  await expect(db.releaseAllLeases('anything the caller likes')).rejects.toThrow()
+  await expect(db.releaseAllLeases('sandbox_unavailable')).resolves.toBeGreaterThanOrEqual(0)
+})
+
+test('every FailReason is accepted by release_all_leases', async () => {
+  for (const reason of FAIL_REASONS) {
+    await expect(db.releaseAllLeases(reason)).resolves.toBeGreaterThanOrEqual(0)
+  }
 })

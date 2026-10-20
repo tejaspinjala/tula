@@ -1,11 +1,12 @@
 import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
-import { questConcurrency } from './guild-config'
+import { questConcurrency, sealPostWindowMs } from './guild-config'
 import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
 import { GatewayError, type ModelGateway } from './model-gateway'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import { ConfigError } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
 import type { ModelLedger } from './ports/model-ledger'
 import { type Quest, type QuestQueue, retryDelayMs } from './ports/quest-queue'
@@ -206,10 +207,27 @@ export type DispatchDeps = RoutingDeps &
     config: Pick<ConfigStore, 'current'>
   }
 
+/** The guild's current config, or null when it has none applied (`not_found`); other errors propagate. */
+async function currentConfig(
+  deps: Pick<DispatchDeps, 'config'>,
+  guildId: string
+): Promise<Awaited<ReturnType<DispatchDeps['config']['current']>> | null> {
+  try {
+    return await deps.config.current(guildId)
+  } catch (error) {
+    if (error instanceof ConfigError && error.code === 'not_found') {
+      return null
+    }
+    throw error
+  }
+}
+
 /** What one {@link dispatch} pass did. */
 export type DispatchOutcome =
   | { status: 'barred' }
   | { status: 'idle' }
+  /** The guild has no applied config yet: nothing to dispatch, and not an error. */
+  | { status: 'unconfigured' }
   | {
       status: 'blocked'
       questId: string
@@ -231,11 +249,19 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   if (await deps.gates.isBarred(guildId)) {
     return { status: 'barred' }
   }
-  await reconcileSeals({ quests: deps.quests, seals: deps.sealStore }, guildId)
+  const current = await currentConfig(deps, guildId)
+  if (current === null) {
+    return { status: 'unconfigured' }
+  }
+  const { config } = current
+  await reconcileSeals(
+    { quests: deps.quests, seals: deps.sealStore },
+    guildId,
+    sealPostWindowMs(config)
+  )
   await requestPendingSeals(deps, guildId)
   // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
   await watchHalls(deps, guildId)
-  const { config } = await deps.config.current(guildId)
   const claimed = await deps.quests.claim(guildId, {
     leaseMs: DISPATCH_LEASE_MS,
     maxActive: questConcurrency(config),

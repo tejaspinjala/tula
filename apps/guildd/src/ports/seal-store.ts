@@ -145,6 +145,10 @@ export interface SealStore {
     text: string,
     auth: { reauthenticated: boolean }
   ): Promise<SealResult>
-  /** Persists `expired` on up to 100 lapsed requested Seals (emitting `seal.expired`); returns how many. */
-  expireDue(guildId: string): Promise<number>
+  /**
+   * Persists `expired` on up to 100 lapsed requested Seals (emitting `seal.expired`); returns how
+   * many. With `approvedWindowMs`, an approved Seal never posted (decided at least that long ago)
+   * expires too, so its Quest is not held for ever.
+   */
+  expireDue(guildId: string, opts?: { approvedWindowMs?: number }): Promise<number>
 }

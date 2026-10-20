@@ -23,6 +23,7 @@ import {
   renewTransition,
   retryDelayMs,
   type SealOutcome,
+  type SealSettleOptions,
   sealSettleTransition,
   submitTransition,
   type Transition,
@@ -168,10 +169,15 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, submitTransition(this.mustFind(guildId, id), attempt))
   }
 
-  async settleSeal(guildId: string, id: string, outcome: SealOutcome): Promise<Quest> {
+  async settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest> {
     return this.apply(
       guildId,
-      sealSettleTransition(this.mustFind(guildId, id), outcome, this.clock.now())
+      sealSettleTransition(this.mustFind(guildId, id), outcome, this.clock.now(), opts)
     )
   }
 

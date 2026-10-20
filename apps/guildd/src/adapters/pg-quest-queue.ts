@@ -29,6 +29,7 @@ import {
   renewTransition,
   retryDelayMs,
   type SealOutcome,
+  type SealSettleOptions,
   sealSettleTransition,
   submitTransition,
   type Transition,
@@ -263,8 +264,13 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) => submitTransition(q, attempt))
   }
 
-  async settleSeal(guildId: string, id: string, outcome: SealOutcome): Promise<Quest> {
-    return this.mutate(guildId, id, (q) => sealSettleTransition(q, outcome, this.clock.now()))
+  async settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest> {
+    return this.mutate(guildId, id, (q) => sealSettleTransition(q, outcome, this.clock.now(), opts))
   }
 
   async complete(guildId: string, id: string, attempt: number): Promise<Quest> {

@@ -10,6 +10,7 @@ import {
   isLearningRepoAllowed,
   learningRepoAllowlist,
   questConcurrency,
+  sealPostWindowMs,
 } from './guild-config'
 
 describe('seeded guild config', () => {
@@ -65,6 +66,12 @@ describe('classifyChange', () => {
     expect(questConcurrency(base)).toBe(4)
     const raised = { ...base, caps: { ...base.caps, concurrentQuests: 9 } }
     expect(questConcurrency(raised)).toBe(9)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+  })
+  test('the Seal post window defaults to 72 hours, and raising it is widening', () => {
+    expect(sealPostWindowMs(base)).toBe(72 * 3_600_000)
+    const raised = { ...base, caps: { ...base.caps, sealPostWindowHours: 100 } }
     expect(classifyChange(base, raised)).toBe('widening')
     expect(classifyChange(raised, base)).toBe('tightening')
   })

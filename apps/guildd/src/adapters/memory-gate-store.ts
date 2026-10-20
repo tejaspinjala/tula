@@ -79,6 +79,10 @@ export class MemoryGateStore implements GateStore {
     return this.barredNow(guildId)
   }
 
+  async globalBarId(_guildId: string): Promise<string | null> {
+    return this.globalBar
+  }
+
   async status(guildId: string): Promise<GateStatus> {
     return { guild: this.guilds.has(guildId), global: this.globalBar !== null }
   }

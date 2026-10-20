@@ -19,29 +19,36 @@ await adapters.pushRelay.start((error) => {
   )
 })
 
+// A global bar left half-announced by a crash is finished now (idempotent per guild and bar).
+await adapters.gates.resumeAnnouncements()
+
 // Off unless DISPATCH_INTERVAL_MS is set. A plain setInterval is fine: the loop keeps no durable
 // state (the queue and Seals are the state, and dispatch is idempotent), so nothing is lost on restart.
-if (env.DISPATCH_INTERVAL_MS !== undefined) {
-  const loop = startDispatchLoop({
-    dispatcher: adapters.dispatcher,
-    guildIds: (after, limit) => adapters.db.guildIds(after, limit),
-    intervalMs: env.DISPATCH_INTERVAL_MS,
-    timer: {
-      schedule: (fn, ms) => setInterval(fn, ms),
-      clear: (handle) => clearInterval(handle),
-    },
-    onError: (error) => {
-      process.stderr.write(
-        `dispatch pass failed: ${error instanceof Error ? error.name : 'unknown'}\n`
-      )
-    },
-  })
-  const shutdown = () => {
-    void loop.stop().finally(() => process.exit(0))
-  }
-  process.once('SIGTERM', shutdown)
-  process.once('SIGINT', shutdown)
+const loop =
+  env.DISPATCH_INTERVAL_MS === undefined
+    ? null
+    : startDispatchLoop({
+        dispatcher: adapters.dispatcher,
+        guildIds: (after, limit) => adapters.db.guildIds(after, limit),
+        intervalMs: env.DISPATCH_INTERVAL_MS,
+        timer: {
+          schedule: (fn, ms) => setInterval(fn, ms),
+          clear: (handle) => clearInterval(handle),
+        },
+        onError: (error, guildId) => {
+          process.stderr.write(
+            `dispatch pass failed: guild=${guildId ?? 'all'} ${error instanceof Error ? error.name : 'unknown'}\n`
+          )
+        },
+      })
+
+// Always registered, loop or not: the background announcements of a global bar end at a page
+// boundary and what they left untold is finished by the next boot.
+const shutdown = () => {
+  void Promise.allSettled([loop?.stop(), adapters.gates.stop()]).finally(() => process.exit(0))
 }
+process.once('SIGTERM', shutdown)
+process.once('SIGINT', shutdown)
 
 // Bun rejects larger bodies before the app sees them; the slack covers non-artifact JSON bodies.
 export default {

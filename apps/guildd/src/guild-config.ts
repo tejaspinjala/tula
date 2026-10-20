@@ -78,7 +78,17 @@ export const caps = z.object({
   dailySpendCents: z.number().int().min(0).max(100_000_000),
   /** Quests that may hold a live lease at once; {@link DEFAULT_CONCURRENT_QUESTS} when absent. */
   concurrentQuests: z.number().int().min(1).max(1000).optional(),
+  /** Hours an approved Seal may wait to be posted before it expires; {@link DEFAULT_SEAL_POST_WINDOW_HOURS} when absent. Raising it widens risk. */
+  sealPostWindowHours: z.number().int().min(1).max(8760).optional(),
 })
+
+/** The post window of a config that does not set one (72 hours). */
+export const DEFAULT_SEAL_POST_WINDOW_HOURS = 72
+
+/** The guild's post window for approved Seals, in milliseconds. */
+export function sealPostWindowMs(config: GuildConfig): number {
+  return (config.caps.sealPostWindowHours ?? DEFAULT_SEAL_POST_WINDOW_HOURS) * 3_600_000
+}
 
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
@@ -358,7 +368,13 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     next.caps.dailyTokens <= prev.caps.dailyTokens &&
     next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
     questConcurrency(next) <= questConcurrency(prev) &&
-    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents', 'concurrentQuests']) &&
+    sealPostWindowMs(next) <= sealPostWindowMs(prev) &&
+    othersSame(prev.caps, next.caps, [
+      'dailyTokens',
+      'dailySpendCents',
+      'concurrentQuests',
+      'sealPostWindowHours',
+    ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&

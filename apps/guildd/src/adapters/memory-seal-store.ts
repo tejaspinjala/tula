@@ -284,14 +284,24 @@ export class MemorySealStore implements SealStore {
     }
   }
 
-  async expireDue(guildId: string): Promise<number> {
+  async expireDue(guildId: string, opts?: { approvedWindowMs?: number }): Promise<number> {
+    const now = this.clock.now().getTime()
+    const window = opts?.approvedWindowMs
     let count = 0
     for (const stored of this.seals(guildId).values()) {
-      if (count < EXPIRE_BATCH && this.read(stored.seal).status === 'expired') {
-        if (stored.seal.status === 'requested') {
-          this.write(guildId, stored, { status: 'expired' }, null)
-          count++
-        }
+      if (count >= EXPIRE_BATCH) {
+        break
+      }
+      const { seal } = stored
+      const lapsedRequest = seal.status === 'requested' && this.read(seal).status === 'expired'
+      const lapsedApproval =
+        window !== undefined &&
+        (seal.status === 'approved' || seal.status === 'released') &&
+        seal.decidedAt !== null &&
+        Date.parse(seal.decidedAt) + window <= now
+      if (lapsedRequest || lapsedApproval) {
+        this.write(guildId, stored, { status: 'expired' }, null)
+        count++
       }
     }
     return count

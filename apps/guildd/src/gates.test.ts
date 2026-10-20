@@ -7,7 +7,7 @@ const OPERATOR = crypto.randomUUID()
 const MANY = 200
 
 /** A world of `n` guilds whose every collaborator logs what happened while the bar was up. */
-function world(n: number) {
+function world(n: number, opts: { slowGuildIds?: boolean } = {}) {
   const guilds = Array.from({ length: n }, () => crypto.randomUUID()).sort()
   const events = new Map<string, string[]>()
   const calls: string[] = []
@@ -58,11 +58,16 @@ function world(n: number) {
         return 3
       },
     },
-    guildIds: async (after, limit) =>
-      guilds.filter((g) => after === undefined || g > after).slice(0, limit),
+    guildIds: async (after, limit) => {
+      if (opts.slowGuildIds) {
+        await Bun.sleep(20)
+      }
+      return guilds.filter((g) => after === undefined || g > after).slice(0, limit)
+    },
     onAnnounceError: (e) => announceErrors.push(e),
   })
   return {
+    store: slowStore,
     announceErrors,
     failAnnounceTo: (guildId: string | null) => {
       failing = guildId
@@ -137,6 +142,35 @@ describe('a global bar announces after it answers', () => {
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred'])
     }
+  })
+
+  test('a bar repeated after stop() still tells every guild chain', async () => {
+    const w = world(20, { slowGuildIds: true })
+    const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
+    await w.gates.bar(actor, 'global')
+    await w.gates.stop()
+    await w.gates.bar(actor, 'global')
+    await w.gates.settled()
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred'])
+    }
+  })
+
+  test('resumeAnnouncements finishes the announcements of a bar left untold', async () => {
+    const w = world(20)
+    await w.store.bar({ guildId: w.guilds[0] ?? '', memberId: OPERATOR }, 'global')
+    await w.gates.resumeAnnouncements()
+    await w.gates.settled()
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred'])
+    }
+  })
+
+  test('resumeAnnouncements does nothing when no global bar is up', async () => {
+    const w = world(5)
+    await w.gates.resumeAnnouncements()
+    await w.gates.settled()
+    expect(w.events.size).toBe(0)
   })
 
   test('a lift finishes a bar announcement that failed, before it tells the lift', async () => {
