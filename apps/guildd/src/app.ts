@@ -11,7 +11,7 @@ import {
 } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
-import { appendEvent, headSeq } from './events'
+import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { LearningEngine } from './learning-engine'
@@ -244,6 +244,14 @@ const questPage = z.object({
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
   state: questState.optional(),
+})
+const historyQuery = z.object({
+  after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  until: z
+    .string()
+    .refine((v) => /^\d{1,15}$/.test(v) || !Number.isNaN(Date.parse(v)))
+    .optional(),
 })
 const usageQuery = z.object({
   by: usageGroup,
@@ -1274,6 +1282,34 @@ export function createApp(deps: AppDeps): Hono {
       'content-type': 'application/octet-stream',
       'x-artifact-class': String(rows[0].class),
     })
+  })
+
+  /**
+   * Read-only replay page of the event log: `?after=<seq>&limit=<n>&until=<seq or ISO time>`.
+   * Session-guarded; the client folds the events into the state implied at the `until` point.
+   */
+  app.get('/guilds/:id/events/history', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const query = historyQuery.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      until: c.req.query('until'),
+    })
+    if (!query.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { after, limit, until } = query.data
+    const bound: EventBound =
+      until === undefined
+        ? null
+        : /^\d+$/.test(until)
+          ? { seq: Number(until) }
+          : { time: new Date(until).toISOString() }
+    const page = await deps.db.withGuild(who.guild, (tx) => eventsHistory(tx, after, limit, bound))
+    return c.json(page)
   })
 
   /**
