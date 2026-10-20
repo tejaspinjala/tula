@@ -1,3 +1,4 @@
+import type { TenantTx } from '../db/client'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import type {
   IdentityStore,
@@ -50,7 +51,7 @@ export class MemoryIdentityStore implements IdentityStore {
     }
   }
 
-  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date) {
+  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date, _tx?: TenantTx) {
     this.founding.set(guildId, { tokenHash, expiresAt })
   }
 
@@ -66,9 +67,12 @@ export class MemoryIdentityStore implements IdentityStore {
     tokenHash: string,
     now: Date
   ) {
+    const held = this.founding.get(guildId)
     if (
       (this.credentials.get(guildId) ?? []).length > 0 ||
-      !(await this.hasFounding(guildId, tokenHash, now))
+      held === undefined ||
+      held.tokenHash !== tokenHash ||
+      held.expiresAt <= now
     ) {
       return false
     }

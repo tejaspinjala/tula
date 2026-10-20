@@ -27,9 +27,15 @@ export interface Db {
   /**
    * Founds a guild and chains its `guild.founded` event in ONE transaction, so a failure (for
    * example the KeyProvider being down) leaves no guild, event or chain entry behind.
+   * `inFounding`, if given, runs in the same transaction after the chain is extended (tenant context
+   * set), so what it writes commits or rolls back with the guild.
    * @returns the new guild's id.
    */
-  foundGuildChained(input: { name: string; goal: string }, keys: KeyProvider): Promise<string>
+  foundGuildChained(
+    input: { name: string; goal: string },
+    keys: KeyProvider,
+    inFounding?: (tx: TenantTx, guildId: string) => Promise<void>
+  ): Promise<string>
   /**
    * Runs `fn` in a transaction whose tenant context is `guildId` (`set_config(..., true)`, so it
    * dies with the transaction and a reused pooled connection carries nothing over).
@@ -88,13 +94,14 @@ export function createDb(
       const [row] = await sql`select found_guild(${name}, ${goal}) as id`
       return String(row?.id)
     },
-    async foundGuildChained({ name, goal }, keys) {
+    async foundGuildChained({ name, goal }, keys, inFounding) {
       let id: string | undefined
       await sql.begin(async (tx) => {
         const [row] = await tx`select found_guild(${name}, ${goal}) as id`
         const founded = String(row?.id)
         await tx`select set_config('app.guild_id', ${founded}, true)`
         await extendChain(tx, keys)
+        await inFounding?.(tx, founded)
         id = founded
       })
       if (!id) {

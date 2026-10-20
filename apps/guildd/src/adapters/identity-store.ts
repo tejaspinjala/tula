@@ -1,3 +1,5 @@
+import type { TenantTx } from '../db/client'
+
 /** A registered passkey as stored. */
 export interface StoredCredential {
   /** Base64url credential id. */
@@ -46,7 +48,7 @@ export interface IdentityStore {
    */
   saveChallenge(guildId: string, challenge: StoredChallenge, now: Date): Promise<void>
   /** Stores or replaces the guild's founding token hash. */
-  issueFounding(guildId: string, tokenHash: string, expiresAt: Date): Promise<void>
+  issueFounding(guildId: string, tokenHash: string, expiresAt: Date, tx?: TenantTx): Promise<void>
   /** Whether `tokenHash` is the guild's unexpired founding token (not consumed). */
   hasFounding(guildId: string, tokenHash: string, now: Date): Promise<boolean>
   /**

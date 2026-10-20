@@ -1,9 +1,14 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { MemoryClock } from './adapters/memory-clock'
+import { PgIdentityStore } from './adapters/pg-identity-store'
+import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
+import { createDb, type TenantTx } from './db/client'
 import { REAUTH_TTL_MS } from './ports/identity'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
+import { testDbUrl } from './testing/test-db'
 
 const harness = await createHarness({ devGuildHeader: false })
 afterAll(() => harness.close())
@@ -154,5 +159,57 @@ describe('sensitive actions', () => {
     const again = await addPasskey(token, guildId, proof)
     expect(again.status).toBe(403)
     expect(await again.json()).toEqual({ error: 'reauth_required' })
+  })
+})
+
+describe('founding is atomic with the founding token', () => {
+  test('a failing token issue leaves no guild, and a retry gives one guild with a usable token', async () => {
+    const db = createDb(testDbUrl('app'))
+    let failures = 1
+    class FlakyIdentity extends WebAuthnIdentityProvider {
+      override async issueFoundingToken(guildId: string, tx?: TenantTx) {
+        const issued = await super.issueFoundingToken(guildId, tx)
+        if (failures-- > 0) {
+          throw new Error('token store down')
+        }
+        return issued
+      }
+    }
+    const identity = new FlakyIdentity(new PgIdentityStore(db), {
+      clock: new MemoryClock(new Date('2026-01-01T00:00:00.000Z')),
+      rpId: 'localhost',
+      rpName: 'Guildhall',
+      origin: ORIGIN,
+    })
+    const flaky = await createHarness({ app: { identity } })
+    try {
+      const name = `Atomic-${crypto.randomUUID()}`
+      const count = async () =>
+        Number(
+          (await flaky.owner`select count(*)::int as n from guilds where name = ${name}`)[0]?.n
+        )
+      const found = () =>
+        flaky.request('/guilds', {
+          method: 'POST',
+          headers: json,
+          body: JSON.stringify({ name, goal: 'g' }),
+        })
+      expect((await found()).status).toBe(500)
+      expect(await count()).toBe(0)
+
+      const retry = await found()
+      expect(retry.status).toBe(201)
+      expect(await count()).toBe(1)
+      const founded = foundedBody.parse(await retry.json())
+      const begin = await flaky.request(`/guilds/${founded.id}/passkeys/begin`, {
+        method: 'POST',
+        headers: { ...json, 'x-founding-token': founded.foundingToken },
+        body: '{}',
+      })
+      expect(begin.status).toBe(200)
+    } finally {
+      await flaky.close()
+      await db.close()
+    }
   })
 })

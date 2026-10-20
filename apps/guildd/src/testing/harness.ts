@@ -17,7 +17,12 @@ export interface HarnessOptions {
   app?: Partial<
     Pick<
       AppDeps,
-      'objectStore' | 'keys' | 'objectStoreTimeoutMs' | 'maxArtifactBytes' | 'eventPollMs'
+      | 'identity'
+      | 'objectStore'
+      | 'keys'
+      | 'objectStoreTimeoutMs'
+      | 'maxArtifactBytes'
+      | 'eventPollMs'
     >
   >
 }
