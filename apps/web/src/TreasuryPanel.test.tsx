@@ -26,7 +26,7 @@ beforeAll(() => {
       return Response.json({
         mode: 'paper',
         balances: { operating: 4000, reserve: 1000, profit: 0 },
-        spentTodayCents: 1500,
+        spentTodayCents: 1507,
         day: '2026-03-01',
         limits: { dailyCapCents: 2000, treasurerLimitCents: 500 },
       })
@@ -39,7 +39,7 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
-test('the Treasury shows the daily cap as a Meter with its number, beside the balances', async () => {
+test('the Treasury shows the daily cap as a Meter in cents, beside the balances', async () => {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
@@ -48,8 +48,10 @@ test('the Treasury shows the daily cap as a Meter with its number, beside the ba
     await new Promise((resolve) => setTimeout(resolve, 40))
   })
   const meter = host.querySelector('meter')
-  expect(meter?.getAttribute('aria-valuenow')).toBe('5')
-  expect(meter?.getAttribute('aria-valuemax')).toBe('20')
+  expect(meter?.getAttribute('aria-valuenow')).toBe('493')
+  expect(meter?.getAttribute('aria-valuemax')).toBe('2000')
+  expect(meter?.getAttribute('aria-valuetext')).toBe('$4.93 of $20.00')
+  expect(host.querySelector('.px-meter-number')?.textContent).toBe('$4.93/$20.00')
   expect(host.textContent).toContain('$40.00')
   expect(host.textContent).toContain('Ledger chain verified: 1 entries.')
   expect(host.querySelector('.card')).toBeNull()

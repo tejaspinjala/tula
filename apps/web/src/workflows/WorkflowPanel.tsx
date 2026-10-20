@@ -7,6 +7,7 @@ import { Palette } from '../builder/Palette'
 import { formatDollars, loadCosts } from '../costs'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
+import { createBackoff, streamHandlers, streamNotice } from '../stream-retry'
 import { WorkSection } from '../WorkSection'
 import {
   confirmWorkflowVersion,
@@ -71,14 +72,17 @@ function useDesktop(forced: boolean | undefined): boolean {
 
 const STARTER: WorkflowGraph = { nodes: [{ id: 'start', type: 'trigger.manual' }], edges: [] }
 const ID_SLUG = /^[a-z][a-z0-9_-]{0,63}$/
-const MAX_RECONNECT_MS = 10_000
 const POLL_MS = 4000
 const noPlaces: ReadonlyMap<string, Place> = new Map()
 const noOverlay: ReadonlyMap<string, NodeOverlay> = new Map()
 const TERMINAL = new Set(['done', 'failed', 'passed', 'approved', 'rejected'])
 
-/** Follows the guild event stream and calls `onRefresh` for events that can move a run. */
-function useRunStream(session: Session, enabled: boolean, onRefresh: () => void) {
+/**
+ * Follows the guild event stream and calls `onRefresh` for events that can move a run. Returns the
+ * failed attempts in a row, for the in-world notice.
+ */
+function useRunStream(session: Session, enabled: boolean, onRefresh: () => void): number {
+  const [failures, setFailures] = useState(0)
   const refresh = useRef(onRefresh)
   refresh.current = onRefresh
   useEffect(() => {
@@ -88,14 +92,14 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
     let closed = false
     let socket: WebSocket | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
-    let attempt = 0
+    const backoff = createBackoff()
     let lastSeq = 0
     let burst: ReturnType<typeof setTimeout> | undefined
     const retry = () => {
       if (!closed) {
-        const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
-        attempt += 1
-        timer = setTimeout(connect, ceiling / 2 + Math.random() * (ceiling / 2))
+        const { wait, failures: count } = backoff.next(Math.random())
+        setFailures(count)
+        timer = setTimeout(connect, wait)
       }
     }
     const connect = async () => {
@@ -108,19 +112,29 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
         return
       }
       socket = new WebSocket(questStreamUrl(session, window.location.origin, lastSeq, ticket))
-      socket.onmessage = (message) => {
-        attempt = 0
-        const read = readRunFrame(String(message.data))
-        if (read.seq !== null) {
-          lastSeq = Math.max(lastSeq, read.seq)
-        }
-        if (read.refresh) {
-          // One reload per burst: a reconnect replays many events at once.
-          clearTimeout(burst)
-          burst = setTimeout(() => refresh.current(), 250)
-        }
-      }
-      socket.onclose = retry
+      // Only a received frame resets the backoff: a socket that upgrades then drops still fails.
+      const handlers = streamHandlers(backoff, {
+        onHealthy: () => setFailures(0),
+        onMessage: (data) => {
+          const read = readRunFrame(data)
+          if (read.seq !== null) {
+            lastSeq = Math.max(lastSeq, read.seq)
+          }
+          if (read.refresh) {
+            // One reload per burst: a reconnect replays many events at once.
+            clearTimeout(burst)
+            burst = setTimeout(() => refresh.current(), 250)
+          }
+        },
+        onRetry: (wait, count) => {
+          if (!closed) {
+            setFailures(count)
+            timer = setTimeout(connect, wait)
+          }
+        },
+      })
+      socket.onmessage = (message) => handlers.message(String(message.data))
+      socket.onclose = handlers.close
     }
     connect()
     return () => {
@@ -130,6 +144,7 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
       socket?.close()
     }
   }, [session, enabled])
+  return failures
 }
 
 function OutlineRow({
@@ -310,7 +325,7 @@ export function WorkflowPanel({
   useEffect(() => {
     refreshRun()
   }, [refreshRun])
-  useRunStream(session, live && runId !== null, refreshRun)
+  const streamFailures = useRunStream(session, live && runId !== null, refreshRun)
   const running = run?.nodes.some((n) => !TERMINAL.has(n.status))
   useEffect(() => {
     if (!(live && running)) {
@@ -445,6 +460,7 @@ export function WorkflowPanel({
       <h2 id="workflows-heading" className="card-title">
         Workflows
       </h2>
+      {streamNotice(streamFailures) !== null && <p role="status">{streamNotice(streamFailures)}</p>}
       <div className="actions">
         <label>
           Workflow
