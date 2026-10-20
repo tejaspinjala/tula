@@ -268,7 +268,7 @@
   width: 100%;
   min-width: calc(var(--px) * 100);
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(calc(var(--px) * 16), 1fr) max-content;
   align-items: center;
   gap: calc(var(--px) * 2);
   font-family: var(--font-label);
