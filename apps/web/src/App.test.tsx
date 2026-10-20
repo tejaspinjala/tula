@@ -278,7 +278,7 @@ test('the HUD has a Bag button that opens the Bag, and a Seal count that opens t
   await click(button(host, 'Bag (B)'))
   expect(bagOpen(host)).toBe(true)
   await key('Escape', host.querySelector('[role="option"]') as HTMLElement)
-  await click(button(host, 'Seals: none waiting'))
+  await click(host.querySelector('.hud-seals') as HTMLElement)
   expect(host.querySelector('dialog[open] #seals-title')).not.toBeNull()
   await act(async () => root.unmount())
 })
@@ -289,7 +289,7 @@ test('choosing a row opens its page, Esc closes the Bag and the address returns 
   await click(row(host, 'Treasury'))
   expect(window.location.pathname).toBe('/treasury')
   expect(host.querySelector('dialog[open] #treasury-title')).not.toBeNull()
-  await key('Escape', host.querySelector('dialog') as HTMLElement)
+  await key('Escape', host.querySelector('dialog.bag') as HTMLElement)
   expect(bagOpen(host)).toBe(false)
   expect(window.location.pathname).toBe('/')
   await act(async () => root.unmount())
@@ -310,7 +310,7 @@ test('signed in: the plate names the guild, the Bag has Sign out, and guildd sho
 test('Sign out from a deeper page returns to / (U4)', async () => {
   const { host, root } = await signedIn('/timeline')
   expect(window.location.pathname).toBe('/timeline')
-  await click(button(host.querySelector('dialog') as HTMLElement, 'Back to the Bag'))
+  await click(button(host.querySelector('dialog.bag') as HTMLElement, 'Back to the Bag'))
   await click(row(host, 'Sign out'))
   expect(window.location.pathname).toBe('/')
   await act(async () => root.unmount())
@@ -318,7 +318,7 @@ test('Sign out from a deeper page returns to / (U4)', async () => {
 
 test('the guild id appears only in Settings, truncated with a copy button (U5)', async () => {
   const { host, root } = await signedIn('/vault')
-  const settings = host.querySelector('dialog') as HTMLElement
+  const settings = host.querySelector('dialog.bag') as HTMLElement
   expect(settings.textContent).not.toContain(guild)
   expect(settings.textContent).toContain(`${guild.slice(0, 8)}…${guild.slice(-4)}`)
   expect(button(settings, 'Copy guild id')).toBeTruthy()
@@ -344,7 +344,7 @@ test('an unknown path redirects to / (U18)', async () => {
 test('Sign out resets the document title to Guildhall (shot 51)', async () => {
   const { host, root } = await signedIn('/seals')
   expect(document.title).toBe('Seals | Guildhall')
-  await click(button(host.querySelector('dialog') as HTMLElement, 'Back to the Bag'))
+  await click(button(host.querySelector('dialog.bag') as HTMLElement, 'Back to the Bag'))
   await click(row(host, 'Sign out'))
   expect(document.title).toBe('Guildhall')
   await act(async () => root.unmount())

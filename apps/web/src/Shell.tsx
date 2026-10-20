@@ -40,6 +40,31 @@ export function Shell({
     setBagOpen(false)
     navigate('/')
   }, [navigate])
+  // B opens the Bag from the walk, and closes it from its menu. Typing in a field never triggers it.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'b' || event.ctrlKey || event.metaKey || event.altKey) {
+        return
+      }
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          (!visible && target.closest('dialog') !== null))
+      ) {
+        return
+      }
+      event.preventDefault()
+      if (!visible) {
+        showMenu()
+      } else if (page === null) {
+        close()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [visible, page, showMenu, close])
   useEffect(() => {
     document.title = active ? `${active.label} | Guildhall` : 'Guildhall'
   }, [active])
