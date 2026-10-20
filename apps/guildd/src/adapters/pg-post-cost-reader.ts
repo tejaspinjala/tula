@@ -6,20 +6,21 @@ import {
   type PostCostReader,
 } from '../ports/post-cost-reader'
 
-const groupRow = z.object({
+const pageRow = z.object({
   campaign_id: z.string().nullable(),
-  key: z.string(),
-  posts: z.coerce.number(),
-  cost_micros: z.coerce.number(),
+  key: z.string().nullable(),
+  posts: z.coerce.number().nullable(),
+  cost_micros: z.coerce.number().nullable(),
   all_posts: z.coerce.number(),
   all_cost_micros: z.coerce.number(),
 })
 
 /**
- * Postgres {@link PostCostReader}: one aggregate per page. Consumed Seals (distinct per Quest) join
- * their Quest for the Campaign and the ledger's per-Quest spend, grouped by Campaign. The window
- * totals are taken over every group before the keyset cursor narrows the page, so `overall` covers
- * all Campaigns while only `limit + 1` groups leave the database.
+ * Postgres {@link PostCostReader}: one statement per page. Consumed Seals (distinct per Quest) join
+ * their Quest for the Campaign and the ledger's per-Quest spend, grouped by Campaign. The totals
+ * row aggregates every group independent of the keyset cursor and the page left-joins onto it, so
+ * `overall` always covers all Campaigns (even past the last one) while only `limit + 1` groups
+ * leave the database.
  */
 export class PgPostCostReader implements PostCostReader {
   constructor(private readonly db: Db) {}
@@ -33,10 +34,7 @@ export class PgPostCostReader implements PostCostReader {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select * from (
-          select campaign_id, key, posts, cost_micros,
-                 sum(posts) over () as all_posts, sum(cost_micros) over () as all_cost_micros
-          from (
+        with groups as (
           select q.campaign_id, coalesce(q.campaign_id, '') as key,
                  count(*) as posts, coalesce(sum(u.cost_micros), 0) as cost_micros
           from (
@@ -49,13 +47,27 @@ export class PgPostCostReader implements PostCostReader {
             where guild_id = ${guildId} group by quest_id
           ) u on u.quest_id = p.quest_id::text
           group by q.campaign_id
-          ) groups
-        ) windowed
-        where ${after}::text is null or key > ${after}::text
-        order by key limit ${limit + 1}`
+        ), totals as (
+          select coalesce(sum(posts), 0) as all_posts,
+                 coalesce(sum(cost_micros), 0) as all_cost_micros
+          from groups
+        ), paged as (
+          select * from groups
+          where ${after}::text is null or key > ${after}::text
+          order by key limit ${limit + 1}
+        )
+        select paged.campaign_id, paged.key, paged.posts, paged.cost_micros,
+               totals.all_posts, totals.all_cost_micros
+        from totals left join paged on true
+        order by paged.key`
     )
-    const parsed = rows.map((r) => groupRow.parse(r))
-    const first = parsed[0]
+    const all = rows.map((r) => pageRow.parse(r))
+    const total = all[0]
+    const parsed = all.flatMap((r) =>
+      r.key === null || r.posts === null || r.cost_micros === null
+        ? []
+        : [{ campaign_id: r.campaign_id, key: r.key, posts: r.posts, cost_micros: r.cost_micros }]
+    )
     const slice = parsed.slice(0, limit)
     const last = slice.at(-1)
     const cost = (posts: number, costMicros: number) => ({
@@ -64,9 +76,10 @@ export class PgPostCostReader implements PostCostReader {
       costPerPostMicros: Math.floor(costMicros / posts),
     })
     return {
-      overall: first
-        ? cost(first.all_posts, first.all_cost_micros)
-        : { posts: 0, costMicros: 0, costPerPostMicros: 0 },
+      overall:
+        total && total.all_posts > 0
+          ? cost(total.all_posts, total.all_cost_micros)
+          : { posts: 0, costMicros: 0, costPerPostMicros: 0 },
       campaigns: slice.map((g) => ({
         campaignId: g.campaign_id,
         ...cost(g.posts, g.cost_micros),
