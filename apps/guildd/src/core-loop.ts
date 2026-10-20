@@ -105,8 +105,27 @@ export interface PendingSealDeps extends SealRequestDeps {
  * so a rerun asks for nothing twice. Returns how many Seals it requested.
  */
 export async function requestPendingSeals(
-  _deps: PendingSealDeps,
-  _guildId: string
+  deps: PendingSealDeps,
+  guildId: string
 ): Promise<{ requested: number }> {
-  return { requested: 0 }
+  let requested = 0
+  let after: string | undefined
+  do {
+    const page = await deps.quests.list(guildId, {
+      limit: 100,
+      state: 'awaiting_seal',
+      ...(after === undefined ? {} : { after }),
+    })
+    for (const quest of page.quests) {
+      const seal = await deps.sealStore.forQuest(guildId, quest.id)
+      if (seal && seal.round === quest.round) {
+        continue
+      }
+      if ((await requestQuestSeal(deps, guildId, quest)).outcome === 'requested') {
+        requested += 1
+      }
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+  return { requested }
 }
