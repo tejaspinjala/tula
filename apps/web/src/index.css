@@ -560,6 +560,11 @@ thead th {
   min-width: 28rem;
 }
 
+/* Headings never break mid-word; the table scrolls instead. */
+.table-scroll th {
+  white-space: nowrap;
+}
+
 .shell-main:focus {
   outline: none;
 }
