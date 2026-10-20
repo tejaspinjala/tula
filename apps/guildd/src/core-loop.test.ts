@@ -7,7 +7,7 @@ import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
-import { reconcileSeals, requestQuestSeal } from './core-loop'
+import { reconcileSeals, requestPendingSeals, requestQuestSeal } from './core-loop'
 import { SEAL_TTL_MS } from './ports/seal-store'
 import { ProposalEngine } from './proposals'
 import { SealEngine } from './seals'
@@ -146,5 +146,38 @@ describe('requestQuestSeal', () => {
     const g = await gate()
     expect((await requestQuestSeal(g.deps, g.guild, g.quest)).outcome).toBe('no_proposal')
     expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('awaiting_seal')
+  })
+})
+
+describe('requestPendingSeals', () => {
+  test('requests a Seal for an awaiting Quest once, never twice for the same round', async () => {
+    const config = new MemoryConfigStore(new MemoryClock(new Date('2030-01-01T00:00:00.000Z')))
+    const s = await setup()
+    await config.seed(s.guild)
+    const identityStore = new MemoryIdentityStore()
+    identityStore.found(s.guild)
+    const identity = new WebAuthnIdentityProvider(identityStore, {
+      clock: s.clock,
+      keys: new MemoryKeyProvider(),
+      rpId: 'localhost',
+      rpName: 'Guildhall',
+      origin: 'http://localhost:5173',
+    })
+    const proposals = new ProposalEngine({ store: new MemoryProposalStore(s.clock) })
+    await proposals.propose(s.guild, {
+      questId: s.quest.id,
+      author: 'heralds-member-1',
+      kind: 'post',
+      content: 'Hello guild',
+    })
+    const deps = {
+      quests: s.quests,
+      sealStore: s.seals,
+      proposals,
+      seals: new SealEngine({ store: s.seals, config, identity }),
+    }
+    expect(await requestPendingSeals(deps, s.guild)).toEqual({ requested: 1 })
+    expect((await s.seals.forQuest(s.guild, s.quest.id))?.status).toBe('requested')
+    expect(await requestPendingSeals(deps, s.guild)).toEqual({ requested: 0 })
   })
 })
