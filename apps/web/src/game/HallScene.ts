@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
+import { type Plan, planFor, stayAt } from './behavior'
 import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
@@ -12,7 +13,8 @@ import {
   withClosedDoors,
 } from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
-import type { SceneMember, SceneState } from './scene'
+import type { Spot } from './route'
+import type { SceneBubble, SceneMember, SceneState } from './scene'
 import {
   direction,
   findPath,
@@ -24,6 +26,7 @@ import {
   teleportTile,
   type Vec,
 } from './walk'
+import { replan, standing, stepWalker, type Walker } from './walker'
 import {
   doorAt,
   MAP_IDS,
@@ -90,6 +93,10 @@ export interface HallOptions {
   onNear: (target: Target | null) => void
   /** Called when the Guild Master presses E: talk to whoever is in reach. */
   onInteract: () => void
+  /** The guild id: with a Member's id it seeds that Member's daily routine. */
+  seed?: string | undefined
+  /** Called when a Member hands a finished Quest in at the Quest Board (the page earns the banner). */
+  onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
   onMap?: ((map: MapId) => void) | undefined
 }
@@ -109,10 +116,18 @@ interface MemberView {
   bubbleSeq: number
   /** The last claim seq acted on, so a claim walks to the Quest Board once. */
   claimSeq: number
-  /** Where the sprite is headed (px), so a repeated render does not restart its walk. */
-  tx: number
-  ty: number
-  mode: 'idle' | 'working' | null
+  /** The Member's body in the town: map, position and what they are doing (plain data). */
+  walker: Walker
+  /** The finished-Quest seq already handed in, so a Quest is handed in once. */
+  handedSeq: number
+  /** The finished-Quest seq the plan in hand is handing in. */
+  handingSeq: number
+  /** The arrival count whose line was already said. */
+  spoken: number
+  /** The Member's name, for the hand-in banner. */
+  name: string
+  scroll: Phaser.GameObjects.Image
+  sleep: Phaser.GameObjects.BitmapText
 }
 
 /** An apprentice: a Sub-Quest's helper standing in its parent's room until the child settles. */
@@ -172,6 +187,8 @@ export class HallScene extends Phaser.Scene {
   private lanterns: Phaser.GameObjects.Image[] = []
   private facingLeft = false
   private clock = 0
+  private slotForced: number | null = null
+  private startPlace: PlaceName | null = null
   /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
   private talkable = new Set<string>()
   private near: Target | null = null
@@ -195,6 +212,16 @@ export class HallScene extends Phaser.Scene {
     }
     this.drawFixtures()
     this.makeGlow()
+    // The routine moves on with the clock: re-plan the Members every ten seconds.
+    this.time.addEvent({
+      delay: 10_000,
+      loop: true,
+      callback: () => {
+        if (this.pending) {
+          this.drawMembers(this.pending)
+        }
+      },
+    })
     this.veil = this.add
       .rectangle(0, 0, 1, 1, 0xffffff, 0)
       .setOrigin(0, 0)
@@ -225,6 +252,14 @@ export class HallScene extends Phaser.Scene {
     if (this.pending) {
       this.render(this.pending)
     }
+    if (this.startPlace) {
+      this.goTo(this.startPlace)
+    }
+  }
+
+  /** Starts the Guild Master at a named place instead of the entrance (QA: `?at=`). */
+  startAt(place: PlaceName): void {
+    this.startPlace = place
   }
 
   /** The Guild Master's game object (null before the scene has loaded). */
@@ -275,6 +310,9 @@ export class HallScene extends Phaser.Scene {
     this.phase = phase
     this.phaseForced = forced
     this.applyTint()
+    if (this.pending && this.ready) {
+      this.drawMembers(this.pending)
+    }
   }
 
   /** Moves the Guild Master into a map at a tile position, framing the camera on it. */
@@ -391,6 +429,7 @@ export class HallScene extends Phaser.Scene {
         view.bubble.setPosition(x, centre < y ? centre - extra : centre + extra)
       }
     }
+    this.stepMembers(Math.min(delta, 100) / 1000)
     if (!this.player) {
       return
     }
@@ -420,7 +459,8 @@ export class HallScene extends Phaser.Scene {
     this.clock = walking ? this.clock + Math.min(delta, 100) : 0
     this.pose(this.player, walkPose(this.clock, walking), this.facingLeft)
     for (const view of this.members.values()) {
-      this.pose(view.root, walkPose(this.time.now, this.tweens.isTweening(view.root)), false)
+      const walking = view.walker.path.length > 0 || view.walker.legs.length > 0
+      this.pose(view.root, walkPose(this.time.now, walking), view.walker.facingLeft)
     }
     const door = doorAt(mapData(this.current), Math.floor(this.at.x), Math.floor(this.at.y))
     if (door) {
@@ -446,7 +486,7 @@ export class HallScene extends Phaser.Scene {
       return
     }
     for (const child of root.list) {
-      if (child instanceof Phaser.GameObjects.Image) {
+      if (child instanceof Phaser.GameObjects.Image && child.name !== 'badge') {
         child.setPosition(flip ? -pose.lean : pose.lean, pose.lift)
         child.setFlipX(flip)
       } else if (child instanceof Phaser.GameObjects.Graphics) {
@@ -833,8 +873,11 @@ export class HallScene extends Phaser.Scene {
   }
 
   private drawMembers(state: SceneState): void {
-    const s = this.layout.tileSize
     const live = new Set<string>()
+    // Who is free to stroll, chat or sleep: the idle Members of every Hall.
+    const idleIds = Object.values(state.members)
+      .filter((m) => m.status === 'idle' && !m.awaitingSeal)
+      .map((m) => m.id)
     state.rooms.forEach((room, index) => {
       const slot = this.layout.rooms[index]
       if (!slot) {
@@ -848,22 +891,24 @@ export class HallScene extends Phaser.Scene {
           return
         }
         live.add(id)
-        const work = {
+        const desk = {
           x: slot.x + 1 + (n % Math.max(1, slot.w - 2)),
           y: slot.y + 2,
         }
-        this.placeMember(
-          member,
-          member.status === 'working' ? work : seat,
-          s,
-          questBoardIn(this.layout, slot)
-        )
+        const board = questBoardIn(this.layout, slot)
+        this.placeMember(member, {
+          home: { map: 'hall', ...seat },
+          desk: { map: 'hall', ...desk },
+          board: { map: 'hall', ...board },
+          idleIds,
+        })
       })
     })
     // The Steward sits at their desk.
     const stew = this.layout.stewardDesk
     this.talkable = new Set(live)
     live.add(state.stewardId)
+    const stewardSpot: Spot = { map: 'hall', x: stew.x + 1, y: stew.y + stew.h }
     this.placeMember(
       {
         id: state.stewardId,
@@ -875,8 +920,13 @@ export class HallScene extends Phaser.Scene {
         bubble: state.members[state.stewardId]?.bubble ?? null,
         claimSeq: null,
       },
-      { x: stew.x + 1, y: stew.y + stew.h },
-      s
+      {
+        home: stewardSpot,
+        desk: stewardSpot,
+        board: null,
+        idleIds,
+        fixed: stayAt(stewardSpot, 'steward'),
+      }
     )
     for (const [id, view] of this.members) {
       if (!live.has(id)) {
@@ -922,7 +972,8 @@ export class HallScene extends Phaser.Scene {
         )
         // The parent Quest's owner is the Member working it; the apprentice walks in from them.
         const owner = Object.values(state.members).find((m) => m.questId === apprentice.parentId)
-        const parent = owner ? this.members.get(owner.id)?.root : undefined
+        const ownerView = owner ? this.members.get(owner.id) : undefined
+        const parent = ownerView?.walker.map === 'hall' ? ownerView.root : undefined
         const animate = !this.options.reducedMotion && !this.seeding
         const root = this.add
           .container(animate && parent ? parent.x : x, animate && parent ? parent.y : y, layers)
@@ -960,21 +1011,46 @@ export class HallScene extends Phaser.Scene {
     return this.apprentices.get(childId)?.root ?? null
   }
 
+  /** The routine slot of the in-game time: ten minutes each, from the clock unless forced. */
+  private routineSlot(): number {
+    if (this.slotForced !== null) {
+      return this.slotForced
+    }
+    const now = new Date()
+    return now.getHours() * 6 + Math.floor(now.getMinutes() / 10)
+  }
+
+  /** Forces the routine slot (QA: `?slot=`); null follows the clock. */
+  setSlot(slot: number | null): void {
+    this.slotForced = slot
+    if (this.pending && this.ready) {
+      this.drawMembers(this.pending)
+    }
+  }
+
+  /** The walkable test of any map for a walking Member (the hall's keeps closed rooms shut). */
+  private readonly walkableOf = (map: MapId): ((x: number, y: number) => boolean) =>
+    map === 'hall' ? this.walkable : mapData(map).walkable
+
+  /**
+   * Plans what a Member should be doing (a pure function of state, seed and time) and, when the
+   * plan changes, starts them walking it. Reduced motion and the first draw swap positions.
+   */
   private placeMember(
     member: SceneMember,
-    tile: { x: number; y: number },
-    s: number,
-    board?: { x: number; y: number }
+    where: { home: Spot; desk: Spot; board: Spot | null; idleIds: readonly string[]; fixed?: Plan }
   ): void {
     let view = this.members.get(member.id)
-    const x = tile.x * s + s / 2
-    const y = tile.y * s + s / 2
     if (!view) {
       const look = lookFor(member.id, member.look)
       const layers = [look.body, look.outfit, look.hair].map((frame) =>
         this.add.image(0, 0, CHARS, frame)
       )
-      const root = this.add.container(x, y, layers).setDepth(15)
+      const scroll = this.add.image(7, -6, TILES, FRAME.scroll).setScale(0.5).setVisible(false)
+      scroll.setName('badge')
+      const sleep = this.add.bitmapText(2, -14, FONT, 'Zz', 16).setTint(0xffffff).setVisible(false)
+      sleep.setScale(0.5)
+      const root = this.add.container(0, 0, [...layers, scroll, sleep]).setDepth(15)
       root.setName(member.id)
       view = {
         root,
@@ -982,49 +1058,116 @@ export class HallScene extends Phaser.Scene {
         bubbleTimer: null,
         bubbleSeq: member.bubble?.seq ?? 0,
         claimSeq: member.claimSeq ?? 0,
-        tx: x,
-        ty: y,
-        mode: null,
+        walker: standing(where.home, 'new'),
+        handedSeq: member.doneSeq ?? 0,
+        handingSeq: 0,
+        spoken: 0,
+        name: member.name,
+        scroll,
+        sleep,
       }
       this.members.set(member.id, view)
-      root.setPosition(x, y)
-    } else {
-      // A new claim walks the Member to their Hall's Quest Board first; reduced motion swaps.
-      const claimed = member.claimSeq !== null && member.claimSeq > view.claimSeq
-      view.claimSeq = member.claimSeq ?? 0
-      if (view.tx !== x || view.ty !== y || claimed) {
-        view.tx = x
-        view.ty = y
-        this.tweens.killTweensOf(view.root)
-        if (this.options.reducedMotion || this.seeding) {
-          view.root.setPosition(x, y)
-        } else if (claimed && board) {
-          const bx = board.x * s + s / 2
-          const by = board.y * s + s / 2
-          const root = view.root
-          this.tweens.add({
-            targets: root,
-            x: bx,
-            y: by,
-            duration: WALK_MS,
-            ease: 'Linear',
-            onComplete: () =>
-              this.tweens.add({ targets: root, x, y, duration: WALK_MS, ease: 'Linear' }),
-          })
-        } else {
-          this.tweens.add({ targets: view.root, x, y, duration: 700, ease: 'Linear' })
-        }
-      }
+      this.syncMember(view)
     }
-    if (view.mode !== member.status) {
-      view.mode = member.status
-      view.root.setAlpha(1)
+    const done = member.doneSeq ?? 0
+    if (done < view.handedSeq) {
+      // Scrubbing back past a hand-in lets the same finished Quest be handed in again.
+      view.handedSeq = done
     }
-    this.showBubble(member, view, x, y)
+    const handIn = done > view.handedSeq
+    const plan =
+      where.fixed ??
+      planFor({
+        seed: this.options.seed ?? '',
+        member,
+        home: where.home,
+        desk: where.desk,
+        phase: this.phase,
+        slot: this.routineSlot(),
+        idleIds: where.idleIds,
+        handIn,
+      })
+    const claimed = member.claimSeq !== null && member.claimSeq > view.claimSeq
+    view.claimSeq = member.claimSeq ?? 0
+    const instant = this.options.reducedMotion || this.seeding
+    if (plan.key !== view.walker.planKey) {
+      // A new claim walks the Member to their Hall's Quest Board first.
+      const stops =
+        claimed && where.board && !instant
+          ? [
+              {
+                spot: where.board,
+                anim: 'idle' as const,
+                dwellMs: 0,
+                hidden: false,
+                carry: null,
+                line: null,
+              },
+              ...plan.stops,
+            ]
+          : plan.stops
+      view.handingSeq = handIn ? done : 0
+      view.walker = replan(
+        view.walker,
+        { key: plan.key, stops },
+        this.time.now,
+        this.walkableOf,
+        instant
+      )
+      this.syncMember(view)
+    }
+    this.showBubble(view, member.bubble, view.root.x, view.root.y)
   }
 
-  private showBubble(member: SceneMember, view: MemberView, x: number, y: number): void {
-    const bubble = member.bubble
+  /** Puts the Member's game object where their walker is: map, tile, scroll and sleep mark. */
+  private syncMember(view: MemberView): void {
+    const { walker } = view
+    const s = this.layout.tileSize
+    const { x: ox, y: oy } = OFFSETS[walker.map]
+    view.root.setPosition(Math.round(ox + walker.pos.x * s), Math.round(oy + walker.pos.y * s))
+    view.root.setVisible(!walker.hidden)
+    view.scroll.setVisible(walker.carry === 'scroll' || walker.anim === 'handin')
+    view.sleep.setVisible(walker.anim === 'sleep')
+    view.root.setData('map', walker.map)
+    view.root.setData('anim', walker.anim)
+  }
+
+  /** Per frame: every Member steps along their plan; arrivals speak, hand-ins ring out. */
+  private stepMembers(seconds: number): void {
+    for (const view of this.members.values()) {
+      const before = view.walker
+      view.walker = stepWalker(before, seconds, this.time.now, this.walkableOf)
+      const { walker } = view
+      if (walker.line !== null && walker.arrivals !== view.spoken) {
+        view.spoken = walker.arrivals
+        this.showBubble(
+          view,
+          { text: walker.line, seq: -walker.arrivals },
+          view.root.x,
+          view.root.y
+        )
+      }
+      if (walker.handedIn && !before.handedIn && view.handingSeq > view.handedSeq) {
+        view.handedSeq = view.handingSeq
+        this.options.onHandIn?.(view.name)
+      }
+      this.syncMember(view)
+    }
+    // An inspection hook for run-checks: where every Member is (map, tile, doing what).
+    this.game.canvas.dataset.members = [...this.members]
+      .map(
+        ([id, v]) =>
+          `${id}:${v.walker.map}:${Math.floor(v.walker.pos.x)},${Math.floor(v.walker.pos.y)}:${v.walker.anim}${v.walker.hidden ? ':hidden' : ''}`
+      )
+      .join(';')
+  }
+
+  /** The map a Member is in (null when none is drawn): Members are tracked on every map. */
+  memberMap(id: string): MapId | null {
+    return this.members.get(id)?.walker.map ?? null
+  }
+
+  private showBubble(view: MemberView, bubble: SceneBubble | null, x: number, y: number): void {
     if (!bubble) {
       // Scrubbing back past a bubble lets the same event speak again when replayed forward.
       view.bubbleSeq = 0

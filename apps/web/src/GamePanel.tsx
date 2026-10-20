@@ -233,6 +233,8 @@ export function GamePanel({
           reducedMotion: prefersReducedMotion(
             typeof matchMedia === 'function' ? matchMedia.bind(globalThis) : undefined
           ),
+          seed: session.guildId,
+          onHandIn: () => setBanner({ verb: 'Quest', noun: 'complete', danger: false }),
           onOpenSeal: () => open.current('/seals'),
           onRoom: setRoomSlot,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
