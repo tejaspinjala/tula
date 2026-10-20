@@ -11,6 +11,9 @@ import type {
   SuggestionStore,
 } from './ports/suggestion-store'
 
+/** A scan stops reading further repos after this long. */
+const DEFAULT_SCAN_DEADLINE_MS = 30_000
+
 /** What one scan did: repos tried, new suggestions stored, and repos that failed (by code only). */
 export interface ScanResult {
   repos: number
@@ -35,6 +38,8 @@ export class LearningEngine {
   private readonly envoy: GitHubEnvoy
   private readonly config: ConfigStore
   private readonly notes: NoteStore
+  private readonly clock: Clock
+  private readonly deadlineMs: number
 
   constructor(deps: {
     store: SuggestionStore
@@ -50,6 +55,8 @@ export class LearningEngine {
     this.envoy = deps.envoy
     this.config = deps.config
     this.notes = deps.notes
+    this.clock = deps.clock ?? { now: () => new Date() }
+    this.deadlineMs = deps.scanDeadlineMs ?? DEFAULT_SCAN_DEADLINE_MS
   }
 
   /**
@@ -60,7 +67,13 @@ export class LearningEngine {
     const { config } = await this.config.current(guildId)
     const repos = learningRepoAllowlist(config)
     const result: ScanResult = { repos: repos.length, added: 0, failed: [] }
+    const startedAt = this.clock.now().getTime()
     for (const repo of repos) {
+      // A scan has a total deadline: past it, the remaining repos wait for the next scan.
+      if (this.clock.now().getTime() - startedAt >= this.deadlineMs) {
+        result.failed.push({ repo, code: 'deadline' })
+        continue
+      }
       try {
         const pulls = await this.envoy.mergedPulls(guildId, repo)
         const adrs = await this.envoy.adrEntries(guildId, repo)
@@ -90,23 +103,40 @@ export class LearningEngine {
    */
   async accept(guildId: string, id: string): Promise<DecisionResult> {
     const decided = await this.store.decide(guildId, id, 'accepted')
-    if (!decided.ok) {
-      return decided
+    let claimed = false
+    let suggestion: Suggestion
+    if (decided.ok) {
+      claimed = true
+      suggestion = decided.suggestion
+    } else {
+      const existing =
+        decided.reason === 'already_decided' ? await this.store.get(guildId, id) : null
+      if (!existing || existing.status !== 'accepted' || existing.noteId !== null) {
+        return decided
+      }
+      suggestion = existing
     }
-    const { suggestion } = decided
+    let note: Note
     try {
-      const note = await this.notes.add(guildId, {
-        kind: 'text',
-        title: suggestion.title,
-        body: `${suggestion.body}\n\nSource: ${suggestion.url}`,
-        claim: 'assumption',
-      })
-      await this.store.recordNote(guildId, id, note.id)
-      return { ok: true, suggestion: { ...suggestion, noteId: note.id }, note }
+      note = await this.notes.add(
+        guildId,
+        {
+          kind: 'text',
+          title: suggestion.title,
+          body: `${suggestion.body}\n\nSource: ${suggestion.url}`,
+          claim: 'assumption',
+        },
+        undefined,
+        `learning:${id}`
+      )
     } catch (error) {
-      await this.store.reopen(guildId, id)
+      if (claimed) {
+        await this.store.reopen(guildId, id)
+      }
       throw error
     }
+    await this.store.recordNote(guildId, id, note.id)
+    return { ok: true, suggestion: { ...suggestion, noteId: note.id }, note }
   }
 
   /** Dismisses a pending suggestion for good: it is never suggested again. */

@@ -148,6 +148,7 @@ export async function compose(
           }),
         config,
         notes,
+        clock,
       }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
