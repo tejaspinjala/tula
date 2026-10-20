@@ -1,4 +1,5 @@
 import type { GateActor, GateScope, GateStatus, GateStore, GlobalEvent } from './ports/gate-store'
+import type { QuestQueue } from './ports/quest-queue'
 import type { SandboxRunner } from './ports/sandbox-runner'
 
 const GUILD_PAGE = 50
@@ -27,6 +28,8 @@ export interface GatesDeps {
     revokeAllRuns(): Promise<number>
   }
   sandboxes: Pick<SandboxRunner, 'kill'>
+  /** Frees the leases of a barred guild's active Quests, so a lift can start them again. */
+  quests: Pick<QuestQueue, 'releaseLeases'>
   /** Guild ids in id order after `after`, at most `limit`; a global bar tells each guild's chain. */
   guildIds: (after: string | undefined, limit: number) => Promise<string[]>
 }
@@ -61,13 +64,39 @@ export class Gates {
         : this.deps.runs.revokeGuildRuns(actor.guildId)
     const announcing =
       scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
-    const [kill, revokedRuns] = await Promise.all([killing, revoking, announcing])
+    // The killed workers' leases would otherwise linger until they lapse and block a restart after a lift.
+    const releasing = this.releaseLeases(scope === 'global' ? null : actor.guildId)
+    const [kill, revokedRuns] = await Promise.all([killing, revoking, announcing, releasing])
     return {
       barId,
       created,
       revokedRuns,
       killedSandboxes: kill.killed,
       killFailed: kill.failed,
+    }
+  }
+
+  /** Releases the active Quests' leases of one guild, or of every guild a page at a time. */
+  private async releaseLeases(guildId: string | null): Promise<void> {
+    if (guildId !== null) {
+      await this.deps.quests.releaseLeases(guildId, 'sandbox_unavailable')
+      return
+    }
+    let after: string | undefined
+    for (;;) {
+      const page = await this.deps.guildIds(after, GUILD_PAGE)
+      for (let i = 0; i < page.length; i += ANNOUNCE_CONCURRENCY) {
+        await Promise.all(
+          page
+            .slice(i, i + ANNOUNCE_CONCURRENCY)
+            .map((g) => this.deps.quests.releaseLeases(g, 'sandbox_unavailable'))
+        )
+      }
+      const last = page.at(-1)
+      if (!last || page.length < GUILD_PAGE) {
+        return
+      }
+      after = last
     }
   }
 

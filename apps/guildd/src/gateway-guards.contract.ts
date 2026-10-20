@@ -213,7 +213,8 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
         expect(outcome.revokedRuns).toBe(1)
         await f.gates.lift(actor(g), 'guild')
         expect(await codeOf(f.gateway.complete(token, message))).toBe('token_revoked')
-        expect(await openRun(f, g, live)).toEqual({ status: 'refused', reason: 'token_revoked' })
+        // Barring released the Quest's lease, so the old delivery is no longer live.
+        expect(await openRun(f, g, live)).toEqual({ status: 'refused', reason: 'quest_not_found' })
       })
 
       test("barring kills the guild's sandboxes and no other guild's", async () => {
