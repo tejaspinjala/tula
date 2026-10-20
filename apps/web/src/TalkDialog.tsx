@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import { assignQuest, templatesFor } from './assign'
 import type { TalkAction, TalkState } from './game/interact'
@@ -18,7 +18,8 @@ export interface TalkDialogProps {
   navigate: (path: string) => void
 }
 
-const STATE_WORDS: Record<string, string> = {
+/** How a Quest state reads in a card. */
+export const STATE_WORDS: Record<string, string> = {
   queued: 'queued',
   active: 'active',
   awaiting_seal: 'awaiting a Seal',
@@ -196,13 +197,15 @@ const RECENT_MISSIVES = 5
  * The Missives this Member sent or received, newest first. They are other Members' text, so they
  * are only ever rendered as text. A failed read is the same as no messages.
  */
-function useRecentMissives(
+export function useRecentMissives(
   session: Session,
   fetcher: Fetcher,
-  member: SceneMember
+  member: SceneMember,
+  /** Changes when a Missive was sent, so the thread is read again. */
+  sentCount = 0
 ): readonly HallMissive[] {
   const [messages, setMessages] = useState<readonly HallMissive[]>([])
-  useEffect(() => {
+  const load = useCallback(() => {
     let live = true
     loadMissives(session, fetcher, member.hallId, { limit: 50 })
       .then(
@@ -214,6 +217,15 @@ function useRecentMissives(
       live = false
     }
   }, [session, fetcher, member.hallId, member.id])
+  useEffect(() => load(), [load])
+  const seen = useRef(sentCount)
+  useEffect(() => {
+    if (seen.current === sentCount) {
+      return
+    }
+    seen.current = sentCount
+    return load()
+  }, [sentCount, load])
   return messages
 }
 
