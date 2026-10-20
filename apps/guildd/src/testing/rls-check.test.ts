@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from 'bun:test'
 import { createHarness } from './harness'
-import { findTenancyViolations } from './rls-check'
+import { findTenancyViolations, NOT_TENANT } from './rls-check'
 import { withScratchSchema } from './test-db'
 
 const harness = await createHarness()
@@ -25,4 +25,12 @@ test('flags a permissive policy, a nullable guild_id, and a table owned by the a
     expect(found).toContain(`${f}.owned: owned by the app role`)
     expect(found).toContain(`${f}.owned: row level security is not enabled and forced`)
   })
+})
+
+test('every table exempt from the tenancy check is named in the tenancy rules', async () => {
+  const rules = await Bun.file(
+    new URL('../../../../.claude/rules/tenancy.md', import.meta.url)
+  ).text()
+  const unnamed = NOT_TENANT.filter((table) => !rules.includes(`\`${table}\``))
+  expect(unnamed).toEqual([])
 })
