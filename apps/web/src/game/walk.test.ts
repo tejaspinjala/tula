@@ -120,6 +120,11 @@ test('the announcement names the Hall, the empty room, or the hallway', () => {
   expect(announceRoom(null, false)).toBe('You are in the hallway.')
 })
 
+test('a name already ending in Hall is not given a second Hall', () => {
+  expect(announceRoom('Heralds Hall', true)).toBe('You are in the Heralds Hall.')
+  expect(announceRoom('Great hall', true)).toBe('You are in the Great hall.')
+})
+
 test('roomAt names the room the position is in, and null in the corridor', () => {
   expect(roomAt(layout.rooms, { x: 5.5, y: 4.5 })).toBe(0)
   expect(roomAt(layout.rooms, { x: 20.5, y: 20.5 })).toBe(4)
