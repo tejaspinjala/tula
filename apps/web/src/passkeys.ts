@@ -26,10 +26,16 @@ function ceremonyOf<T extends { challenge: string }>() {
 }
 const creation = ceremonyOf<PublicKeyCredentialCreationOptionsJSON>()
 const request = ceremonyOf<PublicKeyCredentialRequestOptionsJSON>()
-const sessionBody = z.object({ token: z.string(), guildId: z.string() })
+const sessionBody = z.object({ token: z.string().default(''), guildId: z.string() })
+/** Asks guildd for a cookie session: the token travels only in an HttpOnly cookie. */
+const COOKIE_MODE = { 'x-session-mode': 'cookie' }
 const proofBody = z.object({ proof: z.string() })
 
-/** A signed-in session as the ledger view holds it. */
+/**
+ * A signed-in session as the ledger view holds it. The browser's `token` is always empty: the
+ * session lives in an HttpOnly cookie that scripts cannot read and fetch sends by itself (an
+ * empty `Bearer` header is ignored by guildd, which then uses the cookie).
+ */
 export type Session = z.infer<typeof sessionBody>
 
 /** Thrown when guildd refuses a step; `status` is the HTTP status. */
@@ -50,9 +56,10 @@ async function send<T>(
   schema: z.ZodType<T>,
   token?: string,
   proof?: string,
-  foundingToken?: string
+  foundingToken?: string,
+  extra: Record<string, string> = {}
 ): Promise<T> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const headers: Record<string, string> = { 'content-type': 'application/json', ...extra }
   if (token) {
     headers.authorization = `Bearer ${token}`
   }
@@ -105,7 +112,16 @@ export async function signIn(
   const base = `/guilds/${guildId}/sign-in`
   const begin = await send(fetcher, `${base}/begin`, {}, request)
   const response = await browser.get(begin.options)
-  return send(fetcher, `${base}/finish`, { challengeId: begin.challengeId, response }, sessionBody)
+  return send(
+    fetcher,
+    `${base}/finish`,
+    { challengeId: begin.challengeId, response },
+    sessionBody,
+    undefined,
+    undefined,
+    undefined,
+    COOKIE_MODE
+  )
 }
 
 /** Re-authenticates the session with the passkey and returns the short-lived proof. */
@@ -150,7 +166,36 @@ export async function signInWithPasskey(
 ): Promise<Session> {
   const begin = await send(fetcher, '/sign-in/begin', {}, request)
   const response = await browser.get(begin.options)
-  return send(fetcher, '/sign-in/finish', { challengeId: begin.challengeId, response }, sessionBody)
+  return send(
+    fetcher,
+    '/sign-in/finish',
+    { challengeId: begin.challengeId, response },
+    sessionBody,
+    undefined,
+    undefined,
+    undefined,
+    COOKIE_MODE
+  )
+}
+
+/** The session the cookie still names after a reload (`GET /session`), or null when signed out. */
+export async function restoreSession(fetcher: Fetcher): Promise<Session | null> {
+  try {
+    const res = await fetcher('/api/session')
+    const parsed = sessionBody.safeParse(await res.json().catch(() => null))
+    return res.ok && parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/** Ends the session on guildd (revoked server-side, cookie cleared); a failed call still signs out here. */
+export async function endSession(fetcher: Fetcher): Promise<void> {
+  try {
+    await fetcher('/api/session/logout', { method: 'POST' })
+  } catch {
+    // The page is signed out regardless; the session also lapses on its own.
+  }
 }
 
 /** Whether founding is `open`, `closed`, or `busy` (guildd answered 429: try again shortly). */
