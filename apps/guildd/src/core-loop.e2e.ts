@@ -33,8 +33,8 @@ export interface E2eWorld {
   sealStore: SealStore
   seals: SealEngine
   proposals: ProposalEngine
-  /** The workflow engine over the same queue, Seals and Proposals; absent in worlds that do not wire it. */
-  workflows?: WorkflowEngine
+  /** The workflow engine over the same queue, Seals and Proposals. */
+  workflows: WorkflowEngine
   dispatcher: Pick<Dispatcher, 'dispatch'>
   gateway: ModelGateway
   mcp: McpGateway
@@ -302,9 +302,6 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
     test('a workflow run reaches done through the normal dispatcher, Verdict and Seal; a restart posts nothing twice', async () => {
       const w = await make()
       const engine = w.workflows
-      if (!engine) {
-        throw new Error('this world has no workflow engine')
-      }
       const { guildId, masterId } = await w.newGuild()
       await engine.seedTemplates(guildId)
       const run = await engine.run(guildId, 'learning-to-linkedin', { runKey: 'e2e' })
