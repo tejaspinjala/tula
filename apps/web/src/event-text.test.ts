@@ -27,7 +27,10 @@ const cases: Array<[ReplayEvent, string]> = [
     ev('artifact.attached', { quest_id: 'q1', hash: 'abc123' }),
     'Artifact abc123 attached to Quest q1',
   ],
-  [ev('handoff.recorded', { questId: 'q1', hash: 'abc123' }), 'Handoff recorded for Quest q1'],
+  [
+    ev('handoff.recorded', { quest_id: 'q1', attempt: 1, handoff_hash: 'abc123' }),
+    'Handoff recorded for Quest q1',
+  ],
   [ev('note.added', { noteId: 'n1', version: 1, kind: 'lesson' }), 'Note n1 added, version 1'],
   [ev('note.edited', { noteId: 'n1', version: 2, kind: 'lesson' }), 'Note n1 edited, version 2'],
   [ev('vault.secret_added', { ref: 'r1' }), 'Secret added to the Vault'],
