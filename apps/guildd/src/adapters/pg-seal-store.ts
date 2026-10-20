@@ -33,6 +33,7 @@ const row = z.object({
   expires_at: date,
   decided_at: date.nullable(),
   decision_note: z.string().nullable(),
+  decided_by: z.string().nullable(),
   reserved_until: date.nullable(),
   consumed_at: date.nullable(),
   reservation_token_hash: z.string().nullable().optional(),
@@ -41,7 +42,7 @@ type Row = z.infer<typeof row>
 
 const EXPIRE_BATCH = 100
 const COLUMNS =
-  'seal_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, reserved_until, consumed_at'
+  'seal_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, reserved_until, consumed_at'
 
 function toSeal(r: Row, now: Date): Seal {
   let status: SealStatus = r.status
@@ -69,7 +70,7 @@ function toSeal(r: Row, now: Date): Seal {
     expiresAt: r.expires_at,
     decidedAt: r.decided_at,
     decisionNote: r.decision_note,
-    decidedBy: null,
+    decidedBy: r.decided_by,
     reservedUntil: r.reserved_until,
     consumedAt: r.consumed_at,
   }
@@ -184,7 +185,7 @@ export class PgSealStore implements SealStore {
         guildId,
         id,
         now,
-        tx`status = ${decision.verdict}, decided_at = ${now}, decision_note = ${decision.note ?? null}`
+        tx`status = ${decision.verdict}, decided_at = ${now}, decision_note = ${decision.note ?? null}, decided_by = ${decision.decidedBy ?? null}`
       )
       await this.emit(
         tx,

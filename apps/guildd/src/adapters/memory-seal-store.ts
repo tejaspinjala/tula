@@ -144,6 +144,7 @@ export class MemorySealStore implements SealStore {
           status: decision.verdict,
           decidedAt: this.clock.now().toISOString(),
           decisionNote: decision.note ?? null,
+          decidedBy: decision.decidedBy ?? null,
         },
         null
       ),
