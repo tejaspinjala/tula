@@ -168,6 +168,7 @@ function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiec
         onDrop={onDrop}
         nodesConnectable={false}
         elementsSelectable
+        elevateNodesOnSelect={false}
         fitView
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
