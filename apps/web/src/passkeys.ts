@@ -154,10 +154,10 @@ export async function foundGuild(
 }
 
 /** The real browser ceremonies, backed by the platform WebAuthn implementation. */
-export const webAuthnBrowser: PasskeyBrowser = {
+export const webAuthnBrowser: PasskeyBrowser = withNoPasskeyDetection({
   create: (optionsJSON) => startRegistration({ optionsJSON }),
   get: (optionsJSON) => startAuthentication({ optionsJSON }),
-}
+})
 
 /** Signs in with a discoverable passkey and no guild id; the guild comes from the passkey. */
 export async function signInWithPasskey(
@@ -229,4 +229,119 @@ export async function fetchGuild(
     throw new PasskeyRequestError(res.status, 'guild_unavailable')
   }
   return guildBody.parse(await res.json())
+}
+
+/** What went wrong in a passkey step, for choosing the in-world line. */
+export type PasskeyFailure =
+  | 'cancelled'
+  | 'no_credential'
+  | 'wrong_address'
+  | 'refused'
+  | 'busy'
+  | 'unknown'
+
+function nameOf(error: unknown): string {
+  return error instanceof Error ? error.name : ''
+}
+
+function codeOf(error: unknown): string {
+  return error instanceof Error && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : ''
+}
+
+/**
+ * Classifies a passkey failure. A refused step from guildd is `refused` (`busy` for a 429). In the
+ * browser, a `SecurityError` (or simplewebauthn's invalid-RP-ID code) means the page address does
+ * not match the passkey's relying party; `NoPasskeyOffered` is an instant NotAllowedError (see
+ * `withNoPasskeyDetection`); any other NotAllowedError or abort is the Guild Master cancelling.
+ */
+export function passkeyFailure(error: unknown): PasskeyFailure {
+  if (error instanceof PasskeyRequestError) {
+    return error.status === 429 ? 'busy' : 'refused'
+  }
+  const cause = error instanceof Error ? error.cause : undefined
+  const names = [nameOf(error), nameOf(cause)]
+  if (names.includes('NoPasskeyOffered')) {
+    return 'no_credential'
+  }
+  if (names.includes('SecurityError') || codeOf(error) === 'ERROR_INVALID_RP_ID') {
+    return 'wrong_address'
+  }
+  if (names.includes('NotAllowedError') || names.includes('AbortError')) {
+    return 'cancelled'
+  }
+  return 'unknown'
+}
+
+const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string }> = {
+  cancelled: {
+    'sign-in': 'You set the passkey aside. Try again when you are ready.',
+    founding: 'You set the passkey aside. Try again to finish founding your guild.',
+  },
+  no_credential: {
+    'sign-in':
+      'No passkey was offered for this address. Open the Hall at the address you founded it from, or use an older passkey with a guild id.',
+    founding:
+      'Your device offered no way to make a passkey for this address. Try the address you will use every day.',
+  },
+  wrong_address: {
+    'sign-in':
+      'This address is not the one your passkey was made for. Open the Hall at its usual address and try again.',
+    founding:
+      'This address cannot hold a passkey. Open the Hall at its usual address and try again.',
+  },
+  refused: {
+    'sign-in': 'The Hall gates stayed shut: that passkey was not accepted.',
+    founding: 'The Hall would not take that. Check the founding details and try again.',
+  },
+  busy: {
+    'sign-in': 'Too many knocks at the gate. Wait a minute, then try again.',
+    founding: 'Too many knocks at the gate. Wait a minute, then try again.',
+  },
+  unknown: {
+    'sign-in': 'Something went wrong at the gate. Try again.',
+    founding: 'Founding your guild failed. Try again.',
+  },
+}
+
+/** The in-world line for a failure at a step; every failure kind has its own wording. */
+export function passkeyLine(kind: PasskeyFailure, step: 'sign-in' | 'founding'): string {
+  return LINES[kind][step]
+}
+
+/** An instant NotAllowedError is the browser having no passkey to offer, not the user cancelling. */
+const INSTANT_MS = 600
+
+function detecting<T>(
+  ceremony: (options: T) => Promise<unknown>,
+  now: () => number
+): (options: T) => Promise<unknown> {
+  return async (options) => {
+    const started = now()
+    try {
+      return await ceremony(options)
+    } catch (error) {
+      if (nameOf(error) === 'NotAllowedError' && now() - started < INSTANT_MS) {
+        const offered = new Error('No passkey was offered', { cause: error })
+        offered.name = 'NoPasskeyOffered'
+        throw offered
+      }
+      throw error
+    }
+  }
+}
+
+/**
+ * Wraps a browser so a sign-in the browser rejects within moments reads as `NoPasskeyOffered`
+ * (no discoverable passkey for this address) rather than a cancel. Registration is left alone.
+ */
+export function withNoPasskeyDetection(
+  browser: PasskeyBrowser,
+  now: () => number = () => performance.now()
+): PasskeyBrowser {
+  return {
+    create: browser.create,
+    get: detecting(browser.get, now),
+  }
 }

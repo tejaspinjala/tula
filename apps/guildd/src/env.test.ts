@@ -3,6 +3,7 @@ import { Glob } from 'bun'
 import {
   loadEnv,
   loadPlatformOperators,
+  loadResearchEnv,
   loadSandboxEnv,
   loadSubscriptionEnv,
   loadVapidEnv,
@@ -268,5 +269,47 @@ describe('loadSubscriptionEnv', () => {
     expect(() => loadSubscriptionEnv({ SUBSCRIPTION_PROVIDER: 'true' })).toThrow()
     expect(() => loadSubscriptionEnv({ CLAUDE_CLI_MAX_CONCURRENT: '0' })).toThrow()
     expect(() => loadSubscriptionEnv({ CLAUDE_CLI_TIMEOUT_MS: 'soon' })).toThrow()
+  })
+})
+
+describe('loadResearchEnv', () => {
+  const brave = { RESEARCH_PROVIDER: 'brave', BRAVE_SEARCH_API_KEY: 'k' }
+
+  test('research is off unless a provider is configured', () => {
+    expect(loadResearchEnv({})).toBeNull()
+  })
+
+  test('the Brave provider needs its key; it is not private-eligible and costs one cent by default', () => {
+    expect(() => loadResearchEnv({ RESEARCH_PROVIDER: 'brave' })).toThrow()
+    expect(loadResearchEnv(brave)).toEqual({
+      kind: 'brave',
+      apiKey: 'k',
+      privateEligible: false,
+      costCents: 1,
+    })
+  })
+
+  test('private eligibility and the per-call cost are explicit host settings', () => {
+    expect(
+      loadResearchEnv({
+        ...brave,
+        RESEARCH_PRIVATE_ELIGIBLE: 'true',
+        RESEARCH_CALL_COST_CENTS: '5',
+      })
+    ).toMatchObject({ privateEligible: true, costCents: 5 })
+    expect(() => loadResearchEnv({ ...brave, RESEARCH_PRIVATE_ELIGIBLE: 'yes' })).toThrow()
+    expect(() => loadResearchEnv({ ...brave, RESEARCH_CALL_COST_CENTS: '-1' })).toThrow()
+  })
+
+  test('the memory provider needs a seed and is refused in production', () => {
+    const seed = JSON.stringify({
+      results: [{ title: 'T', url: 'https://e.example/a', snippet: 'S' }],
+      pages: { 'https://e.example/a': 'page text' },
+    })
+    const memory = { RESEARCH_PROVIDER: 'memory', RESEARCH_MEMORY_SEED: seed }
+    expect(() => loadResearchEnv({ RESEARCH_PROVIDER: 'memory' })).toThrow()
+    expect(() => loadResearchEnv({ ...memory, RESEARCH_MEMORY_SEED: '{' })).toThrow()
+    expect(loadResearchEnv(memory)).toMatchObject({ kind: 'memory', privateEligible: false })
+    expect(() => loadResearchEnv({ ...memory, NODE_ENV: 'production' })).toThrow()
   })
 })
