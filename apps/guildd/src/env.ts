@@ -99,6 +99,11 @@ const baseSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   /**
+   * Milliseconds between dispatch passes over every guild. Unset: the in-process dispatch loop is
+   * off and Quests are dispatched only by `POST /guilds/:id/dispatch`.
+   */
+  DISPATCH_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  /**
    * Local file holding the audit-chain master key; never in Postgres. Required in production,
    * where a missing file is an error; elsewhere defaults and is created 0600 if missing.
    */
