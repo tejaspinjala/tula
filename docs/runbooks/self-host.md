@@ -42,7 +42,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `WEB_DIST` | unset | optional | Path to `apps/web/dist`; must exist and hold `index.html`, else boot fails. Unset: API only. |
 | `KEY_FILE` | `.guildhall/master.key` | required | Audit-chain master key file (created 0600 if missing outside production). Back it up separately. |
 | `CHECKPOINT_DIR` | `.guildhall/checkpoints` | required | Signed audit-chain checkpoints; use storage the database host cannot rewrite. |
-| `DISPATCH_INTERVAL_MS` | unset | optional | Milliseconds between dispatch passes; unset turns the in-process loop off. |
+| `DISPATCH_INTERVAL_MS` | unset (`start:selfhost`: `5000`) | optional | Milliseconds between dispatch passes; unset turns the in-process loop off. `start:selfhost` sets 5000 unless you set it. |
 | `TRUST_PROXY` | `false` | set to `true` behind exactly one proxy | Key rate limits on the last `X-Forwarded-For` hop. |
 | `PUBLIC_ORIGIN` | unset | optional, `start:selfhost` only | `https://` origin of the tunnel or proxy. Sets `WEBAUTHN_ORIGIN` to it, `WEBAUTHN_RP_ID` to its hostname and `TRUST_PROXY=true`; `HOST` stays `127.0.0.1`. |
 | `FOUNDING_MODE` | `open` | `once` when guildd is reachable from the internet | Who may found a guild: `open` (anyone), `once` (403 `founding_closed` once any guild exists), `closed` (always 403). `start:selfhost` defaults it to `once`. |

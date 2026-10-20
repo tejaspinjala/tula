@@ -75,6 +75,8 @@ export function selfhostPlan(
       HOST: '127.0.0.1',
       WEB_DIST: join(root, 'apps/web/dist'),
       FOUNDING_MODE: input.FOUNDING_MODE,
+      // Without the loop a Quest waits for a manual dispatch, and the web app has no such control.
+      DISPATCH_INTERVAL_MS: source.DISPATCH_INTERVAL_MS ?? '5000',
       WEBAUTHN_ORIGIN: publicOrigin ? publicOrigin.origin : `http://localhost:${input.PORT}`,
       WEBAUTHN_RP_ID: publicOrigin ? publicOrigin.hostname : 'localhost',
       // The tunnel is exactly one proxy hop; rate limits key on the client it forwards. A public
