@@ -46,6 +46,8 @@ function countingApp(
     secrets: harness.adapters.secrets,
     config: harness.adapters.config,
     notes: harness.adapters.notes,
+    quests: harness.adapters.quests,
+    streamTickets: harness.adapters.streamTickets,
     classifier: harness.adapters.classifier,
     routingLog: harness.adapters.routingLog,
     keys,
@@ -147,6 +149,23 @@ describe('event stream fan-out', () => {
       for (const ws of sockets) {
         ws.close()
       }
+      await s.close()
+    }
+  })
+
+  test('a refused upgrade over the stream cap does not spend the ticket', async () => {
+    const s = countingApp({ maxSocketsPerGuild: 1 })
+    const id = await harness.foundGuild({ name: 'Burn', goal: 'g' })
+    const open = await wsOpen(`${s.base}/guilds/${id}/events`, id)
+    try {
+      const { ticket } = await harness.adapters.streamTickets.issue(id)
+      const refused = await s.app.request(`/guilds/${id}/events?ticket=${ticket}`, {
+        headers: { upgrade: 'websocket' },
+      })
+      expect(refused.status).toBe(429)
+      expect(await harness.adapters.streamTickets.consume(id, ticket)).toBe(true)
+    } finally {
+      open.close()
       await s.close()
     }
   })
