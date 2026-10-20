@@ -9,6 +9,8 @@ export type HallData = {
   kind: 'hall'
   hall: BuilderHall
   paused: boolean
+  /** Active Quests of this Hall: the live usage against its member cap. */
+  claimed: number
   barred: boolean
   issues: string[]
 }
@@ -37,6 +39,8 @@ export type BuilderNode =
 /** Status overlays the canvas shows on Halls. */
 export interface Overlays {
   pausedHalls: ReadonlySet<string>
+  /** Active Quests per Hall id. */
+  claimed: ReadonlyMap<string, number>
   barred: boolean
 }
 
@@ -110,6 +114,7 @@ export function buildGraph(
         kind: 'hall',
         hall,
         paused: overlays.pausedHalls.has(hall.id),
+        claimed: overlays.claimed.get(hall.id) ?? 0,
         barred: overlays.barred,
         issues: issues.get(hall.id) ?? [],
       },
