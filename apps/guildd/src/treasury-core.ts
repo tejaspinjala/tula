@@ -111,14 +111,24 @@ export abstract class TreasuryCore {
     fn: (tx: TreasuryTx) => Promise<T>
   ): Promise<T>
 
-  protected today(): string {
-    return this.clock.now().toISOString().slice(0, 10)
+  /**
+   * Runs a write unit with the instant read ONCE: the cap check, the spend row and every entry of
+   * the operation share it, so a tick across UTC midnight cannot split the day checked from the
+   * day posted.
+   */
+  private unit<T>(guildId: string, fn: (tx: TreasuryTx, at: Date) => Promise<T>): Promise<T> {
+    return this.run(guildId, 'write', (tx) => fn(tx, this.clock.now()))
   }
 
   /** Appends one chained entry inside `tx`. */
-  protected async post(guildId: string, tx: TreasuryTx, draft: Draft): Promise<LedgerEntry> {
+  protected async post(
+    guildId: string,
+    tx: TreasuryTx,
+    at: Date,
+    draft: Draft
+  ): Promise<LedgerEntry> {
     const last = await tx.lastEntry()
-    const now = this.clock.now().toISOString()
+    const now = at.toISOString()
     const body = {
       seq: (last?.seq ?? 0) + 1,
       id: crypto.randomUUID(),
@@ -152,6 +162,7 @@ export abstract class TreasuryCore {
   protected async ensureFunded(
     guildId: string,
     tx: TreasuryTx,
+    at: Date,
     limits: TreasuryLimits
   ): Promise<void> {
     if (await tx.lastEntry()) {
@@ -160,9 +171,9 @@ export abstract class TreasuryCore {
     const reserve = Math.floor((STARTING_FUNDS_CENTS * limits.reservePercent) / 100)
     const draft = { kind: 'seed' as const, idemKey: 'seed' }
     if (reserve > 0) {
-      await this.post(guildId, tx, { ...draft, bucket: 'reserve', amountCents: reserve })
+      await this.post(guildId, tx, at, { ...draft, bucket: 'reserve', amountCents: reserve })
     }
-    await this.post(guildId, tx, {
+    await this.post(guildId, tx, at, {
       ...draft,
       bucket: 'operating',
       amountCents: STARTING_FUNDS_CENTS - reserve,
@@ -170,9 +181,9 @@ export abstract class TreasuryCore {
   }
 
   async snapshot(guildId: string, limits: TreasuryLimits): Promise<TreasurySnapshot> {
-    return this.run(guildId, 'write', async (tx) => {
-      await this.ensureFunded(guildId, tx, limits)
-      const day = this.today()
+    return this.unit(guildId, async (tx, at) => {
+      await this.ensureFunded(guildId, tx, at, limits)
+      const day = at.toISOString().slice(0, 10)
       return {
         mode: 'paper',
         balances: await tx.balances(),
@@ -194,8 +205,8 @@ export abstract class TreasuryCore {
     if (evidence === '') {
       return { ok: false, reason: 'evidence_required' }
     }
-    return this.run(guildId, 'write', async (tx): Promise<EntriesResult> => {
-      await this.ensureFunded(guildId, tx, limits)
+    return this.unit(guildId, async (tx, at): Promise<EntriesResult> => {
+      await this.ensureFunded(guildId, tx, at, limits)
       const idemKey = `revenue:${input.key}`
       const seen = await tx.entriesByKey(idemKey)
       if (seen.length > 0) {
@@ -213,7 +224,7 @@ export abstract class TreasuryCore {
       ] as const) {
         if (amountCents > 0) {
           entries.push(
-            await this.post(guildId, tx, {
+            await this.post(guildId, tx, at, {
               kind: 'revenue',
               bucket,
               amountCents,
@@ -236,8 +247,8 @@ export abstract class TreasuryCore {
     if (!isCents(input.amountCents)) {
       return { ok: false, reason: 'invalid_amount' }
     }
-    return this.run(guildId, 'write', async (tx): Promise<SpendResult> => {
-      await this.ensureFunded(guildId, tx, limits)
+    return this.unit(guildId, async (tx, at): Promise<SpendResult> => {
+      await this.ensureFunded(guildId, tx, at, limits)
       const seen = await tx.spendByKey(input.key)
       if (seen) {
         return seen.amountCents === input.amountCents && seen.purpose === input.purpose
@@ -248,7 +259,7 @@ export abstract class TreasuryCore {
       if (input.amountCents > operating) {
         return { ok: false, reason: 'insufficient_funds' }
       }
-      const spentToday = await tx.spentOn(this.today())
+      const spentToday = await tx.spentOn(at.toISOString().slice(0, 10))
       const escalation =
         input.amountCents > limits.treasurerLimitCents
           ? ('over_treasurer_limit' as const)
@@ -266,10 +277,10 @@ export abstract class TreasuryCore {
         escalation,
         approvedBy: escalation ? null : 'treasurer',
         approvedByMember: null,
-        createdAt: this.clock.now().toISOString(),
+        createdAt: at.toISOString(),
       })
       if (!escalation) {
-        await this.post(guildId, tx, {
+        await this.post(guildId, tx, at, {
           actorMember: input.requestedBy,
           kind: 'spend_reserve',
           bucket: 'operating',
@@ -311,16 +322,16 @@ export abstract class TreasuryCore {
   private async withSpend(
     guildId: string,
     spendId: string,
-    fn: (tx: TreasuryTx, spend: Spend) => Promise<SpendResult>
+    fn: (tx: TreasuryTx, spend: Spend, at: Date) => Promise<SpendResult>
   ): Promise<SpendResult> {
-    return this.run(guildId, 'write', async (tx) => {
+    return this.unit(guildId, async (tx, at) => {
       const spend = await tx.spendById(spendId)
-      return spend ? fn(tx, spend) : { ok: false, reason: 'not_found' }
+      return spend ? fn(tx, spend, at) : { ok: false, reason: 'not_found' }
     })
   }
 
   approveSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
-    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+    return this.withSpend(guildId, spendId, async (tx, spend, at): Promise<SpendResult> => {
       if (spend.status !== 'pending_approval') {
         return { ok: false, reason: 'wrong_state' }
       }
@@ -328,7 +339,7 @@ export abstract class TreasuryCore {
       if (spend.amountCents > (await tx.balances()).operating) {
         return { ok: false, reason: 'insufficient_funds' }
       }
-      await this.post(guildId, tx, {
+      await this.post(guildId, tx, at, {
         actorMember,
         kind: 'spend_reserve',
         bucket: 'operating',
@@ -372,7 +383,7 @@ export abstract class TreasuryCore {
     if (!Number.isSafeInteger(actualCents) || actualCents < 0) {
       return Promise.resolve({ ok: false, reason: 'invalid_amount' })
     }
-    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+    return this.withSpend(guildId, spendId, async (tx, spend, at): Promise<SpendResult> => {
       if (spend.status === 'settled' && spend.settledCents === actualCents) {
         return { ok: true, spend, created: false }
       }
@@ -384,7 +395,7 @@ export abstract class TreasuryCore {
       }
       const refund = spend.amountCents - actualCents
       if (refund > 0) {
-        await this.post(guildId, tx, {
+        await this.post(guildId, tx, at, {
           actorMember,
           kind: 'spend_settle',
           bucket: 'operating',
@@ -403,14 +414,14 @@ export abstract class TreasuryCore {
   }
 
   releaseSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
-    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+    return this.withSpend(guildId, spendId, async (tx, spend, at): Promise<SpendResult> => {
       if (spend.status === 'released') {
         return { ok: true, spend, created: false }
       }
       if (spend.status !== 'reserved') {
         return { ok: false, reason: 'wrong_state' }
       }
-      await this.post(guildId, tx, {
+      await this.post(guildId, tx, at, {
         actorMember,
         kind: 'spend_release',
         bucket: 'operating',
@@ -448,8 +459,8 @@ export abstract class TreasuryCore {
     if (!isCents(input.amountCents)) {
       return { ok: false, reason: 'invalid_amount' }
     }
-    return this.run(guildId, 'write', async (tx): Promise<EntriesResult> => {
-      await this.ensureFunded(guildId, tx, limits)
+    return this.unit(guildId, async (tx, at): Promise<EntriesResult> => {
+      await this.ensureFunded(guildId, tx, at, limits)
       const idemKey = `reserve:${input.key}`
       const seen = await tx.entriesByKey(idemKey)
       if (seen.length > 0) {
@@ -461,14 +472,14 @@ export abstract class TreasuryCore {
       if (input.amountCents > (await tx.balances()).reserve) {
         return { ok: false, reason: 'insufficient_funds' }
       }
-      const out = await this.post(guildId, tx, {
+      const out = await this.post(guildId, tx, at, {
         actorMember: input.actorMember,
         kind: 'reserve_release',
         bucket: 'reserve',
         amountCents: -input.amountCents,
         idemKey,
       })
-      const into = await this.post(guildId, tx, {
+      const into = await this.post(guildId, tx, at, {
         actorMember: input.actorMember,
         kind: 'reserve_release',
         bucket: 'operating',
