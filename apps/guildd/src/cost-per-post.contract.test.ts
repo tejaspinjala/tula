@@ -51,8 +51,8 @@ async function meterPost(g: string, costMicros: number, outcome: 'posted' | 'den
     providerId: 'cloud',
     profileId: 'cloud-mid',
     state: 'active',
-    tokenHash: null,
-    expiresAt: null,
+    tokenHash: `hash-${runId}`,
+    expiresAt: '2099-01-01T00:00:00.000Z',
   })
   const entry = {
     callKey: crypto.randomUUID(),

@@ -9,6 +9,7 @@ import {
   verifyChain,
   verifyFrom,
 } from './audit-chain'
+import { costPerPost } from './cost-per-post'
 import type { Db } from './db/client'
 import type { Dispatcher } from './dispatch'
 import { createEventHub } from './event-hub'
@@ -278,6 +279,10 @@ const usageQuery = z.object({
   after: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
 })
+const costPerPostQuery = z.object({
+  after: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
+})
 /** HTTP status for a refused gateway call. */
 function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 {
   switch (code) {
@@ -414,6 +419,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/summon', limited('summon'))
   app.post('/guilds/:id/dispatch', limited('dispatch'))
+  app.get('/guilds/:id/cost-per-post', limited('cost-per-post'))
   app.get('/guilds/:id/summon', limited('summon-status'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
@@ -981,6 +987,31 @@ export function createApp(deps: AppDeps): Hono {
     const status =
       started.error === 'gates_barred' ? 409 : started.error === 'sandbox_unavailable' ? 502 : 422
     return c.json({ error: started.error }, status)
+  })
+
+  // Cost per accepted post: metered spend of the Quests whose Seal was posted, per Campaign.
+  app.get('/guilds/:id/cost-per-post', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const query = costPerPostQuery.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!query.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await costPerPost(
+        { ledger: deps.modelLedger, quests: deps.quests, sealStore: deps.sealStore },
+        who.guild,
+        {
+          limit: query.data.limit,
+          ...(query.data.after === undefined ? {} : { after: query.data.after }),
+        }
+      )
+    )
   })
 
   // One dispatcher pass: settles Seals, then claims, routes and starts at most one Quest.
