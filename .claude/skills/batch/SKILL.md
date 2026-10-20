@@ -28,5 +28,5 @@ You are the lead. Your context is precious: hold pointers (issue numbers, branch
 
 1. `bun run verify` green on `batch/<slug>`; run the `run-check` skill if any ticket changed runtime behaviour.
 2. Run the `review-loop` skill on `batch/<slug>` against `develop` (one batch review).
-3. Open one PR `batch/<slug>` → `develop`, title a Conventional Commit, body from the PR template, `Closes #<n>` for every ticket, and the run-check and review reports. No co-author trailers or generated-by footers.
+3. Open one PR `batch/<slug>` → `develop`, title a Conventional Commit, body from the PR template, one `Closes #<n>` line per ticket (GitHub closes only the first issue of a comma list like `Closes #1, #2`), and the run-check and review reports. No co-author trailers or generated-by footers.
 4. Do not merge it. Report the PR URL, the tickets it closes, and anything deferred. Remove the worker worktrees.
