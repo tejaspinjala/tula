@@ -70,6 +70,18 @@ describe('reconcileSeals', () => {
     expect((await s.quests.get(s.guild, s.quest.id))?.state).toBe('dead')
   })
 
+  test('an approved Seal never posted expires after the post window and frees the Quest', async () => {
+    const s = await setup(2)
+    const seal = await s.ask(1)
+    await s.seals.decide(s.guild, seal.id, { verdict: 'approved', expectedHash: seal.actionHash })
+    s.clock.advance(72 * 3_600_000 - 1)
+    expect((await reconcileSeals(s.deps, s.guild)).settled).toBe(0)
+    s.clock.advance(2)
+    expect((await reconcileSeals(s.deps, s.guild)).settled).toBe(1)
+    expect((await s.seals.get(s.guild, seal.id))?.status).toBe('expired')
+    expect((await s.quests.get(s.guild, s.quest.id))?.state).toBe('queued')
+  })
+
   test('a Seal still waiting leaves the Quest held', async () => {
     const s = await setup()
     await s.ask(1)
