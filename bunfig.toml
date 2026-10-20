@@ -1,0 +1,2 @@
+[test]
+preload = ["./apps/guildd/src/testing/preload.ts"]
