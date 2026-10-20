@@ -34,6 +34,10 @@ export interface HarnessOptions {
  * root (app connecting as the non-owner role) and drives its public routes through
  * `app.request`. Tests isolate by founding their own guilds and never assume empty tables.
  * Requires the compose Postgres (`docker compose up -d`).
+ *
+ * Identity and secrets run on the real adapters (WebAuthn identity provider, `PgIdentityStore`,
+ * `PgSecretStore`), because founding and vault writes are transactional with the `Db`. The memory
+ * adapters are covered by the shared contract suites and can be swapped in through `options.app`.
  */
 export async function createHarness(options: HarnessOptions = {}) {
   const appUrl = testDbUrl('app')
