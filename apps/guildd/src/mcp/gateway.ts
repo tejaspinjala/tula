@@ -451,7 +451,7 @@ export class McpGateway {
         tools,
         notes: pointers.notes.map((n) => ({ id: n.id, title: n.title })),
       },
-      BRIEF_TOKEN_CAP
+      this.deps.briefTokenCap ?? BRIEF_TOKEN_CAP
     ).text
   }
 
