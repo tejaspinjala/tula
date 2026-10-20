@@ -275,3 +275,26 @@ export function loadSandboxEnv(
     gatewayUrl: docker.SANDBOX_GATEWAY_URL,
   }
 }
+
+const subscriptionSchema = z
+  .object({
+    /** Whether `subscription` providers may serve calls. Off unless the host opts in; hosted (v2) never does. */
+    SUBSCRIPTION_PROVIDER: z.enum(['enabled', 'disabled']).default('disabled'),
+    /** The `claude` executable the subscription provider runs. */
+    CLAUDE_CLI_BIN: z.string().min(1).default('claude'),
+    /** Milliseconds before a `claude` child is killed. */
+    CLAUDE_CLI_TIMEOUT_MS: z.coerce.number().int().min(1).max(3_600_000).default(120_000),
+    /** Most `claude` children at once, so the subscription isn't hammered. */
+    CLAUDE_CLI_MAX_CONCURRENT: z.coerce.number().int().min(1).max(32).default(2),
+  })
+  .transform((env) => ({
+    enabled: env.SUBSCRIPTION_PROVIDER === 'enabled',
+    bin: env.CLAUDE_CLI_BIN,
+    timeoutMs: env.CLAUDE_CLI_TIMEOUT_MS,
+    maxConcurrent: env.CLAUDE_CLI_MAX_CONCURRENT,
+  }))
+
+/** Reads the subscription provider settings (ADR-0008); throws at boot on anything invalid. */
+export function loadSubscriptionEnv(source: Record<string, string | undefined> = process.env) {
+  return subscriptionSchema.parse(source)
+}
