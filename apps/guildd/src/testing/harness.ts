@@ -73,6 +73,7 @@ export interface HarnessOptions {
       | 'gateway'
       | 'sandboxes'
       | 'modelProvider'
+      | 'subscriptionProvider'
       | 'objectStore'
       | 'keys'
       | 'anchor'

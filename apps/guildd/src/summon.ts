@@ -20,7 +20,7 @@ export const SUMMON_JOB_KEY = 'summon:first-member'
 export type SummonError =
   | PostQuestError
   | 'unknown_profile'
-  | 'subscription_unsupported_until_spike_15'
+  | 'subscription_disabled'
   | 'gates_barred'
   | 'run_not_started'
   | 'sandbox_unavailable'
@@ -55,6 +55,8 @@ export interface SummonDeps {
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
   clock: Clock
+  /** Whether the host has enabled `subscription` providers; they are refused otherwise. */
+  subscriptionEnabled?: boolean
 }
 
 /**
@@ -95,8 +97,8 @@ export class Summon {
     if (!profile || !provider) {
       return { ok: false, error: 'unknown_profile' }
     }
-    if (provider.auth === 'subscription') {
-      return { ok: false, error: 'subscription_unsupported_until_spike_15' }
+    if (provider.auth === 'subscription' && !this.deps.subscriptionEnabled) {
+      return { ok: false, error: 'subscription_disabled' }
     }
     const posted = await postQuest(
       { config: this.deps.config, queue: this.deps.quests, tripwires: this.deps.tripwires },

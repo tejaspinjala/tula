@@ -9,6 +9,7 @@ import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig, type GuildConfig, guildConfig } from './guild-config'
 import { GatewayError, type GatewayErrorCode, ModelGateway, runIdFor } from './model-gateway'
+import type { ModelProvider } from './ports/model-provider'
 import type { Quest } from './ports/quest-queue'
 
 const GUILD = '11111111-1111-4111-8111-111111111111'
@@ -75,7 +76,10 @@ async function leaseQuest(quests: MemoryQuestQueue, name: string): Promise<Quest
   return claimed
 }
 
-async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = {}) {
+async function setup(
+  cfg: GuildConfig = config(),
+  opts: { withKey?: boolean; subscription?: ModelProvider } = {}
+) {
   const clock = new MemoryClock(new Date('2026-03-04T10:00:00.000Z'))
   const ledger = new CountingLedger()
   const provider = new MemoryModelProvider()
@@ -90,6 +94,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
     secrets,
     config: { current: async () => ({ version: 1, config: cfg }) },
     provider,
+    ...(opts.subscription ? { subscriptionProvider: opts.subscription } : {}),
     clock,
     tripwires,
     gates: new MemoryGateStore(),
@@ -259,11 +264,42 @@ describe('metering', () => {
     expect(await codeOf(open('run-x', { profileId: 'ghost' }))).toBe('unknown_profile')
   })
 
-  test('a subscription provider is refused until spike #15', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled', async () => {
     const { open } = await setup()
-    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe(
-      'subscription_unsupported_until_spike_15'
-    )
+    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe('subscription_disabled')
+  })
+})
+
+describe('subscription provider', () => {
+  test('serves the call through the subscription provider with no Vault secret, metered in tokens and unpriced', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: true, text: 'from cli', usage: { inputTokens: 40, outputTokens: 9 } })
+    const { gateway, ledger, provider, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    const out = await gateway.complete(run.token, message)
+    expect(out.text).toBe('from cli')
+    expect(provider.seen).toHaveLength(0)
+    const { rows } = await ledger.report(GUILD, 'day', { limit: 5 })
+    expect(rows).toEqual([
+      { key: '2026-03-04', calls: 1, inputTokens: 40, outputTokens: 9, costMicros: 0 },
+    ])
+  })
+
+  test('a usage-limit reply is subscription_limit and the estimate stays as the charge', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: false, code: 'subscription_limit' })
+    const { gateway, ledger, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('subscription_limit')
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
+  })
+
+  test('any other subscription failure is provider_failed', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: false, code: 'unavailable' })
+    const { gateway, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('provider_failed')
   })
 })
 

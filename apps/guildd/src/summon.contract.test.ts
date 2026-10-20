@@ -99,12 +99,12 @@ describe('Summon your first member', () => {
     expect(s.quest).toBeNull()
   })
 
-  test('a subscription provider is refused until spike #15, and nothing starts', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled, and nothing starts', async () => {
     const { g, auth } = await found('subscription')
     const before = runner.specs.length
     const res = await summon(g, auth)
     expect(res.status).toBe(422)
-    expect(errorBody.parse(await res.json()).error).toBe('subscription_unsupported_until_spike_15')
+    expect(errorBody.parse(await res.json()).error).toBe('subscription_disabled')
     expect(runner.specs).toHaveLength(before)
     expect((await status(g, auth)).complete).toBe(false)
   })

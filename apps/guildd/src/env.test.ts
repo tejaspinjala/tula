@@ -4,6 +4,7 @@ import {
   loadEnv,
   loadPlatformOperators,
   loadSandboxEnv,
+  loadSubscriptionEnv,
   loadVapidEnv,
   loadWebauthnEnv,
 } from './env'
@@ -235,5 +236,30 @@ describe('PLATFORM_OPERATORS', () => {
   })
   test('fails at boot on anything that is not a uuid', () => {
     expect(() => loadPlatformOperators({ PLATFORM_OPERATORS: `${a},not-a-uuid` })).toThrow()
+  })
+})
+
+describe('loadSubscriptionEnv', () => {
+  test('is disabled by default, with the CLI on PATH, two at once and a two-minute timeout', () => {
+    expect(loadSubscriptionEnv({})).toEqual({
+      enabled: false,
+      bin: 'claude',
+      timeoutMs: 120_000,
+      maxConcurrent: 2,
+    })
+  })
+
+  test('reads every setting and enables only on the exact word', () => {
+    expect(
+      loadSubscriptionEnv({
+        SUBSCRIPTION_PROVIDER: 'enabled',
+        CLAUDE_CLI_BIN: '/opt/claude',
+        CLAUDE_CLI_TIMEOUT_MS: '30000',
+        CLAUDE_CLI_MAX_CONCURRENT: '4',
+      })
+    ).toEqual({ enabled: true, bin: '/opt/claude', timeoutMs: 30_000, maxConcurrent: 4 })
+    expect(() => loadSubscriptionEnv({ SUBSCRIPTION_PROVIDER: 'true' })).toThrow()
+    expect(() => loadSubscriptionEnv({ CLAUDE_CLI_MAX_CONCURRENT: '0' })).toThrow()
+    expect(() => loadSubscriptionEnv({ CLAUDE_CLI_TIMEOUT_MS: 'soon' })).toThrow()
   })
 })
