@@ -123,3 +123,13 @@ export async function releaseStale(
     proof,
   })
 }
+
+/** The Seal id a push notification deep-linked to (`?seal=<id>`), or null when absent or malformed. */
+export function sealIdFromSearch(_search: string): string | null {
+  return null
+}
+
+/** One Seal by id, for a deep link from a push notification. */
+export function getSeal(session: Session, id: string, fetcher: Fetcher): Promise<InboxSeal> {
+  return call(session, fetcher, `/${id}`, sealBody)
+}
