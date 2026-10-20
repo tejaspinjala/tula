@@ -46,6 +46,16 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     requiresSeal: true,
     roundLimit: 3,
   },
+  {
+    id: 'team-plan',
+    name: 'Team plan',
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    doneCondition: 'The Campaign is planned and its Quests are posted to the Hall`s Quest Board',
+    requiresSeal: false,
+    roundLimit: 2,
+  },
 ]
 
 /** What the Guild Master supplies when posting a Quest from a template. */
