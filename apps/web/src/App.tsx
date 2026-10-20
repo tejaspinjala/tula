@@ -3,7 +3,9 @@ import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { PasskeyPanel } from './PasskeyPanel'
 import type { Session } from './passkeys'
+import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
+import { SealPanel } from './SealPanel'
 import { VaultPanel } from './VaultPanel'
 
 /** Ledger-view shell: keyboard-navigable, with a skip link, landmarks and passkey sign-in. */
@@ -30,6 +32,8 @@ export function App() {
           <a href="#vault-heading">Vault</a>
           <a href="#roster-heading">Roster</a>
           <a href="#archive-heading">Archive</a>
+          <a href="#seals-heading">Seals</a>
+          <a href="#quests-heading">Quest Board</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -39,6 +43,8 @@ export function App() {
         <VaultPanel session={session} />
         <RosterPanel session={session} />
         <ArchivePanel session={session} />
+        <SealPanel session={session} />
+        <QuestBoardPanel session={session} />
       </main>
     </>
   )

@@ -36,7 +36,15 @@ export const sealPolicy = z.enum(SEAL_POLICY_LEVELS)
 /**
  * Per-provider auth (ADR-0005): the Guild Master picks `subscription` or `api_key` per provider.
  */
-export const provider = z.object({ id: slug, auth: z.enum(['subscription', 'api_key']) })
+export const provider = z.object({
+  id: slug,
+  auth: z.enum(['subscription', 'api_key']),
+  /**
+   * Whether this provider may serve private-class work. Only the Guild Master sets it; turning
+   * it on is a widening change (a new or edited provider never matches a prior one).
+   */
+  privateEligible: z.boolean().default(false),
+})
 
 /** A routing profile: which provider serves which model tier (cheap, mid, deep). */
 export const routingProfile = z.object({
@@ -52,7 +60,17 @@ export const schedule = z.object({ id: slug, cron: z.string().trim().min(1).max(
 export const caps = z.object({
   dailyTokens: z.number().int().min(0).max(1_000_000_000_000),
   dailySpendCents: z.number().int().min(0).max(100_000_000),
+  /** Quests that may hold a live lease at once; {@link DEFAULT_CONCURRENT_QUESTS} when absent. */
+  concurrentQuests: z.number().int().min(1).max(1000).optional(),
 })
+
+/** The Quest concurrency cap of a config that does not set one. */
+export const DEFAULT_CONCURRENT_QUESTS = 4
+
+/** The guild's Quest concurrency cap: how many Quests may be leased at once. */
+export function questConcurrency(config: GuildConfig): number {
+  return config.caps.concurrentQuests ?? DEFAULT_CONCURRENT_QUESTS
+}
 
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
 export const guildConfig = z
@@ -193,7 +211,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     level(next.sealPolicy) <= level(prev.sealPolicy) &&
     next.caps.dailyTokens <= prev.caps.dailyTokens &&
     next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
-    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents']) &&
+    questConcurrency(next) <= questConcurrency(prev) &&
+    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents', 'concurrentQuests']) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&

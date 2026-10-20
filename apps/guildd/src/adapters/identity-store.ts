@@ -21,7 +21,7 @@ export interface StoredCredential {
 /** A one-use ceremony challenge awaiting its response. */
 export interface StoredChallenge {
   id: string
-  kind: 'register' | 'signin' | 'reauth'
+  kind: 'register' | 'signin' | 'reauth' | 'checkpoint'
   /** Base64url challenge handed to the authenticator. */
   challenge: string
   /** The session a re-authentication challenge belongs to. */

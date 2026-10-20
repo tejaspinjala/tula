@@ -484,5 +484,94 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       const last = await s.identity.beginSignIn(s.guildId)
       await s.identity.finishSignIn(s.guildId, last.challengeId, await s.key.assert(last.options))
     })
+
+    describe('checkpoint signature', () => {
+      const HASH = 'ab'.repeat(32)
+
+      test('a session signs a checkpoint hash with its passkey, and the assertion re-verifies', async () => {
+        const s = await registered()
+        const session = await signIn(s)
+        const begin = await s.identity.beginCheckpointSignature(session.token, HASH)
+        expect(
+          Buffer.from(begin.options.challenge, 'base64url').subarray(0, 32).toString('hex')
+        ).toBe(HASH)
+        const done = await s.identity.finishCheckpointSignature(
+          session.token,
+          begin.challengeId,
+          await s.key.assert(begin.options)
+        )
+        expect(done.checkpointHash).toBe(HASH)
+        expect(await s.identity.verifyCheckpointAssertion(s.guildId, HASH, done.assertion)).toBe(
+          true
+        )
+        expect(
+          await s.identity.verifyCheckpointAssertion(s.guildId, 'cd'.repeat(32), done.assertion)
+        ).toBe(false)
+        expect(
+          await s.identity.verifyCheckpointAssertion(s.guildId, HASH, {
+            ...done.assertion,
+            signature: done.assertion.authenticatorData,
+          })
+        ).toBe(false)
+      })
+
+      test("another guild's credential does not verify the assertion", async () => {
+        const a = await registered()
+        const b = await registered()
+        const session = await signIn(a)
+        const begin = await a.identity.beginCheckpointSignature(session.token, HASH)
+        const done = await a.identity.finishCheckpointSignature(
+          session.token,
+          begin.challengeId,
+          await a.key.assert(begin.options)
+        )
+        expect(await a.identity.verifyCheckpointAssertion(b.guildId, HASH, done.assertion)).toBe(
+          false
+        )
+      })
+
+      test('the challenge is single-use, needs a live session and a passkey of the guild', async () => {
+        const s = await registered()
+        const session = await signIn(s)
+        expect(await failure(s.identity.beginCheckpointSignature('x.y', HASH))).toBe(
+          'unauthenticated'
+        )
+        const begin = await s.identity.beginCheckpointSignature(session.token, HASH)
+        const stranger = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        expect(
+          await failure(
+            s.identity.finishCheckpointSignature(
+              session.token,
+              begin.challengeId,
+              await stranger.assert(begin.options)
+            )
+          )
+        ).toBe('unknown_credential')
+        expect(
+          await failure(
+            s.identity.finishCheckpointSignature(
+              session.token,
+              begin.challengeId,
+              await s.key.assert(begin.options)
+            )
+          )
+        ).toBe('invalid_challenge')
+      })
+
+      test('a sign-in challenge cannot be used to sign a checkpoint', async () => {
+        const s = await registered()
+        const session = await signIn(s)
+        const reauth = await s.identity.beginReauth(session.token)
+        expect(
+          await failure(
+            s.identity.finishCheckpointSignature(
+              session.token,
+              reauth.challengeId,
+              await s.key.assert(reauth.options)
+            )
+          )
+        ).toBe('invalid_challenge')
+      })
+    })
   })
 }

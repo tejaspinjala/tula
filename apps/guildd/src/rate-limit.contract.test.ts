@@ -112,6 +112,41 @@ describe('rate limits on unauthenticated identity routes', () => {
     expect(third.headers.get('retry-after')).not.toBeNull()
   })
 
+  test('the stream ticket route answers 429 with Retry-After past its client limit', async () => {
+    const { post, found } = await harnessWith({ 'stream-ticket': { client: tight(2) } })
+    const { id } = await found()
+    const path = `/guilds/${id}/events/ticket`
+    expect((await post(path)).status).toBe(401)
+    expect((await post(path)).status).toBe(401)
+    const refused = await post(path)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
+  test('checkpoint, Quest-posting and Seal-posted routes are limited too', async () => {
+    const { post, found } = await harnessWith({
+      'checkpoint-begin': { client: tight(2) },
+      'checkpoint-finish': { client: tight(1) },
+      'quest-post': { client: tight(1) },
+      'seal-posted': { client: tight(1) },
+    })
+    const { id } = await found()
+    const begin = `/guilds/${id}/audit/checkpoints/begin`
+    expect((await post(begin)).status).toBe(401)
+    expect((await post(begin)).status).toBe(401)
+    const refused = await post(begin)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+    for (const path of [
+      `/guilds/${id}/audit/checkpoints/finish`,
+      `/guilds/${id}/quests`,
+      `/guilds/${id}/seals/${crypto.randomUUID()}/posted`,
+    ]) {
+      expect((await post(path)).status).not.toBe(429)
+      expect((await post(path)).status).toBe(429)
+    }
+  })
+
   test('X-Forwarded-For is ignored unless TRUST_PROXY is set', async () => {
     const { post, found } = await harnessWith({ 'signin-begin': { client: tight(2) } })
     const { id } = await found()

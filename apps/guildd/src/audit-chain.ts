@@ -1,18 +1,48 @@
+import { createHash } from 'node:crypto'
+import { safeEqual } from './constant-time'
 import type { TenantTx } from './db/client'
+import type { AnchoredCheckpoint, CheckpointAnchor } from './ports/checkpoint-anchor'
+import type { Clock } from './ports/clock'
+import {
+  type CheckpointAssertion,
+  checkpointAssertion,
+  type IdentityProvider,
+} from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 
 /** The key purpose the chain's MACs are derived under. */
 const PURPOSE = 'audit-chain'
+/** The key purpose checkpoint signatures are made under. */
+const CHECKPOINT_PURPOSE = 'audit-checkpoint'
+/** The key purpose resume cursors are signed under. */
+const CURSOR_PURPOSE = 'audit-cursor'
 /** The `prev_mac` of a guild's first entry. */
 const GENESIS = '0'.repeat(64)
 const PAGE = 500
+/** Most entries one verify call replays, whatever limit the caller asks for. */
+export const MAX_VERIFY_ENTRIES = 5000
+/** Milliseconds each statement of a verify transaction may run before Postgres cancels it. */
+const VERIFY_STATEMENT_TIMEOUT_MS = 15_000
+/** A checkpoint (or a guild without one) older than this is overdue: 24 hours. */
+const CHECKPOINT_DUE_MS = 24 * 60 * 60 * 1000
+/** How far ahead of the injected Clock a founding may be before it stops counting as recent. */
+const CLOCK_SKEW_MS = 5 * 60 * 1000
 
-/** Result of {@link verifyChain}. */
+/**
+ * Result of {@link verifyChain}. A `partial` verdict found no tampering up to `verifiedThrough`
+ * but stopped at its limit: resume with `cursor`. Only a verdict with `entries` covers the rest.
+ */
 export type ChainVerdict =
-  | { intact: true; entries: number }
+  | ({ intact: true; entries: number } & SignatureStatus)
+  | ({ intact: true; partial: true; verifiedThrough: number; cursor: string } & SignatureStatus)
   | { intact: false; firstBadSeq: number; reason: string }
 
+/** When the Guild Master last signed a checkpoint, and whether the daily signature is overdue. */
+export type SignatureStatus = { lastCheckpointAt: string | null; overdue: boolean }
+
 type EventRow = { seq: number; type: string; occurredAt: string; payload: unknown }
+type Bad = { intact: false; firstBadSeq: number; reason: string }
+type Position = { seq: number; mac: string }
 
 /** JSON with object keys sorted at every depth, so equal values always serialise identically. */
 export function canonicalJson(value: unknown): string {
@@ -40,11 +70,16 @@ async function macOf(sign: Signer, prev: string, event: EventRow): Promise<strin
 }
 
 /** Reads events after `afterSeq` with the timestamp at full microsecond precision, in UTC. */
-async function eventPage(tx: TenantTx, afterSeq: number): Promise<EventRow[]> {
+async function eventPage(
+  tx: TenantTx,
+  afterSeq: number,
+  size = PAGE,
+  upTo = Number.MAX_SAFE_INTEGER
+): Promise<EventRow[]> {
   const rows = await tx`
     select seq, type, payload,
       to_char(occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') as occurred_at
-    from events where seq > ${afterSeq} order by seq limit ${PAGE}`
+    from events where seq > ${afterSeq} and seq <= ${upTo} order by seq limit ${size}`
   return rows.map((r) => ({
     seq: Number(r.seq),
     type: String(r.type),
@@ -86,21 +121,278 @@ export async function extendChain(tx: TenantTx, keys: KeyProvider): Promise<void
   }
 }
 
+/** Bounds every statement of the calling verify transaction; transaction-local, so nothing leaks. */
+export async function bindVerifyTimeout(tx: TenantTx): Promise<void> {
+  await tx`select set_config('statement_timeout', ${String(VERIFY_STATEMENT_TIMEOUT_MS)}, true)`
+}
+
+/** Raised when a resume cursor is malformed or was not issued by this guild's verify. */
+export class InvalidCursorError extends Error {
+  constructor() {
+    super('invalid cursor')
+    this.name = 'InvalidCursorError'
+  }
+}
+
+const encode = (text: string) => new TextEncoder().encode(text)
+
+/** The signature a checkpoint of `guild` at (`seq`, `mac`) carries. */
+export function checkpointSignature(
+  keys: KeyProvider,
+  guild: string,
+  seq: number,
+  mac: string
+): Promise<string> {
+  return keys.mac(guild, CHECKPOINT_PURPOSE, encode(`${guild}:${seq}:${mac}`))
+}
+
 /**
- * Recomputes the guild's whole chain from its events and reports the first entry that is missing,
- * edited, out of order, unlinked from its predecessor, or has no event behind it. The key is
- * resolved once per call. Truncation of the chain's tail is not detectable from the database alone;
- * it is detected by checkpoints (#31).
+ * The hash (lowercase hex SHA-256 of `<guild>:<seq>:<mac>`) the Guild Master's passkey signs as
+ * its WebAuthn challenge prefix; it names exactly one chain position of one guild.
  */
-export async function verifyChain(tx: TenantTx, keys: KeyProvider): Promise<ChainVerdict> {
+export function checkpointHash(guild: string, seq: number, mac: string): string {
+  return createHash('sha256').update(`${guild}:${seq}:${mac}`).digest('hex')
+}
+
+async function cursorFor(keys: KeyProvider, guild: string, at: Position): Promise<string> {
+  const sig = await keys.mac(guild, CURSOR_PURPOSE, encode(`${guild}:${at.seq}:${at.mac}`))
+  return `${at.seq}.${at.mac}.${sig}`
+}
+
+async function readCursor(keys: KeyProvider, guild: string, cursor: string): Promise<Position> {
+  const [seq, mac, sig, extra] = cursor.split('.')
+  const n = Number(seq)
+  if (extra !== undefined || !mac || !Number.isSafeInteger(n) || n < 1) {
+    throw new InvalidCursorError()
+  }
+  if (!safeEqual(await cursorFor(keys, guild, { seq: n, mac }), `${n}.${mac}.${sig}`)) {
+    throw new InvalidCursorError()
+  }
+  return { seq: n, mac }
+}
+
+/** What a verify needs beyond the database and the key: the outside-Postgres witnesses. */
+export interface ChainWitness {
+  /** Signed chain heads kept outside Postgres. */
+  anchor: CheckpointAnchor
+  /** Re-checks the Guild Master's passkey assertion stored with each checkpoint. */
+  identity: Pick<IdentityProvider, 'verifyCheckpointAssertion'>
+  /** Decides whether the daily signature is overdue. */
+  clock: Clock
+}
+
+/** Options of {@link verifyChain}. */
+export interface VerifyOptions {
+  /** Most entries to replay in this call; defaults to and is capped at {@link MAX_VERIFY_ENTRIES}. */
+  limit?: number
+  /** Resume point from an earlier partial verdict. */
+  cursor?: string
+  /** Replay from the first entry instead of the latest checkpoint. */
+  full?: boolean
+  /** Stop after this seq (a checkpoint being signed covers exactly one position). */
+  upTo?: number
+}
+
+type StoredCheckpoint = {
+  seq: number
+  mac: string
+  signature: string
+  createdAt: Date
+  assertion: CheckpointAssertion | null
+}
+
+async function latestStored(tx: TenantTx): Promise<StoredCheckpoint | null> {
+  const [row] = await tx`
+    select seq, mac, signature, created_at, credential_id, authenticator_data, client_data_json,
+      assertion_signature
+    from audit_checkpoints order by seq desc limit 1`
+  if (!row) {
+    return null
+  }
+  const assertion = checkpointAssertion.safeParse({
+    credentialId: row.credential_id,
+    authenticatorData: row.authenticator_data,
+    clientDataJSON: row.client_data_json,
+    signature: row.assertion_signature,
+  })
+  return {
+    seq: Number(row.seq),
+    mac: String(row.mac),
+    signature: String(row.signature),
+    createdAt: new Date(row.created_at),
+    assertion: assertion.success ? assertion.data : null,
+  }
+}
+
+/**
+ * Checks the anchor against the database: the anchored head must be genuine and still in the
+ * chain (the truncation test), and the anchor must not be missing or behind a checkpoint the
+ * database holds (a fresh or wiped anchor must not silently pass).
+ */
+async function checkAnchor(
+  tx: TenantTx,
+  keys: KeyProvider,
+  anchor: CheckpointAnchor,
+  guild: string,
+  stored: StoredCheckpoint | null
+): Promise<Bad | null> {
+  let anchored: AnchoredCheckpoint | null
+  try {
+    anchored = await anchor.latest(guild)
+  } catch {
+    return { intact: false, firstBadSeq: stored?.seq ?? 0, reason: 'anchor unreadable' }
+  }
+  if (stored && (!anchored || anchored.seq < stored.seq)) {
+    return { intact: false, firstBadSeq: stored.seq, reason: 'anchor missing or behind' }
+  }
+  if (!anchored) {
+    return null
+  }
+  if (
+    !safeEqual(
+      await checkpointSignature(keys, guild, anchored.seq, anchored.mac),
+      anchored.signature
+    )
+  ) {
+    return {
+      intact: false,
+      firstBadSeq: anchored.seq,
+      reason: 'anchored checkpoint signature invalid',
+    }
+  }
+  const [entry] = await tx`select mac from audit_chain where seq = ${anchored.seq}`
+  if (!entry || !safeEqual(String(entry.mac), anchored.mac)) {
+    return {
+      intact: false,
+      firstBadSeq: anchored.seq,
+      reason: 'chain no longer contains the anchored checkpoint (truncated or rewritten)',
+    }
+  }
+  return null
+}
+
+/** The stored checkpoint's seal, passkey assertion and agreement with the chain. */
+async function checkStored(
+  tx: TenantTx,
+  keys: KeyProvider,
+  witness: ChainWitness,
+  guild: string,
+  stored: StoredCheckpoint
+): Promise<Bad | null> {
+  const bad = (reason: string): Bad => ({ intact: false, firstBadSeq: stored.seq, reason })
+  if (
+    !safeEqual(await checkpointSignature(keys, guild, stored.seq, stored.mac), stored.signature)
+  ) {
+    return bad('checkpoint signature invalid')
+  }
+  if (
+    !stored.assertion ||
+    !(await witness.identity.verifyCheckpointAssertion(
+      guild,
+      checkpointHash(guild, stored.seq, stored.mac),
+      stored.assertion
+    ))
+  ) {
+    return bad('checkpoint passkey assertion missing or invalid')
+  }
+  const [entry] = await tx`select mac from audit_chain where seq = ${stored.seq}`
+  if (!entry || !safeEqual(String(entry.mac), stored.mac)) {
+    return bad('checkpoint does not match the chain')
+  }
+  return null
+}
+
+/** The daily-signature facts a verdict carries. */
+async function signatureStatus(
+  tx: TenantTx,
+  clock: Clock,
+  stored: StoredCheckpoint | null
+): Promise<{ lastCheckpointAt: string | null; overdue: boolean }> {
+  const now = clock.now().getTime()
+  if (stored) {
+    return {
+      lastCheckpointAt: stored.createdAt.toISOString(),
+      overdue: now - stored.createdAt.getTime() > CHECKPOINT_DUE_MS,
+    }
+  }
+  // The founding time is the guild.founded event's database time (no event in the chain is
+  // stamped from the injected Clock). A founding the Clock has not reached yet cannot prove the
+  // guild is recent, so beyond a small skew allowance it counts as overdue, like a missing row.
+  const [founding] =
+    await tx`select occurred_at from events where type = 'guild.founded' order by seq limit 1`
+  if (!founding) {
+    return { lastCheckpointAt: null, overdue: true }
+  }
+  const age = now - new Date(founding.occurred_at).getTime()
+  return { lastCheckpointAt: null, overdue: age > CHECKPOINT_DUE_MS || age < -CLOCK_SKEW_MS }
+}
+
+/**
+ * Like {@link verifyChain}, also returning the chain position the call verified up to, which is
+ * what a checkpoint may sign.
+ */
+export async function verifyFrom(
+  tx: TenantTx,
+  keys: KeyProvider,
+  witness: ChainWitness,
+  options: VerifyOptions = {}
+): Promise<{ verdict: ChainVerdict; position: Position }> {
+  await bindVerifyTimeout(tx)
   const guild = await guildOf(tx)
+  const limit = Math.min(Math.max(options.limit ?? MAX_VERIFY_ENTRIES, 1), MAX_VERIFY_ENTRIES)
+  const bad = (v: Bad) => ({ verdict: v, position: { seq: 0, mac: GENESIS } })
+  const stored = await latestStored(tx)
+  const anchorProblem = await checkAnchor(tx, keys, witness.anchor, guild, stored)
+  if (anchorProblem) {
+    return bad(anchorProblem)
+  }
+  if (stored) {
+    const storedProblem = await checkStored(tx, keys, witness, guild, stored)
+    if (storedProblem) {
+      return bad(storedProblem)
+    }
+  }
+  let start: Position
+  if (options.cursor !== undefined) {
+    start = await readCursor(keys, guild, options.cursor)
+    const [at] = await tx`select mac from audit_chain where seq = ${start.seq}`
+    if (!at || !safeEqual(String(at.mac), start.mac)) {
+      return bad({
+        intact: false,
+        firstBadSeq: start.seq,
+        reason: 'chain no longer matches the resume cursor',
+      })
+    }
+  } else if (options.full || !stored) {
+    start = { seq: 0, mac: GENESIS }
+  } else {
+    start = { seq: stored.seq, mac: stored.mac }
+  }
   const sign = await keys.macFor(guild, PURPOSE)
-  let lastSeq = 0
-  let prev = GENESIS
+  const upTo = options.upTo ?? Number.MAX_SAFE_INTEGER
+  let lastSeq = start.seq
+  let prev = start.mac
+  let done = 0
   for (;;) {
-    const events = await eventPage(tx, lastSeq)
+    const room = limit - done
+    const events =
+      lastSeq >= upTo ? [] : await eventPage(tx, lastSeq, Math.min(PAGE, Math.max(room, 1)), upTo)
     if (events.length === 0) {
       break
+    }
+    if (room <= 0) {
+      const at = { seq: lastSeq, mac: prev }
+      const cursor = await cursorFor(keys, guild, at)
+      return {
+        verdict: {
+          intact: true,
+          partial: true,
+          verifiedThrough: lastSeq,
+          cursor,
+          ...(await signatureStatus(tx, witness.clock, stored)),
+        },
+        position: at,
+      }
     }
     const entries = await tx`
       select seq, prev_mac, mac from audit_chain
@@ -109,23 +401,116 @@ export async function verifyChain(tx: TenantTx, keys: KeyProvider): Promise<Chai
     for (const event of events) {
       const entry = bySeq.get(event.seq)
       if (!entry) {
-        return { intact: false, firstBadSeq: event.seq, reason: 'entry missing' }
+        return bad({ intact: false, firstBadSeq: event.seq, reason: 'entry missing' })
       }
-      if (String(entry.prev_mac) !== prev) {
-        return { intact: false, firstBadSeq: event.seq, reason: 'does not link to previous MAC' }
+      if (!safeEqual(String(entry.prev_mac), prev)) {
+        return bad({
+          intact: false,
+          firstBadSeq: event.seq,
+          reason: 'does not link to previous MAC',
+        })
       }
       const expected = await macOf(sign, prev, event)
-      if (String(entry.mac) !== expected) {
-        return { intact: false, firstBadSeq: event.seq, reason: 'MAC does not match the event' }
+      if (!safeEqual(String(entry.mac), expected)) {
+        return bad({
+          intact: false,
+          firstBadSeq: event.seq,
+          reason: 'MAC does not match the event',
+        })
       }
       prev = expected
       lastSeq = event.seq
+      done++
     }
   }
-  const [orphan] = await tx`select seq from audit_chain where seq > ${lastSeq} order by seq limit 1`
-  if (orphan) {
-    return { intact: false, firstBadSeq: Number(orphan.seq), reason: 'entry has no event' }
+  if (options.upTo === undefined) {
+    const [orphan] =
+      await tx`select seq from audit_chain where seq > ${lastSeq} order by seq limit 1`
+    if (orphan) {
+      return bad({ intact: false, firstBadSeq: Number(orphan.seq), reason: 'entry has no event' })
+    }
   }
   const [count] = await tx`select count(*) as n from audit_chain`
-  return { intact: true, entries: Number(count?.n) }
+  return {
+    verdict: {
+      intact: true,
+      entries: Number(count?.n),
+      ...(await signatureStatus(tx, witness.clock, stored)),
+    },
+    position: { seq: lastSeq, mac: prev },
+  }
+}
+
+/**
+ * Replays the guild's chain from its events and reports the first entry that is missing, edited,
+ * out of order, unlinked from its predecessor, or has no event behind it. It starts from the
+ * latest signed checkpoint (everything before it was verified when the Guild Master signed it)
+ * unless `full` or a `cursor` says otherwise, replays at most `limit` entries, and then returns a
+ * partial verdict with a signed cursor to resume from. The latest checkpoint anchored outside
+ * Postgres must still be in the chain, which is how truncation of the newest entries is caught,
+ * and the stored checkpoint's passkey assertion is re-verified (only the latest checkpoint's:
+ * earlier ones are covered by the chain; if credential removal is ever added, it will need a
+ * re-sign path so the latest assertion stays verifiable). Intact verdicts say when the last
+ * checkpoint was signed and whether the daily signature is overdue. The key is resolved once per
+ * call and the transaction gets a statement timeout.
+ */
+export async function verifyChain(
+  tx: TenantTx,
+  keys: KeyProvider,
+  witness: ChainWitness,
+  options: VerifyOptions = {}
+): Promise<ChainVerdict> {
+  return (await verifyFrom(tx, keys, witness, options)).verdict
+}
+
+/** Outcome of {@link signCheckpoint}. */
+export type CheckpointOutcome =
+  | { ok: true; seq: number; mac: string; signature: string; complete: boolean }
+  | { ok: false; verdict: Bad }
+
+/**
+ * Verifies the chain (from the latest checkpoint, at most `limit` entries, through `expect.seq`),
+ * then records the position reached with the Guild Master's passkey `assertion` as a signed
+ * checkpoint and publishes it to the anchor. A checkpoint never vouches for entries that were
+ * not verified, and `expect` pins the exact position the passkey signed. Idempotent per position.
+ */
+export async function signCheckpoint(
+  tx: TenantTx,
+  keys: KeyProvider,
+  witness: ChainWitness,
+  options: {
+    limit?: number
+    expect: { seq: number; mac: string }
+    assertion: CheckpointAssertion
+  }
+): Promise<CheckpointOutcome> {
+  const guild = await guildOf(tx)
+  const { verdict, position } = await verifyFrom(tx, keys, witness, {
+    ...(options.limit === undefined ? {} : { limit: options.limit }),
+    upTo: options.expect.seq,
+  })
+  if (!verdict.intact) {
+    return { ok: false, verdict }
+  }
+  if (position.seq !== options.expect.seq || !safeEqual(position.mac, options.expect.mac)) {
+    return {
+      ok: false,
+      verdict: {
+        intact: false,
+        firstBadSeq: options.expect.seq,
+        reason: 'chain does not match the position the passkey signed',
+      },
+    }
+  }
+  const signature = await checkpointSignature(keys, guild, position.seq, position.mac)
+  const a = options.assertion
+  await tx`insert into audit_checkpoints
+      (guild_id, seq, mac, signature, created_at, credential_id, authenticator_data,
+       client_data_json, assertion_signature)
+    values (${guild}, ${position.seq}, ${position.mac}, ${signature}, ${witness.clock.now()},
+      ${a.credentialId}, ${a.authenticatorData}, ${a.clientDataJSON}, ${a.signature})
+    on conflict (guild_id, seq) do nothing`
+  await witness.anchor.publish(guild, { seq: position.seq, mac: position.mac, signature })
+  const [newest] = await tx`select max(seq) as seq from events`
+  return { ok: true, ...position, signature, complete: Number(newest?.seq) === position.seq }
 }

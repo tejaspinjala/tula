@@ -16,6 +16,15 @@ backup. Keep the key backup somewhere other than the data backup (another disk, 
 or a sealed offline copy), and never in the same directory or bucket. `bun run backup` refuses a
 `BACKUP_KEY_DIR` inside `BACKUP_DIR` (or the reverse) before it writes anything.
 
+**The checkpoint anchor is not in the database backup either.** Signed audit checkpoints are also
+published outside Postgres, to the files under `CHECKPOINT_DIR` (required in production). That
+anchor is what makes truncation of the chain's tail detectable, and a restore from the database
+alone leaves it missing or behind, so verify then reports the anchor as missing. Back up
+`CHECKPOINT_DIR` separately, together with the master key and apart from the data backup (for
+example `cp -a "$CHECKPOINT_DIR" /safe/place/keys/checkpoints`), and restore it to the new
+`CHECKPOINT_DIR` before starting guildd. `bun run backup` does not copy it: the key directory must
+hold exactly `master.key`.
+
 **Encrypt before the backup leaves the host.** The dump and the copied objects are plaintext
 apart from vault ciphertext, so they expose guild data. Encrypt the backup directory (`age` or
 `gpg`) before copying it off the host; the key backup is raw and must be stored securely too.
@@ -59,7 +68,8 @@ bucket, and `KEY_FILE` the restored key. Delete the scratch database and bucket 
 stack) proves the restore: it seeds a guild with events, a note and an artifact in a throwaway
 database and bucket, backs up, restores into a second throwaway database and bucket with the key
 from its separate backup, then checks the event count, that the audit chain verifies intact, that
-the known note is present and that the artifact bytes hash to the same SHA-256. It drops every
+the known note, one Seal in each status, a Quest and a signed checkpoint row are present (and that
+an update to a restored Seal is still refused by the `seals_guard` trigger), and that the artifact bytes hash to the same SHA-256. It drops every
 database, bucket and temp directory it created, pass or fail.
 
 Run it with the port overrides when 5432 is taken:

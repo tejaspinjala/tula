@@ -1,19 +1,31 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { verifyChain } from './audit-chain'
+import {
+  checkpointHash,
+  InvalidCursorError,
+  MAX_VERIFY_ENTRIES,
+  signCheckpoint,
+  verifyChain,
+  verifyFrom,
+} from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import type { CheckpointAnchor } from './ports/checkpoint-anchor'
+import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
+import type { RoutingLog } from './ports/routing-log'
+import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
   SecretExistsError,
@@ -21,8 +33,11 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import type { StreamTicketStore } from './ports/stream-ticket'
+import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
-import { bearerToken, checkSensitive } from './sensitive'
+import { GUILD_MASTER_ID, type SealEngine } from './seals'
+import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -33,12 +48,24 @@ export interface AppDeps {
   identity: IdentityProvider
   /** Custody of the audit chain's MAC key; never the database. */
   keys: KeyProvider
+  /** Signed chain-head checkpoints kept outside Postgres; what makes tail truncation detectable. */
+  anchor: CheckpointAnchor
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
   /** Versioned guild config: Halls, roster, Seal Policy, caps; widening changes wait for re-auth. */
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
+  seals: SealEngine
+  /** The Quest queue: Quests, leases, retries and the dead-letter list. */
+  quests: QuestQueue
+  /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
+  streamTickets: StreamTicketStore
+  /** Routing step 1 for free-text goals; the deterministic adapter until a cheap model is wired. */
+  classifier: Classifier
+  /** Routing decision log (insert-only), read by the future Oracle. */
+  routingLog: RoutingLog
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -70,6 +97,19 @@ const foundGuildBody = z.object({
 })
 
 const uuid = z.uuid()
+const verifyQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+  cursor: z.string().max(300).optional(),
+  full: z.enum(['true', 'false']).optional(),
+})
+const checkpointBeginBody = z.object({
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
+const checkpointFinishBody = assertFinishBody.extend({
+  seq: z.number().int().min(1),
+  mac: z.string().regex(/^[0-9a-f]{64}$/),
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
 /** Largest accepted request body for adding a secret. */
 const MAX_SECRET_REQUEST_BYTES = 16 * 1024
 const addSecretBody = z.object({ ref: secretRef, value: secretValue })
@@ -82,6 +122,24 @@ const notePage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
   q: z.string().max(500).optional(),
+})
+const sealPage = z.object({
+  after: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
+  status: z.enum(SEAL_STATUSES).optional(),
+})
+const sealDecisionBody = z.object({
+  actionHash,
+  note: z.string().trim().min(1).max(2000).optional(),
+})
+const sealPostedBody = z.object({ text: z.string().min(1).max(20000) })
+const questPage = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
+  state: questState.optional(),
 })
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
@@ -170,6 +228,11 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+  app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
+  app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
+  app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
+  app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -203,6 +266,20 @@ export function createApp(deps: AppDeps): Hono {
     }
     const parsed = uuid.safeParse(c.req.header('x-guild-id'))
     return parsed.success ? parsed.data : null
+  }
+
+  /**
+   * A single-use `?ticket=` on a WebSocket upgrade request from a browser, which cannot set an
+   * Authorization header (see `POST /guilds/:id/events/ticket`). Not spent here: the stream route
+   * spends it after reserving a slot. A session token in the URL is never accepted.
+   */
+  function presentedTicket(c: Context): { guild: string; ticket: string } | null {
+    const ticket = c.req.query('ticket')
+    const guild = uuid.safeParse(c.req.param('id'))
+    if (!ticket || !guild.success || c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
+      return null
+    }
+    return { guild: guild.data, ticket }
   }
 
   /** Whether the guild exists (the guild row is visible only under its own tenant context). */
@@ -504,6 +581,67 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // Quests. Posting and every transition is an event appended by the QuestQueue. Like the
+  // Archive, a guild that is not the caller's is indistinguishable from one that does not exist.
+  app.post('/guilds/:id/quests', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = postQuestInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const result = await postQuest(
+      { config: deps.config, queue: deps.quests },
+      who.guild,
+      body.data
+    )
+    if (!result.ok) {
+      return c.json({ error: result.error }, 422)
+    }
+    return c.json(result.quest, result.created ? 201 : 200)
+  })
+
+  async function questList(c: Context, dead: boolean): Promise<Response> {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = questPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      state: c.req.query('state'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const paging = {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+    }
+    return c.json(
+      dead
+        ? await deps.quests.deadLetters(who.guild, paging)
+        : await deps.quests.list(who.guild, {
+            ...paging,
+            ...(page.data.state ? { state: page.data.state } : {}),
+          })
+    )
+  }
+
+  app.get('/guilds/:id/quests', (c) => questList(c, false))
+  app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))
+
+  // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
+  app.post('/guilds/:id/events/ticket', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(await deps.streamTickets.issue(who.guild))
+  })
+
   // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
   // writes config, and agents have no session, so no agent-facing route can change it. A widening
   // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
@@ -647,6 +785,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
   // the caller's is indistinguishable from one that does not exist.
+  const witness = { anchor: deps.anchor, identity: deps.identity, clock: deps.clock }
   app.get('/guilds/:id/audit/verify', async (c) => {
     const caller = await callerGuild(c)
     if (!caller) {
@@ -655,7 +794,109 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== caller) {
       return c.json({ error: 'not_found' }, 404)
     }
-    return c.json(await deps.db.withGuild(caller, (tx) => verifyChain(tx, deps.keys)))
+    const query = verifyQuery.safeParse(c.req.query())
+    if (!query.success) {
+      return c.json({ error: 'invalid_query' }, 400)
+    }
+    try {
+      return c.json(
+        await deps.db.withGuild(caller, (tx) =>
+          verifyChain(tx, deps.keys, witness, {
+            ...(query.data.limit === undefined ? {} : { limit: query.data.limit }),
+            ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
+            full: query.data.full === 'true',
+          })
+        )
+      )
+    } catch (error) {
+      if (error instanceof InvalidCursorError) {
+        return c.json({ error: 'invalid_cursor' }, 400)
+      }
+      throw error
+    }
+  })
+
+  // The Guild Master's daily act, as a passkey ceremony: `begin` verifies the chain and issues a
+  // challenge carrying the hash of the position (seq + MAC) to sign; `finish` checks the
+  // assertion, re-verifies the chain through exactly that position, then records the checkpoint
+  // with the assertion and anchors it outside Postgres. The assertion is itself a fresh proof.
+  app.post('/guilds/:id/audit/checkpoints/begin', async (c) => {
+    const body = checkpointBeginBody.safeParse(await c.req.json().catch(() => ({})))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const { verdict, position } = await deps.db.withGuild(session.guildId, (tx) =>
+      verifyFrom(
+        tx,
+        deps.keys,
+        witness,
+        body.data.limit === undefined ? {} : { limit: body.data.limit }
+      )
+    )
+    if (!verdict.intact || position.seq < 1) {
+      return c.json(verdict, 409)
+    }
+    const ceremony = await deps.identity.beginCheckpointSignature(
+      token,
+      checkpointHash(session.guildId, position.seq, position.mac)
+    )
+    return c.json({
+      ...ceremony,
+      seq: position.seq,
+      mac: position.mac,
+      complete: !('partial' in verdict),
+    })
+  })
+
+  app.post('/guilds/:id/audit/checkpoints/finish', async (c) => {
+    const body = checkpointFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const signed = await deps.identity.finishCheckpointSignature(
+      token,
+      body.data.challengeId,
+      body.data.response
+    )
+    const { seq, mac, limit } = body.data
+    if (signed.checkpointHash !== checkpointHash(session.guildId, seq, mac)) {
+      return c.json({ error: 'checkpoint_mismatch' }, 409)
+    }
+    const outcome = await deps.db.withGuild(session.guildId, (tx) =>
+      signCheckpoint(tx, deps.keys, witness, {
+        ...(limit === undefined ? {} : { limit }),
+        expect: { seq, mac },
+        assertion: signed.assertion,
+      })
+    )
+    if (!outcome.ok) {
+      return c.json(outcome.verdict, 409)
+    }
+    return c.json(
+      {
+        seq: outcome.seq,
+        mac: outcome.mac,
+        signature: outcome.signature,
+        complete: outcome.complete,
+      },
+      201
+    )
   })
 
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row
@@ -731,17 +972,24 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = await callerGuild(c)
+      const headerCaller = await callerGuild(c)
+      const presented = headerCaller ? null : presentedTicket(c)
+      const caller = headerCaller ?? presented?.guild ?? null
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }
       if (c.req.param('id') !== caller) {
         return c.json({ error: 'not_found' }, 404)
       }
-      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap.
+      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap, and
+      // before spending the ticket so a refused (429) attempt does not burn it.
       const slot = hub.reserve(caller)
       if (!slot) {
         return c.json({ error: 'too_many_streams' }, 429)
+      }
+      if (presented && !(await deps.streamTickets.consume(presented.guild, presented.ticket))) {
+        slot()
+        return c.json({ error: 'unauthenticated' }, 401)
       }
       streamSlots.set(c.req.raw, slot)
       try {
@@ -787,5 +1035,135 @@ export function createApp(deps: AppDeps): Hono {
     }),
     (c) => c.json({ error: 'upgrade_required' }, 426)
   )
+  // The Seal inbox. Reads follow `callerGuild`; approving or denying is a sensitive action (fresh
+  // passkey re-authentication, spent by the check) made by the Guild Master's session; marking a
+  // Seal posted needs the session. Only the session's own guild is ever acted on.
+  function sealRefusal(c: Context, reason: SealRefusal): Response {
+    switch (reason) {
+      case 'not_found':
+        return c.json({ error: 'not_found' }, 404)
+      case 'not_authorised':
+        return c.json({ error: reason }, 403)
+      default:
+        return c.json({ error: reason }, 409)
+    }
+  }
+
+  app.get('/guilds/:id/seals', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = sealPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      status: c.req.query('status'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.seals.list(who.guild, {
+        limit: page.data.limit,
+        ...(page.data.after ? { after: page.data.after } : {}),
+        ...(page.data.status ? { status: page.data.status } : {}),
+      })
+    )
+  })
+
+  app.get('/guilds/:id/seals/:sealId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    const seal = id.success ? await deps.seals.get(who.guild, id.data) : null
+    return seal ? c.json(seal) : c.json({ error: 'not_found' }, 404)
+  })
+
+  for (const [verb, verdict] of [
+    ['approve', 'approved'],
+    ['deny', 'denied'],
+  ] as const) {
+    app.post(`/guilds/:id/seals/:sealId/${verb}`, async (c) => {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      const id = uuid.safeParse(c.req.param('sealId'))
+      if (c.req.param('id') !== check.guildId || !id.success) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      const body = sealDecisionBody.safeParse(await c.req.json().catch(() => null))
+      if (!body.success) {
+        return c.json({ error: 'invalid_request' }, 400)
+      }
+      const result = await deps.seals.decide(
+        check.guildId,
+        id.data,
+        {
+          verdict,
+          expectedHash: body.data.actionHash,
+          ...(body.data.note ? { note: body.data.note } : {}),
+        },
+        // Only a re-authenticated Guild Master session reaches here, so the decider is the
+        // reserved Guild Master principal; requestSeal refuses that id as a requester.
+        { role: 'guild_master', id: GUILD_MASTER_ID }
+      )
+      return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+    })
+  }
+
+  // Marking posted names the exact text that was published; the server hashes it and compares it
+  // with the sealed hash. Resolving a stale reservation this way needs a fresh re-authentication.
+  app.post('/guilds/:id/seals/:sealId/posted', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    if (!id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const body = sealPostedBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    // A proof, if sent, is checked and spent here; whether the reservation is stale is decided by
+    // the store under its row lock, so a reservation lapsing mid-request cannot skip re-auth.
+    let reauthenticated = false
+    if (c.req.header(REAUTH_HEADER)) {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      if (check.guildId !== who.guild) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      reauthenticated = true
+    }
+    const result = await deps.seals.markPosted(who.guild, id.data, body.data.text, {
+      reauthenticated,
+    })
+    if (!result.ok && result.reason === 'not_authorised') {
+      return c.json({ error: 'reauth_required' }, 403)
+    }
+    return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
+  // The Guild Master frees a stale reservation after confirming nothing was published.
+  app.post('/guilds/:id/seals/:sealId/release-stale', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    if (c.req.param('id') !== check.guildId || !id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const result = await deps.seals.releaseStale(check.guildId, id.data)
+    return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
   return app
 }
