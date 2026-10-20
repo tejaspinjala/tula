@@ -9,6 +9,8 @@ const session = { token: 't1', guildId: '11111111-1111-4111-8111-111111111111' }
 const realFetch = globalThis.fetch
 let waiting = 0
 let treasuryUp = true
+let spentCents = 1500
+let capCents = 5000
 
 function seal(i: number) {
   return {
@@ -36,9 +38,9 @@ beforeAll(() => {
         return Response.json({
           mode: 'paper',
           balances: { operating: 5000, reserve: 0, profit: 0 },
-          spentTodayCents: 1500,
+          spentTodayCents: spentCents,
           day: '2026-10-20',
-          limits: { dailyCapCents: 5000, treasurerLimitCents: 1000 },
+          limits: { dailyCapCents: capCents, treasurerLimitCents: 1000 },
         })
       }
       if (url.includes('/seals')) {
@@ -84,8 +86,24 @@ test('the HUD shows the day and a Treasury Meter of what is left to spend today'
   expect(m.host.textContent).toContain('Day 2026-10-20')
   const meter = m.host.querySelector('meter')
   expect(meter?.getAttribute('aria-label')).toBe('Treasury left today')
-  expect(meter?.getAttribute('aria-valuenow')).toBe('35')
-  expect(meter?.getAttribute('aria-valuemax')).toBe('50')
+  expect(meter?.getAttribute('aria-valuenow')).toBe('3500')
+  expect(meter?.getAttribute('aria-valuemax')).toBe('5000')
+  expect(meter?.getAttribute('aria-valuetext')).toBe('$35.00 of $50.00')
+  await m.unmount()
+})
+
+test('a spend of a few cents shows in cents, not rounded away, in the number and the screen-reader text', async () => {
+  spentCents = 7
+  capCents = 1000
+  const m = await mount(hud())
+  await tick(20)
+  expect(m.host.querySelector('.px-meter-number')?.textContent).toBe('$9.93/$10.00')
+  const meter = m.host.querySelector('meter')
+  expect(meter?.getAttribute('aria-valuenow')).toBe('993')
+  expect(meter?.getAttribute('aria-valuemax')).toBe('1000')
+  expect(meter?.getAttribute('aria-valuetext')).toBe('$9.93 of $10.00')
+  spentCents = 1500
+  capCents = 5000
   await m.unmount()
 })
 

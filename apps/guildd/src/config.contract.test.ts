@@ -283,6 +283,40 @@ describe('guild config over HTTP', () => {
     expect(body.truncated).toBe(true)
   })
 
+  test('an unknown-key refusal shortens an over-long key to 64 characters and flags it', async () => {
+    const who = await signedIn()
+    const long = 'k'.repeat(300)
+    const config = { ...defaultConfig(), caps: { ...defaultConfig().caps, [long]: 1 } }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect(res.status).toBe(422)
+    const body = z
+      .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
+      .parse(await res.json())
+    expect(body.unknownKeys).toEqual([`caps.${'k'.repeat(300)}`.slice(0, 63) + '…'])
+    expect(body.truncated).toBe(true)
+    const short = { ...defaultConfig(), bogus: 1 }
+    const ok = await send(harness, 'PUT', `${who.base}/config`, { config: short }, who.auth)
+    expect(
+      z.object({ unknownKeys: z.array(z.string()) }).parse(await ok.json()).unknownKeys
+    ).toEqual(['bogus'])
+  })
+
+  test('a shortened key never ends in half of a two-unit character', async () => {
+    const who = await signedIn()
+    // "caps." plus 57 letters puts the 63-unit cut in the middle of the first emoji.
+    const long = `${'a'.repeat(57)}${'\u{1F600}'.repeat(10)}`
+    const config = { ...defaultConfig(), caps: { ...defaultConfig().caps, [long]: 1 } }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect(res.status).toBe(422)
+    const body = z.object({ unknownKeys: z.array(z.string()) }).parse(await res.json())
+    const echoed = body.unknownKeys[0] ?? ''
+    expect(echoed.length).toBeLessThanOrEqual(64)
+    expect(echoed.endsWith('…')).toBe(true)
+    expect(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(echoed)
+    ).toBe(false)
+  })
+
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }

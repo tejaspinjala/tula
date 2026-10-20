@@ -17,6 +17,7 @@ import {
   readQuestFrame,
   roundText,
 } from './quests'
+import { createBackoff, streamHandlers, streamNotice } from './stream-retry'
 import { EmptyState, PixelButton } from './ui/pixel'
 import { WorkSection } from './WorkSection'
 
@@ -27,9 +28,6 @@ const COLUMN_NAMES: Record<BoardQuest['state'], string> = {
   done: 'Done',
   dead: 'Dead letters',
 }
-
-/** Longest wait before the stream reconnects. */
-const MAX_RECONNECT_MS = 10_000
 
 /**
  * The Quest Board in the ledger view: Quests by state, kept live from the event stream. Every
@@ -46,6 +44,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
   const [title, setTitle] = useState('')
   const [posting, setPosting] = useState('')
   const lastSeq = useRef(0)
+  const [streamFailures, setStreamFailures] = useState(0)
   const halls = [...new Map(QUEST_TEMPLATES.map((t) => [t.hallId, t.hallName]))]
   const templates = QUEST_TEMPLATES.filter((t) => t.hallId === hallId)
 
@@ -79,7 +78,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
     let closed = false
     let socket: WebSocket | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
-    let attempt = 0
+    const backoff = createBackoff()
 
     const refresh = () =>
       loadQuests(session, fetch)
@@ -105,25 +104,35 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
       socket = new WebSocket(
         questStreamUrl(session, window.location.origin, lastSeq.current, ticket)
       )
-      socket.onmessage = (message) => {
-        attempt = 0
-        const read = readQuestFrame(String(message.data))
-        if (read.seq !== null) {
-          lastSeq.current = Math.max(lastSeq.current, read.seq)
-        }
-        if (read.refresh) {
-          refresh()
-        }
-      }
-      socket.onclose = retry
+      // Only a received frame resets the backoff: a socket that upgrades then drops still fails.
+      const handlers = streamHandlers(backoff, {
+        onHealthy: () => setStreamFailures(0),
+        onMessage: (data) => {
+          const read = readQuestFrame(data)
+          if (read.seq !== null) {
+            lastSeq.current = Math.max(lastSeq.current, read.seq)
+          }
+          if (read.refresh) {
+            refresh()
+          }
+        },
+        onRetry: (wait, failures) => {
+          if (!closed) {
+            setStreamFailures(failures)
+            timer = setTimeout(connect, wait)
+          }
+        },
+      })
+      socket.onmessage = (message) => handlers.message(String(message.data))
+      socket.onclose = handlers.close
     }
 
     function retry() {
       if (!closed) {
         // Jittered backoff so many tabs do not reconnect in lockstep.
-        const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
-        attempt += 1
-        timer = setTimeout(connect, ceiling / 2 + Math.random() * (ceiling / 2))
+        const { wait, failures } = backoff.next(Math.random())
+        setStreamFailures(failures)
+        timer = setTimeout(connect, wait)
       }
     }
 
@@ -144,6 +153,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
     <WorkSection id="quests" title="Quests by state">
       {!session && <p>Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
+      {streamNotice(streamFailures) !== null && <p role="status">{streamNotice(streamFailures)}</p>}
       {session && campaigns.length > 0 && (
         <label className="block">
           Campaign
