@@ -1,3 +1,4 @@
+import type { ConfigStore } from './ports/config-store'
 import type {
   NewProposal,
   Proposal,
@@ -15,14 +16,21 @@ import { allPassed, type ContentPolicy, DEFAULT_POLICY, runChecks } from './verd
 export class ProposalEngine {
   private readonly store: ProposalStore
   private readonly policy: ContentPolicy
+  private readonly config: Pick<ConfigStore, 'current'> | undefined
 
-  constructor(deps: { store: ProposalStore; policy?: ContentPolicy }) {
+  /** With `config`, each guild's own content policy applies; without it, `policy` (else the default). */
+  constructor(deps: {
+    store: ProposalStore
+    config?: Pick<ConfigStore, 'current'>
+    policy?: ContentPolicy
+  }) {
     this.store = deps.store
+    this.config = deps.config
     this.policy = deps.policy ?? DEFAULT_POLICY
   }
 
   /** Stores the Proposal with its Verdict. Idempotent per content hash. */
-  propose(guildId: string, input: NewProposal): Promise<Proposal> {
+  async propose(guildId: string, input: NewProposal): Promise<Proposal> {
     const findings = runChecks(input.content, this.policy)
     return this.store.propose(guildId, input, { passed: allPassed(findings), findings })
   }
