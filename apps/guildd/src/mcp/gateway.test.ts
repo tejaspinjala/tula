@@ -15,7 +15,7 @@ import type { Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
 import { McpGateway, type McpGatewayDeps } from './gateway'
-import { TOOL_CATALOG, type ToolDef } from './tools'
+import { MAX_PROPOSALS_PER_QUEST, TOOL_CATALOG, type ToolDef } from './tools'
 
 const lease = z.object({ questId: z.string(), attempt: z.number(), token: z.string() })
 
@@ -455,6 +455,45 @@ describe('MCP gateway', () => {
       expect(page.proposals).toHaveLength(2)
     })
 
+    test('past the per-Quest cap a new draft is refused and writes no row', async () => {
+      const s = await setup()
+      const quest = await announce(s)
+      const { lease: l } = await s.claim(quest)
+      for (let i = 0; i < MAX_PROPOSALS_PER_QUEST; i++) {
+        const out = await callTool(s.transport, 'submit_proposal', {
+          lease: l,
+          text: `Draft number ${i}`,
+          evidenceLinks: [],
+        })
+        expect(out.isError).toBe(false)
+      }
+      const over = await callTool(s.transport, 'submit_proposal', {
+        lease: l,
+        text: 'One draft too many',
+        evidenceLinks: [],
+      })
+      expect(over).toMatchObject({ isError: true })
+      expect(over.data.error).toBe('proposal_cap')
+      const rows = await s.deps.proposals.listForQuest(s.guild, quest.id, 50)
+      expect(rows).toHaveLength(MAX_PROPOSALS_PER_QUEST)
+    })
+
+    test('re-submitting an older draft is refused; the latest stays idempotent', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await announce(s))
+      const file = (text: string) =>
+        callTool(s.transport, 'submit_proposal', { lease: l, text, evidenceLinks: [] })
+      const a = await file('Draft A')
+      const b = await file('Draft B')
+      const again = await file('Draft A')
+      expect(again.isError).toBe(true)
+      expect(again.data.error).toBe('proposal_superseded')
+      const latest = await file('Draft B')
+      expect(latest.isError).toBe(false)
+      expect(latest.data.id).toBe(b.data.id)
+      expect(a.data.id).not.toBe(b.data.id)
+    })
+
     test('rejects oversized text, too many or non-https links', async () => {
       const s = await setup()
       const { lease: l } = await s.claim(await announce(s))
@@ -463,6 +502,10 @@ describe('MCP gateway', () => {
         { text: 'x'.repeat(20001), evidenceLinks: [] },
         { text: 'ok', evidenceLinks: ['http://example.com'] },
         { text: 'ok', evidenceLinks: ['javascript:alert(1)'] },
+        { text: 'ok', evidenceLinks: ['https://a:b@x.com'] },
+        { text: 'ok', evidenceLinks: ['https://127.0.0.1/x'] },
+        { text: 'ok', evidenceLinks: ['https://printer.local/x'] },
+        { text: 'ok', evidenceLinks: ['https://localhost/x'] },
         { text: 'ok', evidenceLinks: [`https://example.com/${'a'.repeat(2100)}`] },
         { text: 'ok', evidenceLinks: Array.from({ length: 11 }, (_, i) => `https://e.com/${i}`) },
       ]

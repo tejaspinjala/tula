@@ -48,6 +48,8 @@ export const putArtifactArgs = z.strictObject({
     .min(1)
     .max(Math.ceil((MAX_TOOL_ARTIFACT_BYTES * 4) / 3) + 4),
 })
+/** Most Proposals one Quest may hold; past it `submit_proposal` refuses with `proposal_cap`. */
+export const MAX_PROPOSALS_PER_QUEST = 10
 /** Most evidence links one Proposal carries. */
 export const MAX_EVIDENCE_LINKS = 10
 /** Arguments of `submit_proposal`: the draft text and the https links that back it. */

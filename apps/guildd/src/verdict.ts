@@ -76,7 +76,8 @@ function requiredCheck(content: string, policy: ContentPolicy): Finding {
   }
 }
 
-function unsafeLink(raw: string): boolean {
+/** True when `raw` is not a public https URL the Verdict's link check accepts. */
+export function unsafeLink(raw: string): boolean {
   let url: URL
   try {
     url = new URL(raw)
