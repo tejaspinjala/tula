@@ -7,6 +7,8 @@ import type { GateActor, GateScope, GateStatus, GateStore, GlobalEvent } from '.
 export class MemoryGateStore implements GateStore {
   private readonly guilds = new Map<string, string>()
   private globalBar: string | null = null
+  /** `guild|type|barId` of every global event already in a guild's log. */
+  private readonly announced = new Set<string>()
 
   constructor(
     /** Receives each change's event type and ids-only payload, as the Postgres adapter appends them. */
@@ -29,6 +31,9 @@ export class MemoryGateStore implements GateStore {
     } else {
       this.guilds.set(actor.guildId, barId)
     }
+    if (scope === 'global') {
+      this.announced.add(`${actor.guildId}|gates.barred|${barId}`)
+    }
     this.onEvent(actor.guildId, 'gates.barred', { barId, scope, memberId: actor.memberId })
     return { barId, created: true }
   }
@@ -43,12 +48,25 @@ export class MemoryGateStore implements GateStore {
     } else {
       this.guilds.delete(actor.guildId)
     }
+    if (scope === 'global') {
+      this.announced.add(`${actor.guildId}|gates.lifted|${barId}`)
+    }
     this.onEvent(actor.guildId, 'gates.lifted', { barId, scope, memberId: actor.memberId })
     return barId
   }
 
-  async announceGlobal(_guildId: string, _event: GlobalEvent): Promise<boolean> {
-    return false
+  async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
+    const key = `${guildId}|${event.type}|${event.barId}`
+    if (this.announced.has(key)) {
+      return false
+    }
+    this.announced.add(key)
+    this.onEvent(guildId, event.type, {
+      barId: event.barId,
+      scope: 'global',
+      memberId: event.memberId,
+    })
+    return true
   }
 
   async isBarred(guildId: string): Promise<boolean> {

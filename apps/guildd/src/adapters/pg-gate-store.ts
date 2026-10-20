@@ -63,8 +63,26 @@ export class PgGateStore implements GateStore {
     })
   }
 
-  async announceGlobal(_guildId: string, _event: GlobalEvent): Promise<boolean> {
-    return false
+  async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // One announcer per (guild, type, bar) at a time, so a re-run racing another never duplicates.
+      await tx`select pg_advisory_xact_lock(
+        hashtextextended(${`gates-announce:${guildId}:${event.type}:${event.barId}`}, 0))`
+      const [seen] = await tx`
+        select exists (
+          select 1 from events
+          where guild_id = ${guildId} and type = ${event.type} and payload ->> 'barId' = ${event.barId}
+        ) as seen`
+      if (z.object({ seen: z.boolean() }).parse(seen).seen) {
+        return false
+      }
+      await appendEvent(tx, this.keys, event.type, {
+        barId: event.barId,
+        scope: 'global',
+        memberId: event.memberId,
+      })
+      return true
+    })
   }
 
   async isBarred(guildId: string): Promise<boolean> {
