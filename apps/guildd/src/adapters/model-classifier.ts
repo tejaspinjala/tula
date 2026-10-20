@@ -1,3 +1,4 @@
+import type { GuildConfig } from '../guild-config'
 import { type Classification, type Classifier, classification } from '../ports/classifier'
 
 /**
@@ -19,10 +20,21 @@ export const CLASSIFIER_TIMEOUT_MS = 5_000
  * back deterministically.
  */
 export class ModelClassifier implements Classifier {
+  /**
+   * The raw goal goes to the model before any class is known, so the `cheap` profile must be bound
+   * to a private-eligible provider; otherwise this throws.
+   */
   constructor(
     private readonly model: ClassifierModel,
+    config: Pick<GuildConfig, 'providers' | 'routingProfiles'>,
     private readonly timeoutMs: number = CLASSIFIER_TIMEOUT_MS
-  ) {}
+  ) {
+    const profile = config.routingProfiles.find((r) => r.tier === 'cheap')
+    const provider = profile && config.providers.find((p) => p.id === profile.provider)
+    if (!provider?.privateEligible) {
+      throw new Error('classifier profile must be bound to a private-eligible provider')
+    }
+  }
 
   async classify(input: Parameters<Classifier['classify']>[0]): Promise<Classification> {
     const halls = input.halls.map((h) => h.id).join(', ')

@@ -16,7 +16,12 @@ const TIERS: readonly Tier[] = ['cheap', 'mid', 'deep']
 /** What the Quest brings: a template's data, or a free-text goal for the classifier. */
 export type RouteWork =
   | { kind: 'template'; hallId: string; rank: string; dataClass: string }
-  | { kind: 'free_text'; goal: string }
+  | {
+      kind: 'free_text'
+      goal: string
+      /** Set only by the Guild Master (deterministic input); absent means private. */
+      dataClass?: string
+    }
 
 /** Remaining allowance of one provider; dollars apply only to `api_key` providers (ADR-0005). */
 export interface ProviderBudget {
@@ -96,8 +101,9 @@ async function goalMac(keys: KeyProvider, guildId: string, goal: string): Promis
 /**
  * Step 1: Hall, rank and data class. A template supplies them as data and the classifier is never
  * called. Only a free-text goal is classified; the answer is untrusted, so it must name an
- * unlocked Hall of this config, and its class is raised to the Hall's floor (it can narrow, never
- * widen). Any failure or invalid answer takes the deterministic fallback: the first unlocked work
+ * unlocked Hall of this config. Its class is advisory (logged as `classifierClaim`): free text
+ * routes as `private` unless the Guild Master supplied a `dataClass`, which is raised to the Hall's
+ * floor. Any failure or invalid answer takes the deterministic fallback: the first unlocked work
  * private-eligible Hall (else first work Hall), apprentice, `private`.
  */
 async function classifyStep(
@@ -146,7 +152,11 @@ async function classifyStep(
       hall,
       // The classifier may only narrow: free-text work never starts above apprentice.
       rank: 'apprentice',
-      dataClass: stricter(claim.dataClass, floorOf(hall)),
+      // Free text is private unless the Guild Master chose a class; the claim is advisory only.
+      dataClass:
+        work.dataClass === undefined
+          ? 'private'
+          : stricter(safeClass(work.dataClass), floorOf(hall)),
       claim,
     }
   }
