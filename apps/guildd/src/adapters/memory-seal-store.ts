@@ -1,3 +1,4 @@
+import { safeEqual } from '../constant-time'
 import type { Clock } from '../ports/clock'
 import {
   hashProposal,
@@ -180,7 +181,7 @@ export class MemorySealStore implements SealStore {
     if (stored.seal.status !== 'reserved') {
       return { ok: false, reason: 'not_reserved' }
     }
-    if (stored.tokenHash !== tokenHash) {
+    if (stored.tokenHash === null || !safeEqual(stored.tokenHash, tokenHash)) {
       return { ok: false, reason: 'bad_token' }
     }
     if (stored.seal.actionHash !== hash) {
@@ -206,7 +207,7 @@ export class MemorySealStore implements SealStore {
     if (stored.seal.status !== 'reserved') {
       return { ok: false, reason: 'not_reserved' }
     }
-    if (stored.tokenHash !== tokenHash) {
+    if (stored.tokenHash === null || !safeEqual(stored.tokenHash, tokenHash)) {
       return { ok: false, reason: 'bad_token' }
     }
     return {
