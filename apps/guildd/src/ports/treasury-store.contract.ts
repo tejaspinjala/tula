@@ -317,6 +317,34 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       })
     })
 
+    describe('daily cap across midnight', () => {
+      test('a refund after UTC midnight only offsets the day it was reserved on', async () => {
+        const { store, newGuild, advanceMs } = await make()
+        const g = await newGuild()
+        const HOUR = 60 * 60 * 1000
+        advanceMs(11 * HOUR) // 23:00 UTC
+        const ask = (key: string) =>
+          store.requestSpend(g, { key, amountCents: 500, purpose: 'p', requestedBy: 't' }, LIMITS)
+        const first = await ask('a')
+        const second = await ask('b')
+        advanceMs(2 * HOUR) // 01:00 UTC the next day
+        for (const r of [first, second]) {
+          if (!r.ok) {
+            throw new Error('refused')
+          }
+          await store.releaseSpend(g, r.spend.id)
+        }
+        expect((await store.snapshot(g, LIMITS)).spentTodayCents).toBe(0)
+        const results = []
+        for (const k of ['c', 'd', 'e', 'f']) {
+          results.push(await ask(k))
+        }
+        const statuses = results.map((r) => (r.ok ? r.spend.status : r.reason))
+        expect(statuses.filter((x) => x === 'reserved')).toHaveLength(2)
+        expect(results.filter((r) => r.ok && r.spend.escalation === 'daily_cap')).toHaveLength(2)
+      })
+    })
+
     describe('atomicity', () => {
       const loose = { ...LIMITS, treasurerLimitCents: 100_000, dailyCapCents: 100_000 }
       const ask = (g: string, store: TreasuryStore, key: string, amountCents: number, l = loose) =>
