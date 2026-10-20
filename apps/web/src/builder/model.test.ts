@@ -6,6 +6,7 @@ import {
   deleteHall,
   moveMember,
   parseConfig,
+  setLook,
 } from './model'
 import { instantiate, TEMPLATES } from './templates'
 
@@ -106,6 +107,17 @@ test('dropping a prebuilt Hall arrives fully formed with ids that do not clash',
     ...h.members.map((m) => m.id),
   ])
   expect(new Set(ids).size).toBe(ids.length)
+})
+
+test('a Member look override survives parsing, and setLook sets and clears it', () => {
+  const look = { body: 1, outfitStyle: 2, outfitColor: 3, hairStyle: 1, hairColor: 4 }
+  const withLook = setLook(load(), 'm1', look)
+  const members = (c: BuilderConfig) => c.halls[0]?.members
+  expect(members(withLook)?.[0]).toMatchObject({ id: 'm1', look })
+  expect(members(withLook)?.[1]).not.toHaveProperty('look')
+  // A round trip through the server's JSON keeps the override.
+  expect(members(parseConfig(JSON.parse(JSON.stringify(withLook))))?.[0]).toMatchObject({ look })
+  expect(members(setLook(withLook, 'm1', null))?.[0]).not.toHaveProperty('look')
 })
 
 test('dropping the same prebuilt Hall twice keeps ids unique', () => {

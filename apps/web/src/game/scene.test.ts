@@ -26,6 +26,24 @@ const roster: SceneRoster = {
     },
   ],
 }
+test('a Member look override in the roster reaches the scene; others carry none', () => {
+  const look = { body: 1, outfitStyle: 2, outfitColor: 3, hairStyle: 1, hairColor: 4 }
+  const hall = roster.halls[0]
+  if (!hall) {
+    throw new Error('no hall')
+  }
+  const dressed: SceneRoster = {
+    ...roster,
+    halls: [
+      { ...hall, members: hall.members.map((m) => (m.id === 'm2' ? { ...m, look } : m)) },
+      ...roster.halls.slice(1),
+    ],
+  }
+  const scene = deriveScene({ roster: dressed, quests: [], events: [], upTo: null })
+  expect(scene.members.m2?.look).toEqual(look)
+  expect(scene.members.m1?.look).toBeUndefined()
+})
+
 const quests: SceneQuest[] = [
   { id: 'q1', title: 'Write the herald notice', hallId: 'h-herald', ownerId: 'm2' },
 ]

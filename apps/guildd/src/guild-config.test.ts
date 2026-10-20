@@ -439,3 +439,30 @@ describe('content policy', () => {
     expect(classifyChange(withPolicy(policy), extra)).toBe('widening')
   })
 })
+
+describe('Member look overrides', () => {
+  const base = defaultConfig()
+  const look = { body: 1, outfitStyle: 3, outfitColor: 2, hairStyle: 1, hairColor: 5 }
+  const withLook = (value: unknown): unknown => ({
+    ...base,
+    halls: base.halls.map((h) =>
+      h.id === 'heralds'
+        ? { ...h, members: h.members.map((m, i) => (i === 0 ? { ...m, look: value } : m)) }
+        : h
+    ),
+  })
+
+  test('a look is kept when the config parses, and setting or changing it is neutral', () => {
+    const set = guildConfig.parse(withLook(look))
+    expect(set.halls[0]?.members[0]).toMatchObject({ look })
+    expect(classifyChange(base, set)).toBe('neutral')
+    const changed = guildConfig.parse(withLook({ ...look, hairColor: 0 }))
+    expect(classifyChange(set, changed)).toBe('neutral')
+  })
+
+  test('a look naming a part outside the catalogue is refused', () => {
+    expect(guildConfig.safeParse(withLook({ ...look, outfitStyle: 99 })).success).toBe(false)
+    expect(guildConfig.safeParse(withLook({ ...look, cape: 1 })).success).toBe(false)
+    expect(guildConfig.safeParse(withLook({ ...look, body: -1 })).success).toBe(false)
+  })
+})

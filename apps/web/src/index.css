@@ -262,6 +262,18 @@ ul[aria-label] {
   gap: 0.5rem;
   align-items: center;
 }
+/* The character and Member look editors: a preview beside one select per catalogue part. */
+.look-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  border: 0;
+  padding: 0;
+}
+.character-panel {
+  margin-block: 0.75rem;
+}
 .game-scrub {
   display: flex;
   gap: 0.5rem;

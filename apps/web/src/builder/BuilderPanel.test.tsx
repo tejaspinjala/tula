@@ -42,7 +42,11 @@ const document = {
 }
 
 interface Put {
-  body: { config: { halls: { id: string; members: { id: string }[]; captain: unknown }[] } }
+  body: {
+    config: {
+      halls: { id: string; members: { id: string; look?: unknown }[]; captain: unknown }[]
+    }
+  }
 }
 
 function world(
@@ -171,6 +175,19 @@ test('moving a Member to another Hall from the keyboard menu, then saving, PUTs 
   const put = w.puts[0]
   expect(put?.body.config.halls.map((h) => h.members.map((m) => m.id))).toEqual([[], ['m1']])
   expect(host.textContent).not.toContain('Unsaved changes')
+})
+
+test('changing a Member look in the inspector saves it with the Member as a neutral change', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Quill')
+  await choose(host, 'Outfit style', '7')
+  await choose(host, 'Hair colour', '3')
+  expect(host.querySelector('[data-testid="look-preview"]')).not.toBeNull()
+  await click(host, 'Save')
+  const saved = w.puts[0]?.body.config.halls[0]?.members[0]
+  expect(saved?.look).toMatchObject({ outfitStyle: 7, hairColor: 3 })
+  expect(host.textContent).not.toContain('widening')
 })
 
 test('dropping a prebuilt Research Hall adds its Captain and two Members to the saved config', async () => {

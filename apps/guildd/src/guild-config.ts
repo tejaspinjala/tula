@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { canonicalJson } from './audit-chain'
+import { characterLook } from './look-catalogue'
 import { type ContentPolicy, DEFAULT_POLICY } from './verdict'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
@@ -14,7 +15,11 @@ export const memberRank = z.enum(['apprentice', 'journeyman', 'adept'])
 const agent = z.object({ id: slug, name: displayName })
 
 /** A Member: a worker agent with a rank. */
-export const member = agent.extend({ rank: memberRank })
+export const member = agent.extend({
+  rank: memberRank,
+  /** Overrides the look generated from the Member id; cosmetic, so changing it is neutral. */
+  look: characterLook.optional(),
+})
 
 /** A Hall: a department of the guild, with its Captain and Members. */
 export const hall = z.object({
@@ -353,7 +358,8 @@ type Member = GuildConfig['halls'][number]['members'][number]
 
 function memberNoWider(prev: Member, next: Member): boolean {
   return (
-    RANKS.indexOf(next.rank) <= RANKS.indexOf(prev.rank) && othersSame(prev, next, ['name', 'rank'])
+    RANKS.indexOf(next.rank) <= RANKS.indexOf(prev.rank) &&
+    othersSame(prev, next, ['name', 'rank', 'look'])
   )
 }
 
@@ -475,7 +481,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   )
 }
 
-/** Drops display names at every depth, leaving only what can carry risk. */
+/** Drops display names and Member looks at every depth, leaving only what can carry risk. */
 function withoutNames(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutNames)
@@ -483,7 +489,7 @@ function withoutNames(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([k]) => k !== 'name')
+        .filter(([k]) => k !== 'name' && k !== 'look')
         .map(([k, v]) => [k, withoutNames(v)])
     )
   }

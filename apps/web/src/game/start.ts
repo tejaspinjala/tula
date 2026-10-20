@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { type HallOptions, HallScene } from './HallScene'
+import type { LookChoice } from './look'
 import type { SceneState } from './scene'
 
 /** What the page holds of a running game: draw a state, zoom, pause, tear down. */
@@ -9,6 +10,8 @@ export interface GameHandle {
   fit: () => void
   /** Moves the Guild Master to a room (its slot), or to the entrance (null). */
   teleport: (slot: number | null) => void
+  /** Dresses the Guild Master's character in a look, live. */
+  setLook: (look: LookChoice) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
   setPaused: (paused: boolean) => void
   destroy: () => void
@@ -43,6 +46,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     zoomBy: (step) => scene.zoomBy(step),
     fit: () => scene.fit(),
     teleport: (slot) => scene.teleport(slot),
+    setLook: (look) => scene.setPlayerLook(look),
     setPaused: (paused) => {
       if (paused) {
         game.loop.sleep()
