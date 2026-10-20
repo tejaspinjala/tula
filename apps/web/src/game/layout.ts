@@ -113,8 +113,8 @@ export function seatsIn(
   count: number
 ): { x: number; y: number }[] {
   const seats: { x: number; y: number }[] = []
-  // Skip the room's top row (furniture) and its doorway row so seats never block the door.
-  for (let y = room.y + 2; y < room.y + room.h - 1 && seats.length < count; y++) {
+  // Seats start below the work row (y+2), clear of the furniture and the doorway.
+  for (let y = room.y + 4; y < room.y + room.h - 1 && seats.length < count; y++) {
     for (let x = room.x + 1; x < room.x + room.w - 1 && seats.length < count; x += 2) {
       if (layout.walkable(x, y)) {
         seats.push({ x, y })
