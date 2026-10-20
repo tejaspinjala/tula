@@ -50,3 +50,15 @@ test('sceneSummary says what the canvas shows, for a screen reader', () => {
     'Guild hall. The gates are barred. Heralds: Bram is working on Write notice. Vault is locked. No Quests await a Seal. Treasury spend: $0.00.'
   )
 })
+
+test('sceneSummary uses the singular for one Quest awaiting a Seal', () => {
+  const scene = deriveScene({
+    roster: { steward: { id: 's', name: 'Steward' }, halls: [] },
+    quests: [{ id: 'q', title: 'Write notice', hallId: 'h1', ownerId: 'm' }],
+    events: [{ seq: 1, type: 'quest.awaiting_seal', payload: { questId: 'q' }, occurredAt: 'x' }],
+    upTo: null,
+  })
+  expect(sceneSummary(scene)).toBe(
+    'Guild hall. 1 Quest awaits a Seal: Write notice. Treasury spend: $0.00.'
+  )
+})
