@@ -28,7 +28,16 @@ export const hall = z.object({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
+  maxConcurrentMembers: z.number().int().min(1).max(1000).optional(),
 })
+/** Stub. */
+export function campaignQuestCap(_config: GuildConfig): number {
+  return 0
+}
+/** Stub. */
+export function hallMemberCap(_hall: Pick<Hall, 'maxConcurrentMembers'>): number {
+  return 0
+}
 
 /** Seal Policy levels, strictest first: what needs a Seal and what agents may do alone. */
 export const SEAL_POLICY_LEVELS = ['always', 'routine_alone', 'autonomous'] as const
@@ -84,6 +93,7 @@ export const caps = z.object({
   maxChildrenPerQuest: z.number().int().min(0).max(20).optional(),
   /** How deep sub-Quests may nest; {@link DEFAULT_MAX_SPAWN_DEPTH} when absent. Raising it widens risk. */
   maxSpawnDepth: z.number().int().min(0).max(5).optional(),
+  maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
