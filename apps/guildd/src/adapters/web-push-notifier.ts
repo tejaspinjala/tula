@@ -1,3 +1,12 @@
+import {
+  createCipheriv,
+  createECDH,
+  createPrivateKey,
+  hkdfSync,
+  type KeyObject,
+  randomBytes,
+  sign,
+} from 'node:crypto'
 import type { PushNotifier, PushOutcome, PushPayload } from '../ports/push-notifier'
 import type { PushSubscription } from '../ports/push-store'
 
@@ -8,7 +17,7 @@ export type PushFetch = (url: string, init: RequestInit) => Promise<Response>
 export interface WebPushOptions {
   /** VAPID public key: base64url of the 65-byte uncompressed P-256 point. */
   publicKey: string
-  /** VAPID private key: base64url of the 32-byte scalar. */
+  /** VAPID private key: base64url of the 32-byte scalar. Never logged or put in an error. */
   privateKey: string
   /** VAPID `sub` claim: a `mailto:` or `https:` contact for the push service. */
   subject: string
@@ -21,14 +30,142 @@ export interface WebPushOptions {
   baseDelayMs?: number | undefined
   sleep?: ((ms: number) => Promise<void>) | undefined
   random?: (() => number) | undefined
-  now?: (() => Date) | undefined
 }
 
-/** Web Push over VAPID (RFC 8292) with aes128gcm payload encryption (RFC 8291). */
-export class WebPushNotifier implements PushNotifier {
-  constructor(private readonly options: WebPushOptions) {}
+const RECORD_SIZE = 4096
+const JWT_TTL_SECONDS = 12 * 3600
+const PUSH_TTL_SECONDS = 24 * 3600
 
-  async send(_subscription: PushSubscription, _payload: PushPayload): Promise<PushOutcome> {
-    throw new Error(`not implemented ${this.options.subject}`)
+const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url')
+const hkdf = (ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Buffer =>
+  Buffer.from(hkdfSync('sha256', ikm, salt, info, length))
+
+/** Thrown when the push service stays unavailable or rejects the request; carries no key material. */
+export class PushUnavailableError extends Error {
+  constructor(readonly status: number | null) {
+    super('push_unavailable')
+    this.name = 'PushUnavailableError'
+  }
+}
+
+/**
+ * Web Push over VAPID (RFC 8292) with aes128gcm payload encryption (RFC 8291), on `node:crypto`
+ * and `fetch` only. Each attempt has a timeout; 429, 5xx and network failures are retried a
+ * bounded number of times with jittered exponential backoff; 404 and 410 mean the subscription
+ * is gone; any other refusal fails at once.
+ */
+export class WebPushNotifier implements PushNotifier {
+  private readonly signingKey: KeyObject
+  private readonly fetchImpl: PushFetch
+  private readonly timeoutMs: number
+  private readonly retries: number
+  private readonly baseDelayMs: number
+  private readonly sleep: (ms: number) => Promise<void>
+  private readonly random: () => number
+
+  constructor(private readonly options: WebPushOptions) {
+    const point = Buffer.from(options.publicKey, 'base64url')
+    this.signingKey = createPrivateKey({
+      key: {
+        kty: 'EC',
+        crv: 'P-256',
+        d: options.privateKey,
+        x: b64(point.subarray(1, 33)),
+        y: b64(point.subarray(33, 65)),
+      },
+      format: 'jwk',
+    })
+    this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init))
+    this.timeoutMs = options.timeoutMs ?? 5000
+    this.retries = options.retries ?? 2
+    this.baseDelayMs = options.baseDelayMs ?? 200
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.random = options.random ?? Math.random
+  }
+
+  async send(subscription: PushSubscription, payload: PushPayload): Promise<PushOutcome> {
+    const body = this.encrypt(subscription, Buffer.from(JSON.stringify(payload)))
+    let lastStatus: number | null = null
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      if (attempt > 0) {
+        await this.sleep(this.baseDelayMs * 2 ** (attempt - 1) * (0.5 + this.random()))
+      }
+      const status = await this.attempt(subscription.endpoint, body)
+      if (status !== null && status >= 200 && status < 300) {
+        return 'sent'
+      }
+      if (status === 404 || status === 410) {
+        return 'gone'
+      }
+      lastStatus = status
+      if (status !== null && status !== 429 && status < 500) {
+        break
+      }
+    }
+    throw new PushUnavailableError(lastStatus)
+  }
+
+  /** One timed attempt; null when the network failed or the timeout fired. */
+  private async attempt(endpoint: string, body: Uint8Array): Promise<number | null> {
+    try {
+      const res = await this.fetchImpl(endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: this.authorization(endpoint),
+          'content-encoding': 'aes128gcm',
+          'content-type': 'application/octet-stream',
+          ttl: String(PUSH_TTL_SECONDS),
+          urgency: 'high',
+        },
+        body,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      })
+      return res.status
+    } catch {
+      return null
+    }
+  }
+
+  private authorization(endpoint: string): string {
+    const header = b64(Buffer.from(JSON.stringify({ typ: 'JWT', alg: 'ES256' })))
+    const claims = b64(
+      Buffer.from(
+        JSON.stringify({
+          aud: new URL(endpoint).origin,
+          exp: Math.floor(Date.now() / 1000) + JWT_TTL_SECONDS,
+          sub: this.options.subject,
+        })
+      )
+    )
+    const signature = sign('sha256', Buffer.from(`${header}.${claims}`), {
+      key: this.signingKey,
+      dsaEncoding: 'ieee-p1363',
+    })
+    return `vapid t=${header}.${claims}.${b64(signature)}, k=${this.options.publicKey}`
+  }
+
+  /** RFC 8291 aes128gcm: one record, fresh ephemeral key and salt per message. */
+  private encrypt(subscription: PushSubscription, plaintext: Buffer): Buffer {
+    const uaPublic = Buffer.from(subscription.p256dh, 'base64url')
+    const authSecret = Buffer.from(subscription.auth, 'base64url')
+    const ephemeral = createECDH('prime256v1')
+    const asPublic = ephemeral.generateKeys()
+    const shared = ephemeral.computeSecret(uaPublic)
+    const keyInfo = Buffer.concat([Buffer.from('WebPush: info\0'), uaPublic, asPublic])
+    const ikm = hkdf(shared, authSecret, keyInfo, 32)
+    const salt = randomBytes(16)
+    const cek = hkdf(ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16)
+    const nonce = hkdf(ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12)
+    const cipher = createCipheriv('aes-128-gcm', cek, nonce)
+    const sealed = Buffer.concat([
+      cipher.update(Buffer.concat([plaintext, Buffer.from([2])])),
+      cipher.final(),
+      cipher.getAuthTag(),
+    ])
+    const header = Buffer.alloc(21)
+    salt.copy(header, 0)
+    header.writeUInt32BE(RECORD_SIZE, 16)
+    header.writeUInt8(asPublic.length, 20)
+    return Buffer.concat([header, asPublic, sealed])
   }
 }
