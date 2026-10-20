@@ -106,6 +106,46 @@ describe('ClaudeCliModelProvider cleanup', () => {
   })
 })
 
+describe('ClaudeCliModelProvider abort', () => {
+  test('aborting mid-call kills the whole process group and rejects as aborted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cli-test-'))
+    const pidFile = join(dir, 'pid')
+    let pid = 0
+    try {
+      const provider = new ClaudeCliModelProvider({ bin: FAKE, timeoutMs: 10_000 })
+      const controller = new AbortController()
+      const started = Date.now()
+      const pending = codeOf(
+        provider.complete(secret, call(`grandchild:${pidFile}`), controller.signal)
+      )
+      while (!existsSync(pidFile)) {
+        await Bun.sleep(20)
+      }
+      controller.abort()
+      expect(await pending).toBe('aborted')
+      expect(Date.now() - started).toBeLessThan(3000)
+      pid = Number(await Bun.file(pidFile).text())
+      expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/)
+    } finally {
+      if (pid > 0) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // already gone, as it should be
+        }
+      }
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an already-aborted signal never starts a child', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE })
+    const controller = new AbortController()
+    controller.abort()
+    expect(await codeOf(provider.complete(secret, call('echo'), controller.signal))).toBe('aborted')
+  })
+})
+
 describe('ClaudeCliModelProvider failures', () => {
   const provider = new ClaudeCliModelProvider({
     bin: FAKE,

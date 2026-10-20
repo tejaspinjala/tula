@@ -98,8 +98,11 @@ export interface GatewayDeps {
   gates: Pick<GateStore, 'isBarred'>
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
+  /** How often a call in flight re-reads the bar (durable, so no process state); defaults to 250 ms. */
+  barPollMs?: number
 }
 
+const DEFAULT_BAR_POLL_MS = 250
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
@@ -390,18 +393,37 @@ export class ModelGateway {
       throw new GatewayError('cap_reached')
     }
     let response: ModelResponse
+    // Bar the Gates mid-call: the bar is read from the store while the call is in flight, and
+    // aborts it. The reservation stays as the charge (the failure path below never settles).
+    const barred = new AbortController()
+    const poll = setInterval(() => {
+      this.deps.gates.isBarred(guildId).then(
+        (yes) => {
+          if (yes) {
+            barred.abort()
+          }
+        },
+        () => undefined
+      )
+    }, this.deps.barPollMs ?? DEFAULT_BAR_POLL_MS)
     try {
-      response = await backend.complete(new ProviderSecret(key), {
-        ...rest,
-        model: profile.model,
-      })
+      response = await backend.complete(
+        new ProviderSecret(key),
+        { ...rest, model: profile.model },
+        barred.signal
+      )
     } catch (e) {
+      if (barred.signal.aborted) {
+        throw new GatewayError('gates_barred')
+      }
       if (e instanceof ModelProviderError) {
         throw new GatewayError(
           e.code === 'subscription_limit' ? 'subscription_limit' : 'provider_failed'
         )
       }
       throw e
+    } finally {
+      clearInterval(poll)
     }
     try {
       await this.deps.ledger.settle(guildId, callKey, {
