@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { reconcileSeals } from './core-loop'
@@ -39,7 +40,14 @@ async function setup(roundLimit: number) {
       evidence: 'verdict: pass',
       round,
     })
-  return { quests, seals, guild, quest, ask, deps: { quests, seals } }
+  return {
+    quests,
+    seals,
+    guild,
+    quest,
+    ask,
+    deps: { quests, seals, awaiting: new PgAwaitingSealReader(db, clock) },
+  }
 }
 
 test('reconcileSeals on Postgres: a posted Seal finishes the Quest, once', async () => {

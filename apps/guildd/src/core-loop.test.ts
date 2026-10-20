@@ -41,7 +41,7 @@ async function setup(roundLimit = 2) {
       evidence: 'verdict: pass',
       round,
     })
-  const deps = { quests, seals }
+  const deps = { quests, seals, awaiting: new MemoryAwaitingSealReader(quests, seals) }
   return { clock, quests, seals, guild, quest: held, ask, deps }
 }
 
@@ -112,6 +112,7 @@ describe('requestQuestSeal', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -165,7 +166,14 @@ describe('requestQuestSeal', () => {
       verdict: 'denied',
       expectedHash: first?.actionHash ?? '',
     })
-    await reconcileSeals({ quests: g.quests, seals: g.seals }, g.guild)
+    await reconcileSeals(
+      {
+        quests: g.quests,
+        seals: g.seals,
+        awaiting: new MemoryAwaitingSealReader(g.quests, g.seals),
+      },
+      g.guild
+    )
     const again = await g.quests.claim(g.guild, { leaseMs: 60_000, maxActive: 5 })
     const second = await g.quests.submitForSeal(g.guild, g.quest.id, again?.attempts ?? 0)
     const result = await requestQuestSeal(g.deps, g.guild, second)
@@ -205,6 +213,7 @@ describe('requestPendingSeals', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -253,6 +262,7 @@ describe('requestPendingSeals', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -269,12 +279,20 @@ describe('requestPendingSeals', () => {
     const seal = await s.ask(1)
     await s.seals.decide(s.guild, seal.id, { verdict: 'denied', expectedHash: seal.actionHash })
     const failing = {
-      list: s.quests.list.bind(s.quests),
       settleSeal: async (): Promise<never> => {
         throw new Error('boom')
       },
     }
-    await expect(reconcileSeals({ quests: failing, seals: s.seals }, s.guild)).resolves.toEqual({
+    await expect(
+      reconcileSeals(
+        {
+          quests: failing,
+          seals: s.seals,
+          awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
+        },
+        s.guild
+      )
+    ).resolves.toEqual({
       settled: 0,
     })
   })

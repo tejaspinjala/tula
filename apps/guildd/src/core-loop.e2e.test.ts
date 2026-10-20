@@ -1,3 +1,4 @@
+import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
@@ -88,6 +89,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     config,
     quests,
     sealStore,
+    awaiting: new MemoryAwaitingSealReader(quests, sealStore),
     proposals,
     seals,
     routing: { classifier: new MemoryClassifier(), log: new MemoryRoutingLog(), keys },
