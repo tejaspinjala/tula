@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryClassifier } from './adapters/memory-classifier'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import type { Classifier } from './ports/classifier'
@@ -44,7 +45,7 @@ function input(over: Partial<RouteInput> = {}): RouteInput {
     config: configWith(),
     work: { kind: 'template', hallId: 'heralds', rank: 'journeyman', dataClass: 'internal' },
     budgets: { cloud: ROOMY, home: ROOMY },
-    unavailable: [],
+    available: ['cloud', 'home'],
     hosted: false,
     estimate: { tokens: 1000, cents: 10 },
     ...over,
@@ -63,7 +64,7 @@ function counting(inner: Classifier): Classifier & { calls: number } {
 }
 
 function deps(classifier: Classifier = new MemoryClassifier()) {
-  return { classifier, log: new MemoryRoutingLog() }
+  return { classifier, log: new MemoryRoutingLog(), keys: new MemoryKeyProvider() }
 }
 
 describe('routing step 1', () => {
@@ -104,13 +105,71 @@ describe('routing step 1', () => {
     }
     const d = deps(failing)
     const out = await route(input({ work: { kind: 'free_text', goal: 'anything' } }), d)
-    expect(out.status).toBe('routed')
+    expect(out).toMatchObject({ status: 'routed', providerId: 'home' })
     const [entry] = (await d.log.list(GUILD, { limit: 10 })).entries
     expect(entry).toMatchObject({
       source: 'fallback',
-      hallId: 'heralds',
+      hallId: 'vault',
       rank: 'apprentice',
-      dataClass: 'internal',
+      dataClass: 'private',
+    })
+  })
+
+  test('unclassified free text fails closed without a private-eligible provider', async () => {
+    const failing: Classifier = {
+      classify: async () => {
+        throw new Error('model down')
+      },
+    }
+    const config = configWith({
+      providers: [{ id: 'cloud', auth: 'api_key', privateEligible: false }],
+      routingProfiles: [{ id: 'cloud-mid', provider: 'cloud', tier: 'mid' }],
+    })
+    const out = await route(
+      input({ config, work: { kind: 'free_text', goal: 'anything' } }),
+      deps(failing)
+    )
+    expect(out).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
+    const unknownHall = await route(
+      input({ config, work: { kind: 'free_text', goal: 'anything' } }),
+      deps(new MemoryClassifier({ hallId: 'nowhere', rank: 'adept', dataClass: 'public' }))
+    )
+    expect(unknownHall).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
+  })
+
+  test('the default MemoryClassifier answer is private', async () => {
+    const answer = await new MemoryClassifier().classify({
+      goal: 'x',
+      halls: [{ id: 'heralds', kind: 'work' }],
+    })
+    expect(answer.dataClass).toBe('private')
+  })
+
+  test('an unknown template data class is treated as private', async () => {
+    const out = await route(
+      input({
+        work: { kind: 'template', hallId: 'heralds', rank: 'journeyman', dataClass: 'Private' },
+      }),
+      deps()
+    )
+    expect(out).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
+  })
+
+  test('a classifier claiming an unknown data class is treated as private', async () => {
+    const claim = JSON.parse('{"hallId":"heralds","rank":"journeyman","dataClass":"Public"}')
+    const classifier: Classifier = { classify: async () => claim }
+    const out = await route(input({ work: { kind: 'free_text', goal: 'x' } }), deps(classifier))
+    expect(out).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
+  })
+
+  test('the classifier cannot raise rank: adept is capped at apprentice, claim logged', async () => {
+    const d = deps(new MemoryClassifier({ hallId: 'heralds', rank: 'adept', dataClass: 'public' }))
+    const out = await route(input({ work: { kind: 'free_text', goal: 'x' } }), d)
+    expect(out).toMatchObject({ status: 'routed', rank: 'apprentice', profileId: 'cloud-cheap' })
+    const [entry] = (await d.log.list(GUILD, { limit: 10 })).entries
+    expect(entry).toMatchObject({
+      rank: 'apprentice',
+      classifierClaim: { rank: 'adept' },
     })
   })
 
@@ -202,12 +261,12 @@ describe('routing step 2', () => {
   })
 
   test('failover never leaves the data class', async () => {
-    const out = await route(input({ work: privateWork, unavailable: ['home'] }), deps())
+    const out = await route(input({ work: privateWork, available: ['cloud'] }), deps())
     expect(out).toEqual({ status: 'blocked', reason: 'no_provider_available' })
   })
 
   test('failover skips an unavailable provider for non-private work', async () => {
-    const out = await route(input({ unavailable: ['cloud'] }), deps())
+    const out = await route(input({ available: ['home'] }), deps())
     expect(out).toMatchObject({ status: 'routed', providerId: 'home' })
   })
 
@@ -240,12 +299,12 @@ describe('routing step 2', () => {
   })
 
   test('budget is checked before availability', async () => {
-    const out = await route(input({ budgets: {}, unavailable: ['cloud', 'home'] }), deps())
+    const out = await route(input({ budgets: {}, available: [] }), deps())
     expect(out).toEqual({ status: 'blocked', reason: 'budget_exhausted' })
   })
 
   test('a subscription provider is rejected when the deployment is hosted', async () => {
-    const out = await route(input({ hosted: true, unavailable: ['cloud'] }), deps())
+    const out = await route(input({ hosted: true, available: ['home'] }), deps())
     expect(out).toEqual({ status: 'blocked', reason: 'no_provider_available' })
     const private_ = await route(input({ hosted: true, work: privateWork }), deps())
     expect(private_).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
@@ -259,6 +318,24 @@ describe('routing step 2', () => {
       deps()
     )
     expect(cheap).toMatchObject({ profileId: 'cloud-cheap' })
+  })
+
+  test('a provider with budget but no availability entry is unavailable', async () => {
+    const out = await route(input({ available: [] }), deps())
+    expect(out).toEqual({ status: 'blocked', reason: 'no_provider_available' })
+  })
+
+  test('the same goal hashes differently in two guilds', async () => {
+    const d = deps()
+    const other = '00000000-0000-4000-8000-000000000002'
+    const work = { kind: 'free_text', goal: 'same goal' } as const
+    await route(input({ work }), d)
+    await route(input({ work, guildId: other }), d)
+    const a = (await d.log.list(GUILD, { limit: 1 })).entries[0]?.goalSha256
+    const b = (await d.log.list(other, { limit: 1 })).entries[0]?.goalSha256
+    expect(a).toMatch(/^[0-9a-f]{64}$/)
+    expect(b).toMatch(/^[0-9a-f]{64}$/)
+    expect(a).not.toBe(b)
   })
 
   test('a retried decision key logs once', async () => {

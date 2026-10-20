@@ -1,5 +1,5 @@
 -- The routing decision log (ADR-0006): one row per routing decision, kept as training data for
--- the future Oracle. Insert-only. A free-text goal is stored only as a SHA-256, never as text,
+-- the future Oracle. Insert-only. A free-text goal is stored only as a per-guild keyed HMAC-SHA-256 (column keeps its first name), never as text,
 -- because the goal may be private. decision_key makes a retried handler log once.
 
 create table routing_decisions (

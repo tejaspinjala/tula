@@ -2,7 +2,7 @@ import { type Classification, type Classifier, classification } from '../ports/c
 
 /**
  * Deterministic {@link Classifier} for tests and local runs: answers a fixed classification, or,
- * with none, the first Hall at the lowest rank as `internal`. Calls no model.
+ * with none, the first Hall at the lowest rank as `private` (fail closed). Calls no model.
  */
 export class MemoryClassifier implements Classifier {
   constructor(private readonly fixed?: Classification) {}
@@ -15,6 +15,6 @@ export class MemoryClassifier implements Classifier {
     if (!first) {
       throw new Error('no Halls to classify into')
     }
-    return { hallId: first.id, rank: 'apprentice', dataClass: 'internal' }
+    return { hallId: first.id, rank: 'apprentice', dataClass: 'private' }
   }
 }

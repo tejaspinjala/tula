@@ -1,6 +1,7 @@
-import type { GuildConfig } from './guild-config'
-import type { DataClass } from './ports/classifier'
-import { type Classifier, DATA_CLASSES } from './ports/classifier'
+import { z } from 'zod'
+import { type GuildConfig, memberRank } from './guild-config'
+import { type Classifier, DATA_CLASSES, type DataClass, dataClass } from './ports/classifier'
+import type { KeyProvider } from './ports/key-provider'
 import type { BlockReason, RoutingEntry, RoutingLog } from './ports/routing-log'
 
 type Rank = GuildConfig['halls'][number]['members'][number]['rank']
@@ -14,7 +15,7 @@ const TIERS: readonly Tier[] = ['cheap', 'mid', 'deep']
 
 /** What the Quest brings: a template's data, or a free-text goal for the classifier. */
 export type RouteWork =
-  | { kind: 'template'; hallId: string; rank: Rank; dataClass: DataClass }
+  | { kind: 'template'; hallId: string; rank: string; dataClass: string }
   | { kind: 'free_text'; goal: string }
 
 /** Remaining allowance of one provider; dollars apply only to `api_key` providers (ADR-0005). */
@@ -33,8 +34,8 @@ export interface RouteInput {
   work: RouteWork
   /** Remaining budget per provider id; a provider with no entry counts as out of budget. */
   budgets: Readonly<Record<string, ProviderBudget>>
-  /** Provider ids currently unavailable. */
-  unavailable: readonly string[]
+  /** Allow-list of provider ids currently available; a provider not listed is unavailable. */
+  available: readonly string[]
   /** Hosted (v2) deployments reject `subscription` providers (ADR-0005). */
   hosted: boolean
   /** Expected cost of the run, checked against each provider's budget. */
@@ -45,6 +46,8 @@ export interface RouteInput {
 export interface RouteDeps {
   classifier: Classifier
   log: RoutingLog
+  /** Keys the goal MAC, so the logged hash is per guild and cannot be matched across guilds. */
+  keys: KeyProvider
 }
 
 /** Where work goes, or why it cannot go anywhere. */
@@ -74,8 +77,20 @@ const stricter = (a: DataClass, b: DataClass): DataClass =>
 /** The least restrictive class a Hall's work may carry: a private Hall's work is always private. */
 const floorOf = (hall: Hall): DataClass => (hall.kind === 'private' ? 'private' : 'public')
 
-function sha256(text: string): string {
-  return new Bun.CryptoHasher('sha256').update(text).digest('hex')
+/** Anything not a known class is private: unknown input fails closed, never open. */
+const safeClass = (raw: unknown): DataClass => {
+  const parsed = dataClass.safeParse(raw)
+  return parsed.success ? parsed.data : 'private'
+}
+/** An unknown rank is the lowest, which is the narrowest. */
+const safeRank = (raw: unknown): Rank => {
+  const parsed = memberRank.safeParse(raw)
+  return parsed.success ? parsed.data : 'apprentice'
+}
+const untrustedClaim = z.object({ hallId: z.string(), rank: z.unknown(), dataClass: z.unknown() })
+
+async function goalMac(keys: KeyProvider, guildId: string, goal: string): Promise<string> {
+  return keys.mac(guildId, 'routing-goal', new TextEncoder().encode(goal))
 }
 
 /**
@@ -83,7 +98,7 @@ function sha256(text: string): string {
  * called. Only a free-text goal is classified; the answer is untrusted, so it must name an
  * unlocked Hall of this config, and its class is raised to the Hall's floor (it can narrow, never
  * widen). Any failure or invalid answer takes the deterministic fallback: the first unlocked work
- * Hall, apprentice, `internal`.
+ * private-eligible Hall (else first work Hall), apprentice, `private`.
  */
 async function classifyStep(
   input: RouteInput,
@@ -101,18 +116,26 @@ async function classifyStep(
     return {
       source: 'template',
       hall,
-      rank: work.rank,
-      dataClass: stricter(work.dataClass, floorOf(hall)),
+      rank: safeRank(work.rank),
+      dataClass: stricter(safeClass(work.dataClass), floorOf(hall)),
       claim: null,
     }
   }
   const open = config.halls.filter((h) => !h.locked)
   let claim: RoutingEntry['classifierClaim'] = null
   try {
-    claim = await deps.classifier.classify({
+    const raw: unknown = await deps.classifier.classify({
       goal: work.goal,
       halls: open.map((h) => ({ id: h.id, kind: h.kind })),
     })
+    const parsed = untrustedClaim.safeParse(raw)
+    claim = parsed.success
+      ? {
+          hallId: parsed.data.hallId,
+          rank: safeRank(parsed.data.rank),
+          dataClass: safeClass(parsed.data.dataClass),
+        }
+      : null
   } catch {
     claim = null
   }
@@ -121,12 +144,14 @@ async function classifyStep(
     return {
       source: 'classifier',
       hall,
-      rank: claim.rank,
+      // The classifier may only narrow: free-text work never starts above apprentice.
+      rank: 'apprentice',
       dataClass: stricter(claim.dataClass, floorOf(hall)),
       claim,
     }
   }
-  const fallback = open.find((h) => h.kind === 'work')
+  // Unclassified work is private (fail closed); prefer a Hall that may carry it.
+  const fallback = open.find((h) => h.privateEligible) ?? open.find((h) => h.kind === 'work')
   if (!fallback) {
     return { blocked: 'hall_not_found', hallId: null, source: 'fallback' }
   }
@@ -134,7 +159,7 @@ async function classifyStep(
     source: 'fallback',
     hall: fallback,
     rank: 'apprentice',
-    dataClass: stricter('internal', floorOf(fallback)),
+    dataClass: 'private',
     claim,
   }
 }
@@ -180,7 +205,7 @@ export function resolve(
   if (affordable.length === 0) {
     return { status: 'blocked', reason: 'budget_exhausted' }
   }
-  const chosen = affordable.find((r) => !input.unavailable.includes(r.provider))
+  const chosen = affordable.find((r) => input.available.includes(r.provider))
   if (!chosen) {
     return { status: 'blocked', reason: 'no_provider_available' }
   }
@@ -204,7 +229,10 @@ export function resolve(
  */
 export async function route(input: RouteInput, deps: RouteDeps): Promise<RouteOutcome> {
   const step = await classifyStep(input, deps)
-  const goalSha256 = input.work.kind === 'free_text' ? sha256(input.work.goal) : null
+  const goalSha256 =
+    input.work.kind === 'free_text'
+      ? await goalMac(deps.keys, input.guildId, input.work.goal)
+      : null
   const base = { decisionKey: input.decisionKey, goalSha256 }
   if ('blocked' in step) {
     await deps.log.record(input.guildId, {
