@@ -10,4 +10,12 @@ export interface TemplateChoice {
  * The Quest templates the server posts from, as the picker needs them. A copy, not an import, so
  * the browser bundle does not pull in guildd's server code; `templates.test.ts` fails if it drifts.
  */
-export const QUEST_TEMPLATE_CHOICES: readonly TemplateChoice[] = []
+export const QUEST_TEMPLATE_CHOICES: readonly TemplateChoice[] = [
+  { id: 'herald-brief', name: 'Herald brief', hallId: 'heralds', requiresSeal: false },
+  {
+    id: 'herald-announcement',
+    name: 'Herald announcement',
+    hallId: 'heralds',
+    requiresSeal: true,
+  },
+]

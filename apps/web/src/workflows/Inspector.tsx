@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { QUEST_TEMPLATES } from '../../../guildd/src/quests'
 import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
 import { connect, disconnect, type FieldSpec, fieldsFor, removeNode, setField } from './model'
+import { QUEST_TEMPLATE_CHOICES } from './templates'
 
 /** Props of {@link Inspector}. */
 export interface InspectorProps {
@@ -79,10 +79,10 @@ function Field(props: {
       <label>
         {label}
         <select aria-label={label} value={text} onChange={(e) => props.onTemplate(e.target.value)}>
-          {!QUEST_TEMPLATES.some((t) => t.id === text) && (
+          {!QUEST_TEMPLATE_CHOICES.some((t) => t.id === text) && (
             <option value={text}>{text || 'Choose a template'}</option>
           )}
-          {QUEST_TEMPLATES.map((t) => (
+          {QUEST_TEMPLATE_CHOICES.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
             </option>
@@ -176,7 +176,7 @@ export function Inspector({ graph, selected, halls, onChange, onSelect }: Inspec
           halls={halls}
           onSet={(key, value) => onChange(setField(graph, node.id, key, value))}
           onTemplate={(templateId) => {
-            const template = QUEST_TEMPLATES.find((t) => t.id === templateId)
+            const template = QUEST_TEMPLATE_CHOICES.find((t) => t.id === templateId)
             const next = setField(graph, node.id, 'templateId', templateId)
             onChange(template ? setField(next, node.id, 'hallId', template.hallId) : next)
           }}

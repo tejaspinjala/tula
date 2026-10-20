@@ -95,6 +95,7 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
     let timer: ReturnType<typeof setTimeout> | undefined
     let attempt = 0
     let lastSeq = 0
+    let burst: ReturnType<typeof setTimeout> | undefined
     const retry = () => {
       if (!closed) {
         const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
@@ -119,7 +120,9 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
           lastSeq = Math.max(lastSeq, read.seq)
         }
         if (read.refresh) {
-          refresh.current()
+          // One reload per burst: a reconnect replays many events at once.
+          clearTimeout(burst)
+          burst = setTimeout(() => refresh.current(), 250)
         }
       }
       socket.onclose = retry
@@ -128,6 +131,7 @@ function useRunStream(session: Session, enabled: boolean, onRefresh: () => void)
     return () => {
       closed = true
       clearTimeout(timer)
+      clearTimeout(burst)
       socket?.close()
     }
   }, [session, enabled])
