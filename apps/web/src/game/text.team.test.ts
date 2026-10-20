@@ -49,7 +49,19 @@ test('the live region tells the team activity: Campaign, board, apprentices and 
   expect(summary).toContain('A team Campaign is running.')
   expect(summary).toContain('Heralds: 1 Quest on the Quest Board.')
   expect(summary).toContain('Heralds: 1 apprentice, Draft the headline.')
-  expect(summary).toContain('Ada says: Mind the headline.')
+  expect(summary).toContain('Ada says "Mind the headline".')
+})
+
+test('a Member who speaks a missive is still told working on their Quest, not on the missive', () => {
+  seq = 0
+  const events = [
+    ev('quest.claimed', { questId: 'q1', memberId: 'm2', hall: 'h', hallId: 'h' }),
+    ev('missive.sent', { missiveId: 'x1', from: 'm2', to: 'hall', hall: 'h' }),
+  ]
+  const scene = deriveScene({ roster, quests, events, upTo: null, missiveTexts: { x1: 'On it' } })
+  const summary = sceneSummary(scene)
+  expect(summary).toContain('Bram is working on Write the notice')
+  expect(summary).toContain('Bram says "On it"')
 })
 
 test('with no team activity the summary says none of it', () => {
