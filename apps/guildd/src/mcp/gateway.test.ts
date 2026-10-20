@@ -37,6 +37,7 @@ async function setup(overrides: Partial<McpGatewayDeps> = {}) {
   const guild = crypto.randomUUID()
   await config.seed(guild)
   const deps: McpGatewayDeps = {
+    activity: new MemoryActivityLog(),
     quests,
     config,
     notes,

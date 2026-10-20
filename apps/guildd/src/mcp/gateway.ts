@@ -69,7 +69,7 @@ export interface McpGatewayDeps {
   objectStore: ObjectStore
   handoffs: HandoffStore
   /** Records each tool call as a `member.activity` event (ids and a closed name only). */
-  activity?: ActivityLog
+  activity: ActivityLog
   toolsets: ToolsetStore
   /**
    * Ends a delivery's run (revokes its model token, kills its sandbox) when its Quest parks on
@@ -486,7 +486,7 @@ export class McpGateway {
    */
   private async noteActivity(caller: Caller, tool: string): Promise<void> {
     const activity = TOOL_ACTIVITY[tool]
-    if (!this.deps.activity || !activity) {
+    if (!activity) {
       return
     }
     try {

@@ -516,6 +516,7 @@ describe('estimates and settle failures', () => {
     const secrets = new MemorySecretStore(new MemoryKeyProvider())
     await secrets.add(GUILD, 'cloud', KEY)
     const gateway = new ModelGateway({
+      activity: new MemoryActivityLog(),
       ledger: new SettleFails(),
       secrets,
       config: { current: async () => ({ version: 1, config: config() }) },

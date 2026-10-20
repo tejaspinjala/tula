@@ -99,8 +99,8 @@ export interface GatewayDeps {
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** Bar the Gates: read first on every open and call; a barred guild is refused before any work. */
   gates: Pick<GateStore, 'isBarred'>
-  /** Records a model turn as a `member.activity` event (`thinking`); absent, none is emitted. */
-  activity?: ActivityLog
+  /** Records a model turn as a `member.activity` event (`thinking`). */
+  activity: ActivityLog
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
   /** How often a call in flight re-reads the bar (durable, so no process state); defaults to 250 ms. */
@@ -468,9 +468,6 @@ export class ModelGateway {
    * failure to record is logged by ids and never fails the call.
    */
   private async noteThinking(guildId: string, quest: Quest): Promise<void> {
-    if (!this.deps.activity) {
-      return
-    }
     try {
       await this.deps.activity.record(guildId, {
         questId: quest.id,
