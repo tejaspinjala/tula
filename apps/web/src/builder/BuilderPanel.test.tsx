@@ -157,8 +157,13 @@ async function mount(w: ReturnType<typeof world>, desktop: boolean) {
 }
 const document_ = globalThis.document
 
-function button(host: HTMLElement, name: string): HTMLButtonElement {
-  const found = [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === name)
+function button(host: HTMLElement, name: string): HTMLElement {
+  const found = [...host.querySelectorAll<HTMLElement>('button, [role="option"]')].find(
+    (b) =>
+      (b.getAttribute('role') === 'option'
+        ? b.getAttribute('aria-label')
+        : b.textContent?.trim()) === name
+  )
   if (!found) {
     throw new Error(`no button "${name}"`)
   }

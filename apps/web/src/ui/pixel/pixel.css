@@ -453,6 +453,23 @@
   image-rendering: pixelated;
 }
 
+.px-slot-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  color: var(--px-text);
+  text-transform: uppercase;
+  overflow: hidden;
+}
+
+.px-slot[draggable="true"] {
+  cursor: grab;
+}
+
 .px-slot-count {
   position: absolute;
   right: calc(var(--px) * 2);

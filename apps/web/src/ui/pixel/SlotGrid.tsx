@@ -5,6 +5,8 @@ export interface Slot {
   id: string
   label: string
   count?: number
+  /** A short UPPERCASE mark drawn in the slot in place of the stock icon. */
+  glyph?: string
 }
 
 /** Props of SlotGrid. */
@@ -13,6 +15,8 @@ export interface SlotGridProps {
   slots: readonly Slot[]
   columns: number
   onSelect: (id: string) => void
+  /** When set, slots can be dragged; the drag carries the slot id under this data type. */
+  dragType?: string
 }
 
 /**
@@ -20,7 +24,7 @@ export interface SlotGridProps {
  * edges), Enter or a click selects. The count sits bottom-right; the cursor slot gets a thick
  * gold outline, never a glow.
  */
-export function SlotGrid({ label, slots, columns, onSelect }: SlotGridProps) {
+export function SlotGrid({ label, slots, columns, onSelect, dragType }: SlotGridProps) {
   const [cursor, setCursor] = useState(0)
   const grid = useRef<HTMLDivElement>(null)
   const cells = useRef<(HTMLDivElement | null)[]>([])
@@ -76,6 +80,13 @@ export function SlotGrid({ label, slots, columns, onSelect }: SlotGridProps) {
           aria-label={slot.count === undefined ? slot.label : `${slot.label}, ${slot.count}`}
           aria-selected={index === cursor}
           tabIndex={index === cursor ? 0 : -1}
+          draggable={dragType === undefined ? undefined : true}
+          onDragStart={(event) => {
+            if (dragType !== undefined) {
+              event.dataTransfer.setData(dragType, slot.id)
+              event.dataTransfer.effectAllowed = 'copy'
+            }
+          }}
           onKeyDown={(event) => onKeyDown(event, index)}
           onFocus={() => setCursor(index)}
           onClick={() => {
@@ -83,7 +94,13 @@ export function SlotGrid({ label, slots, columns, onSelect }: SlotGridProps) {
             onSelect(slot.id)
           }}
         >
-          <span className="px-slot-art" aria-hidden="true" />
+          {slot.glyph === undefined ? (
+            <span className="px-slot-art" aria-hidden="true" />
+          ) : (
+            <span className="px-slot-glyph" aria-hidden="true">
+              {slot.glyph}
+            </span>
+          )}
           {slot.count !== undefined && (
             <span className="px-slot-count" aria-hidden="true">
               {slot.count}

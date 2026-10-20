@@ -159,7 +159,12 @@ async function settle() {
   })
 }
 async function click(host: HTMLElement, name: string) {
-  const found = [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === name)
+  const found = [...host.querySelectorAll<HTMLElement>('button, [role="option"]')].find(
+    (b) =>
+      (b.getAttribute('role') === 'option'
+        ? b.getAttribute('aria-label')
+        : b.textContent?.trim()) === name
+  )
   if (!found) {
     throw new Error(`no button "${name}"`)
   }
@@ -180,7 +185,9 @@ test('adding a node from the palette and saving PUTs the edited graph', async ()
 
 test('the palette lists every node type of the shared schema', async () => {
   const host = await mount(world(), true)
-  const labels = [...host.querySelectorAll('.workflow-palette button')].map((b) => b.textContent)
+  const labels = [...host.querySelectorAll('.palette [role="option"]')].map((b) =>
+    b.getAttribute('aria-label')
+  )
   expect(labels).toEqual([
     'Add trigger.manual',
     'Add trigger.schedule',
@@ -235,7 +242,7 @@ test('running shows each node with status in words, attempts and cost', async ()
 test('on a phone the graph is read only: no palette or save, but Run and the overlay stay', async () => {
   const w = world()
   const host = await mount(w, false)
-  expect(host.querySelector('.workflow-palette')).toBeNull()
+  expect(host.querySelector('.palette')).toBeNull()
   expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Save')).toBe(false)
   await click(host, 'Run')
   expect(host.querySelector('[data-node-id="start"]')?.textContent).toContain('Running')
