@@ -45,8 +45,6 @@ const toRun = (r: z.infer<typeof runRow>): RunRecord => ({
   expiresAt: r.expires_at,
 })
 
-const RUN_COLUMNS = 'run_id, quest_id, hall_id, provider_id, profile_id, state, expires_at'
-
 /**
  * Postgres {@link ModelLedger}: every call runs in `Db.withGuild`, so forced RLS scopes it to one
  * guild. The once-a-day cap notice appends its `steward.cap_reached` event in the same

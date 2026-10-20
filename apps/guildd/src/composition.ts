@@ -1,10 +1,12 @@
 import type { Hono } from 'hono'
+import { AnthropicModelProvider } from './adapters/anthropic-model-provider'
 import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
@@ -18,6 +20,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadWebauthnEnv } from './env'
+import { ModelGateway } from './model-gateway'
 import { SealEngine } from './seals'
 
 /**
@@ -46,6 +49,7 @@ export async function compose(
   const clock = overrides.clock ?? new SystemClock()
   const rp = loadWebauthnEnv()
   const config = overrides.config ?? new PgConfigStore(db, keys)
+  const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const adapters: AppDeps = {
     ...overrides,
     clock,
@@ -67,7 +71,7 @@ export async function compose(
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
     seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
-    secrets: overrides.secrets ?? new PgSecretStore(db, keys),
+    secrets,
     notes: overrides.notes ?? new PgNoteStore(db, keys),
     quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
@@ -75,6 +79,15 @@ export async function compose(
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
     classifier: overrides.classifier ?? new MemoryClassifier(),
     routingLog: overrides.routingLog ?? new PgRoutingLog(db),
+    gateway:
+      overrides.gateway ??
+      new ModelGateway({
+        ledger: new PgModelLedger(db, keys),
+        secrets,
+        config,
+        provider: overrides.modelProvider ?? new AnthropicModelProvider(),
+        clock,
+      }),
   }
   return { app: createApp(adapters), adapters }
 }

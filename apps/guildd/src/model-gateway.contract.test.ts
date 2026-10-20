@@ -1,0 +1,127 @@
+import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
+import { MemoryModelProvider } from './adapters/memory-model-provider'
+import { defaultConfig, guildConfig } from './guild-config'
+import { expectGuildIsolation } from './testing/cross-guild'
+import { createHarness } from './testing/harness'
+import { openSession } from './testing/open-session'
+
+const provider = new MemoryModelProvider()
+const harness = await createHarness({ devGuildHeader: true, app: { modelProvider: provider } })
+afterAll(async () => {
+  await harness.close()
+})
+
+const KEY = 'sk-http-test-key'
+const body = { messages: [{ role: 'user', content: 'hi' }], maxTokens: 50 }
+const errorBody = z.object({ error: z.string() })
+const usagePage = z.object({
+  rows: z.array(z.object({ key: z.string(), calls: z.number(), costMicros: z.number() })),
+  next: z.string().nullable(),
+})
+
+/** A founded guild with an api_key provider, a priced profile, a vault key and a session. */
+async function found(name: string, caps = defaultConfig().caps) {
+  const g = await harness.foundGuild({ name, goal: 'g' })
+  const { config } = harness.adapters
+  await config.seed(g)
+  const next = guildConfig.parse({
+    ...defaultConfig(),
+    caps,
+    providers: [{ id: 'cloud', auth: 'api_key' }],
+    routingProfiles: [
+      {
+        id: 'cloud-mid',
+        provider: 'cloud',
+        tier: 'mid',
+        model: 'configured-model',
+        price: { inputMicrosPerMTok: 3_000_000, outputMicrosPerMTok: 15_000_000 },
+      },
+    ],
+  })
+  const proposed = await config.propose(g, next)
+  if (proposed.status === 'pending') {
+    await config.confirm(g, proposed.version)
+  }
+  await harness.adapters.secrets.add(g, 'cloud', KEY)
+  const session = await openSession(harness.adapters.identity, g)
+  return { g, session }
+}
+
+async function start(g: string, runId: string) {
+  const out = await harness.adapters.gateway.openRun(g, {
+    runId,
+    questId: 'quest-1',
+    hallId: 'heralds',
+    profileId: 'cloud-mid',
+  })
+  if (out.status !== 'started') {
+    throw new Error(`expected started, got ${out.status}`)
+  }
+  return out.token
+}
+
+const call = (token: string) =>
+  harness.request('/gateway/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+
+describe('gateway routes', () => {
+  test('a run calls with its token and gets text and usage, never the key', async () => {
+    const { g } = await found('G1')
+    provider.script({ ok: true, text: 'hello', usage: { inputTokens: 4, outputTokens: 2 } })
+    const res = await call(await start(g, 'r1'))
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(JSON.parse(text)).toEqual({ text: 'hello', usage: { inputTokens: 4, outputTokens: 2 } })
+    expect(text).not.toContain(KEY)
+  })
+
+  test('no token, a forged token and a revoked token are 401', async () => {
+    const { g } = await found('G2')
+    const token = await start(g, 'r1')
+    expect((await harness.request('/gateway/complete', { method: 'POST' })).status).toBe(401)
+    expect((await call('ghr.nope')).status).toBe(401)
+    await harness.adapters.gateway.revokeRun(g, 'r1')
+    const res = await call(token)
+    expect(res.status).toBe(401)
+    expect(errorBody.parse(await res.json()).error).toBe('token_revoked')
+  })
+
+  test('a call past the daily cap is 429 cap_reached', async () => {
+    const { g } = await found('G3', { dailyTokens: 1, dailySpendCents: 1000 })
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 5, outputTokens: 5 } })
+    const token = await start(g, 'r1')
+    expect((await call(token)).status).toBe(200)
+    const res = await call(token)
+    expect(res.status).toBe(429)
+    expect(errorBody.parse(await res.json()).error).toBe('cap_reached')
+  })
+
+  test('the cost table pages spend by Quest, Hall, run and day', async () => {
+    const { g, session } = await found('G4')
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 200_000, outputTokens: 100_000 } })
+    expect((await call(await start(g, 'r1'))).status).toBe(200)
+    const get = (query: string, auth: Record<string, string>) =>
+      harness.request(`/guilds/${g}/gateway/usage${query}`, { headers: auth })
+    const ok = await get('?by=quest&limit=5', { authorization: `Bearer ${session}` })
+    expect(ok.status).toBe(200)
+    expect(usagePage.parse(await ok.json()).rows).toEqual([
+      expect.objectContaining({ key: 'quest-1', calls: 1, costMicros: 2_100_000 }),
+    ])
+    expect((await get('?by=nope', { authorization: `Bearer ${session}` })).status).toBe(400)
+    expect((await get('?by=day', {})).status).toBe(401)
+  })
+
+  test("another guild cannot read a guild's cost table", async () => {
+    await expectGuildIsolation(harness, {
+      build: (caller, target) => [
+        `/guilds/${target}/gateway/usage?by=run`,
+        { headers: { 'x-guild-id': caller } },
+      ],
+      snapshot: (guild) => harness.adapters.gateway.usage(guild, 'run', { limit: 100 }),
+    })
+  })
+})

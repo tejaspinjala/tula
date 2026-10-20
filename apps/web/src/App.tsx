@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
+import { CostTablePanel } from './CostTablePanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
@@ -34,6 +35,7 @@ export function App() {
           <a href="#archive-heading">Archive</a>
           <a href="#seals-heading">Seals</a>
           <a href="#quests-heading">Quest Board</a>
+          <a href="#costs-heading">Costs</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -45,6 +47,7 @@ export function App() {
         <ArchivePanel session={session} />
         <SealPanel session={session} />
         <QuestBoardPanel session={session} />
+        <CostTablePanel session={session} />
       </main>
     </>
   )

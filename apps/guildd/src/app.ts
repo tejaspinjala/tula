@@ -14,12 +14,15 @@ import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
+import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
@@ -66,6 +69,10 @@ export interface AppDeps {
   classifier: Classifier
   /** Routing decision log (insert-only), read by the future Oracle. */
   routingLog: RoutingLog
+  /** The model gateway: per-run tokens, metering and caps in front of the model providers. */
+  gateway: ModelGateway
+  /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
+  modelProvider?: ModelProvider
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -141,6 +148,26 @@ const questPage = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
   state: questState.optional(),
 })
+const usageQuery = z.object({
+  by: usageGroup,
+  after: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
+})
+/** HTTP status for a refused gateway call. */
+function gatewayStatus(code: GatewayError['code']): 401 | 409 | 429 | 502 {
+  switch (code) {
+    case 'invalid_token':
+    case 'token_expired':
+    case 'token_revoked':
+      return 401
+    case 'cap_reached':
+      return 429
+    case 'provider_failed':
+      return 502
+    default:
+      return 409
+  }
+}
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
@@ -231,6 +258,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
   app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
   app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
+  // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
+  app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/session/reauth/begin', limited('reauth'))
@@ -629,6 +658,49 @@ export function createApp(deps: AppDeps): Hono {
           })
     )
   }
+
+  // Model gateway: a run calls with its per-run token (not a session), and the real provider key
+  // never leaves the gateway. Failures are coded; none carries provider text.
+  app.post('/gateway/complete', async (c) => {
+    const token = bearerToken(c.req.header('authorization'))
+    if (!token) {
+      return c.json({ error: 'invalid_token' }, 401)
+    }
+    const call = gatewayCall.safeParse(await c.req.json().catch(() => null))
+    if (!call.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    try {
+      return c.json(await deps.gateway.complete(token, call.data))
+    } catch (e) {
+      if (!(e instanceof GatewayError)) {
+        throw e
+      }
+      return c.json({ error: e.code }, gatewayStatus(e.code))
+    }
+  })
+
+  // The cost table of the ledger view: spend per run, Quest, Hall or day.
+  app.get('/guilds/:id/gateway/usage', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const query = usageQuery.safeParse({
+      by: c.req.query('by') ?? 'day',
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!query.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.gateway.usage(who.guild, query.data.by, {
+        limit: query.data.limit,
+        ...(query.data.after === undefined ? {} : { after: query.data.after }),
+      })
+    )
+  })
 
   app.get('/guilds/:id/quests', (c) => questList(c, false))
   app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))

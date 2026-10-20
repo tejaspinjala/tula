@@ -3,7 +3,7 @@ import type { GuildConfig } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
-import type { ModelLedger, RunRecord } from './ports/model-ledger'
+import type { ModelLedger, RunRecord, UsageGroup, UsagePage } from './ports/model-ledger'
 import {
   type ModelProvider,
   ModelProviderError,
@@ -191,6 +191,15 @@ export class ModelGateway {
       }
     }
     return admitted
+  }
+
+  /** The cost table: spend grouped by run, Quest, Hall or day, ascending by key, paginated. */
+  usage(
+    guildId: string,
+    by: UsageGroup,
+    page: { after?: string; limit: number }
+  ): Promise<UsagePage> {
+    return this.deps.ledger.report(guildId, by, page)
   }
 
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */

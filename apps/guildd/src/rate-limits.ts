@@ -16,6 +16,7 @@ export type RateRoute =
   | 'checkpoint-finish'
   | 'quest-post'
   | 'seal-posted'
+  | 'gateway-call'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -56,6 +57,12 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'checkpoint-finish': writeLimits(10, 30),
   'quest-post': writeLimits(60, 300),
   'seal-posted': writeLimits(30, 120),
+  // Run-token calls to the model gateway: each spends money, so they are bounded per client
+  // (workers share a few addresses); the daily caps bound the total spend.
+  'gateway-call': {
+    client: { limit: 300, windowMs: MINUTE },
+    unknown: { limit: 60, windowMs: MINUTE },
+  },
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },

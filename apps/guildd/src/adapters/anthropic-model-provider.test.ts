@@ -98,7 +98,6 @@ test('retries a 529-style outage with jittered backoff, then succeeds', async ()
 })
 
 test('gives up after the retry budget and does not retry an auth failure', async () => {
-  const down = stubbed([new Response('', { status: 503 }), new Response('', { status: 503 })], {})
   const failing = new AnthropicModelProvider({
     fetch: async () => new Response('', { status: 503 }),
     sleep: async () => {},
@@ -109,7 +108,6 @@ test('gives up after the retry budget and does not retry an auth failure', async
   await expect(failing.complete(new ProviderSecret('k'), request)).rejects.toMatchObject({
     code: 'unavailable',
   })
-  expect(down.calls).toHaveLength(0)
   const auth = stubbed([new Response('{}', { status: 401 })])
   await expect(auth.provider.complete(new ProviderSecret('k'), request)).rejects.toMatchObject({
     code: 'unauthorized',
