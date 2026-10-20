@@ -1,11 +1,16 @@
 import type { CharacterLook } from '../look-catalogue'
 import type { GuildMasterLookStore } from '../ports/guild-master-look-store'
 
-/** Memory {@link GuildMasterLookStore}: a stub until the contract drives it. */
+/** Memory {@link GuildMasterLookStore}; state lives in the instance, and each write is one synchronous step. */
 export class MemoryGuildMasterLookStore implements GuildMasterLookStore {
-  async get(_guildId: string): Promise<CharacterLook | null> {
-    return null
+  private readonly looks = new Map<string, CharacterLook>()
+
+  async get(guildId: string): Promise<CharacterLook | null> {
+    const look = this.looks.get(guildId)
+    return look ? { ...look } : null
   }
 
-  async set(_guildId: string, _look: CharacterLook): Promise<void> {}
+  async set(guildId: string, look: CharacterLook): Promise<void> {
+    this.looks.set(guildId, { ...look })
+  }
 }
