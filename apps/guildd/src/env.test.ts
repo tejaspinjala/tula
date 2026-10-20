@@ -138,6 +138,12 @@ describe('PLATFORM_OPERATORS', () => {
     expect(loadPlatformOperators({ PLATFORM_OPERATORS: '' })).toEqual([])
     expect(loadPlatformOperators({})).toEqual([])
   })
+  test('ids are lowercased and de-duplicated', () => {
+    expect(loadPlatformOperators({ PLATFORM_OPERATORS: `${a.toUpperCase()},${a},${b}` })).toEqual([
+      a,
+      b,
+    ])
+  })
   test('fails at boot on anything that is not a uuid', () => {
     expect(() => loadPlatformOperators({ PLATFORM_OPERATORS: `${a},not-a-uuid` })).toThrow()
   })

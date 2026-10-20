@@ -194,6 +194,17 @@ describe('Bar the Gates routes', () => {
     })
   })
 
+  test('an operator listed in uppercase can still bar every guild', async () => {
+    const op = await signedIn()
+    operators.push(op.memberId.toUpperCase())
+    try {
+      expect((await send('POST', '/gates/bar', op.auth)).status).toBe(201)
+    } finally {
+      await send('POST', '/gates/lift', { ...op.auth, 'x-reauth-proof': await op.proof() })
+      operators.splice(operators.indexOf(op.memberId.toUpperCase()), 1)
+    }
+  })
+
   test('with no platform operator configured, the global routes refuse everyone', async () => {
     const who = await signedIn()
     expect((await send('POST', '/gates/bar', who.auth)).status).toBe(403)
