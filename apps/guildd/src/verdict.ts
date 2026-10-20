@@ -121,8 +121,27 @@ function privateCheck(content: string): Finding {
   }
 }
 
-function metaDraftCheck(_content: string, _policy: ContentPolicy): Finding {
-  return { check: 'meta_draft', passed: true, detail: 'stub' }
+const META_DRAFT_PATTERNS: readonly RegExp[] = [
+  /\bi(?:'|\u2019)?m (?:now )?(?:ready|happy|glad|here|going|about) to\b/i,
+  /\bi am (?:now )?(?:ready|happy|glad|here|going|about) to\b/i,
+  /\bi(?:'|\u2019)?ll (?:draft|write|create|compose|prepare|help|work)\b/i,
+  /\bi (?:will|can|could|would|shall) (?:\w+ )?(?:draft|write|create|compose|prepare|help|work)\b/i,
+  /\bas an ai\b/i,
+  /\b(?:let me|allow me to) (?:draft|write|create|compose|prepare|help)\b/i,
+]
+
+function metaDraftCheck(content: string, policy: ContentPolicy): Finding {
+  if (policy.allowMetaDrafts === true) {
+    return { check: 'meta_draft', passed: true, detail: 'meta-drafts allowed by policy' }
+  }
+  const passed = !META_DRAFT_PATTERNS.some((p) => p.test(content))
+  return {
+    check: 'meta_draft',
+    passed,
+    detail: passed
+      ? 'reads as the deliverable itself'
+      : 'talks about doing the task instead of doing it',
+  }
 }
 
 /** Runs every deterministic check over `content`; pure, so the same content always gives the same findings. */
