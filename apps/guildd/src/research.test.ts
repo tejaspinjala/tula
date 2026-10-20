@@ -32,7 +32,7 @@ function setup() {
     sleep: async () => {},
     random: () => 0.5,
   })
-  return { clock, treasury, treasuryStore, store, research }
+  return { clock, config, treasury, treasuryStore, store, research }
 }
 
 const quest = (id: string): Quest => {
@@ -43,8 +43,9 @@ const quest = (id: string): Quest => {
 
 describe('Research.sweep', () => {
   test('a spend left reserved by a crash is released with its slot once past the deadline', async () => {
-    const { clock, treasury, treasuryStore, store, research } = setup()
+    const { clock, config, treasury, treasuryStore, store, research } = setup()
     const guild = crypto.randomUUID()
+    await config.seed(guild)
     const questId = crypto.randomUUID()
     // What `run` did before the crash: took a slot, reserved the spend, never settled.
     const slot = await store.reserve(guild, {
@@ -77,11 +78,20 @@ describe('Research.sweep', () => {
   })
 
   test('a finished call is untouched by the sweep', async () => {
-    const { clock, treasuryStore, store, research } = setup()
+    const { clock, config, treasuryStore, store, research } = setup()
     const guild = crypto.randomUUID()
+    await config.seed(guild)
+    const { config: current } = await config.current(guild)
+    const proposed = await config.propose(guild, {
+      ...current,
+      caps: { ...current.caps, maxResearchPerQuest: 2 },
+    })
+    if (proposed.status === 'pending') {
+      await config.confirm(guild, proposed.version)
+    }
     const q = quest(crypto.randomUUID())
     const out = await research.run(guild, { quest: q, member: 'm-ada' }, 'bun')
-    expect(out.ok).toBe(true)
+    expect(out).toMatchObject({ ok: true })
     clock.advance(10 * 60_000)
     expect(await research.sweep(guild)).toBe(0)
     expect(await store.count(guild, q.id)).toBe(1)

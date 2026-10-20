@@ -60,6 +60,9 @@ export interface ResearchDeps {
   sleep?: (ms: number) => Promise<void>
 }
 
+/** The actor a sweep's releases are recorded under. */
+const SWEEP_ACTOR = 'research-sweep'
+
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
 /** The page URL as a normalised https URL, or null for anything else. */
@@ -130,17 +133,20 @@ export class Research {
         return { ok: false, error: 'research_declined' }
       }
       spendId = spend.spend.id
+      await store.attachSpend(guildId, slot.call.id, spendId)
     }
     try {
       const results = await this.query(query)
       if (spendId !== null) {
         await treasury.settleSpend(guildId, spendId, costCents, member)
       }
+      await store.settle(guildId, slot.call.id)
       return { ok: true, results, chargedCents: spendId === null ? 0 : costCents }
     } catch (error) {
       if (spendId !== null) {
         await treasury.releaseSpend(guildId, spendId, member)
       }
+      await store.settle(guildId, slot.call.id)
       // The slot stays: a failed call counts toward the cap, so a Member looping on a down
       // provider reaches `research_cap` and cannot hammer it. Only the charge is given back.
       return {
@@ -148,6 +154,26 @@ export class Research {
         error: error instanceof OutboundTimeout ? 'research_timeout' : 'research_failed',
       }
     }
+  }
+
+  /**
+   * Frees the slots, and releases the Treasury spends, that a crash between reserve and settle
+   * left behind: a call still unsettled after the outbound deadline cannot be in flight. Runs
+   * under the guild's sweep lock and is idempotent (a freed slot is never visited twice and a
+   * released spend stays released). Returns how many slots it freed.
+   */
+  async sweep(guildId: string): Promise<number> {
+    const before = new Date(this.deps.clock.now().getTime() - this.deadlineMs())
+    return this.deps.store.sweep(guildId, before, async (spendId) => {
+      await this.deps.treasury.releaseSpend(guildId, spendId, SWEEP_ACTOR)
+    })
+  }
+
+  /** The longest a call can run: a search, then fetches, each with retries, timeouts and backoff. */
+  private deadlineMs(): number {
+    const { timeoutMs, retries, backoffMs } = this.policy
+    const stage = (retries + 1) * timeoutMs + backoffMs * (2 ** retries - 1) * 2
+    return 2 * stage + 60_000
   }
 
   private async query(query: string): Promise<ResearchResult[]> {
