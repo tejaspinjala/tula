@@ -6,7 +6,6 @@ import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
-import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgGateStore } from './adapters/pg-gate-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
@@ -31,7 +30,13 @@ import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
-import { loadEnv, loadPlatformOperators, loadVapidEnv, loadWebauthnEnv } from './env'
+import {
+  loadEnv,
+  loadPlatformOperators,
+  loadSandboxEnv,
+  loadVapidEnv,
+  loadWebauthnEnv,
+} from './env'
 import { Gates } from './gates'
 import { isLearningRepoAllowed } from './guild-config'
 import { LearningEngine } from './learning-engine'
@@ -39,8 +44,10 @@ import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 
 import { ProposalEngine } from './proposals'
+import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
+import { Summon } from './summon'
 import { Treasury } from './treasury'
 
 /**
@@ -74,8 +81,8 @@ export async function compose(
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
-  // The Docker worker (#20) replaces this; until then no sandbox exists to kill.
-  const sandboxes = overrides.sandboxes ?? new MemorySandboxRunner()
+  // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
+  const sandboxes = overrides.sandboxes ?? sandboxRunnerFor(loadSandboxEnv())
   const vapid = loadVapidEnv()
   const pushStore = overrides.pushStore ?? new PgPushStore(db)
   // Without VAPID keys (development only; production fails at boot) pushes go to the memory notifier.
@@ -109,6 +116,20 @@ export async function compose(
       tripwires,
       gates: gateStore,
     })
+  const mcp =
+    overrides.mcp ??
+    new McpGateway({
+      quests,
+      config,
+      notes,
+      objectStore,
+      handoffs: new PgHandoffStore(db, keys),
+      toolsets: new PgToolsetStore(db),
+      keys,
+      clock,
+      tripwires,
+      gates: gateStore,
+    })
   const adapters: AppDeps = {
     ...overrides,
     pushStore,
@@ -135,20 +156,7 @@ export async function compose(
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
     notes,
     quests,
-    mcp:
-      overrides.mcp ??
-      new McpGateway({
-        quests,
-        config,
-        notes,
-        objectStore,
-        handoffs: new PgHandoffStore(db, keys),
-        toolsets: new PgToolsetStore(db),
-        keys,
-        clock,
-        tripwires,
-        gates: gateStore,
-      }),
+    mcp,
     tripwires,
     treasury:
       overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
@@ -177,6 +185,9 @@ export async function compose(
     routingLog: overrides.routingLog ?? new PgRoutingLog(db),
     gateway,
     sandboxes,
+    summon:
+      overrides.summon ??
+      new Summon({ config, quests, tripwires, gates: gateStore, gateway, mcp, sandboxes, clock }),
     platformOperators: overrides.platformOperators ?? loadPlatformOperators(),
     gates:
       overrides.gates ??
@@ -184,6 +195,7 @@ export async function compose(
         store: gateStore,
         runs: gateway,
         sandboxes,
+        quests,
         guildIds: (after, limit) => db.guildIds(after, limit),
       }),
   }

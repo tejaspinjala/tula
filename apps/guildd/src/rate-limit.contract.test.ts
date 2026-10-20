@@ -147,6 +147,17 @@ describe('rate limits on unauthenticated identity routes', () => {
     }
   })
 
+  test('the summon route is limited per client, with a Retry-After', async () => {
+    const { post, found } = await harnessWith({ summon: { client: tight(2) } })
+    const { id } = await found()
+    const path = `/guilds/${id}/summon`
+    expect((await post(path)).status).toBe(401)
+    expect((await post(path)).status).toBe(401)
+    const refused = await post(path)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
   test('the model gateway call route is limited per client', async () => {
     const { post } = await harnessWith({ 'gateway-call': { client: tight(1) } })
     expect((await post('/gateway/complete')).status).toBe(401)

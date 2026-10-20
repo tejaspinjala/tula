@@ -55,6 +55,7 @@ import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
+import type { Summon } from './summon'
 import { isGuildMaster, type Treasury } from './treasury'
 import { readBufferedAmount } from './ws-support'
 
@@ -98,6 +99,8 @@ export interface AppDeps {
   gates: Gates
   /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
   sandboxes: SandboxRunner
+  /** "Summon your first member": the test Quest that proves the worker and provider run end to end. */
+  summon: Summon
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
@@ -283,6 +286,7 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
       return 409
   }
 }
+const summonBody = z.object({ profileId: z.string().min(1).max(64) })
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
@@ -364,7 +368,28 @@ export function createApp(deps: AppDeps): Hono {
   // Unauthenticated identity routes are rate limited per client and per guild (429 + Retry-After).
   const limitsOf = { ...DEFAULT_RATE_LIMITS, ...deps.rateLimits }
   const limited = (route: keyof RateLimits) =>
-    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false)
+    rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false, callerGuild)
+  /**
+   * Charges the per-guild bucket of a token-bearing route to the guild its already verified token
+   * names (all sandboxes share the proxy's address, so the client bucket cannot tell them apart).
+   * Returns the 429 when the bucket is spent.
+   */
+  const chargeTokenGuild = async (
+    c: Context,
+    route: 'gateway-call' | 'mcp',
+    guild: string | null
+  ): Promise<Response | null> => {
+    const rule = limitsOf[route].guild
+    if (!guild || !rule) {
+      return null
+    }
+    const decision = await deps.rateLimiter.hit(`${route}:guild:${guild}`, rule)
+    if (decision.allowed) {
+      return null
+    }
+    c.header('Retry-After', String(decision.retryAfterSeconds))
+    return c.json({ error: 'rate_limited' }, 429)
+  }
   app.post('/guilds', limited('founding'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
@@ -378,6 +403,8 @@ export function createApp(deps: AppDeps): Hono {
   // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/summon', limited('summon'))
+  app.get('/guilds/:id/summon', limited('summon-status'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
@@ -389,7 +416,12 @@ export function createApp(deps: AppDeps): Hono {
   // The MCP gateway is stateless and authorises each call by the signed lease handle in its
   // arguments; the guild is derived from that token, never taken from the path, a header or the body.
   app.post('/mcp', async (c) => {
-    const reply = await deps.mcp.handle(await c.req.json().catch(() => null))
+    const raw: unknown = await c.req.json().catch(() => null)
+    const spent = await chargeTokenGuild(c, 'mcp', await deps.mcp.verifiedGuild(raw))
+    if (spent) {
+      return spent
+    }
+    const reply = await deps.mcp.handle(raw)
     if (reply.body === null) {
       return c.body(null, 202)
     }
@@ -801,6 +833,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!call.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
+    const spent = await chargeTokenGuild(c, 'gateway-call', await deps.gateway.verifiedGuild(token))
+    if (spent) {
+      return spent
+    }
     try {
       return c.json(await deps.gateway.complete(token, call.data))
     } catch (e) {
@@ -906,6 +942,35 @@ export function createApp(deps: AppDeps): Hono {
       return who.res
     }
     return c.json(await deps.gates.status(who.guild))
+  })
+
+  // "Summon your first member": the check stays incomplete until its test Quest has run on the
+  // sandboxed worker with the chosen provider and passed. Starting it is the Guild Master's; it is
+  // idempotent, so a retry never starts a second worker.
+  app.get('/guilds/:id/summon', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(await deps.summon.status(who.guild))
+  })
+
+  app.post('/guilds/:id/summon', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = summonBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const started = await deps.summon.start(who.guild, body.data.profileId)
+    if (started.ok) {
+      return c.json(started.status, 202)
+    }
+    const status =
+      started.error === 'gates_barred' ? 409 : started.error === 'sandbox_unavailable' ? 502 : 422
+    return c.json({ error: started.error }, status)
   })
 
   /** Whether the member is a platform operator; ids compare case-insensitively. */

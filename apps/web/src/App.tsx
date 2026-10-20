@@ -10,6 +10,7 @@ import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { SummonPanel } from './SummonPanel'
 import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
@@ -58,6 +59,7 @@ export function App() {
         <LearningPanel session={session} />
         <ProposalPanel session={session} />
         <SealPanel session={session} />
+        <SummonPanel session={session} />
         <GatesPanel session={session} />
         <TripwirePanel session={session} />
         <TreasuryPanel session={session} />

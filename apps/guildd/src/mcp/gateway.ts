@@ -70,6 +70,12 @@ const listParams = z.union([
   z.strictObject({ assignment: z.string().min(1).max(2000) }),
   z.strictObject({ lease: leaseHandle }),
 ])
+/** Where a request carries its token: `params` for a list, `params.arguments` for a call. */
+const tokenCarrier = z.object({
+  assignment: z.string().min(1).max(2000).optional(),
+  lease: z.object({ token: z.string().min(1).max(2000) }).optional(),
+})
+const carrierParams = tokenCarrier.extend({ arguments: tokenCarrier.optional() })
 const callParams = z.object({
   name: z.string().min(1).max(100),
   arguments: z.record(z.string(), z.unknown()).default({}),
@@ -143,6 +149,44 @@ export class McpGateway {
       m: quest.ownerId,
       exp: this.deps.clock.now().getTime() + this.assignmentMs,
     })
+  }
+
+  /**
+   * Mints the lease handle for a Quest the dispatcher has already claimed (the worker never
+   * claims it itself): the same signed lease `claim_quest` hands out, for the attempt the Quest
+   * is on.
+   */
+  async lease(guildId: string, quest: Quest): Promise<LeaseHandle> {
+    return {
+      questId: quest.id,
+      attempt: quest.attempts,
+      token: await mintToken(this.deps.keys, {
+        k: 'lease',
+        g: guildId,
+        q: quest.id,
+        a: quest.attempts,
+        m: quest.ownerId,
+      }),
+    }
+  }
+
+  /**
+   * The guild named by the request's signed token, or null when it carries none or the signature
+   * does not verify. Only the signature is checked, so it is safe to key an abuse bucket on.
+   */
+  async verifiedGuild(raw: unknown): Promise<string | null> {
+    const request = envelope.safeParse(raw)
+    const params = carrierParams.safeParse(request.success ? request.data.params : undefined)
+    if (!params.success) {
+      return null
+    }
+    const token =
+      params.data.assignment ??
+      params.data.lease?.token ??
+      params.data.arguments?.assignment ??
+      params.data.arguments?.lease?.token
+    const claims = token ? await verifyToken(this.deps.keys, token) : null
+    return claims?.g ?? null
   }
 
   /** Handles one JSON-RPC request body. */

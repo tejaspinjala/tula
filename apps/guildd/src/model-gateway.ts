@@ -391,6 +391,25 @@ export class ModelGateway {
     return response
   }
 
+  /** Whether the run of this Quest attempt exists and has been revoked, so no worker can use its token. */
+  async runRevoked(guildId: string, questId: string, attempt: number): Promise<boolean> {
+    const run = await this.deps.ledger.getRun(guildId, runIdFor(questId, attempt))
+    return run?.state === 'revoked'
+  }
+
+  /**
+   * The guild of the run holding `token`, or null when the token is malformed or names no run.
+   * Looked up by hash, so a forged token never yields a guild an abuse bucket could be keyed on.
+   */
+  async verifiedGuild(token: string): Promise<string | null> {
+    const parts = tokenShape.safeParse(token.split('.'))
+    if (!parts.success) {
+      return null
+    }
+    const run = await this.deps.ledger.findByTokenHash(parts.data[1], sha256(token))
+    return run ? parts.data[1] : null
+  }
+
   private guildOf(token: string): string {
     const parts = tokenShape.safeParse(token.split('.'))
     if (!parts.success) {

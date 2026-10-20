@@ -37,6 +37,18 @@ function quest(overrides: Partial<NewQuest> = {}): NewQuest {
 /** The QuestQueue contract, run against every adapter. `make` returns a fresh queue. */
 export function questQueueContract(name: string, make: () => Promise<QuestQueueFixture>) {
   describe(`QuestQueue contract: ${name}`, () => {
+    test('a Quest is found by its job key in its own guild only, and finding never posts', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const input = quest()
+      expect(await queue.findByJobKey(g, input.jobKey)).toBeNull()
+      const { quest: posted } = await queue.post(g, input)
+      expect((await queue.findByJobKey(g, input.jobKey))?.id).toBe(posted.id)
+      expect(await queue.findByJobKey(other, input.jobKey)).toBeNull()
+      expect((await queue.list(g, { limit: 10 })).quests).toHaveLength(1)
+    })
+
     test('a paused Hall has no Quest claimed until it resumes; other Halls still are', async () => {
       const { queue, newGuild, setHallPaused } = await make()
       const g = await newGuild()
@@ -243,6 +255,30 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(await queue.claim(g, LEASE)).toBeNull()
       expect((await queue.deadLetters(g, { limit: 10 })).quests.map((d) => d.id)).toEqual([q.id])
       expect((await events(g)).at(-1)).toBe('quest.dead')
+    })
+
+    test('releasing leases returns active Quests to queued at once, attempts unchanged, and is idempotent', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      await queue.post(g, quest())
+      await queue.post(other, quest())
+      const held = await queue.claim(g, LEASE)
+      const theirs = await queue.claim(other, LEASE)
+      if (!held || !theirs) {
+        throw new Error('expected leases')
+      }
+      expect(await queue.releaseLeases(g, 'sandbox_unavailable')).toBe(1)
+      expect(await queue.get(g, held.id)).toMatchObject({
+        state: 'queued',
+        attempts: 1,
+        leaseExpiresAt: null,
+        lastError: 'sandbox_unavailable',
+      })
+      expect(await queue.releaseLeases(g, 'sandbox_unavailable')).toBe(0)
+      expect((await queue.get(other, theirs.id))?.state).toBe('active')
+      const again = await queue.claim(g, LEASE)
+      expect(again).toMatchObject({ id: held.id, attempts: 2 })
     })
 
     test('a blocker must exist in the same guild', async () => {

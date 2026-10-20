@@ -206,3 +206,67 @@ export function loadPlatformOperators(
 ): string[] {
   return operatorsSchema.parse(source.PLATFORM_OPERATORS)
 }
+
+/** How sandboxes run: nowhere real (tests, development) or in hardened Docker containers. */
+export type SandboxEnv =
+  | { kind: 'memory' }
+  | {
+      kind: 'docker'
+      image: string
+      network: string
+      scope: string
+      /** Overall deadline for killing sandboxes, in ms (`SANDBOX_KILL_DEADLINE_MS`). */
+      killDeadlineMs: number
+      /** Where a sandbox finds the egress proxy. */
+      proxyUrl: string
+      /** The one origin (model gateway and MCP gateway) a sandbox reaches through the proxy. */
+      gatewayUrl: string
+    }
+
+/** Reads the sandbox settings (`SANDBOX_RUNNER` and friends); throws at boot on a bad combination. */
+export function loadSandboxEnv(
+  source: Record<string, string | undefined> = process.env
+): SandboxEnv {
+  const common = z.object({ NODE_ENV: z.string().default('development') }).parse(source)
+  const runner = z.enum(['memory', 'docker']).optional().parse(source.SANDBOX_RUNNER)
+  if (common.NODE_ENV === 'production' && runner !== 'docker') {
+    throw new Error('SANDBOX_RUNNER must be docker in production')
+  }
+  if (runner !== 'docker') {
+    return { kind: 'memory' }
+  }
+  const docker = z
+    .object({
+      SANDBOX_IMAGE: z
+        .string()
+        .regex(
+          /^([a-z0-9][^\s@]*@)?sha256:[0-9a-f]{64}$/,
+          'SANDBOX_IMAGE must be pinned by digest and not start with a dash'
+        ),
+      SANDBOX_NETWORK: z
+        .string()
+        .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, 'SANDBOX_NETWORK must be a plain network name')
+        .refine((n) => !['host', 'bridge', 'none'].includes(n), {
+          message: 'SANDBOX_NETWORK must be the dedicated internal network',
+        }),
+      SANDBOX_SCOPE: z.string().min(1).default('default'),
+      SANDBOX_KILL_DEADLINE_MS: z.coerce.number().int().min(1).max(10_000).default(2000),
+      EGRESS_PROXY_URL: z.url(),
+      SANDBOX_GATEWAY_URL: z.url(),
+    })
+    .parse(source)
+  // The gateway origin carries run tokens, so in production it must be https. The egress proxy
+  // URL may stay http: it is only reachable inside the internal sandbox network.
+  if (common.NODE_ENV === 'production' && !docker.SANDBOX_GATEWAY_URL.startsWith('https://')) {
+    throw new Error('SANDBOX_GATEWAY_URL must be https in production')
+  }
+  return {
+    kind: 'docker',
+    image: docker.SANDBOX_IMAGE,
+    network: docker.SANDBOX_NETWORK,
+    scope: docker.SANDBOX_SCOPE,
+    killDeadlineMs: docker.SANDBOX_KILL_DEADLINE_MS,
+    proxyUrl: docker.EGRESS_PROXY_URL,
+    gatewayUrl: docker.SANDBOX_GATEWAY_URL,
+  }
+}

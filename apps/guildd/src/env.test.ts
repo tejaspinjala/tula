@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { createECDH } from 'node:crypto'
 import { Glob } from 'bun'
-import { loadEnv, loadPlatformOperators, loadVapidEnv, loadWebauthnEnv } from './env'
+import {
+  loadEnv,
+  loadPlatformOperators,
+  loadSandboxEnv,
+  loadVapidEnv,
+  loadWebauthnEnv,
+} from './env'
 
 const vapidPair = createECDH('prime256v1')
 vapidPair.generateKeys()
@@ -127,6 +133,83 @@ describe('loadEnv', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('sandbox settings', () => {
+  const docker = {
+    SANDBOX_RUNNER: 'docker',
+    SANDBOX_IMAGE: `guildhall-worker@sha256:${'a'.repeat(64)}`,
+    SANDBOX_NETWORK: 'guildhall-sandbox',
+    EGRESS_PROXY_URL: 'http://egress-proxy:3128',
+    SANDBOX_GATEWAY_URL: 'http://guildd:3000',
+  }
+  const tls = { SANDBOX_GATEWAY_URL: 'https://guildd.example:3000' }
+  test('defaults to the memory runner outside production', () => {
+    expect(loadSandboxEnv({ NODE_ENV: 'development' })).toEqual({ kind: 'memory' })
+  })
+  test('docker needs an image pinned by digest, the network, the proxy and the gateway', () => {
+    expect(loadSandboxEnv(docker)).toEqual({
+      kind: 'docker',
+      image: docker.SANDBOX_IMAGE,
+      network: 'guildhall-sandbox',
+      scope: 'default',
+      killDeadlineMs: 2000,
+      proxyUrl: 'http://egress-proxy:3128',
+      gatewayUrl: 'http://guildd:3000',
+    })
+    // A locally built image is pinned by its image id.
+    expect(loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `sha256:${'c'.repeat(64)}` }).kind).toBe(
+      'docker'
+    )
+    expect(() => loadSandboxEnv({ ...docker, SANDBOX_IMAGE: 'guildhall-worker:latest' })).toThrow(
+      /SANDBOX_IMAGE/
+    )
+    expect(() => loadSandboxEnv({ ...docker, EGRESS_PROXY_URL: undefined })).toThrow(
+      /EGRESS_PROXY_URL/
+    )
+  })
+  test('the kill deadline is configurable and must be a positive number of ms', () => {
+    expect(
+      loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '500' }).kind === 'docker' &&
+        loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '500' })
+    ).toMatchObject({ killDeadlineMs: 500 })
+    expect(() => loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '0' })).toThrow(
+      /SANDBOX_KILL_DEADLINE_MS/
+    )
+  })
+  test('refuses an option-like image and a host-wide or option-like network', () => {
+    expect(() =>
+      loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `-x@sha256:${'a'.repeat(64)}` })
+    ).toThrow(/SANDBOX_IMAGE/)
+    expect(() =>
+      loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `x y@sha256:${'a'.repeat(64)}` })
+    ).toThrow(/SANDBOX_IMAGE/)
+    for (const network of ['host', 'bridge', 'none', '--x', '-v']) {
+      expect(() => loadSandboxEnv({ ...docker, SANDBOX_NETWORK: network })).toThrow(
+        /SANDBOX_NETWORK/
+      )
+    }
+  })
+  test('production refuses an unset runner and the memory runner', () => {
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production' })).toThrow(/SANDBOX_RUNNER/)
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production', SANDBOX_RUNNER: 'memory' })).toThrow(
+      /SANDBOX_RUNNER/
+    )
+    expect(loadSandboxEnv({ NODE_ENV: 'production', ...docker, ...tls }).kind).toBe('docker')
+  })
+  test('production needs an https gateway URL; the proxy may stay http on the internal network', () => {
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production', ...docker })).toThrow(
+      /SANDBOX_GATEWAY_URL/
+    )
+    expect(loadSandboxEnv({ NODE_ENV: 'development', ...docker }).kind).toBe('docker')
+    const loaded = loadSandboxEnv({ NODE_ENV: 'production', ...docker, ...tls })
+    expect(loaded.kind === 'docker' && loaded.proxyUrl).toBe('http://egress-proxy:3128')
+  })
+  test('production refuses the dev guild header', () => {
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', DEV_GUILD_HEADER: 'true' })).toThrow(
+      /DEV_GUILD_HEADER must not be true in production/
+    )
   })
 })
 

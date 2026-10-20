@@ -49,6 +49,7 @@ function world(n: number) {
         return 7
       },
     },
+    quests: { releaseLeases: async () => 0 },
     sandboxes: {
       kill: async () => {
         calls.push('kill')
@@ -132,5 +133,76 @@ describe('a guild bar', () => {
     await w.gates.bar({ guildId: a ?? '', memberId: OPERATOR }, 'guild')
     expect(w.calls).toEqual(['kill', 'revokeGuildRuns'])
     expect(w.events.get(b ?? '')).toBeUndefined()
+  })
+})
+
+describe('a sandbox kill that fails', () => {
+  test('the bar still commits and the run tokens are still revoked, and the failure is reported', async () => {
+    const store = new MemoryGateStore()
+    let revoked = 0
+    const gates = new Gates({
+      store,
+      runs: {
+        revokeGuildRuns: async () => {
+          revoked += 1
+          return 4
+        },
+        revokeAllRuns: async () => 0,
+      },
+      quests: { releaseLeases: async () => 0 },
+      sandboxes: {
+        kill: async () => {
+          throw new Error('docker unreachable')
+        },
+      },
+      guildIds: async () => [],
+    })
+    const guildId = crypto.randomUUID()
+    const outcome = await gates.bar({ guildId, memberId: OPERATOR }, 'guild')
+    expect(outcome.created).toBe(true)
+    expect(outcome.revokedRuns).toBe(4)
+    expect(outcome.killedSandboxes).toBe(0)
+    expect(outcome.killFailed).toBe(true)
+    expect(revoked).toBe(1)
+    expect(await store.isBarred(guildId)).toBe(true)
+  })
+})
+
+describe('barring frees the leases of active Quests', () => {
+  function gatesReleasing(released: string[], guilds: string[]) {
+    return new Gates({
+      store: new MemoryGateStore(),
+      runs: { revokeGuildRuns: async () => 0, revokeAllRuns: async () => 0 },
+      sandboxes: { kill: async () => 0 },
+      quests: {
+        releaseLeases: async (guildId, reason) => {
+          expect(reason).toBe('sandbox_unavailable')
+          released.push(guildId)
+          return 1
+        },
+      },
+      guildIds: async (after, limit) =>
+        guilds.filter((g) => after === undefined || g > after).slice(0, limit),
+    })
+  }
+
+  test('barring one guild releases that guild only', async () => {
+    const released: string[] = []
+    const guild = crypto.randomUUID()
+    await gatesReleasing(released, [guild, crypto.randomUUID()]).bar(
+      { guildId: guild, memberId: crypto.randomUUID() },
+      'guild'
+    )
+    expect(released).toEqual([guild])
+  })
+
+  test('a global bar releases every guild, a page at a time', async () => {
+    const released: string[] = []
+    const guilds = Array.from({ length: 120 }, () => crypto.randomUUID()).sort()
+    await gatesReleasing(released, guilds).bar(
+      { guildId: guilds[0] ?? '', memberId: crypto.randomUUID() },
+      'global'
+    )
+    expect([...released].sort()).toEqual(guilds)
   })
 })

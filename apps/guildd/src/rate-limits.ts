@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { clientAddress, UNKNOWN_CLIENT } from './client-ip'
 import type { RateLimiter, RateRule } from './ports/rate-limiter'
 
-/** The unauthenticated identity routes that are rate limited. */
+/** The routes that are rate limited: identity ceremonies, session writes and reads, and token-bearing calls. */
 export type RateRoute =
   | 'signin-begin'
   | 'signin-finish'
@@ -15,6 +15,8 @@ export type RateRoute =
   | 'checkpoint-begin'
   | 'checkpoint-finish'
   | 'quest-post'
+  | 'summon'
+  | 'summon-status'
   | 'seal-posted'
   | 'gateway-call'
   | 'mcp'
@@ -61,18 +63,25 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'checkpoint-begin': writeLimits(10, 30),
   'checkpoint-finish': writeLimits(10, 30),
   'quest-post': writeLimits(60, 300),
+  // Starting a worker spends money and a container: far tighter than other writes.
+  summon: writeLimits(10, 30),
+  // The Summon panel polls its status; a read is cheap but still bounded per client and guild.
+  'summon-status': writeLimits(60, 240),
   'seal-posted': writeLimits(30, 120),
-  // Run-token calls to the model gateway: each spends money, so they are bounded per client
-  // (workers share a few addresses); the daily caps bound the total spend.
+  // Run-token calls to the model gateway: each spends money. Every sandbox reaches guildd
+  // through the one proxy address, so the client bucket is loose; the guild the verified run
+  // token names is bounded tighter (charged after the token verifies). Daily caps bound spend.
   'gateway-call': {
-    client: { limit: 300, windowMs: MINUTE },
+    client: { limit: 1200, windowMs: MINUTE },
     unknown: { limit: 60, windowMs: MINUTE },
+    guild: { limit: 300, windowMs: MINUTE },
   },
-  // The MCP gateway: no guild in the path, so it is bounded per client; every tool call is also
-  // authorised by a signed lease token, and a forged one costs a MAC check.
+  // The MCP gateway: no guild in the path, so the guild bucket is charged to the guild named by
+  // the verified lease or assignment token; a forged token costs a MAC check and spends nothing.
   mcp: {
-    client: { limit: 600, windowMs: MINUTE },
+    client: { limit: 2400, windowMs: MINUTE },
     unknown: { limit: 120, windowMs: MINUTE },
+    guild: { limit: 600, windowMs: MINUTE },
   },
   'proposal-post': writeLimits(60, 300),
   // A person registers a handful of devices; each call is a dispatch scan and a database write.
@@ -128,7 +137,8 @@ function socketAddress(c: Context): string | undefined {
 /**
  * Middleware that counts the request against the client bucket and then, only if that allowed it,
  * the guild bucket (when the route has a valid `:id` guild); answers 429 with `Retry-After` once
- * either is exhausted. Callers with no known address share `limits.unknown` (stricter).
+ * either is exhausted. On `session` routes ({@link RATE_ROUTE_AUTH}) the guild bucket is charged
+ * only when `sessionGuild` returns the path's guild. Callers with no known address share `limits.unknown` (stricter).
  * The client address comes from {@link clientAddress}: the socket peer, or the last
  * `X-Forwarded-For` hop only when `trustProxy` (env `TRUST_PROXY`) is set.
  */
@@ -136,7 +146,8 @@ export function rateLimit(
   limiter: RateLimiter,
   route: RateRoute,
   limits: RouteLimits,
-  trustProxy: boolean
+  trustProxy: boolean,
+  sessionGuild: (c: Context) => Promise<string | null> = async () => null
 ): MiddlewareHandler {
   return async (c, next) => {
     const client = clientAddress({
@@ -156,7 +167,13 @@ export function rateLimit(
       return refuse(byClient.retryAfterSeconds)
     }
     const guild = z.uuid().safeParse(c.req.param('id'))
-    if (limits.guild && guild.success) {
+    // Session routes charge the guild bucket only once the session resolves to this very guild;
+    // a route with no guild rule never looks the session up.
+    if (
+      limits.guild &&
+      guild.success &&
+      (RATE_ROUTE_AUTH[route] === 'unauthenticated' || (await sessionGuild(c)) === guild.data)
+    ) {
       const byGuild = await limiter.hit(`${route}:guild:${guild.data}`, limits.guild)
       if (!byGuild.allowed) {
         return refuse(byGuild.retryAfterSeconds)
@@ -164,4 +181,36 @@ export function rateLimit(
     }
     await next()
   }
+}
+
+/** Whether a limited route is reached with a session or without one; see {@link RATE_ROUTE_AUTH}. */
+export type RateAuth = 'session' | 'unauthenticated'
+
+/**
+ * How each limited route is reached. `unauthenticated` means not session-gated: the guild bucket,
+ * if any, is charged before auth (a caller has no session yet). `session` routes charge it only
+ * after the caller's session resolves to the guild in the path, so another guild's session, or
+ * none, cannot spend it. `gateway-call` and `mcp` carry tokens, not sessions: their guild bucket is
+ * charged by the handler after the token verifies, never by this middleware.
+ */
+export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
+  'signin-begin': 'unauthenticated',
+  'signin-finish': 'unauthenticated',
+  'passkeys-begin': 'unauthenticated',
+  'passkeys-finish': 'unauthenticated',
+  founding: 'unauthenticated',
+  reauth: 'unauthenticated',
+  'stream-ticket': 'session',
+  'checkpoint-begin': 'session',
+  'checkpoint-finish': 'session',
+  'quest-post': 'session',
+  summon: 'session',
+  'summon-status': 'session',
+  'seal-posted': 'session',
+  'gateway-call': 'unauthenticated',
+  mcp: 'unauthenticated',
+  'proposal-post': 'session',
+  'push-subscribe': 'session',
+  'learning-scan': 'session',
+  'events-history': 'session',
 }

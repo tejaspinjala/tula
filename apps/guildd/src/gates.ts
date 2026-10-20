@@ -1,4 +1,5 @@
 import type { GateActor, GateScope, GateStatus, GateStore, GlobalEvent } from './ports/gate-store'
+import type { QuestQueue } from './ports/quest-queue'
 import type { SandboxRunner } from './ports/sandbox-runner'
 
 const GUILD_PAGE = 50
@@ -14,6 +15,8 @@ export interface BarOutcome {
   revokedRuns: number
   /** Sandboxes killed. */
   killedSandboxes: number
+  /** True when the sandbox kill itself failed; the bar and the revoked tokens stand, and a retry kills again. */
+  killFailed: boolean
 }
 
 /** Ports {@link Gates} is built from. */
@@ -25,6 +28,8 @@ export interface GatesDeps {
     revokeAllRuns(): Promise<number>
   }
   sandboxes: Pick<SandboxRunner, 'kill'>
+  /** Frees the leases of a barred guild's active Quests, so a lift can start them again. */
+  quests: Pick<QuestQueue, 'releaseLeases'>
   /** Guild ids in id order after `after`, at most `limit`; a global bar tells each guild's chain. */
   guildIds: (after: string | undefined, limit: number) => Promise<string[]>
 }
@@ -46,17 +51,53 @@ export class Gates {
   async bar(actor: GateActor, scope: GateScope): Promise<BarOutcome> {
     const { barId, created } = await this.deps.store.bar(actor, scope)
     // The kill starts first: a running sandbox is the slowest thing to stop.
-    const killing = this.deps.sandboxes.kill(
-      scope === 'global' ? 'all' : { guildId: actor.guildId }
-    )
+    // A kill that fails must not stop the revokes and announcements: the bar is already committed.
+    const killing = this.deps.sandboxes
+      .kill(scope === 'global' ? 'all' : { guildId: actor.guildId })
+      .then(
+        (killed) => ({ killed, failed: false }),
+        () => ({ killed: 0, failed: true })
+      )
     const revoking =
       scope === 'global'
         ? this.deps.runs.revokeAllRuns()
         : this.deps.runs.revokeGuildRuns(actor.guildId)
     const announcing =
       scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
-    const [killedSandboxes, revokedRuns] = await Promise.all([killing, revoking, announcing])
-    return { barId, created, revokedRuns, killedSandboxes }
+    // The killed workers' leases would otherwise linger until they lapse and block a restart after a lift.
+    const releasing = this.releaseLeases(scope === 'global' ? null : actor.guildId)
+    const [kill, revokedRuns] = await Promise.all([killing, revoking, announcing, releasing])
+    return {
+      barId,
+      created,
+      revokedRuns,
+      killedSandboxes: kill.killed,
+      killFailed: kill.failed,
+    }
+  }
+
+  /** Releases the active Quests' leases of one guild, or of every guild a page at a time. */
+  private async releaseLeases(guildId: string | null): Promise<void> {
+    if (guildId !== null) {
+      await this.deps.quests.releaseLeases(guildId, 'sandbox_unavailable')
+      return
+    }
+    let after: string | undefined
+    for (;;) {
+      const page = await this.deps.guildIds(after, GUILD_PAGE)
+      for (let i = 0; i < page.length; i += ANNOUNCE_CONCURRENCY) {
+        await Promise.all(
+          page
+            .slice(i, i + ANNOUNCE_CONCURRENCY)
+            .map((g) => this.deps.quests.releaseLeases(g, 'sandbox_unavailable'))
+        )
+      }
+      const last = page.at(-1)
+      if (!last || page.length < GUILD_PAGE) {
+        return
+      }
+      after = last
+    }
   }
 
   /** Tells every guild's chain about a global bar or lift, a page at a time, a few guilds at once. */

@@ -5,6 +5,7 @@ import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig } from './guild-config'
 import { postQuest, QUEST_TEMPLATES } from './quests'
+import { SUMMON_TEMPLATE_ID } from './summon'
 
 async function setup() {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
@@ -90,4 +91,10 @@ test('a paused Hall rejects Quests until it resumes, and a locked Hall still rea
   })
   await tripwires.resume(guild, 'heralds')
   expect((await postQuest({ config, queue, tripwires }, guild, input)).ok).toBe(true)
+})
+
+test('the Summon test Quest is posted from a template whose done-condition needs no Seal', () => {
+  const template = QUEST_TEMPLATES.find((t) => t.id === SUMMON_TEMPLATE_ID)
+  expect(template?.requiresSeal).toBe(false)
+  expect(QUEST_TEMPLATES.find((t) => t.id === 'herald-announcement')?.requiresSeal).toBe(true)
 })

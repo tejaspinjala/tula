@@ -4,6 +4,7 @@ import {
   claimTransition,
   completeTransition,
   expireTransition,
+  type FailReason,
   failTransition,
   hasLiveLease,
   isExhausted,
@@ -158,6 +159,30 @@ export class MemoryQuestQueue implements QuestQueue {
     const quest = this.mustFind(guildId, id)
     const delay = retryDelayMs(quest.attempts, this.random())
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
+  }
+
+  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+    const now = this.clock.now().toISOString()
+    let released = 0
+    for (const q of this.guild(guildId).byId.values()) {
+      if (q.state === 'active') {
+        this.guild(guildId).byId.set(q.id, {
+          ...q,
+          state: 'queued',
+          leaseExpiresAt: null,
+          notBefore: now,
+          lastError: reason,
+        })
+        released += 1
+      }
+    }
+    return released
+  }
+
+  async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
+    const g = this.guild(guildId)
+    const id = g.byKey.get(jobKey)
+    return (id === undefined ? undefined : g.byId.get(id)) ?? null
   }
 
   async get(guildId: string, id: string): Promise<Quest | null> {

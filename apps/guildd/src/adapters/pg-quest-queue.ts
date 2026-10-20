@@ -9,6 +9,7 @@ import {
   completeTransition,
   dataClass,
   expireTransition,
+  type FailReason,
   failReason,
   failTransition,
   isExhausted,
@@ -252,6 +253,26 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) =>
       failTransition(q, attempt, error, this.clock.now(), retryDelayMs(q.attempts, this.random()))
     )
+  }
+
+  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      const rows = await tx`
+        update quests set state = 'queued', lease_expires_at = null,
+          not_before = ${this.clock.now()}, last_error = ${reason}
+        where guild_id = ${guildId} and state = 'active'
+        returning quest_id`
+      return rows.length
+    })
+  }
+
+  async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select * from quests where guild_id = ${guildId} and job_key = ${jobKey}`
+      return row ? toQuest(row) : null
+    })
   }
 
   async get(guildId: string, id: string): Promise<Quest | null> {
