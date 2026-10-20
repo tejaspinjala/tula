@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { ModelProviderError, ProviderSecret } from '../ports/model-provider'
 import { ClaudeCliModelProvider } from './claude-cli-model-provider'
@@ -16,6 +17,7 @@ const call = (mode: string) => ({
 const echo = z.object({
   argv: z.array(z.string()),
   env: z.record(z.string(), z.string()),
+  cwd: z.string(),
   stdin: z.string(),
 })
 
@@ -147,6 +149,16 @@ describe('ClaudeCliModelProvider', () => {
     expect(seen.stdin.split(`</turn-${nonce}>`)).toHaveLength(4)
     const other = echo.parse(JSON.parse((await provider.complete(secret, request)).text))
     expect(/<turn-([0-9a-f]{16,}) /.exec(other.stdin)?.[1]).not.toBe(nonce)
+  })
+
+  test('always passes a system prompt, and runs in a fresh empty directory removed afterwards', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE })
+    const { system: _omitted, ...bare } = call('argv')
+    const seen = echo.parse(JSON.parse((await provider.complete(secret, bare)).text))
+    expect(seen.argv).toContain('--system-prompt')
+    expect(seen.cwd).not.toBe(process.cwd())
+    expect(seen.cwd).toContain('guildhall-claude-')
+    expect(existsSync(seen.cwd)).toBe(false)
   })
 
   test('the child sees only the allowlisted environment', async () => {
