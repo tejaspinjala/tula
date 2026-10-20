@@ -2,6 +2,8 @@
 // Test fixture standing in for the `claude` CLI. It emits the JSON shape `claude -p
 // --output-format json` prints. The first line of stdin picks the behaviour (`MODE=<name>`), so
 // a test steers it through the prompt without any environment the adapter would strip.
+export {}
+
 const stdin = await new Response(Bun.stdin.stream()).text()
 const mode = /^MODE=(\S+)/.exec(stdin)?.[1] ?? 'ok'
 const usage = {

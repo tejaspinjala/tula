@@ -217,7 +217,11 @@ export class ModelGateway {
       return { status: 'refused', reason: 'token_revoked' }
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile } = resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
+    const { profile } = resolveProfile(
+      config,
+      run.profileId,
+      this.deps.subscriptionProvider !== undefined
+    )
     const capped = await this.capReason(guildId, config)
     const issue = this.issue(guildId)
     if (capped && existing?.state === 'revoked') {
@@ -337,7 +341,11 @@ export class ModelGateway {
       throw new GatewayError('invalid_request')
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile, provider } = resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
+    const { profile, provider } = resolveProfile(
+      config,
+      run.profileId,
+      this.deps.subscriptionProvider !== undefined
+    )
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
@@ -389,7 +397,9 @@ export class ModelGateway {
       })
     } catch (e) {
       if (e instanceof ModelProviderError) {
-        throw new GatewayError(e.code === 'subscription_limit' ? 'subscription_limit' : 'provider_failed')
+        throw new GatewayError(
+          e.code === 'subscription_limit' ? 'subscription_limit' : 'provider_failed'
+        )
       }
       throw e
     }

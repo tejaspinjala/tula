@@ -98,6 +98,8 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Serves `subscription` providers; tests inject a memory one, production the `claude` CLI adapter. */
+  subscriptionProvider?: ModelProvider
   /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
   platformOperators: readonly string[]
   /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
@@ -296,6 +298,7 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
     case 'token_revoked':
       return 401
     case 'cap_reached':
+    case 'subscription_limit':
       return 429
     case 'provider_failed':
       return 502

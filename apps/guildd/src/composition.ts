@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import { AnthropicModelProvider } from './adapters/anthropic-model-provider'
+import { ClaudeCliModelProvider } from './adapters/claude-cli-model-provider'
 import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
@@ -37,6 +38,7 @@ import {
   loadEnv,
   loadPlatformOperators,
   loadSandboxEnv,
+  loadSubscriptionEnv,
   loadVapidEnv,
   loadWebauthnEnv,
 } from './env'
@@ -87,6 +89,17 @@ export async function compose(
   // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
   const sandboxes = overrides.sandboxes ?? sandboxRunnerFor(loadSandboxEnv())
   const vapid = loadVapidEnv()
+  // Subscription providers run the host's own `claude` CLI; off unless the host opts in (ADR-0008).
+  const subscriptionEnv = loadSubscriptionEnv()
+  const subscriptionProvider =
+    overrides.subscriptionProvider ??
+    (subscriptionEnv.enabled
+      ? new ClaudeCliModelProvider({
+          bin: subscriptionEnv.bin,
+          timeoutMs: subscriptionEnv.timeoutMs,
+          maxConcurrent: subscriptionEnv.maxConcurrent,
+        })
+      : undefined)
   const pushStore = overrides.pushStore ?? new PgPushStore(db)
   // Without VAPID keys (development only; production fails at boot) pushes go to the memory notifier.
   const pushNotifier =
@@ -116,6 +129,7 @@ export async function compose(
       secrets,
       config,
       provider: overrides.modelProvider ?? new AnthropicModelProvider(),
+      ...(subscriptionProvider ? { subscriptionProvider } : {}),
       clock,
       quests,
       tripwires,
@@ -219,7 +233,17 @@ export async function compose(
     sandboxes,
     summon:
       overrides.summon ??
-      new Summon({ config, quests, tripwires, gates: gateStore, gateway, mcp, sandboxes, clock }),
+      new Summon({
+        config,
+        quests,
+        tripwires,
+        gates: gateStore,
+        gateway,
+        mcp,
+        sandboxes,
+        clock,
+        subscriptionEnabled: subscriptionProvider !== undefined,
+      }),
     platformOperators: overrides.platformOperators ?? loadPlatformOperators(),
     gates:
       overrides.gates ??

@@ -55,6 +55,8 @@ export interface SummonDeps {
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
   clock: Clock
+  /** Whether the host has enabled `subscription` providers; they are refused otherwise. */
+  subscriptionEnabled?: boolean
 }
 
 /**
@@ -95,7 +97,7 @@ export class Summon {
     if (!profile || !provider) {
       return { ok: false, error: 'unknown_profile' }
     }
-    if (provider.auth === 'subscription') {
+    if (provider.auth === 'subscription' && !this.deps.subscriptionEnabled) {
       return { ok: false, error: 'subscription_unsupported_until_spike_15' }
     }
     const posted = await postQuest(

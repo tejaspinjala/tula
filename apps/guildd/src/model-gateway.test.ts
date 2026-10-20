@@ -273,9 +273,6 @@ describe('metering', () => {
 })
 
 describe('subscription provider', () => {
-  const subOpen = (open: (name?: string, over?: { profileId: string }) => Promise<unknown>) =>
-    open('run-s', { profileId: 'sub-mid' })
-
   test('serves the call through the subscription provider with no Vault secret, metered in tokens and unpriced', async () => {
     const subscription = new MemoryModelProvider()
     subscription.script({ ok: true, text: 'from cli', usage: { inputTokens: 40, outputTokens: 9 } })
@@ -294,7 +291,7 @@ describe('subscription provider', () => {
     const subscription = new MemoryModelProvider()
     subscription.script({ ok: false, code: 'subscription_limit' })
     const { gateway, ledger, open } = await setup(config(), { subscription })
-    const run = await started(subOpen(open))
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
     expect(await codeOf(gateway.complete(run.token, message))).toBe('subscription_limit')
     expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
   })
@@ -303,7 +300,7 @@ describe('subscription provider', () => {
     const subscription = new MemoryModelProvider()
     subscription.script({ ok: false, code: 'unavailable' })
     const { gateway, open } = await setup(config(), { subscription })
-    const run = await started(subOpen(open))
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
     expect(await codeOf(gateway.complete(run.token, message))).toBe('provider_failed')
   })
 })
