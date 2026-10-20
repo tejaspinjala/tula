@@ -145,21 +145,37 @@ export const webAuthnBrowser: PasskeyBrowser = {
 
 /** Signs in with a discoverable passkey and no guild id; the guild comes from the passkey. */
 export async function signInWithPasskey(
-  _fetcher: Fetcher,
-  _browser: PasskeyBrowser
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<Session> {
-  throw new Error('not implemented')
+  const begin = await send(fetcher, '/sign-in/begin', {}, request)
+  const response = await browser.get(begin.options)
+  return send(fetcher, '/sign-in/finish', { challengeId: begin.challengeId, response }, sessionBody)
 }
 
 /** Whether guildd is open to founding a guild (`GET /founding`); a failed call reads as closed. */
-export async function foundingOpen(_fetcher: Fetcher): Promise<boolean> {
-  throw new Error('not implemented')
+export async function foundingOpen(fetcher: Fetcher): Promise<boolean> {
+  try {
+    const res = await fetcher('/api/founding')
+    const parsed = z.object({ open: z.boolean() }).safeParse(await res.json().catch(() => null))
+    return res.ok && parsed.success && parsed.data.open
+  } catch {
+    return false
+  }
 }
+
+const guildBody = z.object({ id: z.string(), name: z.string() })
 
 /** The signed-in guild's name and id (`GET /guilds/:id` with the session token). */
 export async function fetchGuild(
-  _session: Session,
-  _fetcher: Fetcher
+  session: Session,
+  fetcher: Fetcher
 ): Promise<{ id: string; name: string }> {
-  throw new Error('not implemented')
+  const res = await fetcher(`/api/guilds/${session.guildId}`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  if (!res.ok) {
+    throw new PasskeyRequestError(res.status, 'guild_unavailable')
+  }
+  return guildBody.parse(await res.json())
 }
