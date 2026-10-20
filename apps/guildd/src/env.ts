@@ -206,3 +206,24 @@ export function loadPlatformOperators(
 ): string[] {
   return operatorsSchema.parse(source.PLATFORM_OPERATORS)
 }
+
+/** How sandboxes run: nowhere real (tests, development) or in hardened Docker containers. */
+export type SandboxEnv =
+  | { kind: 'memory' }
+  | {
+      kind: 'docker'
+      image: string
+      network: string
+      scope: string
+      /** Where a sandbox finds the egress proxy. */
+      proxyUrl: string
+      /** The one origin (model gateway and MCP gateway) a sandbox reaches through the proxy. */
+      gatewayUrl: string
+    }
+
+/** Reads the sandbox settings (`SANDBOX_RUNNER` and friends); throws at boot on a bad combination. */
+export function loadSandboxEnv(
+  _source: Record<string, string | undefined> = process.env
+): SandboxEnv {
+  throw new Error('not implemented')
+}

@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { createECDH } from 'node:crypto'
 import { Glob } from 'bun'
-import { loadEnv, loadPlatformOperators, loadVapidEnv, loadWebauthnEnv } from './env'
+import {
+  loadEnv,
+  loadPlatformOperators,
+  loadSandboxEnv,
+  loadVapidEnv,
+  loadWebauthnEnv,
+} from './env'
 
 const vapidPair = createECDH('prime256v1')
 vapidPair.generateKeys()
@@ -127,6 +133,42 @@ describe('loadEnv', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('sandbox settings', () => {
+  const docker = {
+    SANDBOX_RUNNER: 'docker',
+    SANDBOX_IMAGE: `guildhall-worker@sha256:${'a'.repeat(64)}`,
+    SANDBOX_NETWORK: 'guildhall-sandbox',
+    EGRESS_PROXY_URL: 'http://egress-proxy:3128',
+    SANDBOX_GATEWAY_URL: 'http://guildd:3000',
+  }
+  test('defaults to the memory runner outside production', () => {
+    expect(loadSandboxEnv({ NODE_ENV: 'development' })).toEqual({ kind: 'memory' })
+  })
+  test('docker needs an image pinned by digest, the network, the proxy and the gateway', () => {
+    expect(loadSandboxEnv(docker)).toEqual({
+      kind: 'docker',
+      image: docker.SANDBOX_IMAGE,
+      network: 'guildhall-sandbox',
+      scope: 'default',
+      proxyUrl: 'http://egress-proxy:3128',
+      gatewayUrl: 'http://guildd:3000',
+    })
+    expect(() => loadSandboxEnv({ ...docker, SANDBOX_IMAGE: 'guildhall-worker:latest' })).toThrow(
+      /SANDBOX_IMAGE/
+    )
+    expect(() => loadSandboxEnv({ ...docker, EGRESS_PROXY_URL: undefined })).toThrow(
+      /EGRESS_PROXY_URL/
+    )
+  })
+  test('production refuses an unset runner and the memory runner', () => {
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production' })).toThrow(/SANDBOX_RUNNER/)
+    expect(() => loadSandboxEnv({ NODE_ENV: 'production', SANDBOX_RUNNER: 'memory' })).toThrow(
+      /SANDBOX_RUNNER/
+    )
+    expect(loadSandboxEnv({ NODE_ENV: 'production', ...docker }).kind).toBe('docker')
   })
 })
 
