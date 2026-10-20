@@ -48,6 +48,7 @@ describe('websocket backpressure', () => {
       clock: harness.adapters.clock,
       db,
       objectStore: harness.adapters.objectStore,
+      identity: harness.adapters.identity,
       keys,
       devGuildHeader: true,
       eventPollMs: 600_000,

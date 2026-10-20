@@ -5,9 +5,12 @@ import { verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
+import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { Clock } from './ports/clock'
+import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import type { ObjectStore } from './ports/object-store'
+import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -15,6 +18,7 @@ export interface AppDeps {
   clock: Clock
   db: Db
   objectStore: ObjectStore
+  identity: IdentityProvider
   /** Custody of the audit chain's MAC key; never the database. */
   keys: KeyProvider
   /** Whether `x-guild-id` identifies the caller (development only). */
@@ -94,11 +98,15 @@ export function createApp(deps: AppDeps): Hono {
     })
     return Promise.race([call, timeout]).finally(() => clearTimeout(timer))
   }
-  app.onError((err, c) =>
-    err instanceof StoreTimeoutError
-      ? c.json({ error: 'object_store_timeout' }, 504)
-      : c.json({ error: 'internal_error' }, 500)
-  )
+  app.onError((err, c) => {
+    if (err instanceof StoreTimeoutError) {
+      return c.json({ error: 'object_store_timeout' }, 504)
+    }
+    if (err instanceof IdentityError) {
+      return c.json({ error: err.code }, err.code === 'invalid_challenge' ? 400 : 401)
+    }
+    return c.json({ error: 'internal_error' }, 500)
+  })
   const hub = createEventHub(deps.db, {
     pollMs: deps.eventPollMs,
     maxSocketsPerGuild: deps.maxSocketsPerGuild,
@@ -111,15 +119,24 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
     }
-    const id = await deps.db.foundGuildChained(body.data, deps.keys)
-    return c.json({ id }, 201)
+    // The founding token is issued inside the founding transaction, so a failure leaves no guild.
+    // Returned once; only its hash is kept. Needed to register the guild's first passkey.
+    let foundingToken = ''
+    const id = await deps.db.foundGuildChained(body.data, deps.keys, async (tx, guildId) => {
+      foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
+    })
+    return c.json({ id, foundingToken }, 201)
   })
 
   /**
-   * The single trust boundary: which guild is calling. Until authentication lands (#11) this is
-   * the `x-guild-id` header, honoured only when DEV_GUILD_HEADER is on; otherwise no caller.
+   * The single trust boundary: which guild is calling. A Bearer session token (passkey sign-in)
+   * names the guild; otherwise it is the `x-guild-id` header, honoured only when DEV_GUILD_HEADER is on; otherwise no caller.
    */
-  function callerGuild(c: Context): string | null {
+  async function callerGuild(c: Context): Promise<string | null> {
+    const token = bearerToken(c.req.header('authorization'))
+    if (token) {
+      return (await deps.identity.resolveSession(token))?.guildId ?? null
+    }
     if (!deps.devGuildHeader) {
       return null
     }
@@ -127,9 +144,117 @@ export function createApp(deps: AppDeps): Hono {
     return parsed.success ? parsed.data : null
   }
 
+  /** Whether the guild exists (the guild row is visible only under its own tenant context). */
+  async function guildExists(id: string): Promise<boolean> {
+    const rows = await deps.db.withGuild(
+      id,
+      (tx) => tx`select 1 from guilds where guild_id = ${id}`
+    )
+    return rows.length > 0
+  }
+
+  /** Parses `:id` as a guild that exists, else null (caller answers 404). */
+  async function ceremonyGuild(c: Context): Promise<string | null> {
+    const id = uuid.safeParse(c.req.param('id'))
+    return id.success && (await guildExists(id.data)) ? id.data : null
+  }
+
+  // Passkeys. The first passkey of a guild is open (founding); adding another is a sensitive
+  // action: a session of that guild plus a fresh re-authentication proof.
+  app.post('/guilds/:id/passkeys/begin', async (c) => {
+    const guild = await ceremonyGuild(c)
+    if (!guild) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const foundingToken = c.req.header('x-founding-token')
+    if (await deps.identity.hasCredentials(guild)) {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      if (check.guildId !== guild) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+    }
+    return c.json(
+      await deps.identity.beginRegistration(guild, {
+        ...(token ? { sessionToken: token } : {}),
+        ...(foundingToken ? { foundingToken } : {}),
+      })
+    )
+  })
+
+  app.post('/guilds/:id/passkeys/finish', async (c) => {
+    const guild = await ceremonyGuild(c)
+    const body = registerFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!guild) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const sessionToken = bearerToken(c.req.header('authorization'))
+    return c.json(
+      await deps.identity.finishRegistration(
+        guild,
+        body.data.challengeId,
+        body.data.response,
+        sessionToken ? { sessionToken } : {}
+      ),
+      201
+    )
+  })
+
+  app.post('/guilds/:id/sign-in/begin', async (c) => {
+    const guild = await ceremonyGuild(c)
+    return guild
+      ? c.json(await deps.identity.beginSignIn(guild))
+      : c.json({ error: 'not_found' }, 404)
+  })
+
+  app.post('/guilds/:id/sign-in/finish', async (c) => {
+    const guild = await ceremonyGuild(c)
+    const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!guild) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const session = await deps.identity.finishSignIn(
+      guild,
+      body.data.challengeId,
+      body.data.response
+    )
+    return c.json(session)
+  })
+
+  app.post('/session/reauth/begin', async (c) => {
+    const token = bearerToken(c.req.header('authorization'))
+    if (!token) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    return c.json(await deps.identity.beginReauth(token))
+  })
+
+  app.post('/session/reauth/finish', async (c) => {
+    const token = bearerToken(c.req.header('authorization'))
+    const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!token) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json(
+      await deps.identity.finishReauth(token, body.data.challengeId, body.data.response)
+    )
+  })
+
   // A guild that is not the caller's is indistinguishable from one that does not exist.
   app.get('/guilds/:id', async (c) => {
-    const caller = callerGuild(c)
+    const caller = await callerGuild(c)
     if (!caller) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
@@ -151,7 +276,7 @@ export function createApp(deps: AppDeps): Hono {
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
   // the caller's is indistinguishable from one that does not exist.
   app.get('/guilds/:id/audit/verify', async (c) => {
-    const caller = callerGuild(c)
+    const caller = await callerGuild(c)
     if (!caller) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
@@ -164,7 +289,7 @@ export function createApp(deps: AppDeps): Hono {
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row
   // records hash, size and class. Idempotent: the same bytes again change nothing.
   app.on(['PUT', 'POST'], '/artifacts', async (c) => {
-    const caller = callerGuild(c)
+    const caller = await callerGuild(c)
     if (!caller) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
@@ -203,7 +328,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // An artifact that is not the caller's is indistinguishable from one that does not exist.
   app.get('/artifacts/:hash', async (c) => {
-    const caller = callerGuild(c)
+    const caller = await callerGuild(c)
     if (!caller) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
@@ -234,7 +359,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = callerGuild(c)
+      const caller = await callerGuild(c)
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }

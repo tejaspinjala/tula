@@ -40,6 +40,7 @@ function countingApp(
     clock: harness.adapters.clock,
     db: counting,
     objectStore: harness.adapters.objectStore,
+    identity: harness.adapters.identity,
     keys,
     devGuildHeader: true,
     eventPollMs: 600_000,

@@ -8,6 +8,7 @@
     "db:migrate": "bun src/db/migrate-cli.ts"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^14.0.3",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
     "postgres": "^3.4.9",

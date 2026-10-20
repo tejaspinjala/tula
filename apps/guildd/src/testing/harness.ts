@@ -17,7 +17,12 @@ export interface HarnessOptions {
   app?: Partial<
     Pick<
       AppDeps,
-      'objectStore' | 'keys' | 'objectStoreTimeoutMs' | 'maxArtifactBytes' | 'eventPollMs'
+      | 'identity'
+      | 'objectStore'
+      | 'keys'
+      | 'objectStoreTimeoutMs'
+      | 'maxArtifactBytes'
+      | 'eventPollMs'
     >
   >
 }
@@ -38,7 +43,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   const memoryStore = new MemoryObjectStore()
   const objectStore = options.app?.objectStore ?? memoryStore
   const keys = options.app?.keys ?? new MemoryKeyProvider()
-  const { app } = await compose({
+  const { app, adapters: composed } = await compose({
     clock,
     db,
     ...options.app,
@@ -51,7 +56,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   return {
     /** Connection URL of the non-owner app role on the central test database. */
     appUrl,
-    adapters: { clock, db, objectStore, memoryStore, keys },
+    adapters: { clock, db, objectStore, memoryStore, identity: composed.identity, keys },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */

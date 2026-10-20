@@ -1,10 +1,12 @@
 import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
+import { PgIdentityStore } from './adapters/pg-identity-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
+import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
-import { loadEnv } from './env'
+import { loadEnv, loadWebauthnEnv } from './env'
 
 /**
  * The single composition root: wires adapters into the app.
@@ -27,12 +29,22 @@ export async function compose(
           keys: overrides.keys,
         }
       : await fromEnv(overrides)
+  const clock = overrides.clock ?? new SystemClock()
+  const rp = loadWebauthnEnv()
   const adapters: AppDeps = {
-    clock: new SystemClock(),
     ...overrides,
+    clock,
     db,
     devGuildHeader,
     objectStore,
+    identity:
+      overrides.identity ??
+      new WebAuthnIdentityProvider(new PgIdentityStore(db), {
+        clock,
+        rpId: rp.WEBAUTHN_RP_ID,
+        rpName: 'Guildhall',
+        origin: rp.WEBAUTHN_ORIGIN,
+      }),
     keys,
   }
   return { app: createApp(adapters), adapters }
