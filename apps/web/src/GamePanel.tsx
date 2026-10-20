@@ -26,7 +26,7 @@ import type { Session } from './passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
-import { reconnectDelayMs, streamNotice } from './stream-retry'
+import { createBackoff, streamHandlers, streamNotice } from './stream-retry'
 import { TalkDialog } from './TalkDialog'
 import { DialogueBox, ItemGet, PixelButton } from './ui/pixel'
 
@@ -93,7 +93,7 @@ export function GamePanel({
     let closed = false
     let socket: WebSocket | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
-    let attempt = 0
+    const backoff = createBackoff()
 
     const refreshQuests = () =>
       loadQuests(session, fetch)
@@ -130,42 +130,40 @@ export function GamePanel({
         retry()
         return
       }
-      let opened = false
       socket = new WebSocket(
         questStreamUrl(session, window.location.origin, lastSeq.current, ticket)
       )
-      socket.onopen = () => {
-        opened = true
-      }
-      socket.onmessage = (message) => {
-        attempt = 0
-        setStreamFailures(0)
-        const event = readEventFrame(String(message.data))
-        if (event) {
-          setBanner(bannerFor(event))
-          if (event.type.startsWith('quest.')) {
-            // The Quest facts (title, owner) come from the board; refresh before drawing.
-            refreshQuests().then(() => !closed && append(event))
-          } else {
-            append(event)
+      // Only a received frame resets the backoff: a socket that upgrades then drops still fails.
+      const handlers = streamHandlers(backoff, {
+        onHealthy: () => setStreamFailures(0),
+        onMessage: (data) => {
+          const event = readEventFrame(data)
+          if (event) {
+            setBanner(bannerFor(event))
+            if (event.type.startsWith('quest.')) {
+              // The Quest facts (title, owner) come from the board; refresh before drawing.
+              refreshQuests().then(() => !closed && append(event))
+            } else {
+              append(event)
+            }
           }
-        }
-      }
-      socket.onclose = () => {
-        if (opened) {
-          attempt = 0
-          setStreamFailures(0)
-        }
-        retry()
-      }
+        },
+        onRetry: (wait, failures) => {
+          if (!closed) {
+            setStreamFailures(failures)
+            timer = setTimeout(connect, wait)
+          }
+        },
+      })
+      socket.onmessage = (message) => handlers.message(String(message.data))
+      socket.onclose = handlers.close
     }
 
     function retry(again: () => void = connect) {
       if (!closed) {
         // Jittered backoff so many tabs reloaded together do not retry in lockstep.
-        const wait = reconnectDelayMs(attempt, Math.random())
-        attempt += 1
-        setStreamFailures(attempt)
+        const { wait, failures } = backoff.next(Math.random())
+        setStreamFailures(failures)
         timer = setTimeout(again, wait)
       }
     }
@@ -198,7 +196,7 @@ export function GamePanel({
           setEvents(history)
           lastSeq.current = history.reduce((max, e) => Math.max(max, e.seq), 0)
           setLoadError(false)
-          attempt = 0
+          backoff.reset()
           setStreamFailures(0)
           connect()
         })

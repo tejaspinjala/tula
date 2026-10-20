@@ -30,7 +30,17 @@ export interface Backoff {
 
 /** A fresh {@link Backoff} with no failures. */
 export function createBackoff(): Backoff {
-  throw new Error('not implemented')
+  let attempt = 0
+  return {
+    next: (random) => {
+      const wait = reconnectDelayMs(attempt, random)
+      attempt += 1
+      return { wait, failures: attempt }
+    },
+    reset: () => {
+      attempt = 0
+    },
+  }
 }
 
 /** What the page does with a live stream's events. */
@@ -45,10 +55,25 @@ export interface StreamCallbacks {
   random?: () => number
 }
 
-/** The `message` and `close` handlers to wire onto a stream socket. */
+/**
+ * The `message` and `close` handlers to wire onto a stream socket. Only a received frame proves the
+ * stream healthy: a socket that upgrades and is then dropped (a ticket rejected after the upgrade)
+ * still counts as a failure, so the backoff keeps growing and the notice shows.
+ */
 export function streamHandlers(
-  _backoff: Backoff,
-  _callbacks: StreamCallbacks
+  backoff: Backoff,
+  callbacks: StreamCallbacks
 ): { message: (data: string) => void; close: () => void } {
-  throw new Error('not implemented')
+  const random = callbacks.random ?? Math.random
+  return {
+    message: (data) => {
+      backoff.reset()
+      callbacks.onHealthy?.()
+      callbacks.onMessage(data)
+    },
+    close: () => {
+      const { wait, failures } = backoff.next(random())
+      callbacks.onRetry(wait, failures)
+    },
+  }
 }
