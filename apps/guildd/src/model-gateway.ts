@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { GuildConfig } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
-import type { ActivityLog } from './ports/activity-log'
+import { ACTIVITY_WINDOW_MS, type ActivityLog } from './ports/activity-log'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
@@ -13,7 +13,7 @@ import {
   modelRequest,
   ProviderSecret,
 } from './ports/model-provider'
-import { hasLiveLease, type QuestQueue } from './ports/quest-queue'
+import { hasLiveLease, type Quest, type QuestQueue } from './ports/quest-queue'
 import type { SecretStore } from './ports/secret-store'
 import type { TripwireStore } from './ports/tripwire-store'
 
@@ -397,6 +397,7 @@ export class ModelGateway {
       await this.notify(guildId, reserved.reason)
       throw new GatewayError('cap_reached')
     }
+    await this.noteThinking(guildId, quest)
     let response: ModelResponse
     // Bar the Gates mid-call: the bar is read from the store while the call is in flight, and
     // aborts it. The reservation stays as the charge (the failure path below never settles).
@@ -460,6 +461,30 @@ export class ModelGateway {
       )
     }
     return response
+  }
+
+  /**
+   * A model turn begins: records the Quest's Member as `thinking` (ids and the name only). A
+   * failure to record is logged by ids and never fails the call.
+   */
+  private async noteThinking(guildId: string, quest: Quest): Promise<void> {
+    if (!this.deps.activity) {
+      return
+    }
+    try {
+      await this.deps.activity.record(guildId, {
+        questId: quest.id,
+        memberId: quest.ownerId,
+        hallId: quest.hallId,
+        activity: 'thinking',
+        at: this.deps.clock.now(),
+        windowMs: ACTIVITY_WINDOW_MS,
+      })
+    } catch {
+      process.stderr.write(
+        `${JSON.stringify({ event: 'gateway.activity_failed', guildId, questId: quest.id })}\n`
+      )
+    }
   }
 
   /** Whether the run of this Quest attempt exists and has been revoked, so no worker can use its token. */
