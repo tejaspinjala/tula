@@ -1,6 +1,10 @@
 /** What a sandbox runs for: ids only, never content. */
 export interface SandboxSpec {
   questId: string
+  /** The per-run model gateway token. The only credential a sandbox gets; never a provider key. */
+  runToken?: string
+  /** Opaque handle the worker exchanges for its Quest lease at the MCP gateway. */
+  leaseHandle?: string
 }
 
 /** A running sandbox. */
@@ -14,8 +18,8 @@ export interface Sandbox {
 export type KillTarget = { guildId: string } | 'all'
 
 /**
- * Port for the isolated worker that runs a Quest's code. The Docker adapter arrives with the real
- * worker; the memory adapter stands in until then. `kill` is the last step of Bar the Gates and
+ * Port for the isolated worker that runs a Quest's code. The Docker adapter runs each sandbox hardened
+ * behind the egress proxy; the memory adapter stands in for tests. `kill` is the last step of Bar the Gates and
  * must be idempotent and safe to repeat.
  */
 export interface SandboxRunner {

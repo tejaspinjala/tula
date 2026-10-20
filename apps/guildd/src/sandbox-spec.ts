@@ -1,3 +1,7 @@
+/** The Bun base image the worker and egress proxy images build on, pinned by digest (latest 1.x at pinning). */
+export const PINNED_BUN_IMAGE =
+  'oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288'
+
 /** Resource ceilings of one sandbox. */
 export interface SandboxLimits {
   /** Most processes. */
