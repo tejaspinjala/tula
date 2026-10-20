@@ -101,4 +101,10 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
       emit: async (type, payload) => this.onEvent(guildId, type, payload),
     }
   }
+
+  /** Test seam: rewrites a stored entry's amount without re-hashing it, as tampering would. */
+  tamperForTest(guildId: string, seq: number, amountCents: number): void {
+    const state = this.stateOf(guildId)
+    state.entries = state.entries.map((e) => (e.seq === seq ? { ...e, amountCents } : e))
+  }
 }

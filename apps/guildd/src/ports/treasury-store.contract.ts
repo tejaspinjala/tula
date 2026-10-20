@@ -8,6 +8,8 @@ export interface TreasuryStoreFixture {
   newGuild: () => Promise<string>
   /** Moves the store's clock forward. */
   advanceMs: (ms: number) => void
+  /** Rewrites one stored ledger entry's amount behind the store's back, as a hostile DBA would. */
+  tamper: (guildId: string, seq: number, amountCents: number) => Promise<void>
 }
 
 const LIMITS = DEFAULT_TREASURY
@@ -312,6 +314,146 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
           ok: false,
           reason: 'invalid_amount',
         })
+      })
+    })
+
+    describe('atomicity', () => {
+      const loose = { ...LIMITS, treasurerLimitCents: 100_000, dailyCapCents: 100_000 }
+      const ask = (g: string, store: TreasuryStore, key: string, amountCents: number, l = loose) =>
+        store.requestSpend(g, { key, amountCents, purpose: 'p', requestedBy: 't' }, l)
+
+      test('same-tick spends can never overspend the operating envelope', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const results = await Promise.all(
+          Array.from({ length: 20 }, (_, i) => ask(g, store, `k${i}`, 400))
+        )
+        expect(results.filter((r) => r.ok)).toHaveLength(17)
+        expect(results.filter((r) => !r.ok && r.reason === 'insufficient_funds')).toHaveLength(3)
+        expect((await store.snapshot(g, loose)).balances.operating).toBe(200)
+      })
+
+      test('same-tick spends can never pass the daily cap between them', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const results = await Promise.all(
+          Array.from({ length: 5 }, (_, i) => ask(g, store, `k${i}`, 400, LIMITS))
+        )
+        const statuses = results.map((r) => (r.ok ? r.spend.status : r.reason))
+        expect(statuses.filter((x) => x === 'reserved')).toHaveLength(2)
+        expect(statuses.filter((x) => x === 'pending_approval')).toHaveLength(3)
+        expect((await store.snapshot(g, LIMITS)).spentTodayCents).toBe(800)
+      })
+
+      test('the same key sent same-tick creates one request and one reservation', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const results = await Promise.all(
+          Array.from({ length: 6 }, () => ask(g, store, 'same', 300, LIMITS))
+        )
+        expect(results.filter((r) => r.ok && r.created)).toHaveLength(1)
+        expect(new Set(results.map((r) => (r.ok ? r.spend.id : ''))).size).toBe(1)
+        expect((await store.snapshot(g, LIMITS)).balances.operating).toBe(6700)
+      })
+
+      test('a settle and a release racing on one reservation: exactly one wins', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const r = await ask(g, store, 'k', 400, LIMITS)
+        if (!r.ok) {
+          throw new Error('refused')
+        }
+        const [a, b] = await Promise.all([
+          store.settleSpend(g, r.spend.id, 100),
+          store.releaseSpend(g, r.spend.id),
+        ])
+        expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+        const operating = (await store.snapshot(g, LIMITS)).balances.operating
+        expect([6900, 7000]).toContain(operating)
+      })
+    })
+
+    describe('ledger', () => {
+      test('the hash chain verifies, and altering any entry breaks it at that entry', async () => {
+        const { store, newGuild, tamper } = await make()
+        const g = await newGuild()
+        await store.recordRevenue(g, { key: 'r', amountCents: 1000, evidence: 'inv' }, LIMITS)
+        await store.requestSpend(
+          g,
+          { key: 's', amountCents: 100, purpose: 'p', requestedBy: 't' },
+          LIMITS
+        )
+        const intact = await store.verifyLedger(g)
+        expect(intact).toEqual({ intact: true, entries: 5 })
+        await tamper(g, 3, 999_999)
+        expect(await store.verifyLedger(g)).toMatchObject({ intact: false, firstBadSeq: 3 })
+      })
+
+      test('entries are listed oldest first in pages, each carrying its chain hash', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await store.recordRevenue(g, { key: 'r', amountCents: 1000, evidence: 'inv' }, LIMITS)
+        const seen: number[] = []
+        let after: number | undefined
+        for (let pages = 0; pages < 10; pages++) {
+          const page = await store.listEntries(g, { limit: 2, ...(after ? { after } : {}) })
+          expect(page.items.length).toBeLessThanOrEqual(2)
+          seen.push(...page.items.map((e) => e.seq))
+          if (page.next === null) {
+            break
+          }
+          after = page.next
+        }
+        expect(seen).toEqual([1, 2, 3, 4])
+        const all = await store.listEntries(g, { limit: 100 })
+        expect(all.items.every((e) => e.mode === 'paper' && /^[0-9a-f]{64}$/.test(e.hash))).toBe(
+          true
+        )
+        expect(all.items[1]?.prevHash).toBe(all.items[0]?.hash)
+      })
+
+      test('spend requests are listed oldest first in pages', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        for (const k of ['a', 'b', 'c']) {
+          await store.requestSpend(
+            g,
+            { key: k, amountCents: 100, purpose: 'p', requestedBy: 't' },
+            LIMITS
+          )
+        }
+        const first = await store.listSpends(g, { limit: 2 })
+        expect(first.items.map((s) => s.key)).toEqual(['a', 'b'])
+        expect(first.next).not.toBeNull()
+        const second = await store.listSpends(g, { limit: 2, after: first.next ?? 0 })
+        expect(second.items.map((s) => s.key)).toEqual(['c'])
+        expect(second.next).toBeNull()
+      })
+
+      test("one guild never sees or moves another guild's Treasury", async () => {
+        const { store, newGuild } = await make()
+        const a = await newGuild()
+        const b = await newGuild()
+        const r = await store.requestSpend(
+          a,
+          { key: 's', amountCents: 100, purpose: 'p', requestedBy: 't' },
+          LIMITS
+        )
+        if (!r.ok) {
+          throw new Error('refused')
+        }
+        await store.snapshot(b, LIMITS)
+        expect(await store.getSpend(b, r.spend.id)).toBeNull()
+        expect(await store.settleSpend(b, r.spend.id, 1)).toEqual({
+          ok: false,
+          reason: 'not_found',
+        })
+        expect((await store.listSpends(b, { limit: 10 })).items).toEqual([])
+        expect((await store.snapshot(b, LIMITS)).balances.operating).toBe(7000)
+        expect((await store.listEntries(b, { limit: 100 })).items.map((e) => e.spendId)).toEqual([
+          null,
+          null,
+        ])
       })
     })
   })
