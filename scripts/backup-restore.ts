@@ -39,7 +39,7 @@ function sha256(bytes: Uint8Array): string {
 }
 
 /** Validates a SQL identifier and quotes it; names are generated or operator-supplied. */
-function ident(name: string): string {
+export function ident(name: string): string {
   if (!/^[A-Za-z0-9_-]{1,63}$/.test(name)) {
     throw new Error(`unsafe name: ${JSON.stringify(name)}`)
   }
