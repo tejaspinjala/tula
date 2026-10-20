@@ -10,6 +10,11 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** S3-compatible object storage for artifacts (MinIO in development). */
+  OBJECT_STORE_ENDPOINT: z.url().default('http://localhost:9000'),
+  OBJECT_STORE_BUCKET: z.string().min(3).default('guildhall-artifacts'),
+  OBJECT_STORE_ACCESS_KEY: z.string().min(1).default('guildhall'),
+  OBJECT_STORE_SECRET_KEY: z.string().min(1).default('guildhall-dev-secret'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
