@@ -343,7 +343,9 @@ export class WorkflowEngine {
       return 'pending'
     }
     if (node.type === 'agent') {
-      return AGENT_STATUS[quest.state]
+      return quest.state === 'queued' && quest.waitingOn.length > 0
+        ? 'awaiting_children'
+        : AGENT_STATUS[quest.state]
     }
     if (node.type === 'verify') {
       const proposal = await this.deps.proposals.latestForQuest(guildId, quest.id)

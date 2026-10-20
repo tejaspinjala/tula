@@ -128,6 +128,9 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
     return c.json({ valid: errors.length === 0, errors })
   })
 
+  // The save answers `{ status, version: { version, ... } }` (the whole stored version, with its
+  // classification), where the config PUT answers `{ version: number, status, change }`: a workflow
+  // version carries its graph and classification, so the object is returned rather than a number.
   app.put(`${base}/:wid`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
