@@ -42,6 +42,7 @@ function countingApp(
     objectStore: harness.adapters.objectStore,
     anchor: harness.adapters.anchor,
     identity: harness.adapters.identity,
+    seals: harness.adapters.seals,
     rateLimiter: harness.adapters.rateLimiter,
     rateLimits: UNLIMITED_RATE_LIMITS,
     secrets: harness.adapters.secrets,

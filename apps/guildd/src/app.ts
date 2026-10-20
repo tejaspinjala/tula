@@ -25,6 +25,7 @@ import type { ObjectStore } from './ports/object-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
+import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
   SecretExistsError,
@@ -35,7 +36,8 @@ import {
 import type { StreamTicketStore } from './ports/stream-ticket'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
-import { bearerToken, checkSensitive } from './sensitive'
+import { GUILD_MASTER_ID, type SealEngine } from './seals'
+import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -54,6 +56,8 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
+  seals: SealEngine
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
@@ -119,6 +123,16 @@ const notePage = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
   q: z.string().max(500).optional(),
 })
+const sealPage = z.object({
+  after: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
+  status: z.enum(SEAL_STATUSES).optional(),
+})
+const sealDecisionBody = z.object({
+  actionHash,
+  note: z.string().trim().min(1).max(2000).optional(),
+})
+const sealPostedBody = z.object({ text: z.string().min(1).max(20000) })
 const questPage = z.object({
   after: z
     .string()
@@ -1017,5 +1031,135 @@ export function createApp(deps: AppDeps): Hono {
     }),
     (c) => c.json({ error: 'upgrade_required' }, 426)
   )
+  // The Seal inbox. Reads follow `callerGuild`; approving or denying is a sensitive action (fresh
+  // passkey re-authentication, spent by the check) made by the Guild Master's session; marking a
+  // Seal posted needs the session. Only the session's own guild is ever acted on.
+  function sealRefusal(c: Context, reason: SealRefusal): Response {
+    switch (reason) {
+      case 'not_found':
+        return c.json({ error: 'not_found' }, 404)
+      case 'not_authorised':
+        return c.json({ error: reason }, 403)
+      default:
+        return c.json({ error: reason }, 409)
+    }
+  }
+
+  app.get('/guilds/:id/seals', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = sealPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      status: c.req.query('status'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.seals.list(who.guild, {
+        limit: page.data.limit,
+        ...(page.data.after ? { after: page.data.after } : {}),
+        ...(page.data.status ? { status: page.data.status } : {}),
+      })
+    )
+  })
+
+  app.get('/guilds/:id/seals/:sealId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    const seal = id.success ? await deps.seals.get(who.guild, id.data) : null
+    return seal ? c.json(seal) : c.json({ error: 'not_found' }, 404)
+  })
+
+  for (const [verb, verdict] of [
+    ['approve', 'approved'],
+    ['deny', 'denied'],
+  ] as const) {
+    app.post(`/guilds/:id/seals/:sealId/${verb}`, async (c) => {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      const id = uuid.safeParse(c.req.param('sealId'))
+      if (c.req.param('id') !== check.guildId || !id.success) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      const body = sealDecisionBody.safeParse(await c.req.json().catch(() => null))
+      if (!body.success) {
+        return c.json({ error: 'invalid_request' }, 400)
+      }
+      const result = await deps.seals.decide(
+        check.guildId,
+        id.data,
+        {
+          verdict,
+          expectedHash: body.data.actionHash,
+          ...(body.data.note ? { note: body.data.note } : {}),
+        },
+        // Only a re-authenticated Guild Master session reaches here, so the decider is the
+        // reserved Guild Master principal; requestSeal refuses that id as a requester.
+        { role: 'guild_master', id: GUILD_MASTER_ID }
+      )
+      return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+    })
+  }
+
+  // Marking posted names the exact text that was published; the server hashes it and compares it
+  // with the sealed hash. Resolving a stale reservation this way needs a fresh re-authentication.
+  app.post('/guilds/:id/seals/:sealId/posted', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    if (!id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const body = sealPostedBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    // A proof, if sent, is checked and spent here; whether the reservation is stale is decided by
+    // the store under its row lock, so a reservation lapsing mid-request cannot skip re-auth.
+    let reauthenticated = false
+    if (c.req.header(REAUTH_HEADER)) {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      if (check.guildId !== who.guild) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      reauthenticated = true
+    }
+    const result = await deps.seals.markPosted(who.guild, id.data, body.data.text, {
+      reauthenticated,
+    })
+    if (!result.ok && result.reason === 'not_authorised') {
+      return c.json({ error: 'reauth_required' }, 403)
+    }
+    return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
+  // The Guild Master frees a stale reservation after confirming nothing was published.
+  app.post('/guilds/:id/seals/:sealId/release-stale', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    if (c.req.param('id') !== check.guildId || !id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const result = await deps.seals.releaseStale(check.guildId, id.data)
+    return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
   return app
 }
