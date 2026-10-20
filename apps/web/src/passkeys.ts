@@ -142,3 +142,24 @@ export const webAuthnBrowser: PasskeyBrowser = {
   create: (optionsJSON) => startRegistration({ optionsJSON }),
   get: (optionsJSON) => startAuthentication({ optionsJSON }),
 }
+
+/** Signs in with a discoverable passkey and no guild id; the guild comes from the passkey. */
+export async function signInWithPasskey(
+  _fetcher: Fetcher,
+  _browser: PasskeyBrowser
+): Promise<Session> {
+  throw new Error('not implemented')
+}
+
+/** Whether guildd is open to founding a guild (`GET /founding`); a failed call reads as closed. */
+export async function foundingOpen(_fetcher: Fetcher): Promise<boolean> {
+  throw new Error('not implemented')
+}
+
+/** The signed-in guild's name and id (`GET /guilds/:id` with the session token). */
+export async function fetchGuild(
+  _session: Session,
+  _fetcher: Fetcher
+): Promise<{ id: string; name: string }> {
+  throw new Error('not implemented')
+}
