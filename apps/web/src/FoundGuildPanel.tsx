@@ -3,26 +3,21 @@ import type { Fetcher } from './artifacts'
 import {
   foundGuild,
   type PasskeyBrowser,
-  PasskeyRequestError,
+  passkeyFailure,
+  passkeyLine,
   registerPasskey,
   type Session,
   signIn,
 } from './passkeys'
+import { PixelButton } from './ui/pixel'
 
 /** The words shown for a refused or abandoned founding step. */
 function describe(error: unknown, registering: boolean): string {
-  if (error instanceof PasskeyRequestError) {
-    if (error.status === 429) {
-      return 'Too many attempts. Wait a minute, then try again.'
-    }
-    return registering
-      ? 'This founding token has already been used or is no longer valid.'
-      : `The guild could not be founded (${error.code}).`
+  const kind = passkeyFailure(error)
+  if (kind === 'refused' && registering) {
+    return 'This founding token has already been used or is no longer valid.'
   }
-  if (error instanceof Error && error.name === 'NotAllowedError') {
-    return 'Passkey creation was cancelled. Try again to finish founding your guild.'
-  }
-  return 'Founding your guild failed. Try again.'
+  return passkeyLine(kind, 'founding')
 }
 
 /**
@@ -37,7 +32,7 @@ export function FoundGuildPanel({
 }: {
   fetcher: Fetcher
   browser: PasskeyBrowser
-  onSession: (session: Session | null) => void
+  onSession: (session: Session) => void
 }) {
   const nameId = useId()
   const goalId = useId()
@@ -68,11 +63,11 @@ export function FoundGuildPanel({
   }
 
   return (
-    <section aria-labelledby="found-heading" className="card">
-      <h2 id="found-heading" className="card-title">
+    <section aria-labelledby="found-heading">
+      <h2 id="found-heading" className="title-line">
         Found your guild
       </h2>
-      <form onSubmit={submit} className="mt-4 flex flex-col gap-2">
+      <form onSubmit={submit} className="title-form">
         <label htmlFor={nameId}>Guild name</label>
         <input
           id={nameId}
@@ -93,10 +88,12 @@ export function FoundGuildPanel({
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
         />
-        <button type="submit" className={founded ? 'btn-primary' : undefined} disabled={busy}>
+        <PixelButton type="submit" disabled={busy}>
           {founded ? 'Create passkey' : 'Found your guild'}
-        </button>
-        <p role="alert">{error}</p>
+        </PixelButton>
+        <p role="alert" className="title-line">
+          {error}
+        </p>
       </form>
     </section>
   )

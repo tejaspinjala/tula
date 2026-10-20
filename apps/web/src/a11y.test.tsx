@@ -187,8 +187,10 @@ describe('keyboard', () => {
     expect(controls.length).toBeGreaterThan(5)
     for (const el of controls) {
       if (el.hasAttribute('disabled') || el.getAttribute('tabindex') === '-1') {
-        // The only deliberate -1 is the programmatic focus target of the skip link.
-        expect(el.id === 'main' || el.hasAttribute('disabled')).toBe(true)
+        // Deliberate -1: the skip link's focus target and the idle rows of a roving-tabindex menu.
+        expect(
+          el.id === 'main' || el.hasAttribute('disabled') || el.getAttribute('role') === 'option'
+        ).toBe(true)
         continue
       }
       el.focus()

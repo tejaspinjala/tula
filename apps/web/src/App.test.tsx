@@ -196,7 +196,7 @@ test('a refused passkey sign-in is announced', async () => {
   signInStatus = 401
   const { host, root } = await mount()
   await click(option(host, 'Continue'))
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be signed in')
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('stayed shut')
   expect(host.querySelector('#vault-heading')).toBeNull()
   await act(async () => root.unmount())
 })
