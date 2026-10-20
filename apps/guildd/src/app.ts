@@ -344,6 +344,8 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
 }
 const summonBody = z.object({ profileId: z.string().min(1).max(64) })
 const putConfigBody = z.object({ config: guildConfig })
+/** The most unknown config key names one 422 refusal echoes back. */
+const MAX_UNKNOWN_KEYS_LISTED = 20
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
   after: configVersion.optional(),
@@ -1495,7 +1497,15 @@ export function createApp(deps: AppDeps): Hono {
         i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path.slice(1), k].join('.')) : []
       )
       if (unknownKeys.length > 0) {
-        return c.json({ error: 'unknown_config_key', unknownKeys }, 422)
+        const truncated = unknownKeys.length > MAX_UNKNOWN_KEYS_LISTED
+        return c.json(
+          {
+            error: 'unknown_config_key',
+            unknownKeys: unknownKeys.slice(0, MAX_UNKNOWN_KEYS_LISTED),
+            ...(truncated ? { truncated: true } : {}),
+          },
+          422
+        )
       }
       // Paths and messages only, so the builder can mark the offending node; never the submitted values.
       return c.json(
