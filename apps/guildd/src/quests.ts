@@ -19,6 +19,8 @@ export interface QuestTemplate {
   rank: z.infer<typeof questRank>
   dataClass: DataClass
   doneCondition: string
+  /** Whether finishing the Quest needs a Seal; deterministic, never a model decision. */
+  requiresSeal: boolean
   roundLimit: number
 }
 
@@ -31,6 +33,7 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     rank: 'journeyman',
     dataClass: 'internal',
     doneCondition: 'A draft brief is filed in the Archive',
+    requiresSeal: false,
     roundLimit: 2,
   },
   {
@@ -40,6 +43,7 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     rank: 'apprentice',
     dataClass: 'public',
     doneCondition: 'An announcement draft is ready for a Seal',
+    requiresSeal: true,
     roundLimit: 3,
   },
 ]
