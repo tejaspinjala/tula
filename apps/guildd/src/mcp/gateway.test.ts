@@ -12,6 +12,7 @@ import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemoryToolsetStore } from '../adapters/memory-toolset-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
+import { MemoryWorkflowStore } from '../adapters/memory-workflow-store'
 import type { GuildConfig } from '../guild-config'
 import type { Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
@@ -1483,5 +1484,83 @@ describe('MCP gateway', () => {
     })
     const init = await s.transport({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     expect(JSON.stringify(init.body)).toContain('2026-07-28')
+  })
+})
+
+describe('the Brief teaches the Member what to write', () => {
+  const announcement = {
+    templateId: 'herald-announcement',
+    rank: 'apprentice' as const,
+    dataClass: 'public' as const,
+    ownerId: 'heralds-member-1',
+    doneCondition: 'An announcement draft is ready for a Seal',
+    roundLimit: 3,
+  }
+  const briefOf = async (s: Awaited<ReturnType<typeof setup>>, l: z.infer<typeof lease>) =>
+    z.string().parse((await callTool(s.transport, 'read_brief', { lease: l })).data.brief)
+
+  test('a workflow Quest carries its node’s brief template', async () => {
+    const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
+    const workflows = new MemoryWorkflowStore(clock)
+    const s = await setup({ workflows, clock })
+    await workflows.saveVersion(s.guild, 'wf', {
+      name: 'Launch',
+      classification: 'internal',
+      status: 'active',
+      graph: {
+        nodes: [
+          {
+            id: 'draft',
+            type: 'agent',
+            hallId: 'heralds',
+            templateId: 'herald-announcement',
+            briefTemplate: 'Announce Guildhall 1.0 to our followers.',
+            doneCondition: 'An announcement draft is ready for a Seal',
+            maxUsd: 1,
+          },
+        ],
+        edges: [],
+      },
+    })
+    const { instance } = await workflows.createInstance(s.guild, {
+      workflowId: 'wf',
+      version: 1,
+      runKey: 'r1',
+    })
+    const quest = await s.post({
+      ...announcement,
+      campaignId: instance.id,
+      jobKey: `${instance.id}:draft:0`,
+    })
+    const { lease: l } = await s.claim(quest)
+    expect(await briefOf(s, lease.parse(l))).toContain(
+      'Instructions: Announce Guildhall 1.0 to our followers.'
+    )
+  })
+
+  test('a revision round names why the last draft failed its Verdict', async () => {
+    const s = await setup()
+    const quest = await s.post(announcement)
+    const first = lease.parse((await s.claim(quest)).lease)
+    expect(await briefOf(s, first)).not.toContain('rejected by the Verdict')
+    await callTool(s.transport, 'submit_proposal', {
+      lease: first,
+      text: "I'm ready to work on this Quest and draft an announcement.",
+      evidenceLinks: [],
+    })
+    const hash = await put(s)(first, 'x')
+    await callTool(s.transport, 'complete_quest', {
+      lease: first,
+      handoff: { ...handoffFor(hash), doneCondition: announcement.doneCondition },
+    })
+    await s.quests.settleSeal(s.guild, quest.id, 'rejected')
+    const again = await s.quests.get(s.guild, quest.id)
+    expect(again?.round).toBe(1)
+    const second = lease.parse((await s.claim(again ?? quest)).lease)
+    const brief = await briefOf(s, second)
+    expect(brief).toContain('rejected by the Verdict')
+    expect(brief).toContain('talks about doing the task instead of doing it')
+    // The rejected draft itself is never echoed back into the Brief.
+    expect(brief).not.toContain('ready to work on this Quest')
   })
 })

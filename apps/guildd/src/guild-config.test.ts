@@ -440,6 +440,13 @@ describe('content policy', () => {
     expect(classifyChange(withPolicy(policy), base)).toBe('widening')
   })
 
+  test('allowing meta-drafts is widening, and forbidding them again is tightening', () => {
+    const allowing = { ...base, contentPolicy: { ...policy, allowMetaDrafts: true } }
+    expect(classifyChange(withPolicy(policy), allowing)).toBe('widening')
+    expect(classifyChange(allowing, withPolicy(policy))).toBe('tightening')
+    expect(guildConfig.safeParse(allowing).success).toBe(true)
+  })
+
   test('an unchanged policy is neutral, and an unknown policy field fails closed', () => {
     expect(classifyChange(withPolicy(policy), withPolicy({ ...policy }))).toBe('neutral')
     const extra = { ...base, contentPolicy: { ...policy, allowLinks: true } }

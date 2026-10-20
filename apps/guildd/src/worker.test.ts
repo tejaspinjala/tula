@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { runWorker, WorkerError, type WorkerFetch } from './worker'
+import { buildPrompt, runWorker, WorkerError, type WorkerFetch } from './worker'
 
 const LEASE = { questId: crypto.randomUUID(), attempt: 1, token: 'signed-lease' }
 const toolCall = z.object({ params: z.object({ name: z.string() }) })
@@ -88,5 +88,31 @@ describe('worker', () => {
     const g = fakeGateway()
     await runWorker(input(g.fetch))
     expect(g.calls).not.toContain('tools/call:submit_proposal')
+  })
+})
+
+describe('the prompt a Member sends', () => {
+  const brief = 'Quest: Announce 1.0\nDone when: An announcement draft is ready for a Seal\n'
+
+  test('carries the Brief and the done-condition, and asks for the deliverable itself', () => {
+    const prompt = buildPrompt(brief, 'An announcement draft is ready for a Seal')
+    expect(prompt).toContain(brief)
+    expect(prompt).toContain('An announcement draft is ready for a Seal')
+    expect(prompt.toLowerCase()).toContain('deliverable itself')
+  })
+
+  test('the model call sends that prompt, with room for a real draft', async () => {
+    const gateway = fakeGateway()
+    await runWorker(input(gateway.fetch))
+    const complete = z
+      .object({
+        messages: z.array(z.object({ content: z.string() })),
+        maxTokens: z.number(),
+      })
+      .parse(JSON.parse(gateway.bodies[gateway.calls.indexOf('/gateway/complete')] ?? '{}'))
+    expect(complete.messages[0]?.content).toContain('Quest: Q')
+    expect(complete.messages[0]?.content).toContain('it is done')
+    expect(complete.messages[0]?.content).not.toContain('Reply with one short sentence')
+    expect(complete.maxTokens).toBeGreaterThanOrEqual(512)
   })
 })

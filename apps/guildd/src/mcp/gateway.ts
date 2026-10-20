@@ -28,6 +28,7 @@ import {
 import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
+import type { WorkflowStore } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
 import { chooseHallOwner, QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
@@ -75,6 +76,8 @@ export interface McpGatewayDeps {
   /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
   proposals: ProposalEngine
   keys: KeyProvider
+  /** Reads a workflow Quest's node, so its brief template reaches the Brief; absent, none does. */
+  workflows?: Pick<WorkflowStore, 'getInstance' | 'getVersion'>
   clock: Clock
   /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
   gates: Pick<GateStore, 'isBarred'>
@@ -526,9 +529,50 @@ export class McpGateway {
         role: quest.rank,
         tools,
         notes: pointers.notes.map((n) => ({ id: n.id, title: n.title })),
+        instructions: await this.instructionsFor(guild, quest),
+        revisionReason: await this.revisionReason(guild, quest),
       },
       this.deps.briefTokenCap ?? BRIEF_TOKEN_CAP
     ).text
+  }
+
+  /** The brief template of the workflow node a Quest was posted for, or undefined for any other Quest. */
+  private async instructionsFor(guild: string, quest: Quest): Promise<string | undefined> {
+    const { workflows } = this.deps
+    if (!workflows || quest.campaignId === null) {
+      return undefined
+    }
+    const instance = await workflows.getInstance(guild, quest.campaignId)
+    if (!instance) {
+      return undefined
+    }
+    const version = await workflows.getVersion(guild, instance.workflowId, instance.version)
+    const prefix = `${instance.id}:`
+    if (!version || !quest.jobKey.startsWith(prefix)) {
+      return undefined
+    }
+    const nodeId = quest.jobKey.slice(prefix.length).replace(/:\d+$/, '')
+    const node = version.graph.nodes.find((n) => n.id === nodeId)
+    return node?.type === 'agent' ? node.briefTemplate : undefined
+  }
+
+  /**
+   * On a revision round, why the Quest's latest Proposal failed its Verdict: the failed checks'
+   * rule details, never the draft. Undefined on the first round or when the Verdict passed.
+   */
+  private async revisionReason(guild: string, quest: Quest): Promise<string | undefined> {
+    if (quest.round === 0) {
+      return undefined
+    }
+    const proposal = await this.deps.proposals.latestForQuest(guild, quest.id)
+    const verdict = proposal ? await this.deps.proposals.verdictFor(guild, proposal.hash) : null
+    if (!verdict || verdict.passed) {
+      return undefined
+    }
+    return verdict.findings
+      .filter((f) => !f.passed)
+      .map((f) => `${f.check} (${f.detail})`)
+      .join('; ')
   }
 
   private async readArchive(
