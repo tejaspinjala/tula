@@ -72,7 +72,7 @@ export function DialogueBox({ speaker, lines, onDone, cps = 40 }: DialogueBoxPro
       <button
         type="button"
         className="px-dialogue"
-        aria-label={`${speaker} is speaking. Continue`}
+        aria-label={`${speaker}: ${line}. Continue`}
         onClick={advance}
         onKeyDown={onKeyDown}
       >

@@ -102,6 +102,8 @@ textarea {
   padding: var(--space-2) var(--space-3);
   min-height: var(--touch);
   box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
 }
 
 input[type="range"] {
@@ -154,6 +156,8 @@ button:disabled {
 
 label {
   font-weight: 500;
+  max-width: 100%;
+  min-width: 0;
 }
 
 summary {
