@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
-import { integerZoom, type Phase, phaseAt, tintFor, walkPose } from './daylight'
+import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
   apprenticeSeats,
@@ -298,7 +298,7 @@ export class HallScene extends Phaser.Scene {
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     cam.setSize(this.scale.width, this.scale.height)
-    this.zoomLevel = integerZoom(this.scale.width, this.scale.height, w, h)
+    this.zoomLevel = openZoomWhole(this.scale.width, this.scale.height, w, h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
     cam.centerOn(x + this.at.x * map.tileSize, y + this.at.y * map.tileSize)
