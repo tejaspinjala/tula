@@ -1654,14 +1654,16 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== check.guildId || !id.success) {
       return c.json({ error: 'not_found' }, 404)
     }
-    const result = await deps.treasury.approveSpend(
-      check.guildId,
-      id.data,
-      check.principal.memberId
-    )
-    return result.ok
-      ? c.json(result.spend)
-      : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.approveSpend(
+        check.guildId,
+        id.data,
+        check.principal.memberId
+      )
+      return result.ok
+        ? c.json(result.spend)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
   })
 
   for (const verb of ['deny', 'release'] as const) {
@@ -1674,13 +1676,15 @@ export function createApp(deps: AppDeps): Hono {
       if (!id.success) {
         return c.json({ error: 'not_found' }, 404)
       }
-      const result =
-        verb === 'deny'
-          ? await deps.treasury.denySpend(who.guild, id.data, who.memberId)
-          : await deps.treasury.releaseSpend(who.guild, id.data, who.memberId)
-      return result.ok
-        ? c.json(result.spend)
-        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+      return treasuryRoute(c, async () => {
+        const result =
+          verb === 'deny'
+            ? await deps.treasury.denySpend(who.guild, id.data, who.memberId)
+            : await deps.treasury.releaseSpend(who.guild, id.data, who.memberId)
+        return result.ok
+          ? c.json(result.spend)
+          : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+      })
     })
   }
 
@@ -1697,15 +1701,17 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    const result = await deps.treasury.settleSpend(
-      who.guild,
-      id.data,
-      body.data.actualCents,
-      who.memberId
-    )
-    return result.ok
-      ? c.json(result.spend)
-      : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.settleSpend(
+        who.guild,
+        id.data,
+        body.data.actualCents,
+        who.memberId
+      )
+      return result.ok
+        ? c.json(result.spend)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
   })
 
   // The reserve is released only by the Guild Master, with a fresh re-authentication.

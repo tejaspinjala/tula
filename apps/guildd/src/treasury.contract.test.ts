@@ -45,9 +45,11 @@ function send(method: string, path: string, headers: Record<string, string>, bod
 }
 
 /** A founded guild with a signed-in Guild Master session that can re-authenticate. */
-async function signedIn() {
+async function signedIn(options: { seed?: boolean } = {}) {
   const guildId = await harness.foundGuild({ name: 'Treasury', goal: 'g' })
-  await harness.adapters.config.seed(guildId)
+  if (options.seed !== false) {
+    await harness.adapters.config.seed(guildId)
+  }
   const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
   const founding = await harness.adapters.identity.issueFoundingToken(guildId)
   const reg = await harness.adapters.identity.beginRegistration(guildId, {
@@ -145,6 +147,34 @@ describe('Treasury routes', () => {
     expect(spendBody.parse(await done.json()).status).toBe('reserved')
     expect((await view(g, who.auth)).balances.operating).toBe(6400)
     expect((await send('POST', approve, { ...who.auth, 'x-reauth-proof': proof })).status).toBe(403)
+  })
+
+  test('every spend verb on a guild with no seeded config answers not_found, not a crash', async () => {
+    const who = await signedIn({ seed: false })
+    const g = who.guildId
+    const spend = crypto.randomUUID()
+    const base = `/guilds/${g}/treasury/spends/${spend}`
+    const withProof = async () => ({ ...who.auth, 'x-reauth-proof': await who.proof() })
+    const outcome = async (run: () => Promise<Response>) => {
+      try {
+        return (await run()).status
+      } catch {
+        return 'threw'
+      }
+    }
+    const statuses = [
+      await outcome(async () => send('POST', `${base}/approve`, await withProof())),
+      await outcome(() => send('POST', `${base}/deny`, who.auth)),
+      await outcome(() => send('POST', `${base}/release`, who.auth)),
+      await outcome(() => send('POST', `${base}/settle`, who.auth, { actualCents: 100 })),
+      await outcome(async () =>
+        send('POST', `/guilds/${g}/treasury/reserve/release`, await withProof(), {
+          key: 'rr',
+          amountCents: 100,
+        })
+      ),
+    ]
+    expect(statuses).toEqual([404, 404, 404, 404, 404])
   })
 
   test('a spend within $5 is reserved by the Treasurer, then settles for less', async () => {
