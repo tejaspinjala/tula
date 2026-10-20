@@ -35,7 +35,7 @@ export type GatewayErrorCode =
   /** The Claude subscription's usage limit is reached; the call is not retried. */
   | 'subscription_limit'
   /** Subscription providers are refused unless the host enables them (`SUBSCRIPTION_PROVIDER`). */
-  | 'subscription_unsupported_until_spike_15'
+  | 'subscription_disabled'
 
 /** Thrown by the gateway; the code is the whole message, so no secret can ride in it. */
 export class GatewayError extends Error {
@@ -154,7 +154,7 @@ function resolveProfile(
     throw new GatewayError('unknown_profile')
   }
   if (provider.auth === 'subscription' && !subscriptionEnabled) {
-    throw new GatewayError('subscription_unsupported_until_spike_15')
+    throw new GatewayError('subscription_disabled')
   }
   return { profile, provider }
 }

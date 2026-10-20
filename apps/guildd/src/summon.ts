@@ -20,7 +20,7 @@ export const SUMMON_JOB_KEY = 'summon:first-member'
 export type SummonError =
   | PostQuestError
   | 'unknown_profile'
-  | 'subscription_unsupported_until_spike_15'
+  | 'subscription_disabled'
   | 'gates_barred'
   | 'run_not_started'
   | 'sandbox_unavailable'
@@ -98,7 +98,7 @@ export class Summon {
       return { ok: false, error: 'unknown_profile' }
     }
     if (provider.auth === 'subscription' && !this.deps.subscriptionEnabled) {
-      return { ok: false, error: 'subscription_unsupported_until_spike_15' }
+      return { ok: false, error: 'subscription_disabled' }
     }
     const posted = await postQuest(
       { config: this.deps.config, queue: this.deps.quests, tripwires: this.deps.tripwires },

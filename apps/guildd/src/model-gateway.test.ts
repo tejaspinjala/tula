@@ -266,9 +266,7 @@ describe('metering', () => {
 
   test('a subscription provider is refused until spike #15', async () => {
     const { open } = await setup()
-    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe(
-      'subscription_unsupported_until_spike_15'
-    )
+    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe('subscription_disabled')
   })
 })
 

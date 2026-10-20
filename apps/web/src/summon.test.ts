@@ -48,13 +48,11 @@ test('summoning posts the chosen profile and returns the new status', async () =
 test('a refusal carries its code, such as the unsupported subscription path', async () => {
   const { fetcher } = fakes({
     status: 422,
-    body: { error: 'subscription_unsupported_until_spike_15' },
+    body: { error: 'subscription_disabled' },
   })
   const failure = await startSummon(session, 'max', fetcher).catch((e: unknown) => e)
   expect(failure).toBeInstanceOf(PasskeyRequestError)
-  expect(failure instanceof PasskeyRequestError && failure.code).toBe(
-    'subscription_unsupported_until_spike_15'
-  )
+  expect(failure instanceof PasskeyRequestError && failure.code).toBe('subscription_disabled')
 })
 
 test('the check reads incomplete until the test Quest has passed', () => {

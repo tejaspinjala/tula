@@ -104,7 +104,7 @@ describe('Summon your first member', () => {
     const before = runner.specs.length
     const res = await summon(g, auth)
     expect(res.status).toBe(422)
-    expect(errorBody.parse(await res.json()).error).toBe('subscription_unsupported_until_spike_15')
+    expect(errorBody.parse(await res.json()).error).toBe('subscription_disabled')
     expect(runner.specs).toHaveLength(before)
     expect((await status(g, auth)).complete).toBe(false)
   })
