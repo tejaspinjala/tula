@@ -76,6 +76,15 @@ export async function compose(
           subject: vapid.subject,
         })
       : new MemoryPushNotifier())
+  const identity =
+    overrides.identity ??
+    new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
+      clock,
+      keys,
+      rpId: rp.WEBAUTHN_RP_ID,
+      rpName: 'Guildhall',
+      origin: rp.WEBAUTHN_ORIGIN,
+    })
   const adapters: AppDeps = {
     ...overrides,
     pushStore,
@@ -87,21 +96,15 @@ export async function compose(
     db,
     devGuildHeader,
     objectStore,
-    identity:
-      overrides.identity ??
-      new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
-        clock,
-        keys,
-        rpId: rp.WEBAUTHN_RP_ID,
-        rpName: 'Guildhall',
-        origin: rp.WEBAUTHN_ORIGIN,
-      }),
+    identity,
     keys,
     anchor,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
-    seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
+    seals:
+      overrides.seals ??
+      new SealEngine({ store: new PgSealStore(db, keys, clock), config, identity }),
     secrets,
     proposals:
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),

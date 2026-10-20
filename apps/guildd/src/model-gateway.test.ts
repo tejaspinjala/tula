@@ -83,13 +83,14 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
     await secrets.add(GUILD, 'cloud', KEY)
   }
   const quests = new MemoryQuestQueue(clock, () => 0.5)
+  const tripwires = new MemoryTripwireStore(clock)
   const gateway = new ModelGateway({
     ledger,
     secrets,
     config: { current: async () => ({ version: 1, config: cfg }) },
     provider,
     clock,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     quests: { get: (g, id) => quests.get(g, id) },
     tokenTtlMs: 60_000,
   })
@@ -116,7 +117,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
   }
   /** The ledger run id of the run called `name`. */
   const runIdOf = async (name: string) => runIdFor((await questFor(name)).id, 1)
-  return { clock, ledger, provider, secrets, gateway, open, questFor, runIdOf }
+  return { clock, ledger, provider, secrets, gateway, tripwires, open, questFor, runIdOf }
 }
 
 async function started(r: Promise<Awaited<ReturnType<ModelGateway['openRun']>>>) {
@@ -354,15 +355,42 @@ describe('reservations and idempotency', () => {
     expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBe(30)
   })
 
-  test('reopening an active or revoked run reports exists, even past a cap, with no notice', async () => {
-    const { provider, gateway, ledger, open, runIdOf } = await setup(config({ dailyTokens: 200 }))
+  test('reopening an active run reports exists, even past a cap, with no notice', async () => {
+    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 200 }))
     provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
     expect(await open()).toEqual({ status: 'exists' })
-    await gateway.revokeRun(GUILD, await runIdOf('run-1'))
-    expect(await open()).toEqual({ status: 'exists' })
     expect(ledger.notices).toBe(0)
+  })
+
+  test('a run revoked by a Hall pause is reissued on the same live attempt once the Hall resumes', async () => {
+    const { provider, gateway, tripwires, open } = await setup()
+    const first = await started(open())
+    const pause = { hallId: 'heralds', tripwire: 'manual', observed: 0, threshold: 0 } as const
+    await tripwires.pause(GUILD, pause)
+    expect(await gateway.revokeHallRuns(GUILD, 'heralds')).toBe(1)
+    expect(await open()).toEqual({ status: 'refused', reason: 'hall_paused' })
+    await tripwires.resume(GUILD, 'heralds')
+    const second = await started(open())
+    expect(second.token).not.toBe(first.token)
+    expect(await codeOf(gateway.complete(first.token, message))).toBe('invalid_token')
+    provider.script({ ok: true, text: 'again', usage: { inputTokens: 5, outputTokens: 5 } })
+    expect((await gateway.complete(second.token, message)).text).toBe('again')
+    expect(await open()).toEqual({ status: 'exists' })
+  })
+
+  test('a manually revoked run is never reissued, even after a pause/resume cycle', async () => {
+    const { gateway, tripwires, open, runIdOf } = await setup()
+    const first = await started(open())
+    expect(await gateway.revokeRun(GUILD, await runIdOf('run-1'))).toBe(true)
+    expect(await open()).toEqual({ status: 'refused', reason: 'token_revoked' })
+    const pause = { hallId: 'heralds', tripwire: 'manual', observed: 0, threshold: 0 } as const
+    await tripwires.pause(GUILD, pause)
+    expect(await gateway.revokeHallRuns(GUILD, 'heralds')).toBe(0)
+    await tripwires.resume(GUILD, 'heralds')
+    expect(await open()).toEqual({ status: 'refused', reason: 'token_revoked' })
+    expect(await codeOf(gateway.complete(first.token, message))).toBe('token_revoked')
   })
 
   test('a malformed call is invalid_request', async () => {

@@ -63,6 +63,7 @@ export class MemoryModelLedger implements ModelLedger {
       providerId: run.providerId,
       profileId: run.profileId,
       state: run.state,
+      revokeReason: null,
       expiresAt: run.expiresAt,
       tokenHash: run.tokenHash,
       seq: s.runs.size + 1,
@@ -77,10 +78,17 @@ export class MemoryModelLedger implements ModelLedger {
     expiresAt: string
   ): Promise<boolean> {
     const found = this.state(guildId).runs.get(runId)
-    if (found?.state !== 'queued') {
+    if (
+      !found ||
+      !(
+        found.state === 'queued' ||
+        (found.state === 'revoked' && found.revokeReason === 'hall_paused')
+      )
+    ) {
       return false
     }
     found.state = 'active'
+    found.revokeReason = null
     found.tokenHash = tokenHash
     found.expiresAt = expiresAt
     return true
@@ -106,6 +114,7 @@ export class MemoryModelLedger implements ModelLedger {
       return false
     }
     found.state = 'revoked'
+    found.revokeReason = 'manual'
     return true
   }
 
@@ -114,6 +123,7 @@ export class MemoryModelLedger implements ModelLedger {
     for (const r of this.state(guildId).runs.values()) {
       if (r.hallId === hallId && r.state !== 'revoked') {
         r.state = 'revoked'
+        r.revokeReason = 'hall_paused'
         revoked += 1
       }
     }

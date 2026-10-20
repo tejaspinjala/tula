@@ -46,7 +46,7 @@ import type { ProposalEngine } from './proposals'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealPushRelay } from './seal-push'
-import { GUILD_MASTER_ID, type SealEngine } from './seals'
+import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
@@ -1399,9 +1399,8 @@ export function createApp(deps: AppDeps): Hono {
           expectedHash: body.data.actionHash,
           ...(body.data.note ? { note: body.data.note } : {}),
         },
-        // Only a re-authenticated Guild Master session reaches here, so the decider is the
-        // reserved Guild Master principal; requestSeal refuses that id as a requester.
-        { role: 'guild_master', id: GUILD_MASTER_ID }
+        // The decider is the session's real principal; the engine refuses it as its own requester.
+        { role: check.principal.role, id: check.principal.memberId }
       )
       return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
     })
