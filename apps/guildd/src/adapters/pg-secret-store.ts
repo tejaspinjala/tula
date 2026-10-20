@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
 import type { KeyProvider } from '../ports/key-provider'
-import { SecretExistsError, type SecretStatus, type SecretStore } from '../ports/secret-store'
+import { SecretExistsError, type SecretStore } from '../ports/secret-store'
 import { newDataKey, open, seal } from '../vault-crypto'
 
 const keyRow = z.object({ wrapped_key: z.instanceof(Uint8Array) })
@@ -44,7 +44,7 @@ export class PgSecretStore implements SecretStore {
     const present = new Set(found.map((r) => refRow.parse(r).ref))
     return refs.map((ref) => ({
       ref,
-      status: (present.has(ref) ? 'resolved' : 'missing') satisfies SecretStatus,
+      status: present.has(ref) ? ('resolved' as const) : ('missing' as const),
     }))
   }
 

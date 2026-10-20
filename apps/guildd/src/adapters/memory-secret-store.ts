@@ -1,5 +1,5 @@
 import type { KeyProvider } from '../ports/key-provider'
-import { SecretExistsError, type SecretStatus, type SecretStore } from '../ports/secret-store'
+import { SecretExistsError, type SecretStore } from '../ports/secret-store'
 import { newDataKey, open, seal } from '../vault-crypto'
 
 interface GuildVault {
@@ -31,7 +31,7 @@ export class MemorySecretStore implements SecretStore {
     const secrets = this.vaults.get(guildId)?.secrets
     return refs.map((ref) => ({
       ref,
-      status: (secrets?.has(ref) ? 'resolved' : 'missing') satisfies SecretStatus,
+      status: secrets?.has(ref) ? ('resolved' as const) : ('missing' as const),
     }))
   }
 
