@@ -1,5 +1,7 @@
 import type { JSONValue } from 'postgres'
+import { extendChain } from './audit-chain'
 import type { TenantTx } from './db/client'
+import type { KeyProvider } from './ports/key-provider'
 
 /** One entry of a guild's append-only event log. */
 export interface GuildEvent {
@@ -12,11 +14,18 @@ export interface GuildEvent {
 
 /**
  * Appends an event to the tenant's log inside the caller's transaction (the transactional outbox:
- * the event commits or rolls back with the state change it describes).
+ * the event commits or rolls back with the state change it describes) and chains it into the
+ * guild's keyed audit chain in the same transaction, with the MAC key from `keys`.
  * @returns the event's seq.
  */
-export async function appendEvent(tx: TenantTx, type: string, payload: JSONValue): Promise<number> {
+export async function appendEvent(
+  tx: TenantTx,
+  keys: KeyProvider,
+  type: string,
+  payload: JSONValue
+): Promise<number> {
   const [row] = await tx`select append_event(${type}, ${tx.json(payload)}) as seq`
+  await extendChain(tx, keys)
   return Number(row?.seq)
 }
 

@@ -1,5 +1,7 @@
 import postgres, { type Sql, type TransactionSql } from 'postgres'
 import { z } from 'zod'
+import { extendChain } from '../audit-chain'
+import type { KeyProvider } from '../ports/key-provider'
 
 /** Thrown by `withGuild` when the guild id is not a UUID; nothing is queried. */
 export class InvalidGuildIdError extends Error {
@@ -22,6 +24,18 @@ export interface Db {
    * @returns the new guild's id.
    */
   foundGuild(input: { name: string; goal: string }): Promise<string>
+  /**
+   * Founds a guild and chains its `guild.founded` event in ONE transaction, so a failure (for
+   * example the KeyProvider being down) leaves no guild, event or chain entry behind.
+   * `inFounding`, if given, runs in the same transaction after the chain is extended (tenant context
+   * set), so what it writes commits or rolls back with the guild.
+   * @returns the new guild's id.
+   */
+  foundGuildChained(
+    input: { name: string; goal: string },
+    keys: KeyProvider,
+    inFounding?: (tx: TenantTx, guildId: string) => Promise<void>
+  ): Promise<string>
   /**
    * Runs `fn` in a transaction whose tenant context is `guildId` (`set_config(..., true)`, so it
    * dies with the transaction and a reused pooled connection carries nothing over).
@@ -47,9 +61,18 @@ export interface Db {
 }
 
 /** Opens a pool as the non-owner app role (`url` must name that role, never the table owner). */
-export function createDb(url: string, options: { max?: number; streamMax?: number } = {}): Db {
+export function createDb(
+  url: string,
+  options: { max?: number; streamMax?: number; streamStatementTimeoutMs?: number } = {}
+): Db {
   const sql: Sql = postgres(url, { max: options.max ?? 10, onnotice: () => {} })
-  const streamSql: Sql = postgres(url, { max: options.streamMax ?? 2, onnotice: () => {} })
+  // A hung fan-out query would otherwise hold one of the few stream connections forever and
+  // stall every guild's stream, so the stream pool cancels statements after a bound.
+  const streamSql: Sql = postgres(url, {
+    max: options.streamMax ?? 2,
+    onnotice: () => {},
+    connection: { statement_timeout: options.streamStatementTimeoutMs ?? 10_000 },
+  })
   const scoped =
     (pool: Sql) =>
     async <T>(guildId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> => {
@@ -70,6 +93,21 @@ export function createDb(url: string, options: { max?: number; streamMax?: numbe
     async foundGuild({ name, goal }) {
       const [row] = await sql`select found_guild(${name}, ${goal}) as id`
       return String(row?.id)
+    },
+    async foundGuildChained({ name, goal }, keys, inFounding) {
+      let id: string | undefined
+      await sql.begin(async (tx) => {
+        const [row] = await tx`select found_guild(${name}, ${goal}) as id`
+        const founded = String(row?.id)
+        await tx`select set_config('app.guild_id', ${founded}, true)`
+        await extendChain(tx, keys)
+        await inFounding?.(tx, founded)
+        id = founded
+      })
+      if (!id) {
+        throw new Error('founding transaction finished without a guild')
+      }
+      return id
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),

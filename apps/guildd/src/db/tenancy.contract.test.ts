@@ -80,6 +80,21 @@ describe('hardening', () => {
     expect(config.some((c) => c.startsWith('idle_in_transaction_session_timeout='))).toBe(true)
   })
 
+  test('the app role can delete only from identity tables the stores really delete from', async () => {
+    const rows = await harness.owner`
+      select c.relname as name,
+        has_table_privilege('guildhall_app', c.oid, 'DELETE') as can_delete
+      from pg_class c
+      where c.relkind = 'r' and c.relname like 'identity\_%'`
+    const canDelete = Object.fromEntries(rows.map((r) => [String(r.name), r.can_delete === true]))
+    expect(canDelete).toEqual({
+      identity_challenges: true,
+      identity_credentials: false,
+      identity_founding: true,
+      identity_sessions: false,
+    })
+  })
+
   test('no migration stores a credential', async () => {
     const dir = new URL('../../migrations/', import.meta.url)
     for (const name of await readdir(dir)) {

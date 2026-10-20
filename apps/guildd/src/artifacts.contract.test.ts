@@ -1,10 +1,16 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { hashBytes } from './ports/object-store'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
+import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness()
-afterAll(() => harness.close())
+const strict = await createHarness({ devGuildHeader: false })
+afterAll(async () => {
+  await harness.close()
+  await strict.close()
+})
 
 const enc = (text: string) => new TextEncoder().encode(text)
 
@@ -196,5 +202,62 @@ describe('artifact events reach live streams', () => {
     } finally {
       await live.close()
     }
+  })
+})
+
+describe('artifacts with a session', () => {
+  test('GET /artifacts/:hash works with a Bearer session while the dev header is off', async () => {
+    const ceremony = z.object({
+      challengeId: z.string(),
+      options: z.object({ challenge: z.string() }),
+    })
+    const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+      strict.request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      })
+    const founded = z
+      .object({ id: z.string(), foundingToken: z.string() })
+      .parse(await (await post('/guilds', { name: 'Bearer', goal: 'g' })).json())
+    const key = await SoftwareAuthenticator.create('localhost', 'http://localhost:5173')
+    const reg = ceremony.parse(
+      await (
+        await post(
+          `/guilds/${founded.id}/passkeys/begin`,
+          {},
+          { 'x-founding-token': founded.foundingToken }
+        )
+      ).json()
+    )
+    await post(`/guilds/${founded.id}/passkeys/finish`, {
+      challengeId: reg.challengeId,
+      response: await key.register(reg.options),
+    })
+    const begin = ceremony.parse(
+      await (await post(`/guilds/${founded.id}/sign-in/begin`, {})).json()
+    )
+    const done = await post(`/guilds/${founded.id}/sign-in/finish`, {
+      challengeId: begin.challengeId,
+      response: await key.assert(begin.options),
+    })
+    const { token } = z.object({ token: z.string() }).parse(await done.json())
+
+    const put = await strict.request('/artifacts?class=report', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${token}` },
+      body: enc('bearer notes'),
+    })
+    expect(put.status).toBe(201)
+    const hash = hashBytes(enc('bearer notes'))
+    const got = await strict.request(`/artifacts/${hash}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(got.status).toBe(200)
+    expect(await got.text()).toBe('bearer notes')
+    const noAuth = await strict.request(`/artifacts/${hash}`, {
+      headers: { 'x-guild-id': founded.id },
+    })
+    expect(noAuth.status).toBe(401)
   })
 })

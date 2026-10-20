@@ -12,3 +12,9 @@ createRoot(root).render(
     <App />
   </StrictMode>
 )
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {
+    // Installability is a nicety; the ledger view works without the worker.
+  })
+}

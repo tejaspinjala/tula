@@ -16,17 +16,22 @@ export type ArtifactResult =
   | { kind: 'not_found' }
   | { kind: 'error'; status: number }
 
+/** How the caller proves its guild: a session token, or (development only) a bare guild id. */
+export type ArtifactAuth = { token: string } | { guildId: string }
+
 /**
- * Opens the artifact `hash` for `guildId` through guildd's `GET /artifacts/:hash`.
- * `guildId` rides in `x-guild-id` until authentication lands (#11).
+ * Opens the artifact `hash` through guildd's `GET /artifacts/:hash`. A session authenticates with
+ * `Authorization: Bearer`; the `x-guild-id` header is only the development fallback when there is
+ * no session (guildd rejects it in production).
  */
 export async function openArtifact(
   hash: string,
-  guildId: string,
+  auth: ArtifactAuth,
   fetcher: Fetcher = fetch
 ): Promise<ArtifactResult> {
   const res = await fetcher(`/api/artifacts/${encodeURIComponent(hash)}`, {
-    headers: { 'x-guild-id': guildId },
+    headers:
+      'token' in auth ? { authorization: `Bearer ${auth.token}` } : { 'x-guild-id': auth.guildId },
   })
   if (res.status === 404) {
     return { kind: 'not_found' }

@@ -1,40 +1,65 @@
 import type { Hono } from 'hono'
+import { FileKeyProvider } from './adapters/file-key-provider'
+import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
+import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
-import { loadEnv } from './env'
+import { loadEnv, loadWebauthnEnv } from './env'
 
 /**
  * The single composition root: wires adapters into the app.
- * Overrides swap adapters; tests pass a clock, an object store and a Db on a throwaway database,
- * production none. The Db has no memory adapter by design: tenancy is enforced by Postgres, so
+ * Overrides swap adapters; tests pass a clock, an object store, a KeyProvider and a Db on a
+ * throwaway database, production none (the key comes from the local key file). The Db has no memory adapter by design: tenancy is enforced by Postgres, so
  * contract tests run against real Postgres.
  */
-export function compose(overrides: Partial<AppDeps> = {}): { app: Hono; adapters: AppDeps } {
-  const { db, devGuildHeader, objectStore } =
-    overrides.db && overrides.devGuildHeader !== undefined && overrides.objectStore
+export async function compose(
+  overrides: Partial<AppDeps> = {}
+): Promise<{ app: Hono; adapters: AppDeps }> {
+  const { db, devGuildHeader, objectStore, keys } =
+    overrides.db &&
+    overrides.devGuildHeader !== undefined &&
+    overrides.objectStore &&
+    overrides.keys
       ? {
           db: overrides.db,
           devGuildHeader: overrides.devGuildHeader,
           objectStore: overrides.objectStore,
+          keys: overrides.keys,
         }
-      : fromEnv(overrides)
+      : await fromEnv(overrides)
+  const clock = overrides.clock ?? new SystemClock()
+  const rp = loadWebauthnEnv()
   const adapters: AppDeps = {
-    clock: new SystemClock(),
     ...overrides,
+    clock,
     db,
     devGuildHeader,
     objectStore,
+    identity:
+      overrides.identity ??
+      new WebAuthnIdentityProvider(new PgIdentityStore(db), {
+        clock,
+        rpId: rp.WEBAUTHN_RP_ID,
+        rpName: 'Guildhall',
+        origin: rp.WEBAUTHN_ORIGIN,
+      }),
+    keys,
+    secrets: overrides.secrets ?? new PgSecretStore(db, keys),
   }
   return { app: createApp(adapters), adapters }
 }
 
-function fromEnv(
+async function fromEnv(
   overrides: Partial<AppDeps>
-): Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore'> {
+): Promise<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys'>> {
   const env = loadEnv()
   return {
+    keys:
+      overrides.keys ??
+      (await FileKeyProvider.open(env.KEY_FILE, { create: env.NODE_ENV !== 'production' })),
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
     objectStore:

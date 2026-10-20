@@ -6,12 +6,14 @@ import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
-const { db } = harness.adapters
+const { db, keys } = harness.adapters
 
 describe('event log', () => {
   test('appending for a guild that was never founded raises and writes nothing', async () => {
     const ghost = crypto.randomUUID()
-    await expect(db.withGuild(ghost, (tx) => appendEvent(tx, 'test.ghost', {}))).rejects.toThrow()
+    await expect(
+      db.withGuild(ghost, (tx) => appendEvent(tx, keys, 'test.ghost', {}))
+    ).rejects.toThrow()
     const rows = await harness.owner`select 1 from events where guild_id = ${ghost}`
     expect(rows.length).toBe(0)
   })
@@ -27,11 +29,11 @@ describe('event log', () => {
     const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
     await db
       .withGuild(id, async (tx) => {
-        await appendEvent(tx, 'test.happened', {})
+        await appendEvent(tx, keys, 'test.happened', {})
         throw new Error('boom')
       })
       .catch(() => {})
-    await db.withGuild(id, (tx) => appendEvent(tx, 'test.kept', {}))
+    await db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.kept', {}))
     const events = await db.withGuild(id, (tx) => eventsAfter(tx, 0))
     expect(events.map((e) => [e.seq, e.type])).toEqual([
       [1, 'guild.founded'],
@@ -43,7 +45,7 @@ describe('event log', () => {
     const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
     await Promise.all(
       Array.from({ length: 20 }, (_, i) =>
-        db.withGuild(id, (tx) => appendEvent(tx, 'test.n', { i }))
+        db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.n', { i }))
       )
     )
     const events = await db.withGuild(id, (tx) => eventsAfter(tx, 0, 100))
@@ -129,10 +131,10 @@ describe('event stream over WebSocket', () => {
       ['event', 1],
     ])
     for (const n of [2, 3]) {
-      await db.withGuild(id, (tx) => appendEvent(tx, `test.${n}`, {}))
+      await db.withGuild(id, (tx) => appendEvent(tx, keys, `test.${n}`, {}))
     }
     const live = stream(base, id, 1, (f) => f.length === 4)
-    await db.withGuild(id, (tx) => appendEvent(tx, 'test.4', {}))
+    await db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.4', {}))
     const frames = await live
     expect(frames[0]?.type).toBe('snapshot')
     expect(frames.slice(1).map((f) => [f.type, f.event?.seq])).toEqual([
@@ -146,7 +148,7 @@ describe('event stream over WebSocket', () => {
     const base = harness.listen()
     const a = await db.foundGuild({ name: 'A', goal: 'g' })
     const b = await db.foundGuild({ name: 'B', goal: 'g' })
-    await db.withGuild(b, (tx) => appendEvent(tx, 'secret.b', {}))
+    await db.withGuild(b, (tx) => appendEvent(tx, keys, 'secret.b', {}))
     const frames = await stream(base, a, 0, (f) => f.length === 2)
     expect(JSON.stringify(frames)).not.toContain('secret.b')
     const foreign = await fetch(`${base.replace('ws', 'http')}/guilds/${b}/events`, {
