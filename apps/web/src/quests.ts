@@ -129,3 +129,8 @@ export function readQuestFrame(raw: string): { refresh: boolean; seq: number | n
   }
   return { refresh: parsed.data.event.type.startsWith('quest.'), seq: parsed.data.event.seq }
 }
+
+/** Which round a Quest is on, for display. */
+export function roundText(quest: Pick<BoardQuest, 'round' | 'roundLimit'>): string {
+  return `Round ${quest.round} of ${quest.roundLimit}`
+}
