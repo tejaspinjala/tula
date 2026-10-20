@@ -9,6 +9,7 @@ import type { Clock } from './ports/clock'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { ObjectStore } from './ports/object-store'
 import { bearerToken, checkSensitive } from './sensitive'
+import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
 export interface AppDeps {
@@ -28,20 +29,6 @@ export interface AppDeps {
   maxSocketsPerGuild?: number
   /** A socket buffering more than this many bytes is closed; defaults to 1 MiB. */
   maxSocketBufferBytes?: number
-}
-
-/** Bytes queued on a Bun socket, read through the untyped `raw` handle Hono exposes. */
-function bufferedAmountOf(raw: unknown): number {
-  if (
-    typeof raw === 'object' &&
-    raw !== null &&
-    'getBufferedAmount' in raw &&
-    typeof raw.getBufferedAmount === 'function'
-  ) {
-    const amount: unknown = raw.getBufferedAmount()
-    return typeof amount === 'number' ? amount : 0
-  }
-  return 0
 }
 
 const { upgradeWebSocket, websocket } = createBunWebSocket()
@@ -374,7 +361,8 @@ export function createApp(deps: AppDeps): Hono {
         onOpen: (_evt, ws) => {
           subscription = hub.subscribe(guild, cursor, {
             send: (data) => ws.send(data),
-            bufferedAmount: () => bufferedAmountOf(ws.raw),
+            // Unknown buffer size fails closed: treated as over any threshold, so the hub closes it.
+            bufferedAmount: () => readBufferedAmount(ws.raw) ?? Number.POSITIVE_INFINITY,
             close: (code, reason) => ws.close(code, reason),
           })
           slot?.()

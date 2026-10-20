@@ -47,9 +47,18 @@ export interface Db {
 }
 
 /** Opens a pool as the non-owner app role (`url` must name that role, never the table owner). */
-export function createDb(url: string, options: { max?: number; streamMax?: number } = {}): Db {
+export function createDb(
+  url: string,
+  options: { max?: number; streamMax?: number; streamStatementTimeoutMs?: number } = {}
+): Db {
   const sql: Sql = postgres(url, { max: options.max ?? 10, onnotice: () => {} })
-  const streamSql: Sql = postgres(url, { max: options.streamMax ?? 2, onnotice: () => {} })
+  // A hung fan-out query would otherwise hold one of the few stream connections forever and
+  // stall every guild's stream, so the stream pool cancels statements after a bound.
+  const streamSql: Sql = postgres(url, {
+    max: options.streamMax ?? 2,
+    onnotice: () => {},
+    connection: { statement_timeout: options.streamStatementTimeoutMs ?? 10_000 },
+  })
   const scoped =
     (pool: Sql) =>
     async <T>(guildId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> => {
