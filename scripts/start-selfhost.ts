@@ -67,6 +67,7 @@ export function selfhostPlan(
       ...source,
       APP_DATABASE_URL: appUrl.toString(),
       PORT: String(input.PORT),
+      HOST: '127.0.0.1',
       WEB_DIST: join(root, 'apps/web/dist'),
       WEBAUTHN_ORIGIN: `http://localhost:${input.PORT}`,
       WEBAUTHN_RP_ID: 'localhost',
