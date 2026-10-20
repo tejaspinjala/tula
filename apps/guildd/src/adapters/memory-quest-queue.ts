@@ -1,6 +1,8 @@
 import type { Clock } from '../ports/clock'
 import {
   assertHeld,
+  type BoardRequest,
+  type BoardResult,
   type ClaimOptions,
   cascadeDeadTransitions,
   claimTransition,
@@ -128,6 +130,7 @@ export class MemoryQuestQueue implements QuestQueue {
       seq: g.seq,
       jobKey: parsed.jobKey,
       campaignId: parsed.campaignId ?? null,
+      board: parsed.board,
       templateId: parsed.templateId,
       hallId: parsed.hallId,
       rank: parsed.rank,
@@ -308,6 +311,10 @@ export class MemoryQuestQueue implements QuestQueue {
       depth: link.depth,
     })
     return { ok: true, quest, link, created: true }
+  }
+
+  async postBoard(_guildId: string, _request: BoardRequest): Promise<BoardResult> {
+    return { ok: false, error: 'campaign_cap' }
   }
 
   async children(guildId: string, parentId: string): Promise<QuestLink[]> {

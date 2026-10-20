@@ -29,7 +29,7 @@ questQueueContract('postgres', async () => {
   const events = async (guildId: string) =>
     (
       await owner`
-        select type from events where guild_id = ${guildId} and type like 'quest.%' order by seq`
+        select type from events where guild_id = ${guildId} and type ~ '^(quest|campaign)[.]' order by seq`
     ).map((e) => String(e.type))
   return {
     queue: new PgQuestQueue(db, new MemoryKeyProvider(), clock, () => 0.5),

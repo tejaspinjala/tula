@@ -5,6 +5,8 @@ import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import {
   assertHeld,
+  type BoardRequest,
+  type BoardResult,
   type ClaimOptions,
   cascadeDeadTransitions,
   claimTransition,
@@ -50,6 +52,7 @@ const questRow = z.object({
   seq: z.coerce.number(),
   job_key: z.string(),
   campaign_id: z.string().nullable(),
+  board: z.boolean(),
   template_id: z.string(),
   hall_id: z.string(),
   rank: questRank,
@@ -102,6 +105,7 @@ export function toQuest(raw: unknown): Quest {
     seq: r.seq,
     jobKey: r.job_key,
     campaignId: r.campaign_id,
+    board: r.board,
     templateId: r.template_id,
     hallId: r.hall_id,
     rank: r.rank,
@@ -436,6 +440,10 @@ export class PgQuestQueue implements QuestQueue {
       })
       return { ok: true, quest, link: toLink(linked), created: true }
     })
+  }
+
+  async postBoard(_guildId: string, _request: BoardRequest): Promise<BoardResult> {
+    return { ok: false, error: 'campaign_cap' }
   }
 
   async children(guildId: string, parentId: string): Promise<QuestLink[]> {

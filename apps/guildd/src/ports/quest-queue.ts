@@ -39,6 +39,11 @@ export const newQuest = z.object({
   /** Quests that must be done before this one may start. */
   blockedBy: z.array(z.uuid()).max(50).default([]),
   maxAttempts: z.number().int().min(1).max(20).default(DEFAULT_MAX_ATTEMPTS),
+  /**
+   * A Quest on a Hall's Quest Board: it belongs to a Campaign but is not serialised with the
+   * Campaign's other Quests, so the Hall's Members can claim board Quests in parallel.
+   */
+  board: z.boolean().default(false),
 })
 /** Input to {@link QuestQueue.post}. */
 export type NewQuest = z.input<typeof newQuest>
@@ -85,6 +90,8 @@ export interface Quest {
   seq: number
   jobKey: string
   campaignId: string | null
+  /** True for a Quest a Captain posted to the Hall's Quest Board; it runs in parallel with the rest of its Campaign. */
+  board: boolean
   templateId: string
   hallId: string
   rank: z.infer<typeof questRank>
@@ -190,7 +197,31 @@ export interface ClaimOptions {
   maxActive: number
   /** Claim this Quest only; `already_claimed` if it holds a live lease. */
   questId?: string
+  /**
+   * Per-Hall cap on Quests with a live lease at once (a Hall's `maxConcurrentMembers`); a Hall
+   * not named here is limited only by `maxActive`. Counted under the same lock as the claim.
+   */
+  hallCaps?: Readonly<Record<string, number>>
 }
+
+/** What {@link QuestQueue.postBoard} needs: the Captain's delivery, the Quest and the Campaign cap. */
+export interface BoardRequest {
+  /** The Captain's Quest (its lease is the fencing token). */
+  parentId: string
+  attempt: number
+  /** De-duplicates a retried post. */
+  jobKey: string
+  /** The Campaign the board Quest joins. */
+  campaignId: string
+  quest: Omit<NewQuest, 'jobKey' | 'campaignId' | 'board'>
+  /** The most board Quests the Campaign may hold. */
+  maxQuests: number
+}
+
+/** The outcome of {@link QuestQueue.postBoard}: the Quest, or the cap that refused it (no row written). */
+export type BoardResult =
+  | { ok: true; quest: Quest; created: boolean }
+  | { ok: false; error: 'campaign_cap' }
 
 /** Paging for lists: `after` is the previous page's `next`. */
 export interface QuestPaging {
@@ -285,6 +316,14 @@ export interface QuestQueue {
    * no Campaign and is blocked by nothing, so it is deliverable at once.
    */
   spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult>
+  /**
+   * Posts a Quest onto the Quest Board of a Campaign, on behalf of a Captain who holds the
+   * `parentId` Quest (fenced by `attempt`: `stale_lease` or `invalid_state` otherwise). The Quest
+   * is `board: true`. Idempotent per job key: a repeat returns the same Quest with `created: false`,
+   * whatever the cap now says. Over `maxQuests` board Quests already in the Campaign it refuses with
+   * `campaign_cap` and writes nothing. The count and the write share the per-guild lock.
+   */
+  postBoard(guildId: string, request: BoardRequest): Promise<BoardResult>
   /** The sub-Quests of a Quest, in spawn order (at most the guild's `maxChildrenPerQuest`). */
   children(guildId: string, parentId: string): Promise<QuestLink[]>
   /** The links of those of `childIds` (at most a page of Quests) that are Sub-Quests, for the Quest Board. */

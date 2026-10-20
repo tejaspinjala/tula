@@ -6,6 +6,7 @@ const active: Quest = {
   seq: 1,
   jobKey: 'k',
   campaignId: null,
+  board: false,
   templateId: 't',
   hallId: 'heralds',
   rank: 'apprentice',

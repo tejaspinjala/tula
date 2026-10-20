@@ -7,6 +7,7 @@ const quest: Quest = {
   seq: 1,
   jobKey: 'k',
   campaignId: 'launch',
+  board: false,
   templateId: 'herald-brief',
   hallId: 'heralds',
   rank: 'journeyman',
