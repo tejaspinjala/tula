@@ -155,6 +155,13 @@ export function setField(
   }
 }
 
+/** The version line under the Workflow picker. */
+export function versionLine(version: number, activeVersion: number | null): string {
+  return version === 0
+    ? 'Not saved yet.'
+    : `Version ${version} of ${activeVersion === null ? 'none in force' : `${activeVersion} in force`}.`
+}
+
 /** The `PUT /workflows/:wid` body. */
 export function saveBody(
   name: string,

@@ -45,6 +45,11 @@ export interface MoveTarget {
   before?: string
 }
 
+/** The save status line of the Guild builder. */
+export function saveStatus(dirty: boolean, _pending: boolean): string {
+  return dirty ? 'Unsaved changes' : 'No unsaved changes'
+}
+
 /** Every id in use (Steward, Halls, Captains, Members), so a new one never clashes. */
 export function usedIds(c: BuilderConfig): Set<string> {
   const ids = new Set<string>([c.steward.id])

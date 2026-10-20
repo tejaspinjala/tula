@@ -6,6 +6,7 @@ import {
   deleteHall,
   moveMember,
   parseConfig,
+  saveStatus,
   setLook,
 } from './model'
 import { instantiate, TEMPLATES } from './templates'
@@ -128,4 +129,11 @@ test('dropping the same prebuilt Hall twice keeps ids unique', () => {
   const next = instantiate(instantiate(load(), template), template)
   const ids = next.halls.map((h) => h.id)
   expect(new Set(ids).size).toBe(ids.length)
+})
+
+test('after a widening save the status says it waits for the passkey, not "Unsaved changes"', () => {
+  expect(saveStatus(true, false)).toBe('Unsaved changes')
+  expect(saveStatus(false, false)).toBe('No unsaved changes')
+  expect(saveStatus(true, true)).toBe('Saved, waiting for your passkey to confirm')
+  expect(saveStatus(false, true)).toBe('Saved, waiting for your passkey to confirm')
 })

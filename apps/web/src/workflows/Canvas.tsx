@@ -59,6 +59,9 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
   )
 }
 
+/** The initial fit of the canvas. */
+export const FIT_VIEW_OPTIONS = { padding: 0, minZoom: 0.3 }
+
 const nodeTypes = { step: StepNode }
 
 /** Props of {@link Canvas}. */
