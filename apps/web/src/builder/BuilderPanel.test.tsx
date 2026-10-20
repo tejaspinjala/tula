@@ -160,6 +160,8 @@ test('on a phone the hierarchy is a read-only tree: no palette, no editing, no s
   expect(host.textContent).toContain('Quill')
   expect(host.textContent).toContain('Locked')
   expect(host.textContent).toContain('paused')
+  expect(host.textContent).toContain('read-only outline')
+  expect(host.textContent).toContain('edit on a desktop')
   expect(host.querySelector('button')).toBeNull()
   expect(host.querySelector('input')).toBeNull()
 })
