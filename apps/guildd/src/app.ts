@@ -1324,7 +1324,8 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(
         {
           error: 'invalid_config',
-          issues: body.error.issues.map((i) => ({ path: i.path, message: i.message })),
+          // Paths are relative to the config document, not the request body that wraps it.
+          issues: body.error.issues.map((i) => ({ path: i.path.slice(1), message: i.message })),
         },
         400
       )
