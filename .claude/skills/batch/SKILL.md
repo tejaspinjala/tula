@@ -29,4 +29,11 @@ You are the lead. Your context is precious: hold pointers (issue numbers, branch
 1. `bun run verify` green on `batch/<slug>`; run the `run-check` skill if any ticket changed runtime behaviour.
 2. Run the `review-loop` skill on `batch/<slug>` against `develop` (one batch review).
 3. Open one PR `batch/<slug>` → `develop`, title a Conventional Commit, body from the PR template, one `Closes #<n>` line per ticket (GitHub closes only the first issue of a comma list like `Closes #1, #2`), and the run-check and review reports. No co-author trailers or generated-by footers.
-4. Do not merge it. Report the PR URL, the tickets it closes, and anything deferred. Remove the worker worktrees.
+4. Watch CI (`gh pr checks <n> --watch`). When it and every gate above are green, merge it (`gh pr merge <n> --merge --delete-branch`) and `git pull --ff-only` on `develop`. Never merge on red.
+5. Clean up after every merge, batch or single PR, so only `develop` is left:
+   - `git worktree remove` each batch and worker worktree, then `git worktree prune`.
+   - Delete every remote branch already merged into `develop`: `git fetch --prune`, then `git push origin --delete` each `origin/*` branch for which `git merge-base --is-ancestor <branch> origin/develop` holds. Worker branches merged into a batch branch are never PR heads, so GitHub's delete-on-merge misses them.
+   - Delete the merged local branches: `git branch --merged develop`, without `develop`, piped to `git branch -d`.
+   - Never delete an unmerged branch: report it instead.
+6. Report the PR, the tickets it closed, anything deferred, and that `git branch -a` shows only `develop`.
+
