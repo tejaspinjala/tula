@@ -1,23 +1,27 @@
 import {
   applyNodeChanges,
   Background,
+  BackgroundVariant,
   type Connection,
   Controls,
   type Edge,
   Handle,
+  MiniMap,
   type Node,
   type NodeChange,
   type NodeProps,
   Position,
   ReactFlow,
   ReactFlowProvider,
-  useNodesInitialized,
   useReactFlow,
 } from '@xyflow/react'
 import { type DragEvent, useCallback, useEffect, useState } from 'react'
 import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
 import { Badge } from '../Badge'
+import { SNAP_GRID } from '../builder/Canvas'
+import { useBoardFit } from '../builder/useBoardFit'
 import { formatDollars } from '../costs'
+import { Frame } from '../ui/pixel'
 import type { Place } from './layout'
 import type { NodeOverlay } from './overlay'
 
@@ -34,11 +38,13 @@ export interface FlowData extends Record<string, unknown> {
 type FlowNode = Node<FlowData, 'step'>
 
 function StepNode({ data, selected }: NodeProps<FlowNode>) {
+  // The plate names the kind of step; `trigger.` is dropped so the longest names fit a node.
+  const plate = data.type.replace(/^trigger\./, '')
   return (
-    <div className={`flow-node flow-step${selected ? ' flow-selected' : ''}`}>
+    <Frame variant="paper" className={`flow-node flow-step${selected ? ' flow-selected' : ''}`}>
       <Handle type="target" position={Position.Left} />
+      <span className="flow-plate">{selected ? `\u25B6 ${plate}` : plate}</span>
       <strong>{data.label}</strong>
-      <span className="muted">{data.type}</span>
       {data.overlay && (
         <div className="flow-badges">
           <Badge tone={data.overlay.tone}>{data.overlay.text}</Badge>
@@ -56,7 +62,7 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
         </p>
       ))}
       <Handle type="source" position={Position.Right} />
-    </div>
+    </Frame>
   )
 }
 
@@ -106,12 +112,7 @@ function build(props: Pick<CanvasProps, 'graph' | 'places' | 'issues' | 'overlay
 }
 
 function Flow(props: CanvasProps) {
-  const { screenToFlowPosition, fitView, getViewport, setViewport, getNodesBounds, getNodes } =
-    useReactFlow<FlowNode>()
-  const initialized = useNodesInitialized()
-  // Fit once the nodes are measured; if the minimum zoom clamps the fit, the centred graph would
-  // clip its first node, so anchor the left edge inside the viewport instead.
-
+  const { screenToFlowPosition } = useReactFlow<FlowNode>()
   const [nodes, setNodes] = useState<FlowNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
   const { graph, places, issues, overlay, selected } = props
@@ -121,26 +122,7 @@ function Flow(props: CanvasProps) {
     setEdges(built.edges)
   }, [graph, places, issues, overlay, selected])
 
-  useEffect(() => {
-    if (!initialized) {
-      return
-    }
-    let cancelled = false
-    fitView({ ...FIT_VIEW_OPTIONS, duration: 0 }).then(() => {
-      if (cancelled) {
-        return
-      }
-      const view = getViewport()
-      const left = getNodesBounds(getNodes()).x * view.zoom + view.x
-      const margin = 16
-      if (left < margin) {
-        setViewport({ ...view, x: view.x + margin - left })
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [initialized, fitView, getViewport, setViewport, getNodesBounds, getNodes])
+  const overflowRight = useBoardFit(FIT_VIEW_OPTIONS, nodes.length)
 
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -181,12 +163,21 @@ function Flow(props: CanvasProps) {
         nodesConnectable={!props.readOnly}
         deleteKeyCode={null}
         elementsSelectable
+        snapToGrid
+        snapGrid={SNAP_GRID}
+        defaultEdgeOptions={{ type: 'step' }}
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background variant={BackgroundVariant.Dots} gap={SNAP_GRID[0]} size={2} />
         <Controls showInteractive={false} />
+        <MiniMap pannable zoomable ariaLabel="Map of the workflow" />
       </ReactFlow>
+      {overflowRight && (
+        <p className="board-cue" role="note">
+          More steps this way. Drag to pan. <span aria-hidden="true">{'\u25B6'}</span>
+        </p>
+      )}
     </div>
   )
 }

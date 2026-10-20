@@ -45,10 +45,14 @@ export interface Overlays {
 }
 
 /** Width of one Hall column, in canvas units. */
-export const HALL_WIDTH = 220
-const GAP = 40
-const ROW = 76
-const HALL_TOP = 130
+export const HALL_WIDTH = 224
+const GAP = 48
+const ROW = 96
+const HALL_TOP = 128
+/** The Hall's own header (plate, name, member Meter) above the Captain row. */
+const HEADER = 144
+/** The inset of the Captain and Members inside their Hall, a multiple of the 16px snap grid. */
+const INSET = 16
 
 /** The id of the Steward node. */
 export const STEWARD_NODE = 'steward'
@@ -95,7 +99,7 @@ export function buildGraph(
     type: 'steward',
     position: { x: Math.max(0, total / 2 - HALL_WIDTH / 2), y: 0 },
     width: HALL_WIDTH,
-    height: 60,
+    height: 64,
     draggable: false,
     data: { kind: 'steward', name: config.steward.name },
   })
@@ -107,7 +111,7 @@ export function buildGraph(
       type: 'hall',
       position: { x, y: HALL_TOP },
       width: HALL_WIDTH,
-      height: 70 + rows * ROW + 12,
+      height: HEADER + rows * ROW + INSET,
       draggable: false,
       zIndex: 0,
       data: {
@@ -124,9 +128,9 @@ export function buildGraph(
       nodes.push({
         id: hall.captain.id,
         type: 'captain',
-        position: { x: x + 12, y: HALL_TOP + 70 },
-        width: HALL_WIDTH - 24,
-        height: ROW - 12,
+        position: { x: x + INSET, y: HALL_TOP + HEADER },
+        width: HALL_WIDTH - 2 * INSET,
+        height: ROW - INSET,
         draggable: false,
         zIndex: 1,
         data: {
@@ -142,9 +146,9 @@ export function buildGraph(
       nodes.push({
         id: member.id,
         type: 'member',
-        position: { x: x + 12, y: HALL_TOP + 70 + (j + 1) * ROW },
-        width: HALL_WIDTH - 24,
-        height: ROW - 12,
+        position: { x: x + INSET, y: HALL_TOP + HEADER + (j + 1) * ROW },
+        width: HALL_WIDTH - 2 * INSET,
+        height: ROW - INSET,
         draggable: !hall.locked,
         zIndex: 2,
         data: { kind: 'member', member, hallId: hall.id, issues: issues.get(member.id) ?? [] },

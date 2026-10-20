@@ -1,8 +1,10 @@
 import {
   applyNodeChanges,
   Background,
+  BackgroundVariant,
   Controls,
   Handle,
+  MiniMap,
   type NodeChange,
   type NodeProps,
   Position,
@@ -12,6 +14,7 @@ import {
 } from '@xyflow/react'
 import { type DragEvent, useCallback, useEffect, useState } from 'react'
 import { Badge } from '../Badge'
+import { Frame, Meter } from '../ui/pixel'
 import { capBadge } from './caps'
 import {
   type BuilderNode,
@@ -23,6 +26,15 @@ import {
   type StewardData,
 } from './graph'
 import type { BuilderConfig } from './model'
+import { useBoardFit } from './useBoardFit'
+
+import './blueprint.css'
+
+/** The pixel grid the blueprint snaps to: 8 logical pixels (`--px` is 2 CSS pixels). */
+/** The initial fit of the guild board: readable at the least, panned beyond that. */
+const BOARD_FIT = { padding: 0.1, minZoom: 0.6 }
+
+export const SNAP_GRID: [number, number] = [16, 16]
 
 /** The drag payload type palette pieces carry. */
 export const PIECE_TYPE = 'application/x-guildhall-piece'
@@ -41,47 +53,55 @@ function Problems({ issues }: { issues: string[] }) {
 
 function StewardNode({ data }: NodeProps & { data: StewardData }) {
   return (
-    <div className="flow-node flow-steward">
+    <Frame variant="paper" className="flow-node flow-steward">
+      <span className="flow-plate">Steward</span>
       <strong>{data.name}</strong>
-      <span className="muted">Steward</span>
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
-    </div>
+    </Frame>
   )
 }
 
 function HallNode({ data, selected }: NodeProps & { data: HallData }) {
   return (
-    <div className={`flow-node flow-hall${selected ? ' flow-selected' : ''}`}>
+    <Frame variant="paper" className={`flow-node flow-hall${selected ? ' flow-selected' : ''}`}>
       <Handle type="target" position={Position.Top} isConnectable={false} />
+      <span className="flow-plate">{selected ? '\u25B6 Hall' : 'Hall'}</span>
       <strong>{data.hall.name}</strong>
+      {data.hall.maxConcurrentMembers !== undefined && (
+        <Meter label="Members" value={data.claimed} max={data.hall.maxConcurrentMembers} />
+      )}
       <div className="flow-badges">
-        <Badge tone="neutral">{`Members ${capBadge(data.claimed, data.hall)}`}</Badge>
+        {data.hall.maxConcurrentMembers === undefined && (
+          <Badge tone="neutral">{`Members ${capBadge(data.claimed, data.hall)}`}</Badge>
+        )}
         {data.hall.locked && <Badge tone="neutral">Locked</Badge>}
         {data.paused && <Badge tone="warn">Hall paused</Badge>}
         {data.barred && <Badge tone="danger">Gates barred</Badge>}
       </div>
       <Problems issues={data.issues} />
-    </div>
+    </Frame>
   )
 }
 
 function CaptainNode({ data, selected }: NodeProps & { data: CaptainData }) {
   return (
-    <div className={`flow-node flow-captain${selected ? ' flow-selected' : ''}`}>
+    <Frame variant="paper" className={`flow-node flow-captain${selected ? ' flow-selected' : ''}`}>
+      <span className="flow-plate">{selected ? '\u25B6 Captain' : 'Captain'}</span>
       <strong>{data.name}</strong>
-      <span className="muted">Captain</span>
       <Problems issues={data.issues} />
-    </div>
+    </Frame>
   )
 }
 
 function MemberNode({ data, selected }: NodeProps & { data: MemberData }) {
   return (
-    <div className={`flow-node flow-member${selected ? ' flow-selected' : ''}`}>
+    <Frame variant="paper" className={`flow-node flow-member${selected ? ' flow-selected' : ''}`}>
+      <span className="flow-plate">
+        {selected ? `\u25B6 ${data.member.rank}` : data.member.rank}
+      </span>
       <strong>{data.member.name}</strong>
-      <span className="muted">{data.member.rank}</span>
       <Problems issues={data.issues} />
-    </div>
+    </Frame>
   )
 }
 
@@ -105,7 +125,7 @@ export interface CanvasProps {
 }
 
 function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiece }: CanvasProps) {
-  const { fitView, getIntersectingNodes, screenToFlowPosition } = useReactFlow<BuilderNode>()
+  const { getIntersectingNodes, screenToFlowPosition } = useReactFlow<BuilderNode>()
   const [nodes, setNodes] = useState<BuilderNode[]>([])
   const [edges, setEdges] = useState(() => buildGraph(config, overlays, issues).edges)
 
@@ -118,12 +138,7 @@ function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiec
   useEffect(relayout, [relayout])
 
   // A Hall, Captain or Member that was just added may sit outside the view: bring everything in.
-  const count = nodes.length
-  useEffect(() => {
-    if (count > 0) {
-      fitView({ duration: 0 })
-    }
-  }, [count, fitView])
+  const overflowRight = useBoardFit(BOARD_FIT, nodes.length)
 
   const onNodesChange = useCallback(
     (changes: NodeChange<BuilderNode>[]) =>
@@ -179,13 +194,21 @@ function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiec
         nodesConnectable={false}
         elementsSelectable
         elevateNodesOnSelect={false}
-        fitView
+        snapToGrid
+        snapGrid={SNAP_GRID}
+        defaultEdgeOptions={{ type: 'step' }}
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background variant={BackgroundVariant.Dots} gap={SNAP_GRID[0]} size={2} />
         <Controls showInteractive={false} />
+        <MiniMap pannable zoomable ariaLabel="Map of the guild" />
       </ReactFlow>
+      {overflowRight && (
+        <p className="board-cue" role="note">
+          More Halls this way. Drag to pan. <span aria-hidden="true">{'\u25B6'}</span>
+        </p>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { type DragEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Fetcher } from '../artifacts'
 import { loadGates } from '../gates'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
@@ -20,6 +20,7 @@ import { issuesByNode, type Overlays } from './graph'
 import { Inspector } from './Inspector'
 import { addHall, addMember, type BuilderConfig, moveMember, saveStatus } from './model'
 import { Outline } from './Outline'
+import { Palette } from './Palette'
 import { instantiate, TEMPLATES } from './templates'
 
 /** Props of {@link BuilderPanel}. */
@@ -65,13 +66,6 @@ function activePerHall(quests: readonly { hallId: string; state: string }[]): Ma
   return counts
 }
 const noIssues: ReadonlyMap<string, string[]> = new Map()
-
-function startDrag(piece: string) {
-  return (event: DragEvent<HTMLButtonElement>) => {
-    event.dataTransfer.setData(PIECE_TYPE, piece)
-    event.dataTransfer.effectAllowed = 'copy'
-  }
-}
 
 /** The Guild builder: a drag-and-drop canvas for Halls and Members, saved as versioned config. */
 export function BuilderPanel({
@@ -219,36 +213,20 @@ export function BuilderPanel({
       )}
       {wide && (
         <>
-          <fieldset className="actions builder-palette">
-            <legend className="sr-only">Palette</legend>
-            <button
-              type="button"
-              draggable
-              onDragStart={startDrag('hall')}
-              onClick={() => dropPiece('hall', null)}
-            >
-              Add blank Hall
-            </button>
-            <button
-              type="button"
-              draggable
-              onDragStart={startDrag('member')}
-              onClick={() => dropPiece('member', null)}
-            >
-              Add blank Member
-            </button>
-            {TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                draggable
-                onDragStart={startDrag(`template:${t.id}`)}
-                onClick={() => dropPiece(`template:${t.id}`, null)}
-              >
-                {`Add ${t.label}`}
-              </button>
-            ))}
-          </fieldset>
+          <Palette
+            label="Palette"
+            pieces={[
+              { id: 'hall', label: 'Add blank Hall', glyph: 'HALL' },
+              { id: 'member', label: 'Add blank Member', glyph: 'MBR' },
+              ...TEMPLATES.map((t) => ({
+                id: `template:${t.id}`,
+                label: `Add ${t.label}`,
+                glyph: t.label.slice(0, 4),
+              })),
+            ]}
+            dragType={PIECE_TYPE}
+            onAdd={(piece) => dropPiece(piece, null)}
+          />
           <div className="builder-body">
             <Canvas
               config={draft}

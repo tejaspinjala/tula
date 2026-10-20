@@ -23,11 +23,27 @@ export interface FitPlan {
   overflowRight: boolean
 }
 
-/** Not yet implemented. */
+/**
+ * Fits the graph bounds into the viewport: the zoom that shows everything with padding, clamped
+ * to the readable range. If the clamp leaves the graph wider than the viewport, the left edge is
+ * anchored inside the margin (the graph begins at its first step) and `overflowRight` asks for a
+ * cue that the board can be panned sideways.
+ */
 export function fitPlan(
-  _bounds: Bounds,
-  _viewport: { width: number; height: number },
-  _options: FitOptions
+  bounds: Bounds,
+  viewport: { width: number; height: number },
+  options: FitOptions
 ): FitPlan {
-  return { x: 0, y: 0, zoom: 1, overflowRight: false }
+  const spread = 1 + options.padding * 2
+  const wanted = Math.min(
+    viewport.width / Math.max(bounds.width * spread, 1),
+    viewport.height / Math.max(bounds.height * spread, 1)
+  )
+  const zoom = Math.min(Math.max(wanted, options.minZoom), options.maxZoom)
+  const centredX = viewport.width / 2 - (bounds.x + bounds.width / 2) * zoom
+  const y = viewport.height / 2 - (bounds.y + bounds.height / 2) * zoom
+  const left = bounds.x * zoom + centredX
+  const x = left < options.margin ? options.margin - bounds.x * zoom : centredX
+  const right = (bounds.x + bounds.width) * zoom + x
+  return { x, y, zoom, overflowRight: right > viewport.width - options.margin }
 }
