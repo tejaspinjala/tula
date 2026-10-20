@@ -80,7 +80,7 @@ export class MemoryGateStore implements GateStore {
   }
 
   async globalBarId(_guildId: string): Promise<string | null> {
-    return null
+    return this.globalBar
   }
 
   async status(guildId: string): Promise<GateStatus> {

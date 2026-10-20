@@ -71,7 +71,14 @@ export class Gates {
 
   /** Re-runs the announcements of a global bar that is up (boot after a crash); idempotent. */
   async resumeAnnouncements(): Promise<void> {
-    throw new Error('not implemented')
+    const [first] = await this.deps.guildIds(undefined, 1)
+    if (first === undefined) {
+      return
+    }
+    const barId = await this.deps.store.globalBarId(first)
+    if (barId !== null) {
+      this.announceInBackground(barId, false)
+    }
   }
 
   /** Resolves once the background announcement of a global bar, if one is running, has ended (never rejects). */
@@ -122,6 +129,10 @@ export class Gates {
     const key = `${barId}:${lifted}`
     if (this.announcing?.key === key) {
       return
+    }
+    // A run started after a stop() has finished starts afresh; one still ending keeps its stop.
+    if (this.announcing === null) {
+      this.stopped = false
     }
     const report =
       this.deps.onAnnounceError ??
