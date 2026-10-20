@@ -165,4 +165,8 @@ export class PgProposalStore implements ProposalStore {
       }
     })
   }
+
+  async latestForQuest(_guildId: string, _questId: string): Promise<Proposal | null> {
+    throw new Error('not implemented')
+  }
 }

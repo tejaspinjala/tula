@@ -88,4 +88,8 @@ export class MemoryProposalStore implements ProposalStore {
     const found = this.verdicts.get(`${guildId}\u0000${proposalHash}`)
     return found ? structuredClone(found) : null
   }
+
+  async latestForQuest(_guildId: string, _questId: string): Promise<Proposal | null> {
+    throw new Error('not implemented')
+  }
 }
