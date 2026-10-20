@@ -58,6 +58,11 @@ export interface McpGatewayDeps {
   objectStore: ObjectStore
   handoffs: HandoffStore
   toolsets: ToolsetStore
+  /**
+   * Ends a delivery's run (revokes its model token, kills its sandbox) when its Quest parks on
+   * Sub-Quests; see `retireRun`. A parked parent holds no worker slot, so it must hold no run.
+   */
+  retireRun: (guildId: string, questId: string, attempt: number) => Promise<void>
   /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
   proposals: ProposalEngine
   keys: KeyProvider
@@ -716,6 +721,7 @@ export class McpGateway {
       }
       throw error
     }
+    await this.deps.retireRun(guild, quest.id, quest.attempts)
     return ok({ waiting: true, children: report })
   }
 

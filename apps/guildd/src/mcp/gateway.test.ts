@@ -44,6 +44,7 @@ async function setup(overrides: Partial<McpGatewayDeps> = {}) {
     clock,
     tripwires: new MemoryTripwireStore(clock),
     gates: new MemoryGateStore(),
+    retireRun: async () => {},
     ...overrides,
   }
   const gateway = new McpGateway(deps)
