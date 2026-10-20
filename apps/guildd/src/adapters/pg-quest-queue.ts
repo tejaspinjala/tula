@@ -8,7 +8,9 @@ import {
   claimTransition,
   completeTransition,
   dataClass,
+  expireTransition,
   failTransition,
+  isExhausted,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -146,6 +148,14 @@ export class PgQuestQueue implements QuestQueue {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)
       const now = this.clock.now()
+      if (p.blockedBy.length > 0) {
+        const [found] = await tx`
+          select count(*)::int as n from quests
+          where guild_id = ${guildId} and quest_id = any (${`{${p.blockedBy.join(',')}}`}::uuid[])`
+        if (z.object({ n: z.number() }).parse(found).n !== new Set(p.blockedBy).size) {
+          throw new QuestError('unknown_blocker')
+        }
+      }
       const [row] = await tx`
         insert into quests (guild_id, job_key, campaign_id, template_id, hall_id, rank, data_class,
           title, owner_id, done_condition, state, round_limit, blocked_by, max_attempts,
@@ -176,6 +186,16 @@ export class PgQuestQueue implements QuestQueue {
           throw new QuestError('already_claimed')
         }
       }
+      const lapsed = await tx`
+        select * from quests
+        where guild_id = ${guildId} and state = 'active' and lease_expires_at <= ${now}
+          and attempts >= max_attempts for update`
+      for (const raw of lapsed) {
+        const quest = toQuest(raw)
+        if (isExhausted(quest, now)) {
+          await this.save(tx, guildId, expireTransition(quest))
+        }
+      }
       const [live] = await tx`
         select count(*)::int as n from quests
         where guild_id = ${guildId} and state = 'active' and lease_expires_at > ${now}`
@@ -189,9 +209,10 @@ export class PgQuestQueue implements QuestQueue {
           and (q.state = 'queued' or (q.state = 'active' and q.lease_expires_at <= ${now}))
           and q.not_before <= ${now}
           and (${only}::uuid is null or q.quest_id = ${only}::uuid)
-          and not exists (
-            select 1 from quests b
-            where b.guild_id = q.guild_id and b.quest_id = any (q.blocked_by) and b.state <> 'done')
+          and (
+            select count(*) from quests b
+            where b.guild_id = q.guild_id and b.quest_id = any (q.blocked_by) and b.state = 'done'
+          ) = cardinality(q.blocked_by)
           and (q.campaign_id is null or not exists (
             select 1 from quests o
             where o.guild_id = q.guild_id and o.campaign_id = q.campaign_id and o.seq < q.seq

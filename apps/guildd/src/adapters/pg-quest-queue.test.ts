@@ -21,7 +21,17 @@ const newGuild = () => foundTestGuild(db, { name: 'Board', goal: 'g' })
 
 questQueueContract('postgres', async () => {
   const clock = new MemoryClock(START)
-  return { queue: new PgQuestQueue(db, new MemoryKeyProvider(), clock, () => 0.5), clock, newGuild }
+  const events = async (guildId: string) =>
+    (
+      await owner`
+        select type from events where guild_id = ${guildId} and type like 'quest.%' order by seq`
+    ).map((e) => String(e.type))
+  return {
+    queue: new PgQuestQueue(db, new MemoryKeyProvider(), clock, () => 0.5),
+    clock,
+    newGuild,
+    events,
+  }
 })
 
 test('Quest transitions append events with ids only', async () => {

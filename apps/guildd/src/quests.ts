@@ -4,6 +4,7 @@ import type { ConfigStore } from './ports/config-store'
 import {
   type DataClass,
   type Quest,
+  QuestError,
   type QuestQueue,
   type questRank,
   newQuest as queueQuest,
@@ -57,7 +58,12 @@ export const postQuestInput = z.object({
 export type PostQuestInput = z.input<typeof postQuestInput>
 
 /** Why a Quest could not be posted. */
-export type PostQuestError = 'unknown_template' | 'hall_locked' | 'hall_not_found' | 'unknown_owner'
+export type PostQuestError =
+  | 'unknown_template'
+  | 'hall_locked'
+  | 'hall_not_found'
+  | 'unknown_owner'
+  | 'unknown_blocker'
 
 /** The outcome of {@link postQuest}. */
 export type PostQuestResult =
@@ -103,18 +109,25 @@ export async function postQuest(
   if (ownerId === null) {
     return { ok: false, error: 'unknown_owner' }
   }
-  const { quest, created } = await deps.queue.post(guildId, {
-    jobKey: input.jobKey,
-    ...(input.campaignId === undefined ? {} : { campaignId: input.campaignId }),
-    templateId: template.id,
-    hallId: template.hallId,
-    rank: template.rank,
-    dataClass: template.dataClass,
-    title: input.title,
-    ownerId,
-    doneCondition: input.doneCondition ?? template.doneCondition,
-    roundLimit: template.roundLimit,
-    blockedBy: input.blockedBy ?? [],
-  })
-  return { ok: true, quest, created }
+  try {
+    const { quest, created } = await deps.queue.post(guildId, {
+      jobKey: input.jobKey,
+      ...(input.campaignId === undefined ? {} : { campaignId: input.campaignId }),
+      templateId: template.id,
+      hallId: template.hallId,
+      rank: template.rank,
+      dataClass: template.dataClass,
+      title: input.title,
+      ownerId,
+      doneCondition: input.doneCondition ?? template.doneCondition,
+      roundLimit: template.roundLimit,
+      blockedBy: input.blockedBy ?? [],
+    })
+    return { ok: true, quest, created }
+  } catch (error) {
+    if (error instanceof QuestError && error.code === 'unknown_blocker') {
+      return { ok: false, error: 'unknown_blocker' }
+    }
+    throw error
+  }
 }

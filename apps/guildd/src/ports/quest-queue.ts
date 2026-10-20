@@ -80,6 +80,7 @@ export type QuestErrorCode =
   | 'stale_lease'
   | 'invalid_state'
   | 'round_limit'
+  | 'unknown_blocker'
 
 /** Thrown by {@link QuestQueue} operations. */
 export class QuestError extends Error {
@@ -226,15 +227,38 @@ export function submitTransition(quest: Quest, attempt: number): Transition {
   }
 }
 
-/** Finishes a Quest. Finishing a done Quest is a no-op, so a handler that runs twice has one effect. */
+/**
+ * Finishes a Quest. Finishing a done Quest is a no-op, so a handler that runs twice has one effect.
+ * From `awaiting_seal` only the delivery that submitted may finish it (else `stale_lease`); only
+ * the Seal-approval path calls it in that state.
+ */
 export function completeTransition(quest: Quest, attempt: number): Transition {
   if (quest.state === 'done') {
     return { quest, event: null }
   }
-  if (quest.state !== 'awaiting_seal') {
+  if (quest.state === 'awaiting_seal') {
+    if (quest.attempts !== attempt) {
+      throw new QuestError('stale_lease')
+    }
+  } else {
     held(quest, attempt)
   }
   return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
+}
+
+/** Whether a lease has lapsed with every attempt spent: such a Quest is dead-lettered, never leased again. */
+export function isExhausted(quest: Quest, now: Date): boolean {
+  return (
+    quest.state === 'active' && !hasLiveLease(quest, now) && quest.attempts >= quest.maxAttempts
+  )
+}
+
+/** Dead-letters a Quest whose lease lapsed with its attempts spent. */
+export function expireTransition(quest: Quest): Transition {
+  return {
+    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'lease expired' },
+    event: 'quest.dead',
+  }
 }
 
 /** Records a failed delivery: retry after `delayMs`, or dead-letter when attempts are spent. */

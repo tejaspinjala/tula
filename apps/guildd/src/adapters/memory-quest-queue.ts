@@ -3,8 +3,10 @@ import {
   type ClaimOptions,
   claimTransition,
   completeTransition,
+  expireTransition,
   failTransition,
   hasLiveLease,
+  isExhausted,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -36,7 +38,9 @@ export class MemoryQuestQueue implements QuestQueue {
   /** `random` returns [0, 1) and jitters retry delays; inject a constant in tests. */
   constructor(
     private readonly clock: Clock,
-    private readonly random: () => number = Math.random
+    private readonly random: () => number = Math.random,
+    /** Receives each transition's event type and ids-only payload, as the Postgres adapter appends them. */
+    private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {}
   ) {}
 
   private guild(guildId: string): GuildQuests {
@@ -59,6 +63,13 @@ export class MemoryQuestQueue implements QuestQueue {
 
   private apply(guildId: string, t: Transition): Quest {
     this.guild(guildId).byId.set(t.quest.id, t.quest)
+    if (t.event) {
+      this.onEvent(guildId, t.event, {
+        questId: t.quest.id,
+        hallId: t.quest.hallId,
+        attempt: t.quest.attempts,
+      })
+    }
     return t.quest
   }
 
@@ -69,6 +80,9 @@ export class MemoryQuestQueue implements QuestQueue {
     const existing = existingId === undefined ? undefined : g.byId.get(existingId)
     if (existing) {
       return { quest: existing, created: false }
+    }
+    if (parsed.blockedBy.some((id) => !g.byId.has(id))) {
+      throw new QuestError('unknown_blocker')
     }
     g.seq += 1
     const now = this.clock.now().toISOString()
@@ -97,6 +111,7 @@ export class MemoryQuestQueue implements QuestQueue {
     }
     g.byId.set(quest.id, quest)
     g.byKey.set(quest.jobKey, quest.id)
+    this.onEvent(guildId, 'quest.posted', { questId: quest.id, hallId: quest.hallId, attempt: 0 })
     return { quest, created: true }
   }
 
@@ -106,6 +121,11 @@ export class MemoryQuestQueue implements QuestQueue {
       const target = this.mustFind(guildId, options.questId)
       if (hasLiveLease(target, now)) {
         throw new QuestError('already_claimed')
+      }
+    }
+    for (const q of this.guild(guildId).byId.values()) {
+      if (isExhausted(q, now)) {
+        this.apply(guildId, expireTransition(q))
       }
     }
     const picked = pickClaimable([...this.guild(guildId).byId.values()], now, options)

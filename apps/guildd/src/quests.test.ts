@@ -66,3 +66,14 @@ test('an unknown template or an owner outside the Hall is refused', async () => 
     })
   ).toEqual({ ok: false, error: 'unknown_owner' })
 })
+
+test('a blocker that is not a Quest of this guild is refused', async () => {
+  const { config, queue, guild } = await setup()
+  const result = await postQuest({ config, queue }, guild, {
+    templateId: 'herald-brief',
+    jobKey: 'k',
+    title: 'T',
+    blockedBy: [crypto.randomUUID()],
+  })
+  expect(result).toEqual({ ok: false, error: 'unknown_blocker' })
+})
