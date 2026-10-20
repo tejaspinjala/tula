@@ -20,7 +20,8 @@ import {
 import { newReservationToken } from './memory-seal-store'
 
 const date = z.date().transform((d) => d.toISOString())
-const row = z.object({
+/** Parses one `seals` row selected with {@link SEAL_COLUMNS}. */
+export const sealRow = z.object({
   seal_id: z.string(),
   quest_id: z.string(),
   round: z.number().int(),
@@ -39,13 +40,15 @@ const row = z.object({
   consumed_at: date.nullable(),
   reservation_token_hash: z.string().nullable().optional(),
 })
-type Row = z.infer<typeof row>
+type Row = z.infer<typeof sealRow>
 
 const EXPIRE_BATCH = 100
-const COLUMNS =
+/** The `seals` columns {@link toSeal} reads (never the reservation token hash). */
+export const SEAL_COLUMNS =
   'seal_id, quest_id, round, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, reserved_until, consumed_at'
 
-function toSeal(r: Row, now: Date): Seal {
+/** Maps a parsed row to a {@link Seal}, reading time-derived states against `now`. */
+export function toSeal(r: Row, now: Date): Seal {
   let status: SealStatus = r.status
   let stale = false
   if (status === 'requested' && Date.parse(r.expires_at) <= now.getTime()) {
@@ -104,17 +107,17 @@ export class PgSealStore implements SealStore {
         values (${guildId}, ${input.questId}, ${round}, ${input.requestedBy}, ${input.kind}, ${input.text},
           ${input.evidence}, ${actionHash}, ${now}, ${expires})
         on conflict (guild_id, quest_id, round, action_hash) do nothing
-        returning ${tx.unsafe(COLUMNS)}`
+        returning ${tx.unsafe(SEAL_COLUMNS)}`
       if (inserted) {
-        const seal = toSeal(row.parse(inserted), now)
+        const seal = toSeal(sealRow.parse(inserted), now)
         await this.emit(tx, 'seal.requested', seal)
         return seal
       }
       const [existing] = await tx`
-        select ${tx.unsafe(COLUMNS)} from seals
+        select ${tx.unsafe(SEAL_COLUMNS)} from seals
         where guild_id = ${guildId} and quest_id = ${input.questId}
           and round = ${round} and action_hash = ${actionHash}`
-      return toSeal(row.parse(existing), now)
+      return toSeal(sealRow.parse(existing), now)
     })
   }
 
@@ -122,10 +125,10 @@ export class PgSealStore implements SealStore {
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
       const [found] = await tx`
-        select ${tx.unsafe(COLUMNS)} from seals
+        select ${tx.unsafe(SEAL_COLUMNS)} from seals
         where guild_id = ${guildId} and quest_id = ${questId}
         order by round desc, requested_at desc limit 1`
-      return found ? toSeal(row.parse(found), now) : null
+      return found ? toSeal(sealRow.parse(found), now) : null
     })
   }
 
@@ -133,8 +136,8 @@ export class PgSealStore implements SealStore {
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
       const [found] = await tx`
-        select ${tx.unsafe(COLUMNS)} from seals where guild_id = ${guildId} and seal_id = ${id}`
-      return found ? toSeal(row.parse(found), now) : null
+        select ${tx.unsafe(SEAL_COLUMNS)} from seals where guild_id = ${guildId} and seal_id = ${id}`
+      return found ? toSeal(sealRow.parse(found), now) : null
     })
   }
 
@@ -157,12 +160,12 @@ export class PgSealStore implements SealStore {
               ? tx`(status = 'expired' or (status = 'requested' and expires_at <= ${now}))`
               : tx`status = ${status}`
       const rows = await tx`
-        select ${tx.unsafe(COLUMNS)} from seals
+        select ${tx.unsafe(SEAL_COLUMNS)} from seals
         where guild_id = ${guildId} and ${wanted}
           and (${after}::uuid is null or seal_id > ${after}::uuid)
           and (${since}::timestamptz is null or decided_at >= ${since}::timestamptz)
         order by seal_id limit ${page.limit + 1}`
-      const seals = rows.map((r) => toSeal(row.parse(r), now))
+      const seals = rows.map((r) => toSeal(sealRow.parse(r), now))
       const items = seals.slice(0, page.limit)
       const last = items.at(-1)
       return { seals: items, next: seals.length > page.limit && last ? last.id : null }
@@ -374,10 +377,10 @@ export class PgSealStore implements SealStore {
             (status = 'requested' and expires_at <= ${now})
             or (status in ('approved', 'released') and decided_at <= ${approvedBefore}))
           order by seal_id limit ${EXPIRE_BATCH})
-        returning ${tx.unsafe(COLUMNS)}`
+        returning ${tx.unsafe(SEAL_COLUMNS)}`
       // UPDATE ... RETURNING has no defined order; sort so events land in a stable sequence.
       const expired = rows
-        .map((r) => toSeal(row.parse(r), now))
+        .map((r) => toSeal(sealRow.parse(r), now))
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       for (const seal of expired) {
         await this.emit(tx, 'seal.expired', seal)
@@ -394,12 +397,12 @@ export class PgSealStore implements SealStore {
     now: Date
   ): Promise<{ seal: Seal; tokenHash: string | null } | null> {
     const [found] = await tx`
-      select ${tx.unsafe(`${COLUMNS}, reservation_token_hash`)} from seals
+      select ${tx.unsafe(`${SEAL_COLUMNS}, reservation_token_hash`)} from seals
       where guild_id = ${guildId} and seal_id = ${id} for update`
     if (!found) {
       return null
     }
-    const parsed = row.parse(found)
+    const parsed = sealRow.parse(found)
     return { seal: toSeal(parsed, now), tokenHash: parsed.reservation_token_hash ?? null }
   }
 
@@ -413,8 +416,8 @@ export class PgSealStore implements SealStore {
     const [updated] = await tx`
       update seals set ${assignments}
       where guild_id = ${guildId} and seal_id = ${id}
-      returning ${tx.unsafe(COLUMNS)}`
-    return toSeal(row.parse(updated), now)
+      returning ${tx.unsafe(SEAL_COLUMNS)}`
+    return toSeal(sealRow.parse(updated), now)
   }
 
   private async persistExpiry(tx: TenantTx, guildId: string, seal: Seal): Promise<void> {
