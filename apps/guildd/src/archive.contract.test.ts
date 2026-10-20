@@ -31,7 +31,7 @@ function send(g: string, path: string, method: string, body: unknown) {
 
 describe('archive routes', () => {
   test('add, edit and read a note keeps versions; a [[link]] shows as a backlink', async () => {
-    const g = await harness.adapters.db.foundGuild({ name: 'Arch', goal: 'g' })
+    const g = await harness.foundGuild({ name: 'Arch', goal: 'g' })
     const target = noteBody.parse(
       await (
         await send(g, base(g), 'POST', {
@@ -60,7 +60,7 @@ describe('archive routes', () => {
   })
 
   test('a fact without evidence is 422; bad input is 400; unknown note is 404', async () => {
-    const g = await harness.adapters.db.foundGuild({ name: 'Arch', goal: 'g' })
+    const g = await harness.foundGuild({ name: 'Arch', goal: 'g' })
     const noEvidence = await send(g, base(g), 'POST', {
       kind: 'text',
       title: 'T',
@@ -80,8 +80,8 @@ describe('archive routes', () => {
   })
 
   test('search and list are paginated and scoped to the guild', async () => {
-    const g = await harness.adapters.db.foundGuild({ name: 'Arch', goal: 'g' })
-    const other = await harness.adapters.db.foundGuild({ name: 'Other', goal: 'g' })
+    const g = await harness.foundGuild({ name: 'Arch', goal: 'g' })
+    const other = await harness.foundGuild({ name: 'Other', goal: 'g' })
     for (const [guild, title] of [
       [g, 'one'],
       [g, 'two'],
@@ -106,7 +106,7 @@ describe('archive routes', () => {
   })
 
   test('note writes land on the event stream', async () => {
-    const g = await harness.adapters.db.foundGuild({ name: 'Arch', goal: 'g' })
+    const g = await harness.foundGuild({ name: 'Arch', goal: 'g' })
     const n = noteBody.parse(
       await (
         await send(g, base(g), 'POST', { kind: 'text', title: 'E', body: 'b', claim: 'assumption' })
@@ -121,7 +121,7 @@ describe('archive routes', () => {
   })
 
   test('without a session the routes answer 401', async () => {
-    const g = await strict.adapters.db.foundGuild({ name: 'Arch', goal: 'g' })
+    const g = await strict.foundGuild({ name: 'Arch', goal: 'g' })
     const res = await strict.request(base(g), { headers: { 'x-guild-id': g } })
     expect(res.status).toBe(401)
   })

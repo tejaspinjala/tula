@@ -19,14 +19,14 @@ describe('event log', () => {
   })
 
   test('founding a guild appends exactly one guild.founded event with seq 1', async () => {
-    const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
+    const id = await harness.foundGuild({ name: 'Ember', goal: 'Ship' })
     const events = await db.withGuild(id, (tx) => eventsAfter(tx, 0))
     expect(events.map((e) => [e.seq, e.type])).toEqual([[1, 'guild.founded']])
     expect(events[0]?.payload).toEqual({ name: 'Ember', goal: 'Ship' })
   })
 
   test('a rolled-back transaction leaves no event and no seq gap', async () => {
-    const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
+    const id = await harness.foundGuild({ name: 'Ember', goal: 'Ship' })
     await db
       .withGuild(id, async (tx) => {
         await appendEvent(tx, keys, 'test.happened', {})
@@ -42,7 +42,7 @@ describe('event log', () => {
   })
 
   test('concurrent appends get distinct, gap-free seqs', async () => {
-    const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
+    const id = await harness.foundGuild({ name: 'Ember', goal: 'Ship' })
     await Promise.all(
       Array.from({ length: 20 }, (_, i) =>
         db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.n', { i }))
@@ -53,7 +53,7 @@ describe('event log', () => {
   })
 
   test('the events table rejects updates and deletes, even from the owner', async () => {
-    const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
+    const id = await harness.foundGuild({ name: 'Ember', goal: 'Ship' })
     const run = (fn: (tx: Parameters<Parameters<typeof db.withGuild>[1]>[0]) => unknown) =>
       db
         .withGuild(id, async (tx) => fn(tx))
@@ -74,8 +74,8 @@ describe('event log', () => {
   })
 
   test('one guild never reads another guild events', async () => {
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
-    await db.foundGuild({ name: 'B', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
+    await harness.foundGuild({ name: 'B', goal: 'g' })
     const events = await db.withGuild(a, (tx) => eventsAfter(tx, 0, 100))
     expect(events.length).toBe(1)
   })
@@ -124,7 +124,7 @@ function stream(base: string, guild: string, lastSeq: number, until: (f: Frame[]
 describe('event stream over WebSocket', () => {
   test('reconnecting with last_seq delivers a snapshot marker then only missed events, in order', async () => {
     const base = harness.listen()
-    const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
+    const id = await harness.foundGuild({ name: 'Ember', goal: 'Ship' })
     const first = await stream(base, id, 0, (f) => f.length === 2)
     expect(first.map((f) => [f.type, f.event?.seq ?? f.head])).toEqual([
       ['snapshot', 1],
@@ -146,8 +146,8 @@ describe('event stream over WebSocket', () => {
 
   test('never delivers another guild events, and refuses a foreign guild', async () => {
     const base = harness.listen()
-    const a = await db.foundGuild({ name: 'A', goal: 'g' })
-    const b = await db.foundGuild({ name: 'B', goal: 'g' })
+    const a = await harness.foundGuild({ name: 'A', goal: 'g' })
+    const b = await harness.foundGuild({ name: 'B', goal: 'g' })
     await db.withGuild(b, (tx) => appendEvent(tx, keys, 'secret.b', {}))
     const frames = await stream(base, a, 0, (f) => f.length === 2)
     expect(JSON.stringify(frames)).not.toContain('secret.b')

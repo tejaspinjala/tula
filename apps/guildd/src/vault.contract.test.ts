@@ -130,7 +130,7 @@ describe('vault over HTTP', () => {
 
   test('a session cannot add a secret to another guild', async () => {
     const who = await signedIn()
-    const other = await harness.adapters.db.foundGuild({ name: 'Other', goal: 'g' })
+    const other = await harness.foundGuild({ name: 'Other', goal: 'g' })
     const headers = { ...who.auth, 'x-reauth-proof': await who.proof() }
     const res = await post(`/guilds/${other}/vault/secrets`, { ref: 'openai', value: 'v' }, headers)
     expect(res.status).toBe(404)

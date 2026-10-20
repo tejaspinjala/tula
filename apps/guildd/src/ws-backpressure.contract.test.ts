@@ -21,7 +21,7 @@ describe('websocket backpressure', () => {
   })
 
   test('a hung stream query is cancelled by the stream pool statement timeout', async () => {
-    const id = await db.foundGuild({ name: 'Hung', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Hung', goal: 'g' })
     const streamDb = createDb(harness.appUrl, { streamStatementTimeoutMs: 200 })
     try {
       const started = performance.now()
@@ -37,7 +37,7 @@ describe('websocket backpressure', () => {
   })
 
   test('a real consumer that falls behind is closed with 1013', async () => {
-    const id = await db.foundGuild({ name: 'Backed', goal: 'g' })
+    const id = await harness.foundGuild({ name: 'Backed', goal: 'g' })
     const big = 'x'.repeat(2 * 1024 * 1024)
     await db.withGuild(id, async (tx) => {
       await appendEvent(tx, keys, 'test.big', { big })
