@@ -215,7 +215,7 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     name: 'send_missive',
     roles: ALL_ROLES,
     description:
-      'Send a Missive (up to 2000 characters) to a Member of your own Hall, or to `hall` for all of them. Refused with not_in_hall, unknown_member, or missive_cap past the guild’s Missives-per-Quest cap. Idempotent within one attempt.',
+      'Send a Missive (up to 2000 characters) to a Member of your own Hall, or to `hall` for all of them. Refused with missive_to_self, not_in_hall, unknown_member, or missive_cap past the guild’s Missives-per-Quest cap. Idempotent within one attempt.',
     args: sendMissiveArgs,
   },
   {
