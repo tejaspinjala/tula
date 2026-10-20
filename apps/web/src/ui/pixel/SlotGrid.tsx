@@ -5,6 +5,8 @@ export interface Slot {
   id: string
   label: string
   count?: number
+  /** A short UPPERCASE mark drawn in the slot in place of the stock icon. */
+  glyph?: string
 }
 
 /** Props of SlotGrid. */
@@ -13,6 +15,8 @@ export interface SlotGridProps {
   slots: readonly Slot[]
   columns: number
   onSelect: (id: string) => void
+  /** When set, slots can be dragged; the drag carries the slot id under this data type. */
+  dragType?: string
 }
 
 /**

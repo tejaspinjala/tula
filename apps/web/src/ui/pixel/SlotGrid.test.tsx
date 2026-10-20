@@ -72,3 +72,24 @@ test('clicking a slot selects it', async () => {
   expect(chosen).toEqual(['key'])
   await m.unmount()
 })
+
+test('with a dragType every slot is draggable and carries its id', async () => {
+  const m = await mount(
+    <SlotGrid
+      label="Palette"
+      slots={[{ id: 'hall', label: 'Hall', glyph: 'HALL' }]}
+      columns={1}
+      dragType="application/x-test-piece"
+      onSelect={() => undefined}
+    />
+  )
+  const slot = m.host.querySelector<HTMLElement>('[role="option"]')
+  expect(slot?.getAttribute('draggable')).toBe('true')
+  expect(slot?.querySelector('.px-slot-glyph')?.textContent).toBe('HALL')
+  const data = new DataTransfer()
+  const event = new Event('dragstart', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: data })
+  slot?.dispatchEvent(event)
+  expect(data.getData('application/x-test-piece')).toBe('hall')
+  await m.unmount()
+})
