@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { bubbleCentreY, fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
+import { bubbleCentreX, bubbleCentreY, fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
 
 const layout = hallLayout()
 
@@ -97,4 +97,12 @@ test('a speech bubble drops below its speaker when above would cover the room la
   expect(bubbleCentreY(rooms, 16, 100, 50)).toBe(76)
   expect(bubbleCentreY(rooms, 16, 100, 150)).toBe(124)
   expect(bubbleCentreY(rooms, 16, 400, 50)).toBe(24)
+})
+
+test('a speech bubble is clamped inside the camera view', () => {
+  const view = { x: 100, width: 200 }
+  expect(bubbleCentreX(view, 120, 150)).toBe(100 + 60 + 1)
+  expect(bubbleCentreX(view, 120, 290)).toBe(300 - 60 - 1)
+  expect(bubbleCentreX(view, 120, 200)).toBe(200)
+  expect(bubbleCentreX(view, 400, 200)).toBe(200)
 })
