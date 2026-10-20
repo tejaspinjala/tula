@@ -139,7 +139,11 @@ describe('dispatch', () => {
       ...s.deps,
       sealStore: new MemorySealStore(s.clock),
       tripwires: new MemoryTripwireStore(s.clock),
-      proposals: { latestForQuest: async () => null, verdictFor: async () => null },
+      proposals: {
+        latestForQuest: async () => null,
+        verdictFor: async () => null,
+        listFailedSince: async () => ({ proposals: [], next: null }),
+      },
       seals: { requestSeal: unused },
       gates: { isBarred: async () => barred },
       gateway: {

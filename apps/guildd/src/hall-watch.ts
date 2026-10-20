@@ -4,6 +4,7 @@ import type { ModelLedger } from './ports/model-ledger'
 import type { QuestQueue } from './ports/quest-queue'
 import type { SealStore } from './ports/seal-store'
 import type { TripwireStore } from './ports/tripwire-store'
+import type { ProposalEngine } from './proposals'
 import { type HallUsage, runTripwires } from './tripwires'
 
 /** Collaborators of {@link watchHalls}. */
@@ -13,6 +14,7 @@ export interface HallWatchDeps {
   ledger: Pick<ModelLedger, 'hallDayTotals' | 'revokeHallRuns'>
   quests: Pick<QuestQueue, 'list' | 'get'>
   sealStore: Pick<SealStore, 'list'>
+  proposals: Pick<ProposalEngine, 'listFailedSince'>
   clock: Clock
 }
 
@@ -40,12 +42,34 @@ async function hallTokens(
   return { today: tokens.get(day(now)) ?? 0, perDay7d: days.map((d) => tokens.get(d) ?? 0) }
 }
 
-/** How many Seals of each Hall were denied in the last hour. */
+/** Counts one denial against the Hall of `questId`, looking each Quest's Hall up once. */
+async function charge(
+  quests: Pick<QuestQueue, 'get'>,
+  guildId: string,
+  questId: string,
+  hallOf: Map<string, string | null>,
+  denials: Map<string, number>
+): Promise<void> {
+  if (!hallOf.has(questId)) {
+    hallOf.set(questId, (await quests.get(guildId, questId))?.hallId ?? null)
+  }
+  const hallId = hallOf.get(questId)
+  if (hallId) {
+    denials.set(hallId, (denials.get(hallId) ?? 0) + 1)
+  }
+}
+
+/**
+ * How many gate denials each Hall had in the last hour: its Seals denied and its Proposals whose
+ * Verdict failed (a failed Verdict leaves no Seal, so it is counted from the Proposal). Both are
+ * indexed range reads by time, so the cost follows the last hour, not the guild's history.
+ */
 async function denialsLastHour(
-  deps: Pick<HallWatchDeps, 'quests' | 'sealStore'>,
+  deps: Pick<HallWatchDeps, 'quests' | 'sealStore' | 'proposals'>,
   guildId: string,
   now: Date
 ): Promise<Map<string, number>> {
+  const since = new Date(now.getTime() - HOUR_MS).toISOString()
   const denials = new Map<string, number>()
   const hallOf = new Map<string, string | null>()
   let after: string | undefined
@@ -53,17 +77,21 @@ async function denialsLastHour(
     const page = await deps.sealStore.list(guildId, {
       limit: PAGE,
       status: 'denied',
-      decidedSince: new Date(now.getTime() - HOUR_MS).toISOString(),
+      decidedSince: since,
       ...(after ? { after } : {}),
     })
     for (const seal of page.seals) {
-      if (!hallOf.has(seal.questId)) {
-        hallOf.set(seal.questId, (await deps.quests.get(guildId, seal.questId))?.hallId ?? null)
-      }
-      const hallId = hallOf.get(seal.questId)
-      if (hallId) {
-        denials.set(hallId, (denials.get(hallId) ?? 0) + 1)
-      }
+      await charge(deps.quests, guildId, seal.questId, hallOf, denials)
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+  do {
+    const page = await deps.proposals.listFailedSince(guildId, since, {
+      limit: PAGE,
+      ...(after ? { after } : {}),
+    })
+    for (const proposal of page.proposals) {
+      await charge(deps.quests, guildId, proposal.questId, hallOf, denials)
     }
     after = page.next ?? undefined
   } while (after !== undefined)
@@ -100,8 +128,12 @@ async function attemptsPerHall(
  *
  * - `tokensToday` and the 7-day baseline: the Hall's own metered usage from the ModelLedger, so a
  *   burn pauses only the Hall that burned;
- * - `gateDenialsLastHour`: the Hall's Seals denied in the last hour;
+ * - `gateDenialsLastHour`: the Hall's Seals denied and Proposals whose Verdict failed in the last hour;
  * - `maxActionRepeats`: the most attempts spent on one of the Hall's Quests still being retried.
+ *   This is an approximation, kept on purpose: the platform records no per-action fingerprint (a
+ *   run's tool calls are not logged by action), so the retry count of a queued or active Quest is
+ *   the only repeat signal there is. It never under-counts a Quest that keeps failing and being
+ *   re-claimed, which is the loop a Hall can fall into.
  *
  * Returns the ids of the Halls it paused in this pass.
  */
