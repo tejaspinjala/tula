@@ -7,6 +7,7 @@ import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
+import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgGateStore } from './adapters/pg-gate-store'
@@ -128,9 +129,11 @@ export async function compose(
     })
   const modelLedger = overrides.modelLedger ?? new PgModelLedger(db, keys)
   const sealStore = overrides.sealStore ?? new PgSealStore(db, keys, clock)
+  const activity = new PgActivityLog(db, keys)
   const gateway =
     overrides.gateway ??
     new ModelGateway({
+      activity,
       ledger: modelLedger,
       secrets,
       config,
@@ -155,6 +158,7 @@ export async function compose(
       missives,
       objectStore,
       handoffs,
+      activity,
       toolsets: new PgToolsetStore(db),
       proposals,
       workflows: workflowStore,

@@ -91,6 +91,30 @@ const hallPayload = z.object({ hallId: z.string() })
 const questPayload = z.object({ questId: z.string() })
 const spawnPayload = z.object({ parentId: z.string(), childId: z.string() })
 const campaignPayload = z.object({ campaignId: z.string() })
+/** What a Member is doing, as guildd names it in a `member.activity` event. */
+export const ACTIVITIES = [
+  'reading_brief',
+  'reading_archive',
+  'writing_archive',
+  'researching',
+  'writing',
+  'spawning',
+  'waiting',
+  'messaging',
+  'proposing',
+  'thinking',
+] as const
+/** One of {@link ACTIVITIES}. */
+export type Activity = (typeof ACTIVITIES)[number]
+/** The payload of a `member.activity` event: ids and the closed activity name, no text. */
+export const memberActivityPayload = z.strictObject({
+  questId: z.string(),
+  memberId: z.string(),
+  hallId: z.string(),
+  activity: z.enum(ACTIVITIES),
+})
+/** A parsed `member.activity` payload. */
+export type MemberActivity = z.infer<typeof memberActivityPayload>
 const missivePayload = z.object({ missiveId: z.string(), from: z.string() })
 const spendPayload = z.object({ kind: z.string(), amountCents: z.number() })
 
