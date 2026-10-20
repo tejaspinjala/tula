@@ -19,3 +19,36 @@ export function streamNotice(failures: number): string | null {
     ? "The Hall's messenger cannot reach the guild yet; trying again shortly."
     : null
 }
+
+/** Counts failed attempts in a row; shared by the load, ticket and socket retries of one Hall. */
+export interface Backoff {
+  /** Records one more failure; returns the wait before the next attempt and the failures in a row. */
+  next: (random: number) => { wait: number; failures: number }
+  /** Forgets all failures (the stream proved healthy). */
+  reset: () => void
+}
+
+/** A fresh {@link Backoff} with no failures. */
+export function createBackoff(): Backoff {
+  throw new Error('not implemented')
+}
+
+/** What the page does with a live stream's events. */
+export interface StreamCallbacks {
+  /** A raw frame arrived. */
+  onMessage: (data: string) => void
+  /** The socket closed: wait `wait` ms, then reconnect; `failures` is the count in a row. */
+  onRetry: (wait: number, failures: number) => void
+  /** The first frame arrived, so the stream is healthy again. */
+  onHealthy?: () => void
+  /** Source of jitter in [0, 1). */
+  random?: () => number
+}
+
+/** The `message` and `close` handlers to wire onto a stream socket. */
+export function streamHandlers(
+  _backoff: Backoff,
+  _callbacks: StreamCallbacks
+): { message: (data: string) => void; close: () => void } {
+  throw new Error('not implemented')
+}
