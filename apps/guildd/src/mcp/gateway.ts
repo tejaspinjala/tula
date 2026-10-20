@@ -9,6 +9,7 @@ import { NoteError, type NoteStore } from '../ports/note-store'
 import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
+import type { TripwireStore } from '../ports/tripwire-store'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
 import {
@@ -37,6 +38,8 @@ export interface McpGatewayDeps {
   toolsets: ToolsetStore
   keys: KeyProvider
   clock: Clock
+  /** A paused Hall leases none of its Quests. */
+  tripwires: Pick<TripwireStore, 'isPaused'>
   /** The tools on offer; defaults to {@link TOOL_CATALOG}. A role's list is frozen per Campaign from it. */
   catalog?: readonly ToolDef[]
   /** Lease length at claim; defaults to ten minutes. */
@@ -322,6 +325,9 @@ export class McpGateway {
 
   private async claim(caller: Caller): Promise<ToolReply> {
     const { guild, quest, member } = caller
+    if (await this.deps.tripwires.isPaused(guild, quest.hallId)) {
+      return refuse('hall_paused')
+    }
     const { config } = await this.deps.config.current(guild)
     let claimed: Quest | null
     try {

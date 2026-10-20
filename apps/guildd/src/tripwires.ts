@@ -1,5 +1,6 @@
 import { guildTripwires, type TripwireThresholds } from './guild-config'
 import type { ConfigStore } from './ports/config-store'
+import type { ModelLedger } from './ports/model-ledger'
 import type { HallPause, TripwireKind, TripwireStore } from './ports/tripwire-store'
 
 /** What the platform measured for one Hall; numbers only, supplied by the usage meter. */
@@ -64,10 +65,16 @@ export type TripwireRun =
 
 /**
  * Evaluates the Hall's usage against the guild's configured thresholds and, if a Tripwire
- * trips, pauses the Hall at once (idempotent; an already paused Hall keeps its first pause).
+ * trips, pauses the Hall at once (idempotent; an already paused Hall keeps its first pause) and revokes
+ * the Hall's live run tokens.
  */
 export async function runTripwires(
-  deps: { config: ConfigStore; tripwires: TripwireStore },
+  deps: {
+    config: ConfigStore
+    tripwires: TripwireStore
+    /** Revokes the paused Hall's live run tokens. */
+    runs: Pick<ModelLedger, 'revokeHallRuns'>
+  },
   guildId: string,
   hallId: string,
   usage: HallUsage
@@ -78,5 +85,6 @@ export async function runTripwires(
     return { paused: false }
   }
   const { pause, created } = await deps.tripwires.pause(guildId, { hallId, ...trip })
+  await deps.runs.revokeHallRuns(guildId, hallId)
   return { paused: true, pause, created, trip }
 }

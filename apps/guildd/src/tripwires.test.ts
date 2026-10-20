@@ -6,6 +6,7 @@ import { classifyChange, defaultConfig, type GuildConfig, guildTripwires } from 
 import type { TripwireKind } from './ports/tripwire-store'
 import { evaluateTripwires, type HallUsage, runTripwires } from './tripwires'
 
+const runs = { revokeHallRuns: async () => 0 }
 const thresholds = { tokenBurnMultiple: 3, gateDenialsPerHour: 5, loopRepeats: 4 }
 const calm: HallUsage = {
   tokensToday: 1000,
@@ -80,7 +81,7 @@ describe('runTripwires', () => {
     ]
     for (const [usage, kind] of cases) {
       const { config, tripwires, guild } = await setup()
-      const outcome = await runTripwires({ config, tripwires }, guild, 'heralds', {
+      const outcome = await runTripwires({ config, tripwires, runs }, guild, 'heralds', {
         ...calm,
         ...usage,
       })
@@ -92,7 +93,7 @@ describe('runTripwires', () => {
 
   test('calm usage leaves the Hall running', async () => {
     const { config, tripwires, guild } = await setup()
-    const outcome = await runTripwires({ config, tripwires }, guild, 'heralds', calm)
+    const outcome = await runTripwires({ config, tripwires, runs }, guild, 'heralds', calm)
     expect(outcome.paused).toBe(false)
     expect(await tripwires.isPaused(guild, 'heralds')).toBe(false)
   })
@@ -102,7 +103,10 @@ describe('runTripwires', () => {
       ...c,
       tripwires: { tokenBurnMultiple: 3, gateDenialsPerHour: 2, loopRepeats: 4 },
     }))
-    await runTripwires({ config, tripwires }, guild, 'heralds', { ...calm, gateDenialsLastHour: 2 })
+    await runTripwires({ config, tripwires, runs }, guild, 'heralds', {
+      ...calm,
+      gateDenialsLastHour: 2,
+    })
     expect(await tripwires.isPaused(guild, 'heralds')).toBe(true)
   })
 

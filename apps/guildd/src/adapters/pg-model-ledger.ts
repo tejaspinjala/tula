@@ -125,6 +125,17 @@ export class PgModelLedger implements ModelLedger {
     return rows.length === 1
   }
 
+  async revokeHallRuns(guildId: string, hallId: string): Promise<number> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        update model_runs set state = 'revoked'
+        where guild_id = ${guildId} and hall_id = ${hallId} and state <> 'revoked'
+        returning run_id`
+    )
+    return rows.length
+  }
+
   async listQueued(guildId: string, limit: number): Promise<RunRecord[]> {
     const rows = await this.db.withGuild(
       guildId,

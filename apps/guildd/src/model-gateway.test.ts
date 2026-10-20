@@ -4,6 +4,7 @@ import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemorySecretStore } from './adapters/memory-secret-store'
+import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig, type GuildConfig, guildConfig } from './guild-config'
 import { GatewayError, type GatewayErrorCode, ModelGateway } from './model-gateway'
 
@@ -59,6 +60,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
     config: { current: async () => ({ version: 1, config: cfg }) },
     provider,
     clock,
+    tripwires: new MemoryTripwireStore(clock),
     tokenTtlMs: 60_000,
   })
   const open = (runId = 'run-1', over: Partial<{ questId: string; profileId: string }> = {}) =>
@@ -347,6 +349,7 @@ describe('estimates and settle failures', () => {
       }
     }
     const provider = new MemoryModelProvider()
+    const clock = new MemoryClock(new Date('2026-03-04T10:00:00.000Z'))
     const secrets = new MemorySecretStore(new MemoryKeyProvider())
     await secrets.add(GUILD, 'cloud', KEY)
     const gateway = new ModelGateway({
@@ -354,7 +357,8 @@ describe('estimates and settle failures', () => {
       secrets,
       config: { current: async () => ({ version: 1, config: config() }) },
       provider,
-      clock: new MemoryClock(new Date('2026-03-04T10:00:00.000Z')),
+      clock,
+      tripwires: new MemoryTripwireStore(clock),
     })
     const opened = await gateway.openRun(GUILD, {
       runId: 'run-1',

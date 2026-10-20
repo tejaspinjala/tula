@@ -59,6 +59,7 @@ export async function compose(
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
+  const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const adapters: AppDeps = {
     ...overrides,
     clock,
@@ -96,8 +97,9 @@ export async function compose(
         toolsets: new PgToolsetStore(db),
         keys,
         clock,
+        tripwires,
       }),
-    tripwires: overrides.tripwires ?? new PgTripwireStore(db, keys, clock),
+    tripwires,
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
@@ -111,6 +113,7 @@ export async function compose(
         config,
         provider: overrides.modelProvider ?? new AnthropicModelProvider(),
         clock,
+        tripwires,
       }),
   }
   return { app: createApp(adapters), adapters }

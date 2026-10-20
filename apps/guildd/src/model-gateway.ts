@@ -12,6 +12,7 @@ import {
   ProviderSecret,
 } from './ports/model-provider'
 import type { SecretStore } from './ports/secret-store'
+import type { TripwireStore } from './ports/tripwire-store'
 
 /** Why the gateway refused or could not serve a call. */
 export type GatewayErrorCode =
@@ -20,6 +21,7 @@ export type GatewayErrorCode =
   | 'duplicate_call'
   | 'token_expired'
   | 'token_revoked'
+  | 'hall_paused'
   | 'cap_reached'
   | 'unknown_profile'
   | 'model_unconfigured'
@@ -45,6 +47,8 @@ export type OpenRunResult =
   | { status: 'started'; token: string; expiresAt: string }
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
+  /** The Hall is paused (Tripwire or Guild Master): no token is issued. */
+  | { status: 'refused'; reason: 'hall_paused' }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
@@ -72,6 +76,8 @@ export interface GatewayDeps {
   config: Pick<ConfigStore, 'current'>
   provider: ModelProvider
   clock: Clock
+  /** A paused Hall gets no new run and its live runs are refused. */
+  tripwires: Pick<TripwireStore, 'isPaused'>
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
 }
@@ -156,6 +162,9 @@ export class ModelGateway {
     guildId: string,
     run: { runId: string; questId: string; hallId: string; profileId: string }
   ): Promise<OpenRunResult> {
+    if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
+      return { status: 'refused', reason: 'hall_paused' }
+    }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
     if (existing && existing.state !== 'queued') {
       return { status: 'exists' }
@@ -225,6 +234,11 @@ export class ModelGateway {
     return this.deps.ledger.report(guildId, by, page)
   }
 
+  /** Revokes every queued or active run of a Hall (its pause); returns how many. */
+  revokeHallRuns(guildId: string, hallId: string): Promise<number> {
+    return this.deps.ledger.revokeHallRuns(guildId, hallId)
+  }
+
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */
   revokeRun(guildId: string, runId: string): Promise<boolean> {
     return this.deps.ledger.revoke(guildId, runId)
@@ -245,6 +259,9 @@ export class ModelGateway {
       throw new GatewayError('invalid_token')
     }
     this.checkLive(run)
+    if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
+      throw new GatewayError('hall_paused')
+    }
     if (!request.success) {
       throw new GatewayError('invalid_request')
     }
