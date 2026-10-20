@@ -35,9 +35,9 @@ const loop =
           schedule: (fn, ms) => setInterval(fn, ms),
           clear: (handle) => clearInterval(handle),
         },
-        onError: (error) => {
+        onError: (error, guildId) => {
           process.stderr.write(
-            `dispatch pass failed: ${error instanceof Error ? error.name : 'unknown'}\n`
+            `dispatch pass failed: guild=${guildId ?? 'all'} ${error instanceof Error ? error.name : 'unknown'}\n`
           )
         },
       })

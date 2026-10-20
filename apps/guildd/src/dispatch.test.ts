@@ -10,6 +10,7 @@ import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
+import { ConfigError } from './ports/config-store'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
 
@@ -200,6 +201,28 @@ describe('dispatch', () => {
     })
     expect(await w.started()).toEqual([first.id])
     expect((await w.quests.get(w.guild, first.id))?.state).toBe('active')
+  })
+
+  test('dispatchAll skips a guild with no applied config and still starts the configured one', async () => {
+    const w = world()
+    const quest = await w.queue()
+    const ghost = crypto.randomUUID()
+    const deps = {
+      ...w.deps,
+      config: {
+        current: async (guildId: string) => {
+          if (guildId === ghost) {
+            throw new ConfigError('not_found', 0)
+          }
+          return { version: 1, config: configWith() }
+        },
+      },
+    }
+    const results = await dispatchAll({ dispatch: (g) => dispatch(deps, g) }, [ghost, w.guild])
+    expect(results.some((r) => 'error' in r)).toBe(false)
+    expect(results.find((r) => r.guildId === w.guild)).toMatchObject({
+      outcome: { status: 'started', questId: quest.id },
+    })
   })
 
   test('a barred guild is refused before anything is claimed', async () => {

@@ -18,7 +18,7 @@ export interface DispatchLoopDeps<Handle> {
   pageSize?: number
   timer: LoopTimer<Handle>
   /** Told of a failing guild or sweep; the loop carries on. */
-  onError(error: unknown): void
+  onError(error: unknown, guildId?: string): void
 }
 
 /** A running dispatch loop. */
@@ -43,7 +43,7 @@ export function startDispatchLoop<Handle>(deps: DispatchLoopDeps<Handle>): Dispa
       const page = await deps.guildIds(after, deps.pageSize ?? GUILD_PAGE)
       for (const result of await dispatchAll(deps.dispatcher, page)) {
         if ('error' in result) {
-          deps.onError(result.error)
+          deps.onError(result.error, result.guildId)
         }
       }
       const last = page.at(-1)
