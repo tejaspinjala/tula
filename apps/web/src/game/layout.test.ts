@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { hallLayout, seatsIn, withClosedDoors } from './layout'
+import { fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
 
 const layout = hallLayout()
 
@@ -82,4 +82,12 @@ test('the door of a locked or empty room blocks entry; an open room keeps its do
   expect(walk(open.x, open.y)).toBe(true)
   expect(walk(empty.x, empty.y)).toBe(false)
   expect(walk(0, 0)).toBe(false)
+})
+
+test('the fit zoom fills the frame; a phone opens at a readable zoom of one', () => {
+  expect(fitZoom(940, 587, 640, 400)).toBe(1.46)
+  expect(fitZoom(358, 340, 640, 400)).toBe(0.55)
+  expect(fitZoom(10, 10, 640, 400)).toBe(0.25)
+  expect(openZoom(358, 340, 640, 400)).toBe(1)
+  expect(openZoom(940, 587, 640, 400)).toBe(1.46)
 })

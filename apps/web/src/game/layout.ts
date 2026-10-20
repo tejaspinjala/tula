@@ -137,3 +137,13 @@ export function withClosedDoors(
     layout.walkable(x, y) &&
     !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
 }
+
+/** The zoom that fills a frame with the hall (to two places), never below a quarter. */
+export function fitZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  return 0
+}
+
+/** The zoom the hall opens at: the fit, but never below a readable one. */
+export function openZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  return 0
+}
