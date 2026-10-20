@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
-import { addSecret, checkSecrets, listSecrets, type SecretCheck } from './vault'
+import { checkSecrets, listSecrets, type SecretCheck, submitSecret } from './vault'
 
 /** The Vault screen: add a provider key once (after re-authentication) and see which refs resolve. */
 export function VaultPanel({ session }: { session: Session | null }) {
@@ -40,9 +40,10 @@ export function VaultPanel({ session }: { session: Session | null }) {
           onSubmit={(event) => {
             event.preventDefault()
             run('Add secret', async (current) => {
-              await addSecret(current, ref.trim(), value, fetch, webAuthnBrowser)
-              // The value is never shown again: clear it as soon as it is sent.
-              setValue('')
+              // The value is never shown again: cleared once sent, even if the add fails.
+              await submitSecret(current, ref.trim(), value, fetch, webAuthnBrowser, () =>
+                setValue('')
+              )
               await refresh(current)
             })
           }}

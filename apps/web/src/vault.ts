@@ -55,6 +55,25 @@ export async function addSecret(
   return added.ref
 }
 
+/**
+ * Adds a secret and then calls `clear` whether the add succeeded or failed, so the typed value
+ * never lingers in the form after it has been sent.
+ */
+export async function submitSecret(
+  session: Session,
+  ref: string,
+  value: string,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser,
+  clear: () => void
+): Promise<string> {
+  try {
+    return await addSecret(session, ref, value, fetcher, browser)
+  } finally {
+    clear()
+  }
+}
+
 /** Lists the first page of secret refs (never values). */
 export function listSecrets(session: Session, fetcher: Fetcher, limit = 50) {
   return call(

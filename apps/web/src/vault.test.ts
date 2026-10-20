@@ -1,6 +1,19 @@
 import { expect, test } from 'bun:test'
 import { type PasskeyBrowser, PasskeyRequestError } from './passkeys'
-import { addSecret, checkSecrets, listSecrets } from './vault'
+import { addSecret, checkSecrets, listSecrets, submitSecret } from './vault'
+
+test('the value is cleared after a rejected add as well as a successful one', async () => {
+  const { fetcher, browser } = fakes({
+    '/api/session/reauth/begin': { body: { challengeId: 'c1', options: { challenge: 'abc' } } },
+    '/api/session/reauth/finish': { body: { proof: 'p1' } },
+    [`/api/guilds/${guild}/vault/secrets`]: { status: 409, body: { error: 'secret_exists' } },
+  })
+  let clears = 0
+  await submitSecret(session, 'openai', 'sk-secret', fetcher, browser, () => {
+    clears++
+  }).catch(() => undefined)
+  expect(clears).toBe(1)
+})
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
