@@ -70,6 +70,12 @@ export function compileBrief(input: BriefInput, cap: number = BRIEF_TOKEN_CAP): 
     `Hall: ${oneLine(quest.hallId)}`,
     `Round: ${quest.round + 1} of ${quest.roundLimit}`,
     `Done when: ${oneLine(quest.doneCondition)}`,
+    ...(input.instructions ? [`Instructions: ${oneLine(input.instructions)}`] : []),
+    ...(input.revisionReason
+      ? [
+          `Your last draft was rejected by the Verdict: ${oneLine(input.revisionReason)}. Write the deliverable itself, not a message about writing it.`,
+        ]
+      : []),
   ].join('\n')
   const pointers = [
     ...[...input.notes]
