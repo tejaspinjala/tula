@@ -4,7 +4,7 @@ import { followPath, type Vec } from './walk'
 import type { MapId } from './world'
 
 /** How fast a Member walks about the town, in tiles per second (a Member strolls; the Guild Master runs). */
-export const STROLL = 3.5
+export const STROLL = 5
 
 /** A Member's body in the town: which map, where, and what they are doing. Plain data, no engine objects. */
 export interface Walker {
@@ -92,7 +92,7 @@ function head(w: Walker, now: number, walkableOf: WalkableOf): Walker {
   if (!legs) {
     return arrive({ ...w, map: stop.spot.map, pos: centre(stop.spot) }, now)
   }
-  return { ...w, legs, path: [], arrived: false, hidden: false }
+  return { ...w, legs, path: [], arrived: false, hidden: false, anim: 'idle', line: null }
 }
 
 /**

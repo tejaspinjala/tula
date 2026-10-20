@@ -188,6 +188,7 @@ export class HallScene extends Phaser.Scene {
   private facingLeft = false
   private clock = 0
   private slotForced: number | null = null
+  private startPlace: PlaceName | null = null
   /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
   private talkable = new Set<string>()
   private near: Target | null = null
@@ -251,6 +252,14 @@ export class HallScene extends Phaser.Scene {
     if (this.pending) {
       this.render(this.pending)
     }
+    if (this.startPlace) {
+      this.goTo(this.startPlace)
+    }
+  }
+
+  /** Starts the Guild Master at a named place instead of the entrance (QA: `?at=`). */
+  startAt(place: PlaceName): void {
+    this.startPlace = place
   }
 
   /** The Guild Master's game object (null before the scene has loaded). */

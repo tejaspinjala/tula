@@ -4,7 +4,7 @@ import { type Phase, phaseAt } from './daylight'
 import { type HallOptions, HallScene } from './HallScene'
 import type { LookChoice } from './look'
 import type { SceneState } from './scene'
-import type { PlaceName } from './world'
+import { PLACE_NAMES, type PlaceName } from './world'
 
 /** What the page holds of a running game: draw a state, zoom, pause, tear down. */
 export interface GameHandle {
@@ -50,6 +50,11 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     .safeParse(new URLSearchParams(window.location.search).get('slot'))
   if (slot.success) {
     scene.setSlot(slot.data)
+  }
+  // `?at=archive-shelves` (any named place) starts the Guild Master there, for run-checks.
+  const at = z.enum(PLACE_NAMES).safeParse(new URLSearchParams(window.location.search).get('at'))
+  if (at.success) {
+    scene.startAt(at.data)
   }
   const game = new Phaser.Game({
     type: Phaser.AUTO,
