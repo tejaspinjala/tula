@@ -53,12 +53,10 @@ async function denialsLastHour(
     const page = await deps.sealStore.list(guildId, {
       limit: PAGE,
       status: 'denied',
+      decidedSince: new Date(now.getTime() - HOUR_MS).toISOString(),
       ...(after ? { after } : {}),
     })
     for (const seal of page.seals) {
-      if (!seal.decidedAt || now.getTime() - Date.parse(seal.decidedAt) > HOUR_MS) {
-        continue
-      }
       if (!hallOf.has(seal.questId)) {
         hallOf.set(seal.questId, (await deps.quests.get(guildId, seal.questId))?.hallId ?? null)
       }
