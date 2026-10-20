@@ -24,7 +24,7 @@ apart from vault ciphertext, so they expose guild data. Encrypt the backup direc
 
 `docker compose --profile backup up -d` starts `backup-postgres` (a dump every
 `BACKUP_INTERVAL_SECONDS`, default 86400, keeping `BACKUP_KEEP`, default 14) and `backup-objects`
-(`mc mirror` of the bucket), both into the `backup-data` volume. These services never see the key.
+(`mc mirror` of the bucket), both into the `backup-data` volume (a one-shot `backup-init` first creates `postgres/` and `objects/` there, the latter owned by the non-root user `backup-objects` runs as). These services never see the key.
 Copy the volume off the host as part of your normal host backup.
 
 ## One-off backup

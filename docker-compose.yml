@@ -38,10 +38,24 @@ services:
   # Scheduled backups (profile `backup`: `docker compose --profile backup up -d`). Postgres gets a
   # custom-format dump per interval, object storage a mirror. The KEY_FILE master key is NOT here:
   # back it up separately (docs/runbooks/backup-restore.md).
+  # One-shot: the shared volume is created root-owned, but backup-objects runs as the image's
+  # non-root user (uid 65532), so prepare the two directories once with the right owners.
+  backup-init:
+    profiles: [backup]
+    image: cgr.dev/chainguard/busybox:latest@sha256:f7d9063f22547e726221275158930e5033be3c6d8340c6867afb7d0d779fad8d
+    user: root
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - mkdir -p /backups/postgres /backups/objects && chown 65532:65532 /backups/objects
+    volumes:
+      - backup-data:/backups
+
   backup-postgres:
     profiles: [backup]
     image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     depends_on:
+      backup-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -69,6 +83,8 @@ services:
     profiles: [backup]
     image: cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6
     depends_on:
+      backup-init:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
     environment:
