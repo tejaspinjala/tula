@@ -159,3 +159,8 @@
   background: var(--px-paper);
   color: var(--px-text);
 }
+
+/* An empty list draws nothing (no stray bar under the Vault before any secret exists). */
+.work-log:empty {
+  display: none;
+}
