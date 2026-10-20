@@ -5,10 +5,15 @@ the window loads the remote https origin (so the RP ID is the tunnel host)?
 
 ## What was and was not checked
 
-- The build host had no Rust toolchain (`rustc`, `cargo` absent), so nothing was run in a Tauri window.
-  The conclusion below is from platform documentation and known behaviour, **not a measured result**.
-  The manual check in the runbook (`docs/runbooks/self-host.md`, "Desktop app") settles it on a machine
-  with Rust; record the outcome here.
+- Measured (rustc 1.99.1, tauri-cli 2.12.3, tauri 2.12.4): `cargo test` passes (3 settings tests),
+  `cargo build` succeeds, and the debug binary starts, first with no settings (first-run page) and then
+  with `settings.json` pointing at a local guildd on `http://localhost:8832`, without panicking.
+- Not measured: this agent session has no GUI access (`screencapture` fails with "could not create image
+  from display", System Events times out), so the window, menu, full screen toggle and the passkey prompt
+  were never seen and there are no screenshots. Whether `navigator.credentials.create/get` works in the
+  window is **still unmeasured**; the conclusion below is from platform documentation. A human should run
+  the debug build (runbook, "Desktop app") against a local guildd, try sign-in, and record the exact
+  error or success here.
 
 ## Findings (research, unverified locally)
 
