@@ -80,6 +80,15 @@ const PAIRS: [string, string, number][] = [
   ['--px-line', '--px-paper-200', 3],
   ['--px-line', '--px-paper', 3],
   ['--px-dialog-frame', '--px-dialog', 3],
+  // Pairs the screens actually use (title wordmark and tagline, badges, work notes, warnings).
+  ['--px-gold-500', '--px-wood-900', 4.5],
+  ['--px-wood-100', '--px-wood-900', 4.5],
+  ['--px-danger-700', '--px-paper-200', 4.5],
+  ['--px-grass-700', '--px-paper-200', 4.5],
+  ['--px-on-grass', '--px-grass-700', 4.5],
+  ['--px-on-warn', '--px-warn-500', 4.5],
+  ['--px-on-wood', '--px-wood-900', 4.5],
+  ['--px-dialog-text', '--px-dialog-shadow', 3],
 ]
 
 for (const [theme, color] of [
