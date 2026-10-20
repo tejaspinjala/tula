@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { decideSuggestion, loadSuggestions, type SuggestionView, scanLearning } from './learning'
 import type { Session } from './passkeys'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /**
  * Suggested learnings from merged pull requests and ADR titles in the repos the Guild Master
@@ -58,19 +60,14 @@ export function LearningPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="learning-heading" className="card">
-      <h2 id="learning-heading" className="card-title">
-        Suggested learnings
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see suggested learnings.</p>}
+    <WorkSection id="learning" title="Ledger of Deeds">
+      {!session && <p>Sign in with a passkey to see suggested learnings.</p>}
       {failed && <p role="alert">Suggested learnings could not be loaded.</p>}
       {message && <p role="status">{message}</p>}
-      {session && items.length === 0 && !failed && (
-        <p className="mt-4">No suggestions are waiting.</p>
-      )}
-      <ul aria-label="Suggestions" className="mt-4 flex flex-col gap-3">
+      {session && items.length === 0 && !failed && <p>No suggestions are waiting.</p>}
+      <ul aria-label="Suggestions" className="ledger-book">
         {items.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className="work-note">
             {item.url === null ? (
               <span>{item.title}</span>
             ) : (
@@ -79,20 +76,18 @@ export function LearningPanel({ session }: { session: Session | null }) {
               </a>
             )}
             <p>{item.body}</p>
-            <button type="button" onClick={() => decide(item.id, 'accept')}>
-              Accept {item.title}
-            </button>{' '}
-            <button type="button" onClick={() => decide(item.id, 'dismiss')}>
-              Dismiss {item.title}
-            </button>
+            <div className="work-actions">
+              <PixelButton onClick={() => decide(item.id, 'accept')}>
+                Accept {item.title}
+              </PixelButton>
+              <PixelButton onClick={() => decide(item.id, 'dismiss')}>
+                Dismiss {item.title}
+              </PixelButton>
+            </div>
           </li>
         ))}
       </ul>
-      {session && (
-        <button type="button" className="mt-4" onClick={scan}>
-          Scan repos now
-        </button>
-      )}
-    </section>
+      {session && <PixelButton onClick={scan}>Scan repos now</PixelButton>}
+    </WorkSection>
   )
 }
