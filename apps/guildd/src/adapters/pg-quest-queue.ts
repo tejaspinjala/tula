@@ -5,6 +5,7 @@ import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import {
   type ClaimOptions,
+  cascadeDeadTransitions,
   claimTransition,
   completeTransition,
   dataClass,
@@ -113,6 +114,20 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   private async save(tx: TenantTx, guildId: string, t: Transition): Promise<Quest> {
+    await this.write(tx, guildId, t)
+    if (t.event === 'quest.dead') {
+      const rows = await tx`
+        select * from quests
+        where guild_id = ${guildId} and state in ('queued', 'active', 'awaiting_seal')
+        for update`
+      for (const dependent of cascadeDeadTransitions(rows.map(toQuest), t.quest.id)) {
+        await this.write(tx, guildId, dependent)
+      }
+    }
+    return t.quest
+  }
+
+  private async write(tx: TenantTx, guildId: string, t: Transition): Promise<void> {
     const q = t.quest
     await tx`
       update quests set state = ${q.state}, round = ${q.round}, attempts = ${q.attempts},
@@ -120,7 +135,6 @@ export class PgQuestQueue implements QuestQueue {
         not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
-    return q
   }
 
   private async load(tx: TenantTx, guildId: string, id: string): Promise<Quest> {

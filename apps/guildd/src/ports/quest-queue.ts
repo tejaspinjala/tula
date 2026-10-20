@@ -82,6 +82,7 @@ export const FAIL_REASONS = [
   'worker_crash',
   'sandbox_unavailable',
   'seal_rejected',
+  'blocker_dead',
   'unknown',
 ] as const
 
@@ -362,6 +363,27 @@ export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Da
     },
     event: 'quest.retry_scheduled',
   }
+}
+
+/**
+ * The Quests a dead Quest takes with it: every in-flight Quest (queued, active or awaiting a Seal)
+ * that is blocked by it directly or through another such Quest, each dead-lettered with the coded
+ * reason `blocker_dead`, in posting order. Without this they would wait on a blocker that can
+ * never be done. Pure and shared by both adapters; a dependent already finished is untouched.
+ */
+export function cascadeDeadTransitions(quests: readonly Quest[], deadId: string): Transition[] {
+  const gone = new Set([deadId])
+  const out: Transition[] = []
+  for (const q of [...quests].sort((a, b) => a.seq - b.seq)) {
+    if (IN_FLIGHT.includes(q.state) && !gone.has(q.id) && q.blockedBy.some((id) => gone.has(id))) {
+      gone.add(q.id)
+      out.push({
+        quest: { ...q, state: 'dead', leaseExpiresAt: null, lastError: 'blocker_dead' },
+        event: 'quest.dead',
+      })
+    }
+  }
+  return out
 }
 
 const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']
