@@ -6,6 +6,7 @@ import { MAX_TREASURY_PAGE } from './ports/treasury-store'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
+import { isGuildMaster } from './treasury'
 
 const harness = await createHarness({ devGuildHeader: true })
 afterAll(async () => {
@@ -27,6 +28,8 @@ const spendBody = z.object({
   id: z.string(),
   status: z.string(),
   escalation: z.string().nullable(),
+  requestedBy: z.string().optional(),
+  approvedByMember: z.string().nullable().optional(),
 })
 const pageBody = z.object({
   items: z.array(z.record(z.string(), z.unknown())),
@@ -263,6 +266,31 @@ describe('Treasury routes', () => {
     const verdict = await send('GET', `/guilds/${g}/treasury/verify`, who.auth)
     expect(await verdict.json()).toEqual({ intact: true, entries: 2 })
     expect((await send('GET', `/guilds/${g}/treasury/spends`, who.auth)).status).toBe(200)
+  })
+})
+
+describe('principals', () => {
+  test('a re-authenticated approval records the approving member; non-Guild-Master roles are refused', async () => {
+    const who = await signedIn()
+    const g = who.guildId
+    const made = spendBody.parse(
+      await (
+        await send('POST', `/guilds/${g}/treasury/spends`, who.auth, {
+          key: 'p',
+          amountCents: 600,
+          purpose: 'conference',
+        })
+      ).json()
+    )
+    expect(made.requestedBy).toEqual(expect.any(String))
+    const done = await send('POST', `/guilds/${g}/treasury/spends/${made.id}/approve`, {
+      ...who.auth,
+      'x-reauth-proof': await who.proof(),
+    })
+    expect(spendBody.parse(await done.json()).approvedByMember).toBe(made.requestedBy ?? null)
+    expect(isGuildMaster({ role: 'guild_master' })).toBe(true)
+    expect(isGuildMaster({ role: 'agent' })).toBe(false)
+    expect(isGuildMaster({ role: '' })).toBe(false)
   })
 })
 

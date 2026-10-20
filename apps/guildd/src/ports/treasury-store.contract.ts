@@ -357,6 +357,55 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       })
     })
 
+    describe('principals', () => {
+      test('every entry and approval records the member who acted; the seed has none', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await store.recordRevenue(
+          g,
+          { actorMember: 'rev-1', key: 'r', amountCents: 1000, evidence: 'inv' },
+          LIMITS
+        )
+        await store.releaseReserve(g, { actorMember: 'res-1', key: 'rr', amountCents: 100 }, LIMITS)
+        const waiting = await store.requestSpend(
+          g,
+          { key: 'w', amountCents: 600, purpose: 'p', requestedBy: 'req-1' },
+          LIMITS
+        )
+        if (!waiting.ok) {
+          throw new Error('refused')
+        }
+        expect(waiting.spend).toMatchObject({ requestedBy: 'req-1', approvedByMember: null })
+        const approved = await store.approveSpend(g, waiting.spend.id, 'gm-7')
+        expect(approved).toMatchObject({ ok: true, spend: { approvedByMember: 'gm-7' } })
+        await store.settleSpend(g, waiting.spend.id, 500, 'settler-1')
+        const small = await store.requestSpend(
+          g,
+          { key: 's', amountCents: 100, purpose: 'p', requestedBy: 'req-1' },
+          LIMITS
+        )
+        if (!small.ok) {
+          throw new Error('refused')
+        }
+        await store.releaseSpend(g, small.spend.id, 'releaser-1')
+        const entries = (await store.listEntries(g, { limit: 100 })).items
+        const actors = entries.map((e) => `${e.kind}:${e.actorMember}`)
+        expect(actors).toEqual([
+          'seed:null',
+          'seed:null',
+          'revenue:rev-1',
+          'revenue:rev-1',
+          'reserve_release:res-1',
+          'reserve_release:res-1',
+          'spend_reserve:gm-7',
+          'spend_settle:settler-1',
+          'spend_reserve:req-1',
+          'spend_release:releaser-1',
+        ])
+        expect(await store.verifyLedger(g)).toMatchObject({ intact: true })
+      })
+    })
+
     describe('atomicity', () => {
       const loose = { ...LIMITS, treasurerLimitCents: 100_000, dailyCapCents: 100_000 }
       const ask = (g: string, store: TreasuryStore, key: string, amountCents: number, l = loose) =>
