@@ -2,7 +2,8 @@ import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
 import type { Db } from './db/client'
-import { eventsAfter, headSeq } from './events'
+import { createEventHub } from './event-hub'
+import { headSeq } from './events'
 import type { Clock } from './ports/clock'
 import type { ObjectStore } from './ports/object-store'
 
@@ -13,8 +14,12 @@ export interface AppDeps {
   objectStore: ObjectStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
-  /** Milliseconds between event-log polls per live socket; defaults to 200. */
+  /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
   eventPollMs?: number
+  /** Live event sockets allowed per guild; defaults to 8. */
+  maxSocketsPerGuild?: number
+  /** A socket buffering more than this many bytes is closed; defaults to 1 MiB. */
+  maxSocketBufferBytes?: number
 }
 
 const { upgradeWebSocket, websocket } = createBunWebSocket()
@@ -35,6 +40,11 @@ const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
+  const hub = createEventHub(deps.db, {
+    pollMs: deps.eventPollMs,
+    maxSocketsPerGuild: deps.maxSocketsPerGuild,
+    maxBufferedBytes: deps.maxSocketBufferBytes,
+  })
   app.get('/health', (c) => c.json({ status: 'ok', time: deps.clock.now().toISOString() }))
 
   app.post('/guilds', async (c) => {
@@ -150,6 +160,9 @@ export function createApp(deps: AppDeps): Hono {
       if (c.req.param('id') !== caller) {
         return c.json({ error: 'not_found' }, 404)
       }
+      if (!hub.hasRoom(caller)) {
+        return c.json({ error: 'too_many_streams' }, 429)
+      }
       await next()
     },
     upgradeWebSocket((c) => {
@@ -159,43 +172,26 @@ export function createApp(deps: AppDeps): Hono {
         .int()
         .min(0)
         .safeParse(c.req.query('last_seq') ?? '0')
-      let cursor = parsed.success ? parsed.data : 0
-      let open = true
-      let timer: ReturnType<typeof setTimeout> | undefined
+      const cursor = parsed.success ? parsed.data : 0
+      let subscription: ReturnType<typeof hub.subscribe> | undefined
       return {
         onOpen: (_evt, ws) => {
-          const pump = async () => {
-            try {
-              while (open) {
-                const batch = await deps.db.withGuild(guild, (tx) => eventsAfter(tx, cursor, 100))
-                for (const event of batch) {
-                  ws.send(JSON.stringify({ type: 'event', event }))
-                  cursor = event.seq
-                }
-                if (batch.length < 100) {
-                  break
-                }
-              }
-            } catch {
-              ws.close(1011, 'event stream failed')
-              return
-            }
-            if (open) {
-              timer = setTimeout(pump, deps.eventPollMs ?? 200)
-            }
-          }
+          subscription = hub.subscribe(guild, cursor, {
+            send: (data) => ws.send(data),
+            bufferedAmount: () =>
+              (ws.raw as { getBufferedAmount?: () => number })?.getBufferedAmount?.() ?? 0,
+            close: (code, reason) => ws.close(code, reason),
+          })
+          const sub = subscription
           deps.db
-            .withGuild(guild, (tx) => headSeq(tx))
+            .withGuildStream(guild, (tx) => headSeq(tx))
             .then((head) => {
               ws.send(JSON.stringify({ type: 'snapshot', head }))
-              return pump()
+              sub.start()
             })
             .catch(() => ws.close(1011, 'event stream failed'))
         },
-        onClose: () => {
-          open = false
-          clearTimeout(timer)
-        },
+        onClose: () => subscription?.unsubscribe(),
       }
     }),
     (c) => c.json({ error: 'upgrade_required' }, 426)
