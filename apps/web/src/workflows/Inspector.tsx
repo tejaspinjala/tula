@@ -26,8 +26,8 @@ export const FIELD_LABELS: Record<string, string> = {
   briefs: 'Briefs (one Sub-Quest per line)',
   join: 'Fan-in (wait for)',
   goal: 'Goal for the Captain',
-  maxMembers: 'Most Members at once',
-  maxQuests: 'Most Quests the Captain may post',
+  maxMembers: 'Member ceiling (checked against the Hall cap when saved)',
+  maxQuests: 'Quest ceiling (checked against the Campaign cap when saved)',
 }
 
 function DeleteWithConfirm({ what, onConfirm }: { what: string; onConfirm: () => void }) {

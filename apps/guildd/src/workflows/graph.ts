@@ -53,9 +53,9 @@ const team = z.object({
   hallId: z.string().min(1).max(64),
   /** The goal the Hall's Captain plans the Campaign for. */
   goal: z.string().trim().min(1).max(1500),
-  /** The most Members that may work the Campaign at once (checked against the Hall's `maxConcurrentMembers`). */
+  /** A ceiling, not a per-run limit: checked against the Hall's `maxConcurrentMembers` when saved. The Hall cap enforces the real limit. */
   maxMembers: z.number().int().min(1).max(1000),
-  /** The most Quests the Captain may post (checked against `maxQuestsPerCampaign`). */
+  /** A ceiling, not a per-run limit: checked against `maxQuestsPerCampaign` when saved. The guild cap enforces the real limit. */
   maxQuests: z.number().int().min(1).max(100),
   /** Advisory spend for the whole Campaign, summed against the daily spend cap at save time. */
   maxUsd: z.number().min(0).max(100_000),
