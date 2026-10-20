@@ -13,6 +13,7 @@ import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { PgStreamTicketStore } from './adapters/pg-stream-ticket-store'
+import { PgTripwireStore } from './adapters/pg-tripwire-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
@@ -74,6 +75,7 @@ export async function compose(
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
     quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
+    tripwires: overrides.tripwires ?? new PgTripwireStore(db, keys, clock),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
+import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig } from './guild-config'
 import { postQuest, QUEST_TEMPLATES } from './quests'
 
@@ -9,15 +10,16 @@ async function setup() {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const config = new MemoryConfigStore(clock)
   const queue = new MemoryQuestQueue(clock, () => 0.5)
+  const tripwires = new MemoryTripwireStore(clock)
   const guild = crypto.randomUUID()
   await config.seed(guild)
-  return { config, queue, guild }
+  return { config, queue, tripwires, guild }
 }
 
 test('posting from a template takes its Hall, rank and data class, and a Member of that rank owns it', async () => {
-  const { config, queue, guild } = await setup()
+  const { config, queue, tripwires, guild } = await setup()
   const template = QUEST_TEMPLATES.find((t) => t.id === 'herald-brief')
-  const result = await postQuest({ config, queue }, guild, {
+  const result = await postQuest({ config, queue, tripwires }, guild, {
     templateId: 'herald-brief',
     jobKey: 'brief-1',
     title: 'Brief for launch',
@@ -37,11 +39,11 @@ test('posting from a template takes its Hall, rank and data class, and a Member 
 })
 
 test('a locked Hall rejects Quests', async () => {
-  const { config, queue, guild } = await setup()
+  const { config, queue, tripwires, guild } = await setup()
   const base = defaultConfig()
   const halls = base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
   await config.propose(guild, { ...base, halls })
-  const result = await postQuest({ config, queue }, guild, {
+  const result = await postQuest({ config, queue, tripwires }, guild, {
     templateId: 'herald-brief',
     jobKey: 'brief-1',
     title: 'Brief',
@@ -51,8 +53,8 @@ test('a locked Hall rejects Quests', async () => {
 })
 
 test('an unknown template or an owner outside the Hall is refused', async () => {
-  const { config, queue, guild } = await setup()
-  const deps = { config, queue }
+  const { config, queue, tripwires, guild } = await setup()
+  const deps = { config, queue, tripwires }
   expect(await postQuest(deps, guild, { templateId: 'nope', jobKey: 'k', title: 'T' })).toEqual({
     ok: false,
     error: 'unknown_template',
@@ -68,12 +70,24 @@ test('an unknown template or an owner outside the Hall is refused', async () => 
 })
 
 test('a blocker that is not a Quest of this guild is refused', async () => {
-  const { config, queue, guild } = await setup()
-  const result = await postQuest({ config, queue }, guild, {
+  const { config, queue, tripwires, guild } = await setup()
+  const result = await postQuest({ config, queue, tripwires }, guild, {
     templateId: 'herald-brief',
     jobKey: 'k',
     title: 'T',
     blockedBy: [crypto.randomUUID()],
   })
   expect(result).toEqual({ ok: false, error: 'unknown_blocker' })
+})
+
+test('a paused Hall rejects Quests until it resumes, and a locked Hall still reads locked', async () => {
+  const { config, queue, tripwires, guild } = await setup()
+  await tripwires.pause(guild, { hallId: 'heralds', tripwire: 'loop', observed: 5, threshold: 5 })
+  const input = { templateId: 'herald-brief', jobKey: 'brief-p', title: 'Brief' }
+  expect(await postQuest({ config, queue, tripwires }, guild, input)).toEqual({
+    ok: false,
+    error: 'hall_paused',
+  })
+  await tripwires.resume(guild, 'heralds')
+  expect((await postQuest({ config, queue, tripwires }, guild, input)).ok).toBe(true)
 })

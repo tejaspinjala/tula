@@ -9,6 +9,8 @@ export interface QuestQueueFixture {
   newGuild: () => Promise<string>
   /** The Quest event types appended for the guild so far, in order. */
   events: (guildId: string) => Promise<string[]>
+  /** Pauses (or resumes) a Hall through the TripwireStore the queue was built with. */
+  setHallPaused: (guildId: string, hallId: string, paused: boolean) => Promise<void>
 }
 
 const LEASE = { leaseMs: 60_000, maxActive: 10 }
@@ -33,6 +35,28 @@ function quest(overrides: Partial<NewQuest> = {}): NewQuest {
 /** The QuestQueue contract, run against every adapter. `make` returns a fresh queue. */
 export function questQueueContract(name: string, make: () => Promise<QuestQueueFixture>) {
   describe(`QuestQueue contract: ${name}`, () => {
+    test('a paused Hall has no Quest claimed until it resumes; other Halls still are', async () => {
+      const { queue, newGuild, setHallPaused } = await make()
+      const g = await newGuild()
+      const { quest: held } = await queue.post(g, quest({ hallId: 'heralds' }))
+      const { quest: free } = await queue.post(g, quest({ hallId: 'scribes' }))
+      await setHallPaused(g, 'heralds', true)
+      expect((await queue.claim(g, LEASE))?.id).toBe(free.id)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      expect(await queue.claim(g, { ...LEASE, questId: held.id })).toBeNull()
+      await setHallPaused(g, 'heralds', false)
+      expect((await queue.claim(g, LEASE))?.id).toBe(held.id)
+    })
+
+    test("another guild's pause does not stop this guild's claims", async () => {
+      const { queue, newGuild, setHallPaused } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      await setHallPaused(a, 'heralds', true)
+      const { quest: q } = await queue.post(b, quest({ hallId: 'heralds' }))
+      expect((await queue.claim(b, LEASE))?.id).toBe(q.id)
+    })
+
     test('a posted Quest is queued with its owner, done-condition and round limit', async () => {
       const { queue, newGuild } = await make()
       const g = await newGuild()

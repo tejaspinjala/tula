@@ -12,7 +12,7 @@ import {
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
-import { guildConfig } from './guild-config'
+import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
@@ -35,6 +35,7 @@ import {
   secretValue,
 } from './ports/secret-store'
 import type { StreamTicketStore } from './ports/stream-ticket'
+import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
@@ -70,6 +71,8 @@ export interface AppDeps {
   classifier: Classifier
   /** Routing decision log (insert-only), read by the future Oracle. */
   routingLog: RoutingLog
+  /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
+  tripwires: TripwireStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -147,6 +150,14 @@ const sealDecisionBody = z.object({
   note: z.string().trim().min(1).max(2000).optional(),
 })
 const sealPostedBody = z.object({ text: z.string().min(1).max(20000) })
+const hallParam = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
+const pausePage = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_TRIPWIRE_PAGE).default(50),
+})
 const questPage = z.object({
   after: z
     .string()
@@ -608,7 +619,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     const result = await postQuest(
-      { config: deps.config, queue: deps.quests },
+      { config: deps.config, queue: deps.quests, tripwires: deps.tripwires },
       who.guild,
       body.data
     )
@@ -647,6 +658,62 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/guilds/:id/quests', (c) => questList(c, false))
   app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))
+
+  // Tripwires and Hall pauses. Reading shows the thresholds and the active pauses (the ledger
+  // view's problem list). Pausing is immediate and needs only a session; resuming widens what the
+  // Hall may do, so it needs a fresh re-authentication, like confirming a widening config change.
+  app.get('/guilds/:id/tripwires', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = pausePage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    const paused = await deps.tripwires.list(who.guild, {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: Number(page.data.after) } : {}),
+    })
+    return c.json({ thresholds: guildTripwires(config), ...paused })
+  })
+
+  app.post('/guilds/:id/halls/:hallId/pause', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    const { pause, created } = await deps.tripwires.pause(who.guild, {
+      hallId: hallId.data,
+      tripwire: 'manual',
+      observed: 0,
+      threshold: 0,
+    })
+    return c.json(pause, created ? 201 : 200)
+  })
+
+  app.post('/guilds/:id/halls/:hallId/resume', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    if (c.req.param('id') !== check.guildId || !hallId.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    return (await deps.tripwires.resume(check.guildId, hallId.data))
+      ? c.json({ hallId: hallId.data, paused: false })
+      : c.json({ error: 'not_paused' }, 404)
+  })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
   app.post('/guilds/:id/events/ticket', async (c) => {
