@@ -38,9 +38,21 @@ _Avoid_: employee, bot
 One unit of work with exactly one owner and a done-condition.
 _Avoid_: task, ticket
 
+**Sub-Quest**:
+A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; it inherits its parent's data class.
+_Avoid_: subtask, child task
+
 **Campaign**:
 A project: a set of related Quests under one Captain.
 _Avoid_: project
+
+**Workflow**:
+A saved, versioned graph of steps (trigger, agent, verify, approval, post) that compiles to governed Quests. It has no authority of its own: every Quest it posts goes through the normal dispatcher, Verdict, Seal, caps and Bar the Gates.
+_Avoid_: pipeline, automation
+
+**Workflow instance**:
+One run of a pinned Workflow version. Its Quests share one Campaign, the instance id.
+_Avoid_: job
 
 **Quest Board**:
 The kanban of a Hall's Quests.
@@ -183,12 +195,28 @@ A config version was proposed (payload: version, status `pending` or `applied`, 
 **config.version_confirmed**:
 A pending config version was confirmed and took force (payload: version).
 
+## Workflow events
+
+Event types the Workflow store appends to the chained event log (ids and small facts only, never the graph):
+
+**workflow.version_saved**:
+A Workflow version was saved (payload: workflow id, version, status `pending` or `active`, kind `internal` or `widening`). A widening version stays `pending` until confirmed.
+
+**workflow.version_confirmed**:
+A pending Workflow version was confirmed and may run (payload: workflow id, version).
+
+**workflow.run_started**:
+A Workflow instance was created (payload: instance id, workflow id, version).
+
 ## Gates, work and vault events
 
 Event types appended to the chained event log by Bar the Gates and by the Quest, Hall and Vault stores (ids and small facts only, never content or secrets):
 
 **gates.barred** / **gates.lifted**:
 The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and the acting member id in the acting guild's own chain only). A global bar or lift is also told to every other guild's chain with the bar id and scope only, never who acted.
+
+**quest.spawned**:
+A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).
 
 **handoff.recorded**:
 A Quest attempt recorded its handoff (payload: quest id, attempt, handoff hash).

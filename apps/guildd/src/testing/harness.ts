@@ -24,6 +24,9 @@ export const UNLIMITED_RATE_LIMITS = {
   'checkpoint-begin': { client: NO_LIMIT, guild: NO_LIMIT },
   'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
+  'workflow-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'workflow-write': { client: NO_LIMIT, guild: NO_LIMIT },
+  'workflow-run': { client: NO_LIMIT, guild: NO_LIMIT },
   summon: { client: NO_LIMIT, guild: NO_LIMIT },
   'summon-status': { client: NO_LIMIT, guild: NO_LIMIT },
   dispatch: { client: NO_LIMIT, guild: NO_LIMIT },
@@ -58,6 +61,7 @@ export interface HarnessOptions {
       | 'notes'
       | 'seals'
       | 'proposals'
+      | 'workflows'
       | 'quests'
       | 'mcp'
       | 'tripwires'
@@ -141,6 +145,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       notes: composed.notes,
       seals: composed.seals,
       proposals: composed.proposals,
+      workflows: composed.workflows,
       quests: composed.quests,
       mcp: composed.mcp,
       tripwires: composed.tripwires,

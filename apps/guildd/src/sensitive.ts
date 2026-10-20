@@ -5,8 +5,8 @@ import type { IdentityProvider, Principal } from './ports/identity'
 export const REAUTH_HEADER = 'x-reauth-proof'
 
 /** Outcome of {@link checkSensitive}. */
-export type SensitiveCheck =
-  | { ok: true; guildId: string; principal: Principal }
+export type SensitiveCheck<P extends { guildId: string } = Principal> =
+  | { ok: true; guildId: string; principal: P }
   | { ok: false; status: 401 | 403; error: 'unauthenticated' | 'reauth_required' }
 
 /** Extracts the bearer token from an `Authorization` header value. */
@@ -21,10 +21,13 @@ export function bearerToken(header: string | null | undefined): string | null {
  * is spent by a successful check, so each sensitive action needs its own fresh re-authentication.
  * On success it names the session's guild; the caller must still act only on that guild.
  */
-export async function checkSensitive(
-  identity: IdentityProvider,
+export async function checkSensitive<P extends { guildId: string } = Principal>(
+  identity: {
+    resolveSession(sessionToken: string): Promise<P | null>
+    consumeReauth(sessionToken: string, proof: string): Promise<boolean>
+  },
   headers: { get(name: string): string | null }
-): Promise<SensitiveCheck> {
+): Promise<SensitiveCheck<P>> {
   const token = bearerToken(headers.get('authorization'))
   const session = token ? await identity.resolveSession(token) : null
   if (!token || !session) {

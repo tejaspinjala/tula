@@ -3,7 +3,9 @@ import { eventText } from './event-text'
 import { loadHistory } from './history'
 import { prefersReducedMotion, scrollBehavior } from './motion'
 import type { Session } from './passkeys'
+import { loadQuests } from './quests'
 import { type ReplayEvent, replayTo } from './replay'
+import { groupRepeats, relativeTime, stateWord } from './timeline-format'
 import { formatCents } from './treasury'
 
 /** Most events listed at once, so a long day stays readable. */
@@ -19,6 +21,7 @@ export function TimelinePanel({ session }: { session: Session | null }) {
   const [position, setPosition] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  const [names, setNames] = useState<Record<string, string>>({})
   const known = useRef(0)
   const listEnd = useRef<HTMLLIElement | null>(null)
 
@@ -27,11 +30,14 @@ export function TimelinePanel({ session }: { session: Session | null }) {
       setEvents([])
       return
     }
+    loadQuests(session, fetch)
+      .then((quests) => setNames(Object.fromEntries(quests.map((q) => [q.id, q.title]))))
+      .catch(() => undefined)
     loadHistory(session, fetch)
       .then((loaded) => {
         const fresh = loaded.slice(known.current)
         if (known.current > 0 && fresh.length > 0) {
-          setAnnouncement(fresh.map(eventText).join('. '))
+          setAnnouncement(fresh.map((e) => eventText(e)).join('. '))
         }
         known.current = loaded.length
         setEvents(loaded)
@@ -48,7 +54,10 @@ export function TimelinePanel({ session }: { session: Session | null }) {
     [events, at]
   )
   const applied = events.slice(0, at)
-  const shown = applied.slice(-VISIBLE)
+  const shown = groupRepeats(
+    applied.slice(-VISIBLE).map((event) => ({ event, text: eventText(event, names) }))
+  )
+  const nowMs = Date.now()
 
   useEffect(() => {
     if (at === 0) {
@@ -75,7 +84,7 @@ export function TimelinePanel({ session }: { session: Session | null }) {
   return (
     <section aria-labelledby="timeline-heading" className="card">
       <h2 id="timeline-heading" className="card-title">
-        Timeline
+        Replay the day
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to replay the guild's day.</p>}
       {failed && <p role="alert">The event log could not be loaded.</p>}
@@ -116,12 +125,12 @@ export function TimelinePanel({ session }: { session: Session | null }) {
           <ul aria-label="Replayed state" className="mt-2 flex flex-col gap-1">
             {(Object.keys(state.quests) as Array<keyof typeof state.quests>).map((s) => (
               <li key={s}>
-                Quests {s}: {state.quests[s].length}
+                Quests {stateWord(s)}: {state.quests[s].length}
               </li>
             ))}
             {(Object.keys(state.seals) as Array<keyof typeof state.seals>).map((s) => (
               <li key={s}>
-                Seals {s}: {state.seals[s].length}
+                Seals {stateWord(s)}: {state.seals[s].length}
               </li>
             ))}
             <li>Paused Halls: {state.pausedHalls.length}</li>
@@ -132,9 +141,13 @@ export function TimelinePanel({ session }: { session: Session | null }) {
             <li>Notes: {state.notes}</li>
           </ul>
           <ol aria-label="Events" className="mt-4 flex flex-col gap-1">
-            {shown.map((event) => (
+            {shown.map(({ event, text, count }) => (
               <li key={event.seq}>
-                <time dateTime={event.occurredAt}>{event.occurredAt}</time> {eventText(event)}
+                <time dateTime={event.occurredAt} title={event.occurredAt}>
+                  {relativeTime(event.occurredAt, nowMs)}
+                </time>{' '}
+                {text}
+                {count > 1 ? ` (x${count})` : ''}
               </li>
             ))}
             <li ref={listEnd} aria-hidden="true" />

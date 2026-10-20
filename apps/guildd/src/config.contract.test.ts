@@ -220,6 +220,25 @@ describe('guild config over HTTP', () => {
     expect(await verify.json()).toMatchObject({ intact: true, entries: events.length })
   })
 
+  test('an invalid config is refused with the path of every offending field', async () => {
+    const who = await signedIn()
+    const base = defaultConfig()
+    const bad = {
+      ...base,
+      halls: [{ ...base.halls[0], members: [{ id: 'Bad Id', name: 'x', rank: 'apprentice' }] }],
+    }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config: bad }, who.auth)
+    expect(res.status).toBe(400)
+    const body = z
+      .object({
+        error: z.string(),
+        issues: z.array(z.object({ path: z.array(z.union([z.string(), z.number()])) })),
+      })
+      .parse(await res.json())
+    expect(body.error).toBe('invalid_config')
+    expect(body.issues.map((i) => i.path.join('.'))).toContain('halls.0.members.0.id')
+  })
+
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }

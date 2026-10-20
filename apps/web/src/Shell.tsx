@@ -1,7 +1,9 @@
-import type { MouseEvent } from 'react'
+import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
+import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
+import { GamePanel } from './GamePanel'
 import { GatesPanel } from './GatesPanel'
 import { HomePanel } from './HomePanel'
 import { LearningPanel } from './LearningPanel'
@@ -18,6 +20,9 @@ import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
 
+/** How many views get their own tab on a phone; the rest sit behind More. */
+const PHONE_TABS = 4
+
 function ViewBody({
   view,
   session,
@@ -32,6 +37,8 @@ function ViewBody({
   switch (view) {
     case 'home':
       return <HomePanel session={session} navigate={navigate} />
+    case 'hall':
+      return <GamePanel session={session} navigate={navigate} />
     case 'quests':
       return <QuestBoardPanel session={session} />
     case 'seals':
@@ -59,6 +66,8 @@ function ViewBody({
           <SummonPanel session={session} />
         </>
       )
+    case 'guild':
+      return <BuilderPanel session={session} />
     case 'gates':
       return (
         <>
@@ -94,13 +103,28 @@ export function Shell({
   onSession: (session: Session | null) => void
 }) {
   const { view, navigate } = useRoute()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const more = moreOpen ? 'open' : 'closed'
+  const nav = useRef<HTMLElement | null>(null)
   const active = VIEWS.find((v) => v.id === view)
+  const activeIndex = VIEWS.findIndex((v) => v.id === view)
   const go = (path: string) => (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
       return
     }
     event.preventDefault()
+    setMoreOpen(false)
     navigate(path)
+  }
+  useEffect(() => {
+    document.title = `${active?.label ?? 'Ledger'} | Guildhall`
+    nav.current
+      ?.querySelector<HTMLElement>('[aria-current="page"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [active])
+  const signOut = () => {
+    navigate('/')
+    onSession(null)
   }
   return (
     <div className="shell">
@@ -109,19 +133,19 @@ export function Shell({
       </a>
       <header className="shell-header">
         <p className="brand">{guildName || 'Guildhall ledger'}</p>
-        <p className="muted" aria-live="polite">
-          Signed in <span className="mono">{session.guildId}</span>
-          <span className="sep" aria-hidden="true">
-            {' '}
-            |{' '}
-          </span>
-          guildd: {status}
-        </p>
+        {status === 'down' && (
+          <p role="alert" className="error-text">
+            guildd: down
+          </p>
+        )}
+        <button type="button" onClick={signOut}>
+          Sign out
+        </button>
       </header>
-      <nav aria-label="Ledger" className="shell-nav">
+      <nav aria-label="Ledger" className="shell-nav" data-more={more} ref={nav}>
         <ul>
-          {VIEWS.map((v) => (
-            <li key={v.id}>
+          {VIEWS.map((v, index) => (
+            <li key={v.id} className={index >= PHONE_TABS ? 'nav-extra' : 'nav-tab'}>
               <a
                 href={v.path}
                 aria-current={v.id === view ? 'page' : undefined}
@@ -131,6 +155,16 @@ export function Shell({
               </a>
             </li>
           ))}
+          <li className="nav-more">
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              data-active-inside={activeIndex >= PHONE_TABS ? 'true' : undefined}
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              More
+            </button>
+          </li>
         </ul>
       </nav>
       <main id="main" tabIndex={-1} className="shell-main">

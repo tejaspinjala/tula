@@ -27,6 +27,7 @@ import { PgSuggestionStore } from './adapters/pg-suggestion-store'
 import { PgToolsetStore } from './adapters/pg-toolset-store'
 import { PgTreasuryStore } from './adapters/pg-treasury-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
+import { PgWorkflowStore } from './adapters/pg-workflow-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
 import { WebPushNotifier } from './adapters/web-push-notifier'
@@ -47,13 +48,14 @@ import { isLearningRepoAllowed } from './guild-config'
 import { LearningEngine } from './learning-engine'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
-
 import { ProposalEngine } from './proposals'
+import { retireRun } from './retire-run'
 import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
 import { Summon } from './summon'
 import { Treasury } from './treasury'
+import { WorkflowEngine } from './workflows/engine'
 
 /**
  * The single composition root: wires adapters into the app.
@@ -153,6 +155,7 @@ export async function compose(
       clock,
       tripwires,
       gates: gateStore,
+      retireRun: retireRun({ runs: gateway, sandboxes }),
     })
   const seals = overrides.seals ?? new SealEngine({ store: sealStore, config, identity })
   // No cheap model is wired yet (and no model id lives in engine code): the deterministic
@@ -185,6 +188,16 @@ export async function compose(
     postCosts: new PgPostCostReader(db),
     secrets,
     proposals,
+    workflows:
+      overrides.workflows ??
+      new WorkflowEngine({
+        store: new PgWorkflowStore(db, keys, clock),
+        config,
+        quests,
+        tripwires,
+        proposals,
+        seals: sealStore,
+      }),
     notes,
     quests,
     mcp,

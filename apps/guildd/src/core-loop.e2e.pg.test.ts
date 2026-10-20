@@ -22,6 +22,7 @@ async function pgWorld(): Promise<E2eWorld> {
     sealStore: a.sealStore,
     seals: a.seals,
     proposals: a.proposals,
+    workflows: a.workflows,
     dispatcher: a.dispatcher,
     gateway: a.gateway,
     mcp: a.mcp,

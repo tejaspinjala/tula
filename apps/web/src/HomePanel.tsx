@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Badge, type Tone } from './Badge'
-import { formatDollars, loadCostPerPost } from './costs'
+import { costPerPostText, loadCostPerPost } from './costs'
 import { barGates, describeGates, loadGates } from './gates'
 import { PasskeyRequestError, type Session } from './passkeys'
 import { BOARD_STATES, groupByState, loadQuests } from './quests'
@@ -9,20 +9,28 @@ import { describeSummon, loadSummon } from './summon'
 
 type Loaded<T> = { state: 'loading' } | { state: 'error' } | { state: 'ok'; data: T }
 
-function useLoaded<T>(session: Session, load: (session: Session) => Promise<T>): Loaded<T> {
+function useLoaded<T>(
+  session: Session,
+  load: (session: Session) => Promise<T>
+): Loaded<T> & { reload: () => void } {
   const [result, setResult] = useState<Loaded<T>>({ state: 'loading' })
+  const [round, setRound] = useState(0)
   // The loader is a module-level function at every call site, so it is a stable dependency.
+  // `round` re-runs the load (a reload keeps the old data on screen instead of flashing Loading).
   useEffect(() => {
     let live = true
-    setResult({ state: 'loading' })
+    if (round === 0) {
+      setResult({ state: 'loading' })
+    }
     load(session)
       .then((data) => live && setResult({ state: 'ok', data }))
       .catch(() => live && setResult({ state: 'error' }))
     return () => {
       live = false
     }
-  }, [session, load])
-  return result
+  }, [session, load, round])
+  const reload = useCallback(() => setRound((n) => n + 1), [])
+  return { ...result, reload }
 }
 
 function Tile({ id, title, children }: { id: string; title: string; children: ReactNode }) {
@@ -70,6 +78,7 @@ export function HomePanel({
   const summon = useLoaded(session, loadSummonStatus)
   const posts = useLoaded(session, loadCostPosts)
   const gates = useLoaded(session, loadGatesStatus)
+  const reloadGates = gates.reload
   const [barred, setBarred] = useState('')
 
   const bar = useCallback(async () => {
@@ -78,10 +87,11 @@ export function HomePanel({
       setBarred(
         `Barred: ${done.revokedRuns} run tokens revoked, ${done.killedSandboxes} sandboxes stopped.`
       )
+      reloadGates()
     } catch (e) {
       setBarred(e instanceof PasskeyRequestError ? `Refused: ${e.code}` : 'The request failed.')
     }
-  }, [session])
+  }, [session, reloadGates])
 
   const open = (path: string) => (event: { preventDefault: () => void }) => {
     event.preventDefault()
@@ -103,7 +113,11 @@ export function HomePanel({
           {seals.state === 'ok' && (
             <>
               <p className="figure">
-                <span className="count-badge" role="img" aria-label={`${waiting} waiting`}>
+                <span
+                  className={`count-badge${waiting === 0 ? ' count-badge-neutral' : ''}`}
+                  role="img"
+                  aria-label={`${waiting} waiting`}
+                >
                   {waiting}
                   {seals.data.next ? '+' : ''}
                 </span>
@@ -130,7 +144,7 @@ export function HomePanel({
               Bar the Gates
             </button>
             <a href="/gates" className="btn" onClick={open('/gates')}>
-              Open the Gates
+              Gates settings
             </a>
           </div>
           {barred && <p role="status">{barred}</p>}
@@ -157,10 +171,10 @@ export function HomePanel({
           {posts.state === 'error' && <Failed what="The cost per accepted post" />}
           {posts.state === 'ok' && (
             <>
-              <p className="figure">
-                {posts.data.overall.posts === 0
-                  ? 'None yet'
-                  : formatDollars(posts.data.overall.costPerPostMicros)}
+              <p
+                className={`figure${posts.data.overall.costMicros === 0 && posts.data.overall.posts > 0 ? ' figure-small' : ''}`}
+              >
+                {posts.data.overall.posts === 0 ? 'None yet' : costPerPostText(posts.data.overall)}
               </p>
               <p className="muted">
                 {posts.data.overall.posts === 0

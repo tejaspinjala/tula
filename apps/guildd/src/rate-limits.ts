@@ -27,6 +27,9 @@ export type RateRoute =
   | 'push-subscribe'
   | 'learning-scan'
   | 'events-history'
+  | 'workflow-read'
+  | 'workflow-write'
+  | 'workflow-run'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -102,6 +105,10 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'learning-scan': writeLimits(3, 6),
   // History reads page through the whole chain and fold it, so they are bounded per client and guild.
   'events-history': writeLimits(60, 240),
+  // Workflow reads page stored graphs; saves validate a graph; a run posts Quests: tightest.
+  'workflow-read': writeLimits(60, 240),
+  'workflow-write': writeLimits(20, 60),
+  'workflow-run': writeLimits(10, 30),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
@@ -228,4 +235,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'push-subscribe': 'session',
   'learning-scan': 'session',
   'events-history': 'session',
+  'workflow-read': 'session',
+  'workflow-write': 'session',
+  'workflow-run': 'session',
 }
