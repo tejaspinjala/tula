@@ -43,7 +43,10 @@ export interface ResearchDeps {
   fetcher: PageFetcher
   store: ResearchStore
   /** The Treasury the per-call charge goes through (a deterministic spend, never a model decision). */
-  treasury: Pick<Treasury, 'requestSpend' | 'settleSpend' | 'releaseSpend' | 'denySpend'>
+  treasury: Pick<
+    Treasury,
+    'requestSpend' | 'settleSpend' | 'releaseSpend' | 'releaseSpendByKey' | 'denySpend'
+  >
   config: ConfigStore
   clock: Clock
   /** Paper cents charged for one call; 0 charges nothing. */
@@ -62,6 +65,8 @@ export interface ResearchDeps {
 
 /** The actor a sweep's releases are recorded under. */
 const SWEEP_ACTOR = 'research-sweep'
+/** Most stale slots one sweep takes per guild; the next pass takes the rest. */
+const SWEEP_BATCH = 100
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
@@ -137,7 +142,13 @@ export class Research {
     try {
       const results = await this.query(query)
       if (spendId !== null) {
-        await treasury.settleSpend(guildId, spendId, costCents, member)
+        const charged = await treasury.settleSpend(guildId, spendId, costCents, member)
+        if (!charged.ok) {
+          // The sweep gave the reservation back while this call was still running: nothing was
+          // charged, so the results are not handed out as paid for.
+          await store.settle(guildId, slot.call.id)
+          return { ok: false, error: 'research_timeout' }
+        }
       }
       await store.settle(guildId, slot.call.id)
       return { ok: true, results, chargedCents: spendId === null ? 0 : costCents }
@@ -157,15 +168,27 @@ export class Research {
 
   /**
    * Frees the slots, and releases the Treasury spends, that a crash between reserve and settle
-   * left behind: a call still unsettled after the outbound deadline cannot be in flight. Runs
-   * under the guild's sweep lock and is idempotent (a freed slot is never visited twice and a
-   * released spend stays released). Returns how many slots it freed.
+   * left behind: a call still unsettled after the outbound deadline cannot be in flight. The spend
+   * is found by its Treasury key, so a crash before the spend was recorded anywhere is covered.
+   * Idempotent (a closed slot is never listed again and a released spend stays released); a store
+   * pass already running elsewhere makes this one a no-op. Returns how many slots it freed.
    */
   async sweep(guildId: string): Promise<number> {
-    void this.deadlineMs()
-    void SWEEP_ACTOR
-    void guildId
-    return 0
+    const { store, treasury, clock } = this.deps
+    const before = new Date(clock.now().getTime() - this.deadlineMs())
+    let freed = 0
+    // Treasury is called outside any store transaction, one stale slot at a time.
+    for (const callId of await store.stale(guildId, before, SWEEP_BATCH)) {
+      const gave = await treasury.releaseSpendByKey(guildId, `research:${callId}`, SWEEP_ACTOR)
+      if (gave.ok || gave.reason === 'not_found') {
+        await store.close(guildId, callId, 'freed')
+        freed += 1
+      } else if (gave.reason === 'wrong_state') {
+        // The charge was settled after all (the crash came after it): the slot stays counted.
+        await store.close(guildId, callId, 'settled')
+      }
+    }
+    return freed
   }
 
   /** The longest a call can run: a search, then fetches, each with retries, timeouts and backoff. */

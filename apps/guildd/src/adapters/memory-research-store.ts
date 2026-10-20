@@ -58,9 +58,24 @@ export class MemoryResearchStore implements ResearchStore {
     }
   }
 
-  async stale(_guildId: string, _before: Date, _limit: number): Promise<string[]> {
-    return []
+  async stale(guildId: string, before: Date, limit: number): Promise<string[]> {
+    return [...this.slots(guildId).values()]
+      .filter((s) => !s.settled && s.madeAt < before)
+      .sort((a, b) => a.madeAt.getTime() - b.madeAt.getTime() || (a.call.id < b.call.id ? -1 : 1))
+      .slice(0, limit)
+      .map((s) => s.call.id)
   }
 
-  async close(_guildId: string, _callId: string, _outcome: 'freed' | 'settled'): Promise<void> {}
+  async close(guildId: string, callId: string, outcome: 'freed' | 'settled'): Promise<void> {
+    const all = this.slots(guildId)
+    const slot = all.get(callId)
+    if (!slot) {
+      return
+    }
+    if (outcome === 'freed') {
+      all.delete(callId)
+    } else {
+      slot.settled = true
+    }
+  }
 }
