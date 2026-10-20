@@ -1,5 +1,7 @@
 import { afterAll } from 'bun:test'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
+import { PgModelLedger } from './adapters/pg-model-ledger'
 import { gatewayGuardsContract } from './gateway-guards.contract'
 import { defaultConfig, guildConfig } from './guild-config'
 import { createHarness } from './testing/harness'
@@ -18,6 +20,7 @@ gatewayGuardsContract('postgres', async () => {
     tripwires: adapters.tripwires,
     quests: adapters.quests,
     config: adapters.config,
+    ledger: new PgModelLedger(adapters.db, new MemoryKeyProvider()),
     provider,
     clock: adapters.clock,
     newGuild: async () => {

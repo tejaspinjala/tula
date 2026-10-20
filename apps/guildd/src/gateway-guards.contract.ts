@@ -5,6 +5,7 @@ import type { MemoryModelProvider } from './adapters/memory-model-provider'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway } from './model-gateway'
 import type { ConfigStore } from './ports/config-store'
+import type { ModelLedger } from './ports/model-ledger'
 import type { Quest, QuestQueue } from './ports/quest-queue'
 import type { TripwireStore } from './ports/tripwire-store'
 import { callTool } from './testing/scripted-member'
@@ -17,6 +18,7 @@ export interface GatewayGuardsFixture {
   tripwires: TripwireStore
   quests: QuestQueue
   config: ConfigStore
+  ledger: ModelLedger
   provider: MemoryModelProvider
   clock: MemoryClock
   /** A fresh guild with an api_key provider, a priced profile `cloud-mid` and a vault key. */
@@ -147,6 +149,71 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
       expect(second).toEqual({ status: 'refused', reason: 'hall_paused' })
       const quest = await post(f, a)
       expect((await claim(f, a, quest)).isError).toBe(false)
+    })
+
+    describe('Quest attempt binding', () => {
+      const LEASE_MS = 10 * 60 * 1000
+      const attemptRun = (
+        f: GatewayGuardsFixture,
+        g: string,
+        quest: { id: string },
+        attempt: number
+      ): Promise<unknown> =>
+        f.gateway.openRun(g, {
+          runId: 'unused',
+          ...{ questId: quest.id, attempt, hallId: 'heralds', profileId: 'cloud-mid' },
+        })
+
+      test("a lapsed lease's token is refused once the Quest is re-claimed, before the provider", async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        const quest = await post(f, g)
+        expect((await claim(f, g, quest)).isError).toBe(false)
+        const first = z
+          .object({ status: z.literal('started'), token: z.string() })
+          .parse(await attemptRun(f, g, quest, 1))
+        f.clock.advance(LEASE_MS + 1_000)
+        const second = await claim(f, g, quest)
+        expect(lease.parse(second.data.lease).attempt).toBe(2)
+        const before = f.provider.seen.length
+        expect(await codeOf(f.gateway.complete(first.token, message))).toBe('token_revoked')
+        expect(f.provider.seen.length).toBe(before)
+      })
+
+      test('the token of the current attempt keeps working; a lapsed lease alone also stops it', async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        f.provider.script(OK)
+        const quest = await post(f, g)
+        await claim(f, g, quest)
+        const run = z.object({ token: z.string() }).parse(await attemptRun(f, g, quest, 1))
+        expect(await codeOf(f.gateway.complete(run.token, message))).toBe('no error')
+        f.clock.advance(LEASE_MS + 1_000)
+        expect(await codeOf(f.gateway.complete(run.token, message))).toBe('token_revoked')
+      })
+
+      test("a run for another guild's Quest, a stale attempt or a lapsed lease is refused with no run row", async () => {
+        const f = await make()
+        const a = await f.newGuild()
+        const b = await f.newGuild()
+        const quest = await post(f, a)
+        await claim(f, a, quest)
+        expect(await attemptRun(f, b, quest, 1)).toEqual({
+          status: 'refused',
+          reason: 'quest_not_found',
+        })
+        expect(await f.ledger.getRun(b, `${quest.id}:1`)).toBeNull()
+        expect(await attemptRun(f, a, quest, 2)).toEqual({
+          status: 'refused',
+          reason: 'quest_not_found',
+        })
+        f.clock.advance(LEASE_MS + 1_000)
+        expect(await attemptRun(f, a, quest, 1)).toEqual({
+          status: 'refused',
+          reason: 'quest_not_found',
+        })
+        expect(await f.ledger.getRun(a, `${quest.id}:1`)).toBeNull()
+      })
     })
   })
 }

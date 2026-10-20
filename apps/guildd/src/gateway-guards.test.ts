@@ -25,8 +25,9 @@ gatewayGuardsContract('memory', async () => {
   const quests = new MemoryQuestQueue(clock, () => 0.5)
   const tripwires = new MemoryTripwireStore(clock)
   const provider = new MemoryModelProvider()
+  const ledger = new MemoryModelLedger()
   const gatewayDeps = {
-    ledger: new MemoryModelLedger(),
+    ledger,
     secrets,
     config,
     provider,
@@ -53,6 +54,7 @@ gatewayGuardsContract('memory', async () => {
     tripwires,
     quests,
     config,
+    ledger,
     provider,
     clock,
     newGuild: async () => {
