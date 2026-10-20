@@ -10,11 +10,12 @@ export const ART_DIR = new URL('../apps/web/src/assets/pixel', import.meta.url).
 
 const TOKENS = new URL('../apps/web/src/styles/tokens.css', import.meta.url).pathname
 
-type Rgba = readonly [number, number, number, number]
+/** An RGBA colour. */
+export type Rgba = readonly [number, number, number, number]
 const CLEAR: Rgba = [0, 0, 0, 0]
 
 /** The day palette read from `tokens.css` (the first definition of each `--px-*` colour). */
-async function palette(): Promise<Record<string, Rgba>> {
+export async function palette(): Promise<Record<string, Rgba>> {
   const css = await Bun.file(TOKENS).text()
   const out: Record<string, Rgba> = {}
   for (const m of css.matchAll(/(--px-[a-z0-9-]+):\s*#([0-9a-fA-F]{6})\s*;/g)) {
@@ -56,7 +57,7 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
 }
 
 /** Encodes RGBA pixels (row-major) as a PNG. */
-function encodePng(width: number, height: number, pixels: readonly Rgba[]): Uint8Array {
+export function encodePng(width: number, height: number, pixels: readonly Rgba[]): Uint8Array {
   const raw = new Uint8Array(height * (1 + width * 4))
   for (let y = 0; y < height; y++) {
     const row = y * (1 + width * 4)

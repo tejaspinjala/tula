@@ -1,0 +1,11 @@
+{
+  "name": "@guildhall/desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "icons": "bun ../../scripts/gen-desktop-icon.ts && cd src-tauri && cargo tauri icon app-icon.png",
+    "dev": "cd src-tauri && cargo tauri dev",
+    "build": "bun run icons && cd src-tauri && cargo tauri build",
+    "typecheck": "echo 'apps/desktop is Rust (Tauri 2); no TypeScript to check'"
+  }
+}

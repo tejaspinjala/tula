@@ -13,6 +13,9 @@
         "zod": "^4.6.7",
       },
     },
+    "apps/desktop": {
+      "name": "@guildhall/desktop",
+    },
     "apps/guildd": {
       "name": "@guildhall/guildd",
       "dependencies": {
@@ -76,6 +79,8 @@
     "@fontsource/silkscreen": ["@fontsource/silkscreen@5.3.0", "", {}, "sha512-M1NQ3LQH0LFNvyFPd/piHEGMImPPtpLglNnLC6Vdcq9kL0jNIOtTQmksAWCc4enbDnw1OnIpZtjNEfRqYm/QmA=="],
 
     "@fontsource/vt323": ["@fontsource/vt323@5.3.0", "", {}, "sha512-3w33Rg/0+R1587HQfz4t7Q7e0GGeCqr3wmzIwqdGInUnrGEwMA5eX39GP4Z9wpTQnwfhVOhYuxuRwRUeIcicbw=="],
+
+    "@guildhall/desktop": ["@guildhall/desktop@workspace:apps/desktop"],
 
     "@guildhall/guildd": ["@guildhall/guildd@workspace:apps/guildd"],
 
