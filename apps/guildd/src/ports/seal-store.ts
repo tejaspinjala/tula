@@ -54,6 +54,8 @@ export interface Seal extends NewSeal {
   expiresAt: string
   decidedAt: string | null
   decisionNote: string | null
+  /** Member id of the principal who approved or denied; null until decided. */
+  decidedBy: string | null
   reservedUntil: string | null
   consumedAt: string | null
 }

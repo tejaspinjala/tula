@@ -80,6 +80,7 @@ export class MemorySealStore implements SealStore {
       expiresAt: new Date(now.getTime() + SEAL_TTL_MS).toISOString(),
       decidedAt: null,
       decisionNote: null,
+      decidedBy: null,
       reservedUntil: null,
       consumedAt: null,
     }

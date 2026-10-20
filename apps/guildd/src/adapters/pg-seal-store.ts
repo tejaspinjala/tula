@@ -69,6 +69,7 @@ function toSeal(r: Row, now: Date): Seal {
     expiresAt: r.expires_at,
     decidedAt: r.decided_at,
     decisionNote: r.decision_note,
+    decidedBy: null,
     reservedUntil: r.reserved_until,
     consumedAt: r.consumed_at,
   }
