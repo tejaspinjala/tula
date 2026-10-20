@@ -53,7 +53,7 @@ export interface Script {
   output: (brief: string) => string
   goal: string
   openItems?: string[]
-  /** Runs once the artifact is filed and before the Quest is completed (e.g. to file a Proposal). */
+  /** Runs once the artifact is filed and before the Quest is completed. */
   afterArtifact?: (artifactHash: string) => Promise<void>
 }
 
@@ -89,7 +89,7 @@ export class ScriptedMember {
       throw new Error(`claim refused: ${claim.rpcError ?? JSON.stringify(claim.data)}`)
     }
     const { lease, brief } = claimedData.parse(claim.data)
-    return this.work(lease, brief)
+    return this.work(lease, brief, false)
   }
 
   /**
@@ -106,20 +106,33 @@ export class ScriptedMember {
     if (read.status !== 200 || read.isError || read.rpcError) {
       throw new Error(`read_brief refused: ${read.rpcError ?? JSON.stringify(read.data)}`)
     }
-    return this.work(lease, z.string().parse(read.data.brief))
+    return this.work(lease, z.string().parse(read.data.brief), read.data.requiresSeal === true)
   }
 
   private async work(
     lease: { questId: string; attempt: number; token: string },
-    brief: string
+    brief: string,
+    requiresSeal: boolean
   ): Promise<ScriptedRun> {
     const doneCondition = /^Done when: (.+)$/m.exec(brief)?.[1]
     if (!doneCondition) {
       throw new Error('the Brief names no done-condition')
     }
-    const content = Buffer.from(this.script.output(brief), 'utf8').toString('base64')
+    const output = this.script.output(brief)
+    const content = Buffer.from(output, 'utf8').toString('base64')
     const put = await callTool(this.transport, 'put_artifact', { lease, contentBase64: content })
     const artifactHash = z.string().parse(put.data.hash)
+    if (requiresSeal) {
+      // Like the real worker: the final draft is filed as a Proposal before the Quest is completed.
+      const filed = await callTool(this.transport, 'submit_proposal', {
+        lease,
+        text: output,
+        evidenceLinks: [],
+      })
+      if (filed.status !== 200 || filed.isError || filed.rpcError) {
+        throw new Error(`submit_proposal refused: ${filed.rpcError ?? JSON.stringify(filed.data)}`)
+      }
+    }
     await this.script.afterArtifact?.(artifactHash)
     const handoff: Handoff = {
       goal: this.script.goal,

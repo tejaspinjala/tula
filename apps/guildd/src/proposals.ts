@@ -44,6 +44,11 @@ export class ProposalEngine {
     return this.store.get(guildId, id)
   }
 
+  /** Up to `limit` Proposals of a Quest, newest first. */
+  listForQuest(guildId: string, questId: string, limit: number): Promise<Proposal[]> {
+    return this.store.listForQuest(guildId, questId, limit)
+  }
+
   /** The most recent Proposal of a Quest, or null. */
   latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
     return this.store.latestForQuest(guildId, questId)

@@ -75,6 +75,19 @@ export function proposalStoreContract(name: string, make: () => Promise<Proposal
       expect(await store.latestForQuest(other, input.questId)).toBeNull()
     })
 
+    test('listForQuest returns the Proposals of a Quest newest first, capped by the limit', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const questId = crypto.randomUUID()
+      const base = { questId, author: 'herald-1', kind: 'post' }
+      expect(await store.listForQuest(g, questId, 5)).toEqual([])
+      const a = await store.propose(g, { ...base, content: 'A' }, { passed: true, findings: PASS })
+      const b = await store.propose(g, { ...base, content: 'B' }, { passed: true, findings: PASS })
+      await store.propose(g, draft('other quest'), { passed: true, findings: PASS })
+      expect((await store.listForQuest(g, questId, 5)).map((p) => p.id)).toEqual([b.id, a.id])
+      expect(await store.listForQuest(g, questId, 1)).toHaveLength(1)
+    })
+
     test('the latest Proposal of a Quest is the last one proposed, even at the same clock instant', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
