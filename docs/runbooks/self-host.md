@@ -43,6 +43,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `CHECKPOINT_DIR` | `.guildhall/checkpoints` | required | Signed audit-chain checkpoints; use storage the database host cannot rewrite. |
 | `DISPATCH_INTERVAL_MS` | unset | optional | Milliseconds between dispatch passes; unset turns the in-process loop off. |
 | `TRUST_PROXY` | `false` | set to `true` behind exactly one proxy | Key rate limits on the last `X-Forwarded-For` hop. |
+| `FOUNDING_MODE` | `open` | `once` when guildd is reachable from the internet | Who may found a guild: `open` (anyone), `once` (403 `founding_closed` once any guild exists), `closed` (always 403). `start:selfhost` defaults it to `once`. |
 | `DEV_GUILD_HEADER` | `false` | must be `false` | Trust `x-guild-id` as the caller (development only). |
 | `VAPID_PUBLIC_KEY` | unset | required | Web push public key (base64url, 65 bytes). |
 | `VAPID_PRIVATE_KEY` | unset | required | Web push private key (base64url, 32 bytes). Secret. |

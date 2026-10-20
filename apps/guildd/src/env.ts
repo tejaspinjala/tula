@@ -123,10 +123,12 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  FOUNDING_MODE: z
-    .enum(['open', 'once', 'closed'])
-    .default('open')
-    .transform((): 'open' | 'once' | 'closed' => 'open'),
+  /**
+   * Who may found a guild through the unauthenticated `POST /guilds`: `open` (anyone, the default),
+   * `once` (refused with 403 `founding_closed` as soon as any guild exists) or `closed` (always
+   * refused). A self-hosted Guildhall behind a tunnel runs `once`.
+   */
+  FOUNDING_MODE: z.enum(['open', 'once', 'closed']).default('open'),
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   /**
