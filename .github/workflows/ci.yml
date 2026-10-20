@@ -18,6 +18,21 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Contract tests run against real Postgres (same image tag as docker-compose.yml).
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: guildhall
+          POSTGRES_PASSWORD: guildhall
+          POSTGRES_DB: guildhall
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guildhall -d guildhall"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://guildhall:guildhall@localhost:5432/guildhall
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

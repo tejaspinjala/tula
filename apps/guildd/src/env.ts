@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 const schema = z.object({
+  /** Owner connection: used only by migrations and test setup. */
   DATABASE_URL: z.url().default('postgres://guildhall:guildhall@localhost:5432/guildhall'),
+  /** Non-owner `guildhall_app` connection: the only one the running app uses. */
+  APP_DATABASE_URL: z
+    .url()
+    .default('postgres://guildhall_app:guildhall_app@localhost:5432/guildhall'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
