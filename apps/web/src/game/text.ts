@@ -42,7 +42,7 @@ export function sceneSummary(scene: SceneState): string {
     })
     const working = members.filter((m) => m.status === 'working')
     const titles = (m: (typeof members)[number]) => {
-      const quest = m.bubble?.text
+      const quest = m.questTitle ?? m.bubble?.text
       return quest ? ` on ${quest}` : ''
     }
     if (members.length === 0) {
@@ -82,7 +82,7 @@ export function sceneSummary(scene: SceneState): string {
     .flatMap((m) => (m.saying ? [{ name: m.name, saying: m.saying }] : []))
     .sort((a, b) => b.saying.seq - a.saying.seq)[0]
   if (newest) {
-    parts.push(`${newest.name} says: ${newest.saying.text}.`)
+    parts.push(`${newest.name} says "${newest.saying.text}".`)
   }
   parts.push(
     scene.scrolls.length === 0

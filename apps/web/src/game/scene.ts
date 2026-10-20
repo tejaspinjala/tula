@@ -28,6 +28,8 @@ export interface SceneMember {
   rank: string
   status: 'idle' | 'working'
   questId: string | null
+  /** The title of the Quest in hand (the live region names it even while a Missive is spoken). */
+  questTitle?: string | undefined
   bubble: SceneBubble | null
   /** The seq of the claim that put this Member to work (a new seq walks them to the Quest Board). */
   claimSeq: number | null
@@ -219,6 +221,7 @@ export function deriveScene(input: SceneInput): SceneState {
       const at = claimSeq.get(quest.id)
       member.bubble = at === undefined ? null : { text: quest.title, seq: at }
       member.claimSeq = at ?? null
+      member.questTitle = quest.title
     }
   }
   for (const [memberId, saying] of sayings) {
