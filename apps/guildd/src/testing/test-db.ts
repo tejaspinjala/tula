@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import postgres, { type Sql } from 'postgres'
 import { migrate, provisionAppRole } from '../db/migrate'
 
@@ -19,16 +20,40 @@ function baseUrl(): URL {
   return new URL(process.env.DATABASE_URL ?? DEFAULT_URL)
 }
 
-/** Name of the one central test database: the `DATABASE_URL` database name plus `_test`. */
-export function testDbName(): string {
-  const name = baseUrl().pathname.slice(1) || 'guildhall'
-  return name.endsWith('_test') ? name : `${name}_test`
+/** Repository root: the identity a worktree's test database is derived from. */
+const REPO_ROOT = resolve(import.meta.dir, '../../../..')
+
+/**
+ * Test database name for a base `DATABASE_URL` and repo root: the base name plus `_test`, plus
+ * `_<8 hex of sha256(root)>` so each worktree migrates its own database. Under `CI=true` or
+ * `TEST_DB_ISOLATE=false` the shared `<base>_test` database is used unchanged.
+ */
+export function isolatedDbName(
+  databaseUrl: string,
+  root: string,
+  env: Record<string, string | undefined>
+): string {
+  const base = new URL(databaseUrl).pathname.slice(1) || 'guildhall'
+  const shared = base.endsWith('_test') ? base : `${base}_test`
+  if (env.CI === 'true' || env.TEST_DB_ISOLATE === 'false') {
+    return shared
+  }
+  const hash = new Bun.CryptoHasher('sha256').update(root).digest('hex').slice(0, 8)
+  return `${shared}_${hash}`
 }
 
-/** Connection URL of the central test database, as the owner or (with `app`) the app role. */
-export function testDbUrl(role: 'owner' | 'app' = 'owner'): string {
+/** Name of this worktree's test database (see `isolatedDbName`). */
+export function testDbName(): string {
+  return isolatedDbName(baseUrl().toString(), REPO_ROOT, process.env)
+}
+
+/**
+ * Connection URL of a test database (default: this worktree's), as the owner or (with `app`) the
+ * app role.
+ */
+export function testDbUrl(role: 'owner' | 'app' = 'owner', name: string = testDbName()): string {
   const url = baseUrl()
-  url.pathname = `/${testDbName()}`
+  url.pathname = `/${name}`
   if (role === 'app') {
     url.username = 'guildhall_app'
     url.password = TEST_APP_PASSWORD
@@ -37,22 +62,21 @@ export function testDbUrl(role: 'owner' | 'app' = 'owner'): string {
 }
 
 /**
- * Creates the central test database if missing and migrates it, once per test run (the Bun test
+ * Creates the given (default: this worktree's) test database if missing and migrates it, once per test run (the Bun test
  * preload calls this). A session advisory lock on the server's maintenance database makes
  * parallel runs wait for each other instead of racing on `create database`. This is the only
  * place that ever issues `create database`.
  */
-export async function ensureTestDatabase(): Promise<void> {
+export async function ensureTestDatabase(name: string = testDbName()): Promise<void> {
   const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
   try {
     await admin`select pg_advisory_lock(${SETUP_LOCK})`
     try {
-      const name = testDbName()
       const found = await admin`select 1 from pg_database where datname = ${name}`
       if (found.length === 0) {
         await admin.unsafe(`create database "${name}"`)
       }
-      const owner = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
+      const owner = postgres(testDbUrl('owner', name), { max: 1, onnotice: () => {} })
       try {
         await migrate(owner)
         await provisionAppRole(owner, TEST_APP_PASSWORD)
