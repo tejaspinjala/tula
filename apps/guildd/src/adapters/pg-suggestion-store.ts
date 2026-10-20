@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Db } from '../db/client'
+import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
@@ -116,7 +117,15 @@ export class PgSuggestionStore implements SuggestionStore {
         where guild_id = ${guildId} and suggestion_id = ${id}::uuid and status = 'pending'
         returning ${tx.unsafe(COLUMNS)}`
       if (updated) {
-        return { ok: true, suggestion: toSuggestion(updated) }
+        const suggestion = toSuggestion(updated)
+        // Ids only: never the title, body, URL or any token.
+        await appendEvent(
+          tx,
+          this.keys,
+          status === 'accepted' ? 'learning.accepted' : 'learning.dismissed',
+          { suggestionId: suggestion.id, sourceId: suggestion.sourceId }
+        )
+        return { ok: true, suggestion }
       }
       const [existing] = await tx`
         select suggestion_id from learning_suggestions
