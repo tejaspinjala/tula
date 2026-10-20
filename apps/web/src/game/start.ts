@@ -1,7 +1,10 @@
 import Phaser from 'phaser'
+import { z } from 'zod'
+import { type Phase, phaseAt } from './daylight'
 import { type HallOptions, HallScene } from './HallScene'
 import type { LookChoice } from './look'
 import type { SceneState } from './scene'
+import type { PlaceName } from './world'
 
 /** What the page holds of a running game: draw a state, zoom, pause, tear down. */
 export interface GameHandle {
@@ -10,12 +13,19 @@ export interface GameHandle {
   fit: () => void
   /** Moves the Guild Master to a room (its slot), or to the entrance (null). */
   teleport: (slot: number | null) => void
+  /** Walks the Guild Master to a named place of the town (any map). */
+  goTo: (place: PlaceName) => void
+  /** Lights the world for a time of day (null follows the clock). */
+  setPhase: (phase: Phase | null) => void
   /** Dresses the Guild Master's character in a look, live. */
   setLook: (look: LookChoice) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
   setPaused: (paused: boolean) => void
   destroy: () => void
 }
+
+/** The phase for the clock right now. */
+const phaseNow = () => phaseAt(new Date().getHours())
 
 /**
  * Boots Phaser 4 into `parent`. This module is the only static importer of Phaser, so the page
@@ -24,11 +34,19 @@ export interface GameHandle {
  */
 export function startGame(parent: HTMLElement, options: HallOptions): GameHandle {
   const scene = new HallScene(options)
+  // `?time=dusk` (or day, night) lights the world for that time of day instead of the clock.
+  const forced = z
+    .enum(['day', 'dusk', 'night'])
+    .safeParse(new URLSearchParams(window.location.search).get('time'))
+  if (forced.success) {
+    scene.setPhase(forced.data)
+  }
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
     pixelArt: true,
-    backgroundColor: '#1b1b26',
+    render: { roundPixels: true },
+    transparent: true,
     banner: false,
     audio: { noAudio: true },
     disableContextMenu: true,
@@ -46,6 +64,8 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     zoomBy: (step) => scene.zoomBy(step),
     fit: () => scene.fit(),
     teleport: (slot) => scene.teleport(slot),
+    goTo: (place) => scene.goTo(place),
+    setPhase: (phase) => (phase ? scene.setPhase(phase) : scene.setPhase(phaseNow(), false)),
     setLook: (look) => scene.setPlayerLook(look),
     setPaused: (paused) => {
       if (paused) {
