@@ -287,6 +287,8 @@ export interface QuestQueue {
   spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult>
   /** The sub-Quests of a Quest, in spawn order (at most the guild's `maxChildrenPerQuest`). */
   children(guildId: string, parentId: string): Promise<QuestLink[]>
+  /** The links of those of `childIds` (at most a page of Quests) that are Sub-Quests, for the Quest Board. */
+  linksFor(guildId: string, childIds: readonly string[]): Promise<QuestLink[]>
   /** The link of a sub-Quest to its parent, or null for a Quest nobody spawned. */
   linkOf(guildId: string, childId: string): Promise<QuestLink | null>
   /** The Quest posted under `jobKey`, or null; never creates one. */

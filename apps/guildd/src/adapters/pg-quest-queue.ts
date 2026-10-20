@@ -452,6 +452,10 @@ export class PgQuestQueue implements QuestQueue {
     return rows.map(toLink)
   }
 
+  async linksFor(_guildId: string, _childIds: readonly string[]): Promise<QuestLink[]> {
+    return []
+  }
+
   async linkOf(guildId: string, childId: string): Promise<QuestLink | null> {
     if (!z.uuid().safeParse(childId).success) {
       return null

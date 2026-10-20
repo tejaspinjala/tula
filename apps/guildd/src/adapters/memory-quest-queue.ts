@@ -317,6 +317,10 @@ export class MemoryQuestQueue implements QuestQueue {
       .sort((a, b) => (g.byId.get(a.childId)?.seq ?? 0) - (g.byId.get(b.childId)?.seq ?? 0))
   }
 
+  async linksFor(_guildId: string, _childIds: readonly string[]): Promise<QuestLink[]> {
+    return []
+  }
+
   async linkOf(guildId: string, childId: string): Promise<QuestLink | null> {
     return this.guild(guildId).links.get(childId) ?? null
   }

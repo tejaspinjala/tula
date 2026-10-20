@@ -767,6 +767,19 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         })
       })
 
+      test('linksFor returns the links of the given Quests only, and none from another guild', async () => {
+        const { queue, newGuild, g, parent, spawn } = await setup()
+        const a = spawned(await spawn(1))
+        const b = spawned(await spawn(2))
+        expect(await queue.linksFor(g, [a.quest.id, parent.id])).toEqual([a.link])
+        expect(await queue.linksFor(g, [])).toEqual([])
+        expect(await queue.linksFor(g, [a.quest.id, b.quest.id, 'not-a-uuid'])).toEqual([
+          a.link,
+          b.link,
+        ])
+        expect(await queue.linksFor(await newGuild(), [a.quest.id])).toEqual([])
+      })
+
       test('sub-Quests are invisible to another guild', async () => {
         const { queue, newGuild, g, parent, spawn } = await setup()
         const made = spawned(await spawn(1))
