@@ -19,6 +19,7 @@ import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
+import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 /** How many views get their own tab on a phone; the rest sit behind More. */
 const PHONE_TABS = 4
@@ -68,6 +69,8 @@ function ViewBody({
       )
     case 'guild':
       return <BuilderPanel session={session} />
+    case 'workflows':
+      return <WorkflowPanel session={session} />
     case 'gates':
       return (
         <>

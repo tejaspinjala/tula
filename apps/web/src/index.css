@@ -769,6 +769,20 @@ thead th {
   border-color: var(--border);
 }
 
+.workflow-canvas {
+  height: 28rem;
+}
+
+.flow-step {
+  width: 11rem;
+  min-height: 4.5rem;
+  height: auto;
+}
+
+.flow-step .flow-badges {
+  align-items: center;
+}
+
 /* A disclosure: a bordered summary with a turning chevron. */
 .disclosure {
   margin-top: var(--space-3);
