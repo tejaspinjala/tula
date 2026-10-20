@@ -159,6 +159,7 @@ export async function compose(
   const routingLog = overrides.routingLog ?? new PgRoutingLog(db)
   const adapters: AppDeps = {
     ...overrides,
+    subscriptionEnabled: subscriptionProvider !== undefined,
     pushStore,
     pushNotifier,
     pushRelay:
@@ -222,8 +223,8 @@ export async function compose(
         tripwires,
         clock,
         random: Math.random,
-        // Hosted (v2) deployments are not built yet: self-hosted accepts every configured provider.
-        hosted: false,
+        // Routing skips `subscription` providers unless the host enabled them; hosted (v2) never does.
+        hosted: subscriptionProvider === undefined,
         gates: gateStore,
         gateway,
         mcp,

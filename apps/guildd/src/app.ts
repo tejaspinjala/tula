@@ -1271,6 +1271,12 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_config' }, 400)
     }
+    if (
+      !deps.subscriptionEnabled &&
+      body.data.config.providers.some((p) => p.auth === 'subscription')
+    ) {
+      return c.json({ error: 'subscription_disabled' }, 409)
+    }
     try {
       const result = await deps.config.propose(who.guild, body.data.config)
       return c.json(result, result.status === 'pending' ? 202 : 200)
