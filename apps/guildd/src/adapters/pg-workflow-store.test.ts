@@ -56,6 +56,7 @@ test('the database freezes versions except the pending to active move, and refus
   const guild = await newGuild()
   const store = make()
   await store.saveVersion(guild, 'wf', input('pending'))
+  await store.createInstance(guild, { workflowId: 'wf', version: 1, runKey: 'k' })
   expect(
     await refused(`update workflow_versions set graph = '{}'::jsonb where guild_id = '${guild}'`)
   ).toContain('immutable')
