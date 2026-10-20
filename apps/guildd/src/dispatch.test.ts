@@ -7,6 +7,7 @@ import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
 import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
+import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import type { NewQuest } from './ports/quest-queue'
@@ -136,6 +137,7 @@ describe('dispatch', () => {
     const deps = {
       ...s.deps,
       sealStore: new MemorySealStore(s.clock),
+      tripwires: new MemoryTripwireStore(s.clock),
       proposals: { latestForQuest: async () => null, verdictFor: async () => null },
       seals: { requestSeal: unused },
       gates: { isBarred: async () => barred },

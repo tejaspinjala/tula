@@ -1,5 +1,6 @@
 import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
 import { questConcurrency } from './guild-config'
+import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
 import { GatewayError, type ModelGateway } from './model-gateway'
@@ -199,7 +200,8 @@ async function openRun(
 /** Collaborators of {@link dispatch}. */
 export type DispatchDeps = RoutingDeps &
   StartRunDeps &
-  PendingSealDeps & {
+  PendingSealDeps &
+  HallWatchDeps & {
     quests: QuestQueue
     config: Pick<ConfigStore, 'current'>
   }
@@ -231,6 +233,8 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   }
   await reconcileSeals({ quests: deps.quests, seals: deps.sealStore }, guildId)
   await requestPendingSeals(deps, guildId)
+  // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
+  await watchHalls(deps, guildId)
   const { config } = await deps.config.current(guildId)
   const claimed = await deps.quests.claim(guildId, {
     leaseMs: DISPATCH_LEASE_MS,

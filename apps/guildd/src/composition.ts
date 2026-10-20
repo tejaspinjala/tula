@@ -201,6 +201,7 @@ export async function compose(
         seals,
         routing: { classifier, log: routingLog, keys },
         ledger: modelLedger,
+        tripwires,
         clock,
         random: Math.random,
         // Hosted (v2) deployments are not built yet: self-hosted accepts every configured provider.
