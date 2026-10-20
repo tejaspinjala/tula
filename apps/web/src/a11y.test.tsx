@@ -3,7 +3,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import axe from 'axe-core'
 import type { ReactElement } from 'react'
 import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
 import { App } from './App'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
@@ -46,8 +46,11 @@ const history = {
   next: null,
 }
 
+// react-dom reads the DOM's capabilities when it loads, so the DOM is registered first.
+GlobalRegistrator.register()
+const { createRoot } = await import('react-dom/client')
+
 beforeAll(() => {
-  GlobalRegistrator.register()
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request) => {

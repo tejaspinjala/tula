@@ -8,6 +8,7 @@ import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
@@ -41,6 +42,7 @@ export function App() {
           <a href="#quests-heading">Quest Board</a>
           <a href="#treasury-heading">Treasury</a>
           <a href="#costs-heading">Costs</a>
+          <a href="#timeline-heading">Timeline</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -56,6 +58,7 @@ export function App() {
         <TreasuryPanel session={session} />
         <QuestBoardPanel session={session} />
         <CostTablePanel session={session} />
+        <TimelinePanel session={session} />
       </main>
     </>
   )
