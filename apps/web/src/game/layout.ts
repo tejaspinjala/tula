@@ -198,3 +198,16 @@ export function bubbleCentreY(
   })
   return covers ? y + 26 : above
 }
+
+/**
+ * Where a speech bubble of `width` px centres horizontally for a speaker at `x`, kept inside the
+ * camera `view` (a narrow screen would otherwise clip it at the edge). A bubble wider than the
+ * view centres on the view.
+ */
+export function bubbleCentreX(view: { x: number; width: number }, width: number, x: number): number {
+  const half = width / 2 + 1
+  if (width + 2 >= view.width) {
+    return view.x + view.width / 2
+  }
+  return Math.min(Math.max(x, view.x + half), view.x + view.width - half)
+}
