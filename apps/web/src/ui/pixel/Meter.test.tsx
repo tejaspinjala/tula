@@ -59,3 +59,10 @@ test('the fill is sized through a custom property, through the CSSOM so the CSP 
   expect(fill?.style.getPropertyValue('--fill')).toBe('50')
   await m.unmount()
 })
+
+test('the track keeps a minimum width and the number its full width, so $9.93/$10.00 is never squeezed or clipped', async () => {
+  const css = await Bun.file(new URL('./pixel.css', import.meta.url).pathname).text()
+  const rule = css.match(/\.px-meter \{([^}]*)\}/)?.[1] ?? ''
+  const columns = rule.match(/grid-template-columns:\s*([^;]+);/)?.[1] ?? ''
+  expect(columns).toMatch(/^auto minmax\(calc\(var\(--px\) \* \d+\), 1fr\) max-content$/)
+})
