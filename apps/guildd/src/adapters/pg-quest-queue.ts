@@ -452,8 +452,20 @@ export class PgQuestQueue implements QuestQueue {
     return rows.map(toLink)
   }
 
-  async linksFor(_guildId: string, _childIds: readonly string[]): Promise<QuestLink[]> {
-    return []
+  async linksFor(guildId: string, childIds: readonly string[]): Promise<QuestLink[]> {
+    const ids = childIds.filter((id) => z.uuid().safeParse(id).success)
+    if (ids.length === 0) {
+      return []
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select l.* from quest_children l
+        join quests q on q.guild_id = l.guild_id and q.quest_id = l.child_id
+        where l.guild_id = ${guildId} and l.child_id = any (${`{${ids.join(',')}}`}::uuid[])
+        order by q.seq`
+    )
+    return rows.map(toLink)
   }
 
   async linkOf(guildId: string, childId: string): Promise<QuestLink | null> {
