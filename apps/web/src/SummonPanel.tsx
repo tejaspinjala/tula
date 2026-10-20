@@ -12,7 +12,13 @@ export const STEP_LABELS = {
  * Summon your first member: the Guild Master picks a routing profile and a test Quest runs on the
  * sandboxed worker. The check stays incomplete until that Quest passes.
  */
-export function SummonPanel({ session }: { session: Session | null }) {
+export function SummonPanel({
+  session,
+}: {
+  session: Session | null
+  /** How often the status is re-read while the test Quest runs. */
+  pollMs?: number
+}) {
   const [status, setStatus] = useState<SummonStatus | null>(null)
   const [profileId, setProfileId] = useState('')
   const [message, setMessage] = useState('')
