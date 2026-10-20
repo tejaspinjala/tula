@@ -7,7 +7,7 @@ import { assertBackpressureSupported, readBufferedAmount } from './ws-support'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
-const { db } = harness.adapters
+const { db, keys } = harness.adapters
 
 describe('websocket backpressure', () => {
   test('the Bun runtime exposes getBufferedAmount on a real server socket', async () => {
@@ -40,15 +40,16 @@ describe('websocket backpressure', () => {
     const id = await db.foundGuild({ name: 'Backed', goal: 'g' })
     const big = 'x'.repeat(2 * 1024 * 1024)
     await db.withGuild(id, async (tx) => {
-      await appendEvent(tx, 'test.big', { big })
-      await appendEvent(tx, 'test.big', { big })
-      await appendEvent(tx, 'test.big', { big })
+      await appendEvent(tx, keys, 'test.big', { big })
+      await appendEvent(tx, keys, 'test.big', { big })
+      await appendEvent(tx, keys, 'test.big', { big })
     })
     const app = createApp({
       clock: harness.adapters.clock,
       db,
       objectStore: harness.adapters.objectStore,
       identity: harness.adapters.identity,
+      keys,
       devGuildHeader: true,
       eventPollMs: 600_000,
       maxSocketBufferBytes: 1,

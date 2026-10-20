@@ -8,7 +8,7 @@ import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
-const { db } = harness.adapters
+const { db, keys } = harness.adapters
 
 const FrameSchema = z.object({ type: z.string(), event: z.object({ seq: z.number() }).optional() })
 
@@ -41,6 +41,7 @@ function countingApp(
     db: counting,
     objectStore: harness.adapters.objectStore,
     identity: harness.adapters.identity,
+    keys,
     devGuildHeader: true,
     eventPollMs: 600_000,
     ...extra,
@@ -111,7 +112,7 @@ describe('event stream fan-out', () => {
       }
       await Bun.sleep(100)
       const before = s.counts.stream
-      await db.withGuild(id, (tx) => appendEvent(tx, 'test.fan', {}))
+      await db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.fan', {}))
       await Bun.sleep(300)
       expect(received).toEqual(Array.from({ length: 8 }, () => [2]))
       expect(s.counts.stream - before).toBeLessThanOrEqual(2)

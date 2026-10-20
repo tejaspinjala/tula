@@ -1,5 +1,6 @@
 import postgres from 'postgres'
 import { MemoryClock } from '../adapters/memory-clock'
+import { MemoryKeyProvider } from '../adapters/memory-key-provider'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
 import { type AppDeps, websocket } from '../app'
 import { compose } from '../composition'
@@ -14,7 +15,10 @@ export interface HarnessOptions {
   devGuildHeader?: boolean
   /** Adapter or limit overrides for the app (db and clock are managed by the harness). */
   app?: Partial<
-    Pick<AppDeps, 'objectStore' | 'objectStoreTimeoutMs' | 'maxArtifactBytes' | 'eventPollMs'>
+    Pick<
+      AppDeps,
+      'objectStore' | 'keys' | 'objectStoreTimeoutMs' | 'maxArtifactBytes' | 'eventPollMs'
+    >
   >
 }
 
@@ -33,11 +37,13 @@ export async function createHarness(options: HarnessOptions = {}) {
   const clock = new MemoryClock(options.now ?? new Date('2026-01-01T00:00:00.000Z'))
   const memoryStore = new MemoryObjectStore()
   const objectStore = options.app?.objectStore ?? memoryStore
-  const { app, adapters: composed } = compose({
+  const keys = options.app?.keys ?? new MemoryKeyProvider()
+  const { app, adapters: composed } = await compose({
     clock,
     db,
     ...options.app,
     objectStore,
+    keys,
     devGuildHeader: options.devGuildHeader ?? true,
     eventPollMs: options.app?.eventPollMs ?? 25,
   })
@@ -45,7 +51,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   return {
     /** Connection URL of the non-owner app role on the central test database. */
     appUrl,
-    adapters: { clock, db, objectStore, memoryStore, identity: composed.identity },
+    adapters: { clock, db, objectStore, memoryStore, identity: composed.identity, keys },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */
