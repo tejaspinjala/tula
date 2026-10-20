@@ -24,7 +24,12 @@ afterAll(async () => {
 describe('migrate', () => {
   test('applies migrations to a fresh database, then is a no-op on re-run', async () => {
     const first = await migrate(sql)
-    expect(first.applied).toEqual(['0001_baseline.sql', '0002_guilds.sql', '0004_artifacts.sql'])
+    expect(first.applied).toEqual([
+      '0001_baseline.sql',
+      '0002_guilds.sql',
+      '0003_events.sql',
+      '0004_artifacts.sql',
+    ])
 
     const second = await migrate(sql)
     expect(second.applied).toEqual([])
@@ -33,6 +38,7 @@ describe('migrate', () => {
     expect(rows.map((r) => r.name)).toEqual([
       '0001_baseline.sql',
       '0002_guilds.sql',
+      '0003_events.sql',
       '0004_artifacts.sql',
     ])
   })

@@ -1,6 +1,7 @@
 import postgres from 'postgres'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
+import { websocket } from '../app'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
 import { migrate, provisionAppRole } from '../db/migrate'
@@ -58,7 +59,9 @@ export async function createHarness(options: HarnessOptions = {}) {
     db,
     objectStore,
     devGuildHeader: options.devGuildHeader ?? true,
+    eventPollMs: 25,
   })
+  const servers: Array<ReturnType<typeof Bun.serve>> = []
   return {
     /** Connection URL of the non-owner app role on the throwaway database. */
     appUrl,
@@ -67,8 +70,17 @@ export async function createHarness(options: HarnessOptions = {}) {
     owner,
     /** Sends a request to guildd without opening a socket. */
     request: (path: string, init?: RequestInit) => Promise.resolve(app.request(path, init)),
+    /** Serves guildd on an ephemeral local port (for WebSocket tests); returns its ws base URL. */
+    listen() {
+      const server = Bun.serve({ port: 0, fetch: app.fetch, websocket })
+      servers.push(server)
+      return `ws://localhost:${server.port}`
+    },
     /** Closes connections and drops the throwaway database. */
     async close() {
+      for (const server of servers) {
+        await server.stop(true)
+      }
       await db.close()
       await owner.end()
       await admin.unsafe(`drop database ${dbName} with (force)`)
