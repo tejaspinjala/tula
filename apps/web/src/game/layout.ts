@@ -124,16 +124,31 @@ export function seatsIn(
   return seats
 }
 
-/** Stub. */
-export function questBoardIn(_layout: HallLayout, room: TileRect): { x: number; y: number } {
-  return { x: room.x, y: room.y }
+/** The tile of a room's Quest Board: the top row below the label, near the far corner. */
+export function questBoardIn(layout: HallLayout, room: TileRect): { x: number; y: number } {
+  const y = room.y + 1
+  for (let x = room.x + room.w - 3; x > room.x + 1; x--) {
+    if (layout.walkable(x, y)) {
+      return { x, y }
+    }
+  }
+  return { x: room.x + room.w - 3, y }
 }
 
-/** Stub. */
+/** Distinct walkable tiles where apprentices stand: the row under the work row, from the right. */
 export function apprenticeSeats(
-  _layout: HallLayout,
-  _room: TileRect,
-  _count: number
+  layout: HallLayout,
+  room: TileRect,
+  count: number
 ): { x: number; y: number }[] {
-  return []
+  const board = questBoardIn(layout, room)
+  const seats: { x: number; y: number }[] = []
+  for (const y of [room.y + 3, room.y + 5]) {
+    for (let x = room.x + room.w - 2; x > room.x && seats.length < count; x--) {
+      if (layout.walkable(x, y) && !(x === board.x && y === board.y)) {
+        seats.push({ x, y })
+      }
+    }
+  }
+  return seats
 }
