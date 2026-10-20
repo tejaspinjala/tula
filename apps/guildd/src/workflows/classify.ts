@@ -18,7 +18,14 @@ const risk = (n: WorkflowNode): string => {
 const edgeKey = (e: { from: string; to: string }) => `${e.from}>${e.to}`
 
 function budgetMicros(g: WorkflowGraph): number {
-  return g.nodes.reduce((sum, n) => sum + (n.type === 'agent' ? Math.round(n.maxUsd * 1e6) : 0), 0)
+  return g.nodes.reduce(
+    (sum, n) =>
+      sum +
+      (n.type === 'agent' || n.type === 'subagents' || n.type === 'team'
+        ? Math.round(n.maxUsd * 1e6)
+        : 0),
+    0
+  )
 }
 
 /**
@@ -58,8 +65,13 @@ export function classifyWorkflowChange(
   const pairsKept = next.nodes.every(
     (n) => n.type !== 'agent' || pairs.has(`${n.hallId}/${n.templateId}`)
   )
+  // A fan-out or team node spends and spawns work, so any new or changed one widens risk.
+  const isFanout = (n: WorkflowNode) => n.type === 'subagents' || n.type === 'team'
+  const prevFanouts = new Set(before.nodes.filter(isFanout).map(risk))
+  const fanoutsKept = next.nodes.filter(isFanout).every((n) => prevFanouts.has(risk(n)))
   const internal =
     postsKept &&
+    fanoutsKept &&
     gatesKept &&
     edgesKept &&
     schedulesKept &&

@@ -240,6 +240,8 @@ export interface QuestPaging {
   after?: string
   limit: number
   state?: QuestState
+  /** Only the Quests of this Campaign. */
+  campaignId?: string
 }
 
 /** One page of Quests in posting order. */

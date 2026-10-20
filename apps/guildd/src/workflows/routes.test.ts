@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
+import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
 import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemorySealStore } from '../adapters/memory-seal-store'
@@ -27,6 +28,7 @@ async function setup(role: string) {
     tripwires,
     proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
     seals: new MemorySealStore(clock),
+    handoffs: new MemoryHandoffStore(),
   })
   const principal = { guildId: guild, memberId: 'm', role }
   const identity = {

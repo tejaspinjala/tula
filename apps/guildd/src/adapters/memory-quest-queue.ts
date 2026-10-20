@@ -393,7 +393,12 @@ export class MemoryQuestQueue implements QuestQueue {
     const after = paging.after === undefined ? 0 : Number(paging.after)
     const limit = Math.min(paging.limit, MAX_QUEST_PAGE)
     const rows = [...this.guild(guildId).byId.values()]
-      .filter((q) => q.seq > after && (paging.state === undefined || q.state === paging.state))
+      .filter(
+        (q) =>
+          q.seq > after &&
+          (paging.state === undefined || q.state === paging.state) &&
+          (paging.campaignId === undefined || q.campaignId === paging.campaignId)
+      )
       .sort((a, b) => a.seq - b.seq)
     const quests = rows.slice(0, limit)
     const last = quests.at(-1)

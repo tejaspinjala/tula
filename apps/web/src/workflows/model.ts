@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   type WorkflowGraph,
   type WorkflowNode,
@@ -12,8 +13,10 @@ export function paletteTypes(): string[] {
 /** The fields the inspector edits, in schema order, with the kind of control each needs. */
 export interface FieldSpec {
   key: string
-  kind: 'string' | 'number'
+  kind: 'string' | 'number' | 'lines' | 'choice'
   optional: boolean
+  /** The allowed values of a `choice` field. */
+  options?: string[]
 }
 
 /** The editable fields of a node type, read from the shared schema (`id` and `type` are structural). */
@@ -28,12 +31,18 @@ export function fieldsFor(type: string): FieldSpec[] {
       continue
     }
     const optional = field.type === 'optional'
-    const inner = 'unwrap' in field && typeof field.unwrap === 'function' ? field.unwrap() : field
-    const kind =
-      typeof inner === 'object' && inner !== null && 'type' in inner && inner.type === 'number'
-        ? 'number'
-        : 'string'
-    fields.push({ key, kind, optional })
+    const inner =
+      optional && 'unwrap' in field && typeof field.unwrap === 'function' ? field.unwrap() : field
+    const innerType =
+      typeof inner === 'object' && inner !== null && 'type' in inner ? inner.type : ''
+    if (innerType === 'array') {
+      fields.push({ key, kind: 'lines', optional })
+    } else if (innerType === 'enum' && 'options' in inner) {
+      const options = z.array(z.string()).safeParse(inner.options)
+      fields.push({ key, kind: 'choice', optional, options: options.success ? options.data : [] })
+    } else {
+      fields.push({ key, kind: innerType === 'number' ? 'number' : 'string', optional })
+    }
   }
   return fields
 }
@@ -53,6 +62,26 @@ function defaults(type: WorkflowNode['type'], id: string): WorkflowNode {
         templateId: 'herald-announcement',
         briefTemplate: 'Describe the work to do.',
         doneCondition: 'An announcement draft is ready for a Seal',
+        maxUsd: 1,
+      }
+    case 'subagents':
+      return {
+        id,
+        type,
+        hallId: 'heralds',
+        templateId: 'herald-brief',
+        briefs: ['Describe the first piece of work.'],
+        join: 'all',
+        maxUsd: 1,
+      }
+    case 'team':
+      return {
+        id,
+        type,
+        hallId: 'heralds',
+        goal: 'Describe the goal for the team.',
+        maxMembers: 2,
+        maxQuests: 3,
         maxUsd: 1,
       }
     case 'verify':
@@ -118,7 +147,7 @@ export function setField(
   graph: WorkflowGraph,
   id: string,
   key: string,
-  value: string | number | undefined
+  value: string | number | string[] | undefined
 ): WorkflowGraph {
   return {
     ...graph,

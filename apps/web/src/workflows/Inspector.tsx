@@ -13,7 +13,8 @@ export interface InspectorProps {
   onSelect: (id: string | null) => void
 }
 
-const LABELS: Record<string, string> = {
+/** The inspector's field labels by schema key. */
+export const FIELD_LABELS: Record<string, string> = {
   name: 'Name',
   hallId: 'Hall',
   templateId: 'Quest template',
@@ -22,6 +23,11 @@ const LABELS: Record<string, string> = {
   maxUsd: 'Budget in dollars (advisory)',
   scheduleId: 'Schedule id',
   of: 'Judges the output of',
+  briefs: 'Briefs (one Sub-Quest per line)',
+  join: 'Fan-in (wait for)',
+  goal: 'Goal for the Captain',
+  maxMembers: 'Member ceiling (checked against the Hall cap when saved)',
+  maxQuests: 'Quest ceiling (checked against the Campaign cap when saved)',
 }
 
 function DeleteWithConfirm({ what, onConfirm }: { what: string; onConfirm: () => void }) {
@@ -48,16 +54,16 @@ function DeleteWithConfirm({ what, onConfirm }: { what: string; onConfirm: () =>
 
 function Field(props: {
   spec: FieldSpec
-  value: string | number | undefined
+  value: string | number | string[] | undefined
   graph: WorkflowGraph
   nodeId: string
   halls: InspectorProps['halls']
-  onSet: (key: string, value: string | number | undefined) => void
+  onSet: (key: string, value: string | number | string[] | undefined) => void
   onTemplate: (templateId: string) => void
 }) {
   const { spec, value, onSet } = props
-  const label = LABELS[spec.key] ?? spec.key
-  const text = value === undefined ? '' : String(value)
+  const label = FIELD_LABELS[spec.key] ?? spec.key
+  const text = value === undefined ? '' : Array.isArray(value) ? value.join('\n') : String(value)
   if (spec.key === 'hallId') {
     const ids = new Set(props.halls.map((h) => h.id))
     return (
@@ -109,6 +115,32 @@ function Field(props: {
       </label>
     )
   }
+  if (spec.kind === 'lines') {
+    return (
+      <label>
+        {label}
+        <textarea
+          rows={4}
+          value={text}
+          onChange={(e) => onSet(spec.key, e.target.value.split('\n'))}
+        />
+      </label>
+    )
+  }
+  if (spec.kind === 'choice') {
+    return (
+      <label>
+        {label}
+        <select aria-label={label} value={text} onChange={(e) => onSet(spec.key, e.target.value)}>
+          {(spec.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      </label>
+    )
+  }
   if (spec.kind === 'number') {
     return (
       <label>
@@ -123,7 +155,7 @@ function Field(props: {
       </label>
     )
   }
-  if (spec.key === 'briefTemplate' || spec.key === 'doneCondition') {
+  if (spec.key === 'briefTemplate' || spec.key === 'doneCondition' || spec.key === 'goal') {
     return (
       <label>
         {label}
@@ -160,6 +192,9 @@ export function Inspector({ graph, selected, halls, onChange, onSelect }: Inspec
   const values: Record<string, unknown> = { ...node }
   const read = (key: string) => {
     const v = values[key]
+    if (Array.isArray(v)) {
+      return v.filter((x): x is string => typeof x === 'string')
+    }
     return typeof v === 'string' || typeof v === 'number' ? v : undefined
   }
   const incoming = new Set(graph.edges.filter((e) => e.to === node.id).map((e) => e.from))

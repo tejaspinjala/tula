@@ -595,11 +595,13 @@ export class PgQuestQueue implements QuestQueue {
     const after = paging.after === undefined ? 0 : Number(paging.after)
     const limit = Math.min(paging.limit, MAX_QUEST_PAGE)
     const state = paging.state ?? null
+    const campaign = paging.campaignId ?? null
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
         select * from quests
         where guild_id = ${guildId} and seq > ${after} and (${state}::text is null or state = ${state})
+          and (${campaign}::text is null or campaign_id = ${campaign})
         order by seq limit ${limit + 1}`
     )
     const quests = rows.slice(0, limit).map(toQuest)

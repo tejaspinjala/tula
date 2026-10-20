@@ -46,6 +46,7 @@ const RUN_STATUS: Record<RunError, 404 | 409 | 422> = {
   hall_not_found: 422,
   unknown_owner: 422,
   unknown_blocker: 422,
+  no_captain: 422,
 }
 
 /**

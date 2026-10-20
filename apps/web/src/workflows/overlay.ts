@@ -14,6 +14,8 @@ export interface RunNode {
   type: string
   status: string
   questId: string | null
+  /** A `subagents` or `team` node's output: the artifact hashes its finished Quests produced. */
+  refs?: string[]
 }
 
 /** What the overlay shows on one node. */
@@ -66,7 +68,10 @@ export function runOverlay(
 ): Map<string, NodeOverlay> {
   const overlay = new Map<string, NodeOverlay>()
   for (const node of nodes) {
-    const own = node.type === 'agent' ? node.questId : null
+    const own =
+      node.type === 'agent' || node.type === 'subagents' || node.type === 'team'
+        ? node.questId
+        : null
     const shown = STATUS[node.status] ?? { tone: 'neutral' as const, text: node.status }
     overlay.set(node.id, {
       status: node.status,

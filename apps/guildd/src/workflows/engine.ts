@@ -1,4 +1,5 @@
 import type { ConfigStore } from '../ports/config-store'
+import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
@@ -12,7 +13,9 @@ import type {
 } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
 import { type PostQuestError, postQuest } from '../quests'
+import { type StartTeamCampaignError, startTeamCampaign } from '../team-campaign'
 import { classifyWorkflowChange } from './classify'
+import { subagentsDoneCondition, teamCampaignId } from './fanout'
 import { type WorkflowError, type WorkflowGraph, type WorkflowNode, workflowGraph } from './graph'
 import { LEARNING_TO_LINKEDIN, LEARNING_TO_LINKEDIN_ID } from './templates'
 import { validateWorkflow } from './validate'
@@ -25,6 +28,8 @@ export interface WorkflowEngineDeps {
   tripwires: TripwireStore
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealStore, 'forQuest'>
+  /** Reads the Handoffs whose artifacts are a `subagents` or `team` node's result refs. */
+  handoffs: Pick<HandoffStore, 'get'>
 }
 
 /** The outcome of {@link WorkflowEngine.save}. */
@@ -40,6 +45,7 @@ export type RunError =
   | 'no_manual_trigger'
   | 'invalid_workflow'
   | PostQuestError
+  | StartTeamCampaignError
 
 /** The outcome of {@link WorkflowEngine.run}. */
 export type RunResult =
@@ -69,7 +75,14 @@ export type NodeStatus =
 /** The state of one instance: its nodes and their statuses. */
 export interface RunState {
   instance: WorkflowInstance
-  nodes: { id: string; type: string; status: NodeStatus; questId: string | null }[]
+  nodes: {
+    id: string
+    type: string
+    status: NodeStatus
+    questId: string | null
+    /** A `subagents` or `team` node's output: the artifact hashes its finished Quests produced. */
+    refs: string[]
+  }[]
 }
 
 const AGENT_STATUS = {
@@ -80,11 +93,14 @@ const AGENT_STATUS = {
   dead: 'failed',
 } as const
 
-type AgentNode = Extract<WorkflowNode, { type: 'agent' }>
+type QuestNode = Extract<WorkflowNode, { type: 'agent' | 'subagents' | 'team' }>
 
-/** The agent nodes that run directly before `id`, looking back through non-agent nodes. */
+const startsQuests = (n: WorkflowNode): n is QuestNode =>
+  n.type === 'agent' || n.type === 'subagents' || n.type === 'team'
+
+/** The Quest-starting nodes that run directly before `id`, looking back through gate nodes. */
 function upstreamAgents(graph: WorkflowGraph, id: string): string[] {
-  const kinds = new Map(graph.nodes.map((n) => [n.id, n.type]))
+  const starters = new Set(graph.nodes.filter(startsQuests).map((n) => n.id))
   const found = new Set<string>()
   const seen = new Set<string>()
   const stack = [id]
@@ -98,7 +114,7 @@ function upstreamAgents(graph: WorkflowGraph, id: string): string[] {
         continue
       }
       seen.add(e.from)
-      if (kinds.get(e.from) === 'agent') {
+      if (starters.has(e.from)) {
         found.add(e.from)
       } else {
         stack.push(e.from)
@@ -108,11 +124,11 @@ function upstreamAgents(graph: WorkflowGraph, id: string): string[] {
   return graph.nodes.filter((n) => found.has(n.id)).map((n) => n.id)
 }
 
-/** Agent nodes in an order where every upstream agent comes first (stable by graph order). */
-function agentOrder(graph: WorkflowGraph): AgentNode[] {
-  const agents = graph.nodes.filter((n): n is AgentNode => n.type === 'agent')
+/** Quest-starting nodes in an order where every upstream one comes first (stable by graph order). */
+function agentOrder(graph: WorkflowGraph): QuestNode[] {
+  const agents = graph.nodes.filter(startsQuests)
   const done = new Set<string>()
-  const ordered: AgentNode[] = []
+  const ordered: QuestNode[] = []
   while (ordered.length < agents.length) {
     const next = agents.find(
       (a) => !done.has(a.id) && upstreamAgents(graph, a.id).every((u) => done.has(u))
@@ -128,6 +144,10 @@ function agentOrder(graph: WorkflowGraph): AgentNode[] {
 
 /** The idempotency key of a node execution: `instance:node:iteration` (one iteration here). */
 const jobKey = (instanceId: string, nodeId: string) => `${instanceId}:${nodeId}:0`
+
+/** The job key {@link startTeamCampaign} posts a `team` node's plan Quest under. */
+const teamJobKey = (instanceId: string, nodeIndex: number) =>
+  `team:${teamCampaignId(instanceId, nodeIndex)}`
 
 /**
  * The workflow engine: validates and versions graphs, and compiles an instance's `agent` nodes to
@@ -269,18 +289,32 @@ export class WorkflowEngine {
         const id = posted.get(u)
         return id === undefined ? [] : [id]
       })
-      const result = await postQuest(
-        { config: this.deps.config, queue: this.deps.quests, tripwires: this.deps.tripwires },
-        guildId,
-        {
-          templateId: node.templateId,
-          jobKey: jobKey(instance.id, node.id),
-          title: `${pinned.name}: ${node.name ?? node.id}`.slice(0, 200),
-          campaignId: instance.id,
-          blockedBy,
-          doneCondition: node.doneCondition,
-        }
-      )
+      const deps = {
+        config: this.deps.config,
+        queue: this.deps.quests,
+        tripwires: this.deps.tripwires,
+      }
+      const title = `${pinned.name}: ${node.name ?? node.id}`.slice(0, 200)
+      // Each node compiles through the existing mechanism: `agent` and `subagents` post a Quest
+      // (a `subagents` one whose Member spawns the Sub-Quests with the capped `spawn_subquest`
+      // tool); `team` starts the Captain's plan Quest (the capped `post_to_board` does the rest).
+      const result =
+        node.type === 'team'
+          ? await startTeamCampaign(deps, guildId, {
+              hall: node.hallId,
+              campaignId: teamCampaignId(instance.id, pinned.graph.nodes.indexOf(node)),
+              goal: node.goal,
+              blockedBy,
+            })
+          : await postQuest(deps, guildId, {
+              templateId: node.templateId,
+              jobKey: jobKey(instance.id, node.id),
+              title,
+              campaignId: instance.id,
+              blockedBy,
+              doneCondition:
+                node.type === 'agent' ? node.doneCondition : subagentsDoneCondition(node),
+            })
       if (!result.ok) {
         return { ok: false, error: result.error, nodeId: node.id, runKey: instance.runKey }
       }
@@ -306,7 +340,7 @@ export class WorkflowEngine {
     }
     const byId = new Map(version.graph.nodes.map((n) => [n.id, n]))
     const agentOf = (node: WorkflowNode): string | null => {
-      if (node.type === 'agent') {
+      if (startsQuests(node)) {
         return node.id
       }
       if (node.type === 'verify' || node.type === 'approval' || node.type === 'post') {
@@ -318,23 +352,71 @@ export class WorkflowEngine {
     const nodes: RunState['nodes'] = []
     for (const node of version.graph.nodes) {
       const agentId = agentOf(node)
-      const quest = agentId
-        ? await this.deps.quests.findByJobKey(guildId, jobKey(instance.id, agentId))
-        : null
+      const owner = agentId === null ? undefined : byId.get(agentId)
+      const key =
+        owner?.type === 'team'
+          ? teamJobKey(instance.id, version.graph.nodes.indexOf(owner))
+          : agentId === null
+            ? null
+            : jobKey(instance.id, agentId)
+      const quest = key === null ? null : await this.deps.quests.findByJobKey(guildId, key)
+      const fanned = node.type === 'subagents' || node.type === 'team' ? quest : null
+      const finished = fanned ? await this.finishedQuests(guildId, node, fanned) : []
       nodes.push({
         id: node.id,
         type: node.type,
         questId: quest?.id ?? null,
-        status: await this.statusOf(guildId, node, quest),
+        refs: await this.refsOf(guildId, finished),
+        status: await this.statusOf(guildId, node, quest, finished),
       })
     }
     return { instance, nodes }
   }
 
+  /** The Quests a fan-out node's result is made of: a `subagents` node's Sub-Quests, a `team` node's board Quests. */
+  private async finishedQuests(
+    guildId: string,
+    node: WorkflowNode,
+    quest: Quest
+  ): Promise<Quest[]> {
+    if (node.type === 'subagents') {
+      const links = await this.deps.quests.children(guildId, quest.id)
+      const found = await Promise.all(links.map((l) => this.deps.quests.get(guildId, l.childId)))
+      return found.flatMap((q) => (q ? [q] : []))
+    }
+    const board: Quest[] = []
+    let after: string | undefined
+    do {
+      const page = await this.deps.quests.list(guildId, {
+        limit: 100,
+        campaignId: quest.campaignId ?? '',
+        ...(after === undefined ? {} : { after }),
+      })
+      board.push(...page.quests.filter((q) => q.board))
+      after = page.next ?? undefined
+    } while (after !== undefined)
+    return board
+  }
+
+  /** The first artifact of each finished Quest's Handoff, in the Quests' order. */
+  private async refsOf(guildId: string, quests: readonly Quest[]): Promise<string[]> {
+    const refs: string[] = []
+    for (const q of quests) {
+      const stored =
+        q.state === 'done' ? await this.deps.handoffs.get(guildId, q.id, q.attempts) : null
+      const first = stored?.handoff.artifacts[0]
+      if (first !== undefined) {
+        refs.push(first)
+      }
+    }
+    return refs
+  }
+
   private async statusOf(
     guildId: string,
     node: WorkflowNode,
-    quest: Quest | null
+    quest: Quest | null,
+    members: readonly Quest[]
   ): Promise<NodeStatus> {
     if (node.type === 'trigger.manual' || node.type === 'trigger.schedule') {
       return 'done'
@@ -342,10 +424,21 @@ export class WorkflowEngine {
     if (!quest) {
       return 'pending'
     }
-    if (node.type === 'agent') {
+    if (node.type === 'agent' || node.type === 'subagents') {
       return quest.state === 'queued' && quest.waitingOn.length > 0
         ? 'awaiting_children'
         : AGENT_STATUS[quest.state]
+    }
+    if (node.type === 'team') {
+      // The Captain's plan comes first; the Campaign is done when every board Quest is.
+      if (quest.state !== 'done') {
+        return AGENT_STATUS[quest.state]
+      }
+      return members.some((q) => q.state === 'dead')
+        ? 'failed'
+        : members.every((q) => q.state === 'done')
+          ? 'done'
+          : 'running'
     }
     if (node.type === 'verify') {
       const proposal = await this.deps.proposals.latestForQuest(guildId, quest.id)
