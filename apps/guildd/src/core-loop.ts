@@ -1,5 +1,7 @@
-import type { QuestQueue } from './ports/quest-queue'
-import type { SealStore } from './ports/seal-store'
+import type { Quest, QuestQueue } from './ports/quest-queue'
+import type { Seal, SealStore } from './ports/seal-store'
+import type { ProposalEngine } from './proposals'
+import type { SealEngine } from './seals'
 
 /** Collaborators of {@link reconcileSeals}. */
 export interface CoreLoopDeps {
@@ -44,4 +46,30 @@ export async function reconcileSeals(
     after = page.next ?? undefined
   } while (after !== undefined)
   return { settled }
+}
+
+/** Collaborators of {@link requestQuestSeal}. */
+export interface SealRequestDeps {
+  quests: Pick<QuestQueue, 'settleSeal'>
+  proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
+  seals: Pick<SealEngine, 'requestSeal'>
+}
+
+/** What {@link requestQuestSeal} did: asked for a Seal, rejected the Proposal, or found none. */
+export type QuestSealOutcome =
+  | { outcome: 'requested'; seal: Seal }
+  | { outcome: 'rejected'; quest: Quest }
+  | { outcome: 'no_proposal' }
+
+/**
+ * Asks for the Seal of a Quest held in `awaiting_seal`, gated on the Verdict bound to the hash of
+ * its latest Proposal. Passed: the Seal is requested for exactly that text and the Quest's round.
+ * Failed: the Quest is settled as rejected (a revision round, or the dead letters). Deterministic.
+ */
+export async function requestQuestSeal(
+  _deps: SealRequestDeps,
+  _guildId: string,
+  _quest: Quest
+): Promise<QuestSealOutcome> {
+  throw new Error('not implemented')
 }

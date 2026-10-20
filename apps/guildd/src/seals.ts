@@ -38,6 +38,8 @@ export interface SealRequest {
   /** The exact Proposal text; the Seal is bound to its hash. */
   text: string
   evidence: string
+  /** The Quest's Seal round (default 1); a revision after a denial is a new round and a new Seal. */
+  round?: number
 }
 
 /**
