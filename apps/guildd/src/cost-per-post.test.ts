@@ -30,9 +30,18 @@ async function world() {
       doneCondition: 'A draft is ready for a Seal',
       roundLimit: 2,
     })
+    if (costMicros > 0) {
+      await meter(q.id, jobKey, costMicros)
+    }
+    if (seal !== null) {
+      await sealIt(q.id, jobKey, seal)
+    }
+    return q
+  }
+  const meter = async (questId: string, jobKey: string, costMicros: number) => {
     await ledger.openRun(guild, {
       runId: `run-${jobKey}`,
-      questId: q.id,
+      questId,
       attempt: 1,
       hallId: 'heralds',
       providerId: 'cloud',
@@ -55,9 +64,11 @@ async function world() {
       caps: { tokens: 1_000_000, costMicros: 1_000_000_000 },
     })
     await ledger.settle(guild, entry.callKey, entry)
-    if (seal !== null) {
+  }
+  const sealIt = async (questId: string, jobKey: string, seal: 'posted' | 'denied') => {
+    {
       const s = await seals.request(guild, {
-        questId: q.id,
+        questId,
         requestedBy: 'heralds-member-1',
         kind: 'post',
         text: jobKey,
@@ -74,7 +85,6 @@ async function world() {
         }
       }
     }
-    return q
   }
   return { guild, quest, deps: { ledger, quests, sealStore: seals } }
 }
@@ -94,6 +104,17 @@ describe('costPerPost', () => {
       { campaignId: 'spring', posts: 2, costMicros: 4000, costPerPostMicros: 2000 },
     ])
     expect(report.next).toBeNull()
+  })
+
+  test('a posted Quest with no metered spend still counts as a post', async () => {
+    const w = await world()
+    await w.quest('a', 'spring', 3000, 'posted')
+    await w.quest('b', 'spring', 0, 'posted')
+    const report = await costPerPost(w.deps, w.guild, { limit: 10 })
+    expect(report.overall).toEqual({ posts: 2, costMicros: 3000, costPerPostMicros: 1500 })
+    expect(report.campaigns).toEqual([
+      { campaignId: 'spring', posts: 2, costMicros: 3000, costPerPostMicros: 1500 },
+    ])
   })
 
   test('pages through Campaigns with a cursor', async () => {

@@ -42,32 +42,34 @@ async function meterPost(g: string, costMicros: number, outcome: 'posted' | 'den
     doneCondition: 'A draft is ready for a Seal',
     roundLimit: 2,
   })
-  const runId = crypto.randomUUID()
-  await modelLedger.openRun(g, {
-    runId,
-    questId: quest.id,
-    attempt: 1,
-    hallId: 'heralds',
-    providerId: 'cloud',
-    profileId: 'cloud-mid',
-    state: 'active',
-    tokenHash: `hash-${runId}`,
-    expiresAt: '2099-01-01T00:00:00.000Z',
-  })
-  const entry = {
-    callKey: crypto.randomUUID(),
-    runId,
-    day: '2030-01-01',
-    inputTokens: 10,
-    outputTokens: 5,
-    costMicros,
+  if (costMicros > 0) {
+    const runId = crypto.randomUUID()
+    await modelLedger.openRun(g, {
+      runId,
+      questId: quest.id,
+      attempt: 1,
+      hallId: 'heralds',
+      providerId: 'cloud',
+      profileId: 'cloud-mid',
+      state: 'active',
+      tokenHash: `hash-${runId}`,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    })
+    const entry = {
+      callKey: crypto.randomUUID(),
+      runId,
+      day: '2030-01-01',
+      inputTokens: 10,
+      outputTokens: 5,
+      costMicros,
+    }
+    await modelLedger.reserve(g, {
+      ...entry,
+      clientKey: null,
+      caps: { tokens: 1_000_000, costMicros: 1_000_000_000 },
+    })
+    await modelLedger.settle(g, entry.callKey, entry)
   }
-  await modelLedger.reserve(g, {
-    ...entry,
-    clientKey: null,
-    caps: { tokens: 1_000_000, costMicros: 1_000_000_000 },
-  })
-  await modelLedger.settle(g, entry.callKey, entry)
   const seal = await sealStore.request(g, {
     questId: quest.id,
     requestedBy: 'heralds-member-1',
@@ -117,6 +119,18 @@ describe('GET /guilds/:id/cost-per-post', () => {
     expect(report.parse(await res.json())).toEqual({
       overall: { posts: 2, costMicros: 1000, costPerPostMicros: 500 },
       campaigns: [{ campaignId: 'spring', posts: 2, costMicros: 1000, costPerPostMicros: 500 }],
+      next: null,
+    })
+  })
+
+  test('a posted Quest with no metered spend still counts as a post', async () => {
+    const { g, auth } = await found()
+    await meterPost(g, 700, 'posted')
+    await meterPost(g, 0, 'posted')
+    const res = await read(g, auth)
+    expect(report.parse(await res.json())).toEqual({
+      overall: { posts: 2, costMicros: 700, costPerPostMicros: 350 },
+      campaigns: [{ campaignId: 'spring', posts: 2, costMicros: 700, costPerPostMicros: 350 }],
       next: null,
     })
   })
