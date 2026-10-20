@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { type ReplayEvent, replayTo } from '../replay'
 import type { Roster } from '../roster'
+import type { LookChoice } from './look'
 
 /** The Steward and Halls the hall is built from (the ledger's roster). */
 export type SceneRoster = Roster
@@ -28,6 +29,8 @@ export interface SceneMember {
   status: 'idle' | 'working'
   questId: string | null
   bubble: SceneBubble | null
+  /** The Guild Master's override of the look this Member's id seeds. */
+  look?: LookChoice
 }
 
 /** One room: a Hall, with its Members; locked Halls are shown closed. */
