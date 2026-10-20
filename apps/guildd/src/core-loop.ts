@@ -67,9 +67,28 @@ export type QuestSealOutcome =
  * Failed: the Quest is settled as rejected (a revision round, or the dead letters). Deterministic.
  */
 export async function requestQuestSeal(
-  _deps: SealRequestDeps,
-  _guildId: string,
-  _quest: Quest
+  deps: SealRequestDeps,
+  guildId: string,
+  quest: Quest
 ): Promise<QuestSealOutcome> {
-  throw new Error('not implemented')
+  const proposal = await deps.proposals.latestForQuest(guildId, quest.id)
+  if (!proposal) {
+    return { outcome: 'no_proposal' }
+  }
+  const verdict = await deps.proposals.verdictFor(guildId, proposal.hash)
+  if (!verdict?.passed) {
+    return {
+      outcome: 'rejected',
+      quest: await deps.quests.settleSeal(guildId, quest.id, 'rejected'),
+    }
+  }
+  const seal = await deps.seals.requestSeal(guildId, {
+    questId: quest.id,
+    requestedBy: quest.ownerId,
+    kind: proposal.kind,
+    text: proposal.content,
+    evidence: `Verdict passed: ${verdict.findings.map((f) => `${f.check} (${f.detail})`).join('; ')}`,
+    round: quest.round,
+  })
+  return { outcome: 'requested', seal }
 }
