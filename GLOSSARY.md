@@ -38,6 +38,10 @@ _Avoid_: employee, bot
 One unit of work with exactly one owner and a done-condition.
 _Avoid_: task, ticket
 
+**Sub-Quest**:
+A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; it inherits its parent's data class.
+_Avoid_: subtask, child task
+
 **Campaign**:
 A project: a set of related Quests under one Captain.
 _Avoid_: project
@@ -189,6 +193,9 @@ Event types appended to the chained event log by Bar the Gates and by the Quest,
 
 **gates.barred** / **gates.lifted**:
 The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and the acting member id in the acting guild's own chain only). A global bar or lift is also told to every other guild's chain with the bar id and scope only, never who acted.
+
+**quest.spawned**:
+A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).
 
 **handoff.recorded**:
 A Quest attempt recorded its handoff (payload: quest id, attempt, handoff hash).

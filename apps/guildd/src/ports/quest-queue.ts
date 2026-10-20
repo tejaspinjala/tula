@@ -314,7 +314,34 @@ export function hasLiveLease(quest: Quest, now: Date): boolean {
   )
 }
 
-/** Throws unless the Quest is leased and `attempt` is the delivery it was given. */
+/** Throws unless the Quest is leased and `attempt` is the delivery it was given; for adapters that fence on it. */
+export function assertHeld(quest: Quest, attempt: number): void {
+  held(quest, attempt)
+}
+
+/**
+ * The cap a spawn would break, or null: `depth_cap` when the child's depth passes `maxDepth`,
+ * `spawn_cap` when the parent already has `maxChildren` sub-Quests. Pure; shared by both adapters.
+ */
+export function spawnRefusal(
+  parentDepth: number,
+  childCount: number,
+  request: Pick<SpawnRequest, 'maxChildren' | 'maxDepth'>
+): 'spawn_cap' | 'depth_cap' | null {
+  if (parentDepth + 1 > request.maxDepth) {
+    return 'depth_cap'
+  }
+  return childCount >= request.maxChildren ? 'spawn_cap' : null
+}
+
+/** The job key a sub-Quest is posted under: one per parent, delivery and request. */
+export function spawnJobKey(
+  request: Pick<SpawnRequest, 'parentId' | 'attempt' | 'briefHash'>
+): string {
+  return `spawn:${request.parentId}:${request.attempt}:${request.briefHash}`
+}
+
+// Throws unless the Quest is leased and `attempt` is the delivery it was given. */
 function held(quest: Quest, attempt: number): void {
   if (quest.state !== 'active') {
     throw new QuestError('invalid_state')

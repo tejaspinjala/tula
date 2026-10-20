@@ -1,5 +1,6 @@
 import type { Clock } from '../ports/clock'
 import {
+  assertHeld,
   type ClaimOptions,
   cascadeDeadTransitions,
   claimTransition,
@@ -29,6 +30,8 @@ import {
   type SpawnRequest,
   type SpawnResult,
   sealSettleTransition,
+  spawnJobKey,
+  spawnRefusal,
   submitTransition,
   type Transition,
   type WaitMode,
@@ -38,6 +41,7 @@ interface GuildQuests {
   byId: Map<string, Quest>
   byKey: Map<string, string>
   seq: number
+  links: Map<string, QuestLink>
 }
 
 /**
@@ -64,7 +68,7 @@ export class MemoryQuestQueue implements QuestQueue {
     if (existing) {
       return existing
     }
-    const fresh: GuildQuests = { byId: new Map(), byKey: new Map(), seq: 0 }
+    const fresh: GuildQuests = { byId: new Map(), byKey: new Map(), seq: 0, links: new Map() }
     this.guilds.set(guildId, fresh)
     return fresh
   }
@@ -102,6 +106,11 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
+    return this.postNow(guildId, input)
+  }
+
+  /** Synchronous body of {@link post}, so `spawn` can post and link with no `await` between. */
+  private postNow(guildId: string, input: NewQuest): { quest: Quest; created: boolean } {
     const parsed = newQuest.parse(input)
     const g = this.guild(guildId)
     const existingId = g.byKey.get(parsed.jobKey)
@@ -254,16 +263,62 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, parkTransition(quest, attempt, waitingOn, mode, this.clock.now()))
   }
 
-  async spawn(_guildId: string, _request: SpawnRequest): Promise<SpawnResult> {
-    throw new QuestError('invalid_state')
+  async spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult> {
+    const g = this.guild(guildId)
+    const parent = this.mustFind(guildId, request.parentId)
+    assertHeld(parent, request.attempt)
+    const links = [...g.links.values()]
+    const existing = links.find(
+      (l) =>
+        l.parentId === request.parentId &&
+        l.attempt === request.attempt &&
+        l.briefHash === request.briefHash
+    )
+    const known = existing && g.byId.get(existing.childId)
+    if (existing && known) {
+      return { ok: true, quest: known, link: existing, created: false }
+    }
+    const parentDepth = g.links.get(parent.id)?.depth ?? 0
+    const refusal = spawnRefusal(
+      parentDepth,
+      links.filter((l) => l.parentId === parent.id).length,
+      request
+    )
+    if (refusal) {
+      return { ok: false, error: refusal }
+    }
+    const { quest } = this.postNow(guildId, {
+      ...request.child,
+      jobKey: spawnJobKey(request),
+      blockedBy: [],
+    })
+    const link: QuestLink = {
+      parentId: parent.id,
+      childId: quest.id,
+      depth: parentDepth + 1,
+      attempt: request.attempt,
+      briefHash: request.briefHash,
+      dataClass: quest.dataClass,
+      createdAt: this.clock.now().toISOString(),
+    }
+    g.links.set(quest.id, link)
+    this.onEvent(guildId, 'quest.spawned', {
+      parentId: link.parentId,
+      childId: link.childId,
+      depth: link.depth,
+    })
+    return { ok: true, quest, link, created: true }
   }
 
-  async children(_guildId: string, _parentId: string): Promise<QuestLink[]> {
-    return []
+  async children(guildId: string, parentId: string): Promise<QuestLink[]> {
+    const g = this.guild(guildId)
+    return [...g.links.values()]
+      .filter((l) => l.parentId === parentId)
+      .sort((a, b) => (g.byId.get(a.childId)?.seq ?? 0) - (g.byId.get(b.childId)?.seq ?? 0))
   }
 
-  async linkOf(_guildId: string, _childId: string): Promise<QuestLink | null> {
-    return null
+  async linkOf(guildId: string, childId: string): Promise<QuestLink | null> {
+    return this.guild(guildId).links.get(childId) ?? null
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
