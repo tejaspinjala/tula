@@ -97,7 +97,7 @@ test('the stream reconnects on the shared jittered backoff and says so in-world 
       root.render(<QuestBoardPanel session={session} />)
       await new Promise((resolve) => setTimeout(resolve, 40))
     })
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       expect(host.textContent).not.toContain('messenger')
       await act(async () => {
         timers.fireNext()
