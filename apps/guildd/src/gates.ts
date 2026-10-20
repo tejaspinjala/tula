@@ -69,6 +69,11 @@ export class Gates {
     await this.settled()
   }
 
+  /** Re-runs the announcements of a global bar that is up (boot after a crash); idempotent. */
+  async resumeAnnouncements(): Promise<void> {
+    throw new Error('not implemented')
+  }
+
   /** Resolves once the background announcement of a global bar, if one is running, has ended (never rejects). */
   async settled(): Promise<void> {
     await this.announcing?.done

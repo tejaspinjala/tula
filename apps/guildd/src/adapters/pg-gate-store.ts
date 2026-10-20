@@ -100,6 +100,10 @@ export class PgGateStore implements GateStore {
     return status.guild || status.global
   }
 
+  async globalBarId(_guildId: string): Promise<string | null> {
+    return null
+  }
+
   async status(guildId: string): Promise<GateStatus> {
     const [row] = await this.db.withGuild(
       guildId,
