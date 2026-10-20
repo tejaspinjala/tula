@@ -31,10 +31,13 @@ export interface Brief {
 
 /** One line of plain text: control characters, line breaks and angle brackets become spaces. */
 function oneLine(text: string): string {
-  return text
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>]+/g, ' ')
-    .replace(/ {2,}/g, ' ')
-    .trim()
+  const flat = Array.from(text, (ch) => {
+    const code = ch.charCodeAt(0)
+    const control =
+      code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
+    return control || ch === '<' || ch === '>' ? ' ' : ch
+  }).join('')
+  return flat.replace(/ {2,}/g, ' ').trim()
 }
 
 /** A rough token count: four characters to a token, rounded up. */
