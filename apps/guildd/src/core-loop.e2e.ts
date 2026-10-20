@@ -10,7 +10,7 @@ import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { ModelLedger } from './ports/model-ledger'
 import type { NewQuest, Quest, QuestQueue } from './ports/quest-queue'
-import type { Seal, SealStore } from './ports/seal-store'
+import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
 import type { SealEngine } from './seals'
 import type { RecordingSandboxRunner } from './testing/recording-sandbox'
@@ -197,6 +197,8 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       await w.dispatcher.dispatch(guildId)
       expect(await stateOf(w, guildId, quest.id)).toBe('awaiting_seal')
       expect((await w.seals.publish(guildId, seal.id, seal.text, async () => {})).ok).toBe(false)
+      // Only a reservation that has gone stale can be resolved by hand, and only with a fresh re-auth.
+      w.clock.advance(SEAL_RESERVATION_MS + 1)
       expect(
         (await w.seals.markPosted(guildId, seal.id, seal.text, { reauthenticated: false })).ok
       ).toBe(false)
@@ -218,7 +220,11 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       await decide(w, guildId, masterId, first, 'denied')
       // The pass settles the denial into round 2 and claims the revision.
       await dispatchStarts(w, guildId, quest)
-      expect(await w.quests.get(guildId, quest.id)).toMatchObject({ round: 2, state: 'active' })
+      expect(await w.quests.get(guildId, quest.id)).toMatchObject({
+        round: 1,
+        state: 'active',
+        lastError: 'seal_rejected',
+      })
       await memberWorks(w, guildId, quest.id, 'Second draft')
       await w.dispatcher.dispatch(guildId)
       const second = await w.sealStore.forQuest(guildId, quest.id)
@@ -244,8 +250,15 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       const { quest, seal } = await sealRequested(w, guildId, 'Get free money now')
       expect(seal).toBeNull()
       const after = await w.quests.get(guildId, quest.id)
-      expect(after?.round).toBe(2)
+      expect(after).toMatchObject({ round: 1, lastError: 'seal_rejected' })
       expect(after?.state).not.toBe('awaiting_seal')
+      // The revision is the next round: its Seal, once the Verdict passes, is round 2.
+      await memberWorks(w, guildId, quest.id, 'Get a fair price now')
+      await w.dispatcher.dispatch(guildId)
+      expect(await w.sealStore.forQuest(guildId, quest.id)).toMatchObject({
+        round: 2,
+        text: 'Get a fair price now',
+      })
     })
 
     test('a guild barred mid-loop releases its leases and revokes run tokens; a lift lets dispatch claim again', async () => {
