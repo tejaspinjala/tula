@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
@@ -9,6 +9,11 @@ const operators: string[] = []
 const harness = await createHarness({ devGuildHeader: true, app: { platformOperators: operators } })
 afterAll(async () => {
   await harness.close()
+})
+// A test that fails with a global bar up must not leave it up for the next one (every guild would
+// be refused), so the gate is cleared after each test whatever happened.
+afterEach(async () => {
+  await harness.owner`delete from global_gate`
 })
 
 const ORIGIN = 'http://localhost:5173'
@@ -165,6 +170,37 @@ describe('Bar the Gates routes', () => {
     expect(await harness.adapters.quests.claim(b.guildId, lease)).not.toBeNull()
   })
 
+  test('a global bar answers in under 2 s with 300 guilds and refuses every one of them', async () => {
+    const op = await signedIn()
+    operators.push(op.memberId)
+    const guilds: string[] = []
+    for (let i = 0; i < 300; i += 25) {
+      guilds.push(
+        ...(await Promise.all(
+          Array.from({ length: 25 }, () => harness.foundGuild({ name: 'Crowd', goal: 'g' }))
+        ))
+      )
+    }
+    try {
+      const started = performance.now()
+      const res = await send('POST', '/gates/bar', op.auth)
+      const elapsed = performance.now() - started
+      expect(res.status).toBe(201)
+      expect(elapsed).toBeLessThan(2000)
+      for (const g of guilds) {
+        expect((await harness.adapters.gates.status(g)).global).toBe(true)
+      }
+      await harness.adapters.gates.settled()
+      const [told] = await harness.owner`
+        select count(distinct guild_id)::int as n from events
+        where type = 'gates.barred' and guild_id = any (${guilds}::uuid[])`
+      expect(told?.n).toBe(300)
+    } finally {
+      await send('POST', '/gates/lift', { ...op.auth, 'x-reauth-proof': await op.proof() })
+      operators.splice(operators.indexOf(op.memberId), 1)
+    }
+  }, 120_000)
+
   test('only a platform operator can bar or lift every guild, not any Guild Master', async () => {
     const op = await signedIn()
     const other = await signedIn()
@@ -173,10 +209,15 @@ describe('Bar the Gates routes', () => {
     try {
       expect((await send('POST', '/gates/bar', other.auth)).status).toBe(403)
       expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
-      expect((await send('POST', '/gates/bar', op.auth)).status).toBe(201)
+      const barred = await send('POST', '/gates/bar', op.auth)
+      expect(barred.status).toBe(201)
+      const { barId } = outcomeBody.parse(await barred.json())
+      await harness.adapters.gates.settled()
+      // Filtered by this bar: an earlier test's announcements may still be reaching new guilds.
       const told = await harness.owner`
         select type, payload from events
-        where guild_id = ${other.guildId} and type like 'gates.%' order by seq`
+        where guild_id = ${other.guildId} and type like 'gates.%' and payload ->> 'barId' = ${barId}
+        order by seq`
       expect(told.map((e) => e.type)).toEqual(['gates.barred'])
       expect(Object.keys(told[0]?.payload ?? {}).sort()).toEqual(['barId', 'scope'])
       expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
@@ -192,7 +233,7 @@ describe('Bar the Gates routes', () => {
       guild: false,
       global: false,
     })
-  })
+  }, 60_000) // reads the announcements, which take as long as there are guilds
 
   test('an operator listed in uppercase can still bar every guild', async () => {
     const op = await signedIn()

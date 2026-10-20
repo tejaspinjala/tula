@@ -337,6 +337,34 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(again).toMatchObject({ id: held.id, attempts: 2 })
     })
 
+    test("releasing all leases returns every guild's active Quests to queued at once, and repeating changes nothing more", async () => {
+      const { queue, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      await queue.post(a, quest())
+      await queue.post(b, quest())
+      const heldA = await queue.claim(a, LEASE)
+      const heldB = await queue.claim(b, LEASE)
+      if (!heldA || !heldB) {
+        throw new Error('expected leases')
+      }
+      expect(await queue.releaseAllLeases('sandbox_unavailable')).toBeGreaterThanOrEqual(2)
+      for (const [g, held] of [
+        [a, heldA],
+        [b, heldB],
+      ] as const) {
+        expect(await queue.get(g, held.id)).toMatchObject({
+          state: 'queued',
+          attempts: 1,
+          leaseExpiresAt: null,
+          lastError: 'sandbox_unavailable',
+        })
+      }
+      await queue.releaseAllLeases('sandbox_unavailable')
+      expect(await queue.claim(a, LEASE)).toMatchObject({ id: heldA.id, attempts: 2 })
+      expect((await queue.get(b, heldB.id))?.state).toBe('queued')
+    })
+
     describe('routing outcomes for a claimed Quest', () => {
       test('releasing a claim queues the Quest again after notBefore, fenced by attempt, idempotently', async () => {
         const { queue, clock, events, newGuild } = await make()

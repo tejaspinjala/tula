@@ -15,6 +15,7 @@ function world(n: number) {
   let running = 0
   let failing: string | null = null
   let widest = 0
+  const announceErrors: unknown[] = []
   const observe = async () => {
     barredAt.push(await slowStore.isBarred(guilds[0] ?? ''))
   }
@@ -49,7 +50,7 @@ function world(n: number) {
         return 7
       },
     },
-    quests: { releaseLeases: async () => 0 },
+    quests: { releaseLeases: async () => 0, releaseAllLeases: async () => 0 },
     sandboxes: {
       kill: async () => {
         calls.push('kill')
@@ -59,8 +60,10 @@ function world(n: number) {
     },
     guildIds: async (after, limit) =>
       guilds.filter((g) => after === undefined || g > after).slice(0, limit),
+    onAnnounceError: (e) => announceErrors.push(e),
   })
   return {
+    announceErrors,
     failAnnounceTo: (guildId: string | null) => {
       failing = guildId
     },
@@ -77,6 +80,7 @@ describe('a global bar over many guilds', () => {
   test('starts the kill first, revokes every token in one call and keeps the gates shut throughout', async () => {
     const w = world(MANY)
     const out = await w.gates.bar({ guildId: w.guilds[0] ?? '', memberId: OPERATOR }, 'global')
+    await w.gates.settled()
     expect(w.calls).toEqual(['kill', 'revokeAllRuns'])
     expect(out).toMatchObject({ revokedRuns: 7, killedSandboxes: 3 })
     expect(w.barredAt.length).toBeGreaterThan(MANY)
@@ -88,6 +92,7 @@ describe('a global bar over many guilds', () => {
     const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
     await w.gates.bar(actor, 'global')
     await w.gates.bar(actor, 'global')
+    await w.gates.settled()
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred'])
     }
@@ -99,27 +104,75 @@ describe('a global bar over many guilds', () => {
     const w = world(MANY)
     const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
     await w.gates.bar(actor, 'global')
+    await w.gates.settled()
     expect(await w.gates.lift(actor, 'global')).toBe(true)
+    await w.gates.settled()
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
     }
   })
 })
 
-describe('a global lift that failed partway', () => {
-  test('is finished by retrying the lift, with no duplicate announcements', async () => {
+describe('a global bar announces after it answers', () => {
+  test('answers before the guild chains are told, and the announcements finish in the background', async () => {
+    const w = world(MANY)
+    await w.gates.bar({ guildId: w.guilds[0] ?? '', memberId: OPERATOR }, 'global')
+    const told = [...w.events.values()].length
+    expect(told).toBeLessThan(MANY)
+    await w.gates.settled()
+    expect([...w.events.values()].length).toBe(MANY)
+  })
+
+  test('a failed background announcement is reported, and a repeated bar finishes it', async () => {
+    const w = world(20)
+    const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
+    w.failAnnounceTo(w.guilds[5] ?? '')
+    await w.gates.bar(actor, 'global')
+    await w.gates.settled()
+    expect(w.announceErrors).toHaveLength(1)
+    expect(w.events.get(w.guilds[5] ?? '')).toBeUndefined()
+    w.failAnnounceTo(null)
+    await w.gates.bar(actor, 'global')
+    await w.gates.settled()
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred'])
+    }
+  })
+
+  test('a lift finishes a bar announcement that failed, before it tells the lift', async () => {
+    const w = world(20)
+    const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
+    w.failAnnounceTo(w.guilds[5] ?? '')
+    await w.gates.bar(actor, 'global')
+    await w.gates.settled()
+    w.failAnnounceTo(null)
+    expect(await w.gates.lift(actor, 'global')).toBe(true)
+    await w.gates.settled()
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
+    }
+  })
+})
+
+describe('a global lift whose announcements failed partway', () => {
+  test('reports the failure, and retrying the lift finishes them with no duplicates', async () => {
     const w = world(20)
     const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
     await w.gates.bar(actor, 'global')
+    await w.gates.settled()
     w.failAnnounceTo(w.guilds[5] ?? '')
-    await expect(w.gates.lift(actor, 'global')).rejects.toThrow('announce failed')
+    expect(await w.gates.lift(actor, 'global')).toBe(true)
+    await w.gates.settled()
+    expect(w.announceErrors).toHaveLength(1)
     expect(w.events.get(w.guilds[5] ?? '')).toEqual(['gates.barred'])
     w.failAnnounceTo(null)
     expect(await w.gates.lift(actor, 'global')).toBe(false)
+    await w.gates.settled()
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
     }
     expect(await w.gates.lift(actor, 'global')).toBe(false)
+    await w.gates.settled()
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
     }
@@ -149,7 +202,7 @@ describe('a sandbox kill that fails', () => {
         },
         revokeAllRuns: async () => 0,
       },
-      quests: { releaseLeases: async () => 0 },
+      quests: { releaseLeases: async () => 0, releaseAllLeases: async () => 0 },
       sandboxes: {
         kill: async () => {
           throw new Error('docker unreachable')
@@ -169,7 +222,7 @@ describe('a sandbox kill that fails', () => {
 })
 
 describe('barring frees the leases of active Quests', () => {
-  function gatesReleasing(released: string[], guilds: string[]) {
+  function gatesReleasing(released: string[], all: string[]) {
     return new Gates({
       store: new MemoryGateStore(),
       runs: { revokeGuildRuns: async () => 0, revokeAllRuns: async () => 0 },
@@ -180,29 +233,36 @@ describe('barring frees the leases of active Quests', () => {
           released.push(guildId)
           return 1
         },
+        releaseAllLeases: async (reason) => {
+          expect(reason).toBe('sandbox_unavailable')
+          all.push('all')
+          return 5
+        },
       },
-      guildIds: async (after, limit) =>
-        guilds.filter((g) => after === undefined || g > after).slice(0, limit),
+      guildIds: async () => [],
     })
   }
 
   test('barring one guild releases that guild only', async () => {
     const released: string[] = []
+    const all: string[] = []
     const guild = crypto.randomUUID()
-    await gatesReleasing(released, [guild, crypto.randomUUID()]).bar(
+    await gatesReleasing(released, all).bar(
       { guildId: guild, memberId: crypto.randomUUID() },
       'guild'
     )
     expect(released).toEqual([guild])
+    expect(all).toEqual([])
   })
 
-  test('a global bar releases every guild, a page at a time', async () => {
+  test('a global bar releases every guild in one call, not guild by guild', async () => {
     const released: string[] = []
-    const guilds = Array.from({ length: 120 }, () => crypto.randomUUID()).sort()
-    await gatesReleasing(released, guilds).bar(
-      { guildId: guilds[0] ?? '', memberId: crypto.randomUUID() },
+    const all: string[] = []
+    await gatesReleasing(released, all).bar(
+      { guildId: crypto.randomUUID(), memberId: crypto.randomUUID() },
       'global'
     )
-    expect([...released].sort()).toEqual(guilds)
+    expect(all).toEqual(['all'])
+    expect(released).toEqual([])
   })
 })

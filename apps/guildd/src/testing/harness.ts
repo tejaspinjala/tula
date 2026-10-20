@@ -172,6 +172,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       for (const server of servers) {
         await server.stop(true)
       }
+      // A global bar's announcements run after its response; end them before the pool closes.
+      await composed.gates.stop()
       await db.close()
       await owner.end()
     },

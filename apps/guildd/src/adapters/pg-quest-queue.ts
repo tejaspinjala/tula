@@ -289,6 +289,10 @@ export class PgQuestQueue implements QuestQueue {
     })
   }
 
+  releaseAllLeases(reason: FailReason): Promise<number> {
+    return this.db.releaseAllLeases(reason)
+  }
+
   async releaseClaim(
     guildId: string,
     id: string,
