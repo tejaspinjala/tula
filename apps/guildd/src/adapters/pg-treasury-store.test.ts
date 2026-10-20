@@ -67,6 +67,7 @@ test('Treasury events carry ids and amounts only, never evidence or purpose text
     'hash',
     'spendId',
     'status',
+    'memberId',
   ])
   for (const e of events) {
     expect(Object.keys(e.payload).every((k) => allowed.has(k))).toBe(true)

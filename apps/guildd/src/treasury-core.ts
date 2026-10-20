@@ -87,6 +87,7 @@ export function entryHash(guildId: string, e: Omit<LedgerEntry, 'hash'>): string
 
 /** What to append: the caller supplies meaning, the core supplies seq, id, time and hashes. */
 interface Draft {
+  actorMember?: string
   kind: EntryKind
   bucket: Bucket
   amountCents: number
@@ -127,7 +128,7 @@ export abstract class TreasuryCore {
       mode: 'paper' as const,
       spendId: draft.spendId ?? null,
       idemKey: draft.idemKey ?? null,
-      actorMember: null,
+      actorMember: draft.actorMember ?? null,
       evidence: draft.evidence ?? null,
       day: now.slice(0, 10),
       createdAt: now,
@@ -142,6 +143,7 @@ export abstract class TreasuryCore {
       bucket: entry.bucket,
       amountCents: entry.amountCents,
       hash: entry.hash,
+      ...(entry.actorMember ? { memberId: entry.actorMember } : {}),
     })
     return entry
   }
@@ -213,6 +215,7 @@ export abstract class TreasuryCore {
               amountCents,
               idemKey,
               evidence,
+              actorMember: input.actorMember,
             })
           )
         }
@@ -261,6 +264,7 @@ export abstract class TreasuryCore {
       })
       if (!escalation) {
         await this.post(guildId, tx, {
+          actorMember: input.requestedBy,
           kind: 'spend_reserve',
           bucket: 'operating',
           amountCents: -spend.amountCents,
@@ -271,6 +275,7 @@ export abstract class TreasuryCore {
         spendId: spend.id,
         status: spend.status,
         amountCents: spend.amountCents,
+        memberId: input.requestedBy,
       })
       return { ok: true, spend, created: true }
     })
@@ -280,7 +285,10 @@ export abstract class TreasuryCore {
   private async moveSpend(
     tx: TreasuryTx,
     spend: Spend,
-    change: Partial<Pick<Spend, 'status' | 'settledCents' | 'approvedBy' | 'escalation'>>
+    change: Partial<
+      Pick<Spend, 'status' | 'settledCents' | 'approvedBy' | 'approvedByMember' | 'escalation'>
+    >,
+    actorMember: string
   ): Promise<Spend> {
     const next: Spend = { ...spend, ...change }
     await tx.updateSpend(next)
@@ -288,6 +296,7 @@ export abstract class TreasuryCore {
       spendId: next.id,
       status: next.status,
       amountCents: next.settledCents ?? next.amountCents,
+      memberId: actorMember,
     })
     return next
   }
@@ -304,7 +313,7 @@ export abstract class TreasuryCore {
     })
   }
 
-  approveSpend(guildId: string, spendId: string, _actorMember: string): Promise<SpendResult> {
+  approveSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
     return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
       if (spend.status !== 'pending_approval') {
         return { ok: false, reason: 'wrong_state' }
@@ -314,28 +323,35 @@ export abstract class TreasuryCore {
         return { ok: false, reason: 'insufficient_funds' }
       }
       await this.post(guildId, tx, {
+        actorMember,
         kind: 'spend_reserve',
         bucket: 'operating',
         amountCents: -spend.amountCents,
         spendId: spend.id,
       })
-      const next = await this.moveSpend(tx, spend, {
-        status: 'reserved',
-        approvedBy: 'guild_master',
-        escalation: null,
-      })
+      const next = await this.moveSpend(
+        tx,
+        spend,
+        {
+          status: 'reserved',
+          approvedBy: 'guild_master',
+          approvedByMember: actorMember,
+          escalation: null,
+        },
+        actorMember
+      )
       return { ok: true, spend: next, created: false }
     })
   }
 
-  denySpend(guildId: string, spendId: string, _actorMember: string): Promise<SpendResult> {
+  denySpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
     return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
       if (spend.status !== 'pending_approval') {
         return { ok: false, reason: 'wrong_state' }
       }
       return {
         ok: true,
-        spend: await this.moveSpend(tx, spend, { status: 'denied' }),
+        spend: await this.moveSpend(tx, spend, { status: 'denied' }, actorMember),
         created: false,
       }
     })
@@ -345,7 +361,7 @@ export abstract class TreasuryCore {
     guildId: string,
     spendId: string,
     actualCents: number,
-    _actorMember: string
+    actorMember: string
   ): Promise<SpendResult> {
     if (!Number.isSafeInteger(actualCents) || actualCents < 0) {
       return Promise.resolve({ ok: false, reason: 'invalid_amount' })
@@ -363,18 +379,24 @@ export abstract class TreasuryCore {
       const refund = spend.amountCents - actualCents
       if (refund > 0) {
         await this.post(guildId, tx, {
+          actorMember,
           kind: 'spend_settle',
           bucket: 'operating',
           amountCents: refund,
           spendId: spend.id,
         })
       }
-      const next = await this.moveSpend(tx, spend, { status: 'settled', settledCents: actualCents })
+      const next = await this.moveSpend(
+        tx,
+        spend,
+        { status: 'settled', settledCents: actualCents },
+        actorMember
+      )
       return { ok: true, spend: next, created: false }
     })
   }
 
-  releaseSpend(guildId: string, spendId: string, _actorMember: string): Promise<SpendResult> {
+  releaseSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
     return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
       if (spend.status === 'released') {
         return { ok: true, spend, created: false }
@@ -383,6 +405,7 @@ export abstract class TreasuryCore {
         return { ok: false, reason: 'wrong_state' }
       }
       await this.post(guildId, tx, {
+        actorMember,
         kind: 'spend_release',
         bucket: 'operating',
         amountCents: spend.amountCents,
@@ -390,7 +413,7 @@ export abstract class TreasuryCore {
       })
       return {
         ok: true,
-        spend: await this.moveSpend(tx, spend, { status: 'released' }),
+        spend: await this.moveSpend(tx, spend, { status: 'released' }, actorMember),
         created: false,
       }
     })
@@ -430,12 +453,14 @@ export abstract class TreasuryCore {
         return { ok: false, reason: 'insufficient_funds' }
       }
       const out = await this.post(guildId, tx, {
+        actorMember: input.actorMember,
         kind: 'reserve_release',
         bucket: 'reserve',
         amountCents: -input.amountCents,
         idemKey,
       })
       const into = await this.post(guildId, tx, {
+        actorMember: input.actorMember,
         kind: 'reserve_release',
         bucket: 'operating',
         amountCents: input.amountCents,
