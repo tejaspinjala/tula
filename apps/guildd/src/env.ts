@@ -33,6 +33,40 @@ function relyingParty(
   }
 }
 
+/** A base64url string that decodes to exactly `length` bytes, optionally starting with `first`. */
+function base64urlBytes(length: number, first?: number) {
+  return z.string().refine((value) => {
+    if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+      return false
+    }
+    const bytes = Buffer.from(value, 'base64url')
+    return bytes.length === length && (first === undefined || bytes[0] === first)
+  }, `must be base64url of ${length} bytes`)
+}
+
+const VAPID_KEYS = ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'] as const
+
+/** Web push needs all three VAPID settings: required in production, all-or-none elsewhere. */
+function vapid(
+  env: { NODE_ENV: string } & Partial<Record<(typeof VAPID_KEYS)[number], string | undefined>>,
+  ctx: z.RefinementCtx
+) {
+  const required = env.NODE_ENV === 'production'
+  const present = VAPID_KEYS.filter((key) => env[key])
+  if (!required && present.length === 0) {
+    return
+  }
+  for (const key of VAPID_KEYS) {
+    if (!env[key]) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: `${key} is required ${required ? 'in production' : 'when any VAPID setting is set'}`,
+      })
+    }
+  }
+}
+
 const baseSchema = z.object({
   ...productionFields,
   /** Non-owner `guildhall_app` connection: the only one the running app uses. */
@@ -70,16 +104,22 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  /** VAPID keys and contact for web push. */
-  VAPID_PUBLIC_KEY: z.string().optional(),
-  VAPID_PRIVATE_KEY: z.string().optional(),
-  VAPID_SUBJECT: z.string().optional(),
+  /** VAPID public key for web push: base64url of the 65-byte uncompressed P-256 point. */
+  VAPID_PUBLIC_KEY: base64urlBytes(65, 0x04).optional(),
+  /** VAPID private key: base64url of the 32-byte P-256 scalar. Secret. */
+  VAPID_PRIVATE_KEY: base64urlBytes(32).optional(),
+  /** VAPID contact the push service may reach: a `mailto:` or `https:` URL. */
+  VAPID_SUBJECT: z
+    .string()
+    .regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/)
+    .optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
 const schema = baseSchema
   .superRefine((env, ctx) => {
     relyingParty(env, ctx)
+    vapid(env, ctx)
     if (env.NODE_ENV === 'production' && !env.KEY_FILE) {
       ctx.addIssue({
         code: 'custom',
