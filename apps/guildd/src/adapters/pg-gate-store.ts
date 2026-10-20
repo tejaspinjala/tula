@@ -90,7 +90,6 @@ export class PgGateStore implements GateStore {
       await appendEvent(tx, this.keys, event.type, {
         barId: event.barId,
         scope: 'global',
-        memberId: event.memberId,
       })
       return true
     })

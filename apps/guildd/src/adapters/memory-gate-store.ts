@@ -71,7 +71,6 @@ export class MemoryGateStore implements GateStore {
     this.onEvent(guildId, event.type, {
       barId: event.barId,
       scope: 'global',
-      memberId: event.memberId,
     })
     return true
   }

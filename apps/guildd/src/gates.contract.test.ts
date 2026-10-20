@@ -178,7 +178,7 @@ describe('Bar the Gates routes', () => {
         select type, payload from events
         where guild_id = ${other.guildId} and type like 'gates.%' order by seq`
       expect(told.map((e) => e.type)).toEqual(['gates.barred'])
-      expect(Object.keys(told[0]?.payload ?? {}).sort()).toEqual(['barId', 'memberId', 'scope'])
+      expect(Object.keys(told[0]?.payload ?? {}).sort()).toEqual(['barId', 'scope'])
       expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
       expect(await harness.adapters.gates.status(other.guildId)).toEqual({
         guild: false,

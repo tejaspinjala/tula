@@ -9,6 +9,8 @@ export interface GateStoreFixture {
   newGuild: () => Promise<string>
   /** The `gates.*` event types appended to the guild's chain so far, in order. */
   events: (guildId: string) => Promise<string[]>
+  /** The payload of the guild's latest event of `type`, or null. */
+  payload: (guildId: string, type: string) => Promise<Record<string, unknown> | null>
 }
 
 /**
@@ -83,7 +85,7 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const other = await newGuild()
       const { barId } = await store.bar({ guildId: actor, memberId: GM }, 'global')
       try {
-        const barred = { type: 'gates.barred', barId, memberId: GM } as const
+        const barred = { type: 'gates.barred', barId } as const
         expect(await store.announceGlobal(other, barred)).toBe(true)
         expect(await store.announceGlobal(other, barred)).toBe(false)
         expect(await store.announceGlobal(actor, barred)).toBe(false)
@@ -92,11 +94,29 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       } finally {
         await store.lift({ guildId: actor, memberId: GM }, 'global')
       }
-      const lifted = { type: 'gates.lifted', barId, memberId: GM } as const
+      const lifted = { type: 'gates.lifted', barId } as const
       expect(await store.announceGlobal(other, lifted)).toBe(true)
       expect(await store.announceGlobal(other, lifted)).toBe(false)
       expect(await events(other)).toEqual(['gates.barred', 'gates.lifted'])
       expect(await events(actor)).toEqual(['gates.barred', 'gates.lifted'])
+    })
+
+    test('an announced global event names no member outside the acting guild', async () => {
+      const { store, newGuild, payload } = await make()
+      const actor = await newGuild()
+      const other = await newGuild()
+      const { barId } = await store.bar({ guildId: actor, memberId: GM }, 'global')
+      try {
+        await store.announceGlobal(other, { type: 'gates.barred', barId })
+      } finally {
+        await store.lift({ guildId: actor, memberId: GM }, 'global')
+      }
+      expect(await payload(other, 'gates.barred')).toEqual({ barId, scope: 'global' })
+      expect(await payload(actor, 'gates.barred')).toEqual({
+        barId,
+        scope: 'global',
+        memberId: GM,
+      })
     })
 
     test("the latest global lift is remembered in the acting guild's chain only", async () => {

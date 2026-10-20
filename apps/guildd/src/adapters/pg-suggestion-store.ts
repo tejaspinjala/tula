@@ -118,12 +118,17 @@ export class PgSuggestionStore implements SuggestionStore {
         returning ${tx.unsafe(COLUMNS)}`
       if (updated) {
         const suggestion = toSuggestion(updated)
-        // Ids only: never the title, body, URL or any token.
+        // Ids and a keyed hash only: never the title, body, URL, repo name or any token.
+        const sourceHash = await this.keys.mac(
+          guildId,
+          'learning-source',
+          new TextEncoder().encode(suggestion.sourceId)
+        )
         await appendEvent(
           tx,
           this.keys,
           status === 'accepted' ? 'learning.accepted' : 'learning.dismissed',
-          { suggestionId: suggestion.id, sourceId: suggestion.sourceId }
+          { suggestionId: suggestion.id, sourceHash }
         )
         return { ok: true, suggestion }
       }

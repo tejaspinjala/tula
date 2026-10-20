@@ -2,6 +2,16 @@ import { z } from 'zod'
 import type { Fetcher } from './artifacts'
 import { PasskeyRequestError, type Session } from './passkeys'
 
+/** The link target only when it is https on exactly github.com; anything else is no link. */
+const githubUrl = z.string().transform((value) => {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' && parsed.hostname === 'github.com' ? value : null
+  } catch {
+    return null
+  }
+})
+
 const suggestionBody = z.object({
   id: z.string(),
   sourceId: z.string(),
@@ -9,7 +19,7 @@ const suggestionBody = z.object({
   kind: z.enum(['pr', 'adr']),
   title: z.string(),
   body: z.string(),
-  url: z.string(),
+  url: githubUrl,
   status: z.enum(['pending', 'accepted', 'dismissed']),
   noteId: z.string().nullable(),
 })

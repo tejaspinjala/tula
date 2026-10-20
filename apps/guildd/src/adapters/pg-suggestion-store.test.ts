@@ -54,7 +54,8 @@ test('the database refuses a source id taken twice and a status outside the thre
 
 test('decisions append chained events with the suggestion and source ids only', async () => {
   const guild = await newGuild()
-  const store = new PgSuggestionStore(db, new MemoryKeyProvider(), clock)
+  const keys = new MemoryKeyProvider()
+  const store = new PgSuggestionStore(db, keys, clock)
   const item = (n: number) => ({
     sourceId: `pr:o/r#${n}`,
     repo: 'o/r',
@@ -71,8 +72,15 @@ test('decisions append chained events with the suggestion and source ids only', 
   const events = await owner`
     select type, payload from events where guild_id = ${guild} and type ~ '^learning\\.' order by seq`
   expect(events.map((e) => e.type)).toEqual(['learning.accepted', 'learning.dismissed'])
-  expect(events[0]?.payload).toEqual({ suggestionId: a?.id, sourceId: a?.sourceId })
+  const sourceHash = await keys.mac(
+    guild,
+    'learning-source',
+    new TextEncoder().encode(a?.sourceId ?? '')
+  )
+  expect(events[0]?.payload).toEqual({ suggestionId: a?.id, sourceHash })
   const json = JSON.stringify(events)
+  expect(json).not.toContain('o/r')
+  expect(json).not.toContain('pr:')
   expect(json).not.toContain('secret-title')
   expect(json).not.toContain('secret-body')
 })

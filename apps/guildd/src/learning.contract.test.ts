@@ -112,6 +112,18 @@ describe('learning suggestion routes', () => {
     expect(asked).not.toContain('employer/secret')
   })
 
+  test('a barred guild is not scanned: 409 gates_barred, the Envoy untouched, the bar stays', async () => {
+    const { guildId, auth } = await signedIn()
+    await harness.adapters.gates.bar({ guildId, memberId: crypto.randomUUID() }, 'guild')
+    const before = asked.length
+    const res = await send('POST', `/guilds/${guildId}/learning/scan`, auth, {})
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'gates_barred' })
+    expect(asked).toHaveLength(before)
+    expect(await harness.adapters.gates.status(guildId)).toEqual({ guild: true, global: false })
+    expect((await list(guildId, auth)).body.suggestions).toHaveLength(0)
+  })
+
   test('the list is paginated and capped', async () => {
     const { guildId, auth } = await signedIn()
     await send('POST', `/guilds/${guildId}/learning/scan`, auth, {})

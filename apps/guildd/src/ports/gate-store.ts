@@ -7,13 +7,11 @@ export interface GateActor {
   memberId: string
 }
 
-/** A global bar or lift, told to a guild's own chain: ids only. */
+/** A global bar or lift, told to another guild's chain: the bar id only, never who acted. */
 export interface GlobalEvent {
   type: 'gates.barred' | 'gates.lifted'
   /** The global bar this is about. */
   barId: string
-  /** The platform operator who barred or lifted. */
-  memberId: string
 }
 
 /** Which bars are up for one guild. */
