@@ -3,7 +3,8 @@ import { barGates, describeGates, type GatesStatus, liftGates, loadGates } from 
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 
 /**
- * Bar the Gates: the Guild Master's kill switch for this guild or every guild. Barring is one
+ * Bar the Gates: the Guild Master's kill switch for this guild, and for every guild when the
+ * Guild Master is also a platform operator. Barring is one
  * press; lifting asks for the passkey again, because it lets work resume.
  */
 export function GatesPanel({ session }: { session: Session | null }) {
@@ -62,17 +63,6 @@ export function GatesPanel({ session }: { session: Session | null }) {
             type="button"
             onClick={() =>
               run(async (current) => {
-                const done = await barGates(current, 'global', fetch)
-                return `Barred every guild: ${done.revokedRuns} run tokens revoked, ${done.killedSandboxes} sandboxes stopped.`
-              })
-            }
-          >
-            Bar every guild
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              run(async (current) => {
                 await liftGates(current, 'guild', fetch, webAuthnBrowser)
                 return 'The guild bar is lifted.'
               })
@@ -80,17 +70,32 @@ export function GatesPanel({ session }: { session: Session | null }) {
           >
             Lift this guild's bar with passkey
           </button>
-          <button
-            type="button"
-            onClick={() =>
-              run(async (current) => {
-                await liftGates(current, 'global', fetch, webAuthnBrowser)
-                return 'The global bar is lifted.'
-              })
-            }
-          >
-            Lift the global bar with passkey
-          </button>
+          {status?.operator && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  run(async (current) => {
+                    const done = await barGates(current, 'global', fetch)
+                    return `Barred every guild: ${done.revokedRuns} run tokens revoked, ${done.killedSandboxes} sandboxes stopped.`
+                  })
+                }
+              >
+                Bar every guild
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  run(async (current) => {
+                    await liftGates(current, 'global', fetch, webAuthnBrowser)
+                    return 'The global bar is lifted.'
+                  })
+                }
+              >
+                Lift the global bar with passkey
+              </button>
+            </>
+          )}
         </div>
       )}
       {message && (

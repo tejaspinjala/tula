@@ -263,12 +263,12 @@ describe('barring frees the leases of active Quests', () => {
       sandboxes: { kill: async () => 0 },
       quests: {
         releaseLeases: async (guildId, reason) => {
-          expect(reason).toBe('sandbox_unavailable')
+          expect(reason).toBe('routing_blocked')
           released.push(guildId)
           return 1
         },
         releaseAllLeases: async (reason) => {
-          expect(reason).toBe('sandbox_unavailable')
+          expect(reason).toBe('routing_blocked')
           all.push('all')
           return 5
         },

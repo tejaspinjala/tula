@@ -30,6 +30,15 @@ test('a fan-out node owns its Quest`s attempts and spend like an agent node', ()
   expect(overlay.get('crew')).toMatchObject({ status: 'done', attempts: 1, costMicros: null })
 })
 
+test('a node waiting on its Sub-Quests reads "Awaiting children"', () => {
+  const overlay = runOverlay(
+    [{ id: 'draft', type: 'agent', status: 'awaiting_children', questId: 'q1' }],
+    new Map(),
+    new Map()
+  )
+  expect(overlay.get('draft')).toMatchObject({ tone: 'warn', text: 'Awaiting children' })
+})
+
 test('the run overlay carries status in words and tone, with attempts and cost from the Quest', () => {
   const overlay = runOverlay(
     [

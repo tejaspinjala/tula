@@ -63,6 +63,7 @@ export type NodeStatus =
   | 'queued'
   | 'running'
   | 'awaiting_seal'
+  | 'awaiting_children'
   | 'done'
   | 'failed'
   | 'passed'
@@ -424,7 +425,9 @@ export class WorkflowEngine {
       return 'pending'
     }
     if (node.type === 'agent' || node.type === 'subagents') {
-      return AGENT_STATUS[quest.state]
+      return quest.state === 'queued' && quest.waitingOn.length > 0
+        ? 'awaiting_children'
+        : AGENT_STATUS[quest.state]
     }
     if (node.type === 'team') {
       // The Captain's plan comes first; the Campaign is done when every board Quest is.

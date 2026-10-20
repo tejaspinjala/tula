@@ -130,6 +130,9 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
     return c.json({ valid: errors.length === 0, errors })
   })
 
+  // The save answers `{ status, version: { version, ... } }` (the whole stored version, with its
+  // classification), where the config PUT answers `{ version: number, status, change }`: a workflow
+  // version carries its graph and classification, so the object is returned rather than a number.
   app.put(`${base}/:wid`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
@@ -148,26 +151,32 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
   })
 
   app.post(`${base}/:wid/versions/:version/confirm`, async (c) => {
-    const check = await checkSensitive(deps.identity, sessionHeaders(c))
-    if (!check.ok) {
-      return c.json({ error: check.error }, check.status)
-    }
-    if (!isGuildMaster(check.principal)) {
-      return c.json({ error: 'forbidden' }, 403)
+    // Guild, role and version are checked first: a request that cannot succeed must not spend
+    // the one-shot re-authentication proof.
+    const who = await deps.guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
     }
     const id = wid(c)
     const version = versionNumber.safeParse(c.req.param('version'))
-    if (c.req.param('id') !== check.guildId || !id || !version.success) {
+    if (!id || !version.success) {
       return notFound(c)
     }
-    const found = await deps.workflows.get(check.guildId, id, version.data)
+    const found = await deps.workflows.get(who.guild, id, version.data)
     if (!found) {
       return notFound(c)
     }
     if (found.version.status !== 'pending') {
       return c.json({ error: 'not_pending' }, 409)
     }
-    await deps.workflows.confirm(check.guildId, id, version.data)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (check.guildId !== who.guild || !isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    await deps.workflows.confirm(who.guild, id, version.data)
     return c.json({ version: version.data, status: 'active' })
   })
 

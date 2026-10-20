@@ -2,7 +2,15 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { type HallLayout, hallLayout, seatsIn } from './layout'
+import {
+  bubbleCentreY,
+  fitZoom,
+  type HallLayout,
+  hallLayout,
+  openZoom,
+  seatsIn,
+  withClosedDoors,
+} from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -85,6 +93,9 @@ const px = (tiles: number, size: number) => tiles * size
  */
 export class HallScene extends Phaser.Scene {
   private readonly layout: HallLayout = hallLayout()
+  /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
+  private walkable: (x: number, y: number) => boolean = this.layout.walkable
+  private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
   private dynamic: Phaser.GameObjects.GameObject[] = []
@@ -151,6 +162,7 @@ export class HallScene extends Phaser.Scene {
     this.createPlayer()
     this.ready = true
     this.fit()
+    this.openReadable()
     if (this.pending) {
       this.render(this.pending)
     }
@@ -173,7 +185,10 @@ export class HallScene extends Phaser.Scene {
 
   /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
   teleport(slot: number | null): void {
-    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.layout.walkable)
+    if (slot !== null && this.lockedSlots.has(slot)) {
+      return
+    }
+    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.walkable)
     this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
     this.path = []
     this.chasing = true
@@ -190,12 +205,7 @@ export class HallScene extends Phaser.Scene {
     const dir = direction(this.keys)
     if (dir.x !== 0 || dir.y !== 0) {
       this.path = []
-      this.at = moveBy(
-        this.at,
-        dir.x * SPEED * seconds,
-        dir.y * SPEED * seconds,
-        this.layout.walkable
-      )
+      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, this.walkable)
       this.chase(false)
     } else if (this.path.length > 0) {
       const next = followPath(this.at, this.path, SPEED * seconds)
@@ -283,7 +293,7 @@ export class HallScene extends Phaser.Scene {
       const s = this.layout.tileSize
       const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
       const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
-      const route = findPath(this.layout.walkable, from, to)
+      const route = findPath(this.walkable, from, to)
       if (route) {
         this.path = route
         this.chase(false)
@@ -373,6 +383,8 @@ export class HallScene extends Phaser.Scene {
     if (this.baselineSeq === null) {
       this.baselineSeq = state.appliedSeq
     }
+    this.walkable = withClosedDoors(this.layout, state.rooms)
+    this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
     this.drawMembers(state)
   }
@@ -398,13 +410,25 @@ export class HallScene extends Phaser.Scene {
     cam.setSize(this.scale.width, this.scale.height)
     const worldW = px(this.layout.width, this.layout.tileSize)
     const worldH = px(this.layout.height, this.layout.tileSize)
-    const fitZoom = Math.min(this.scale.width / worldW, this.scale.height / worldH)
-    this.zoomLevel = fitZoom >= 1 ? Math.floor(fitZoom) : fitZoom >= 0.5 ? 0.5 : 0.25
+    this.zoomLevel = fitZoom(this.scale.width, this.scale.height, worldW, worldH)
     if (keepFollow && this.chasing) {
       this.zoomLevel = Math.max(1, this.zoomLevel)
     }
     cam.setZoom(this.zoomLevel)
     this.centre()
+  }
+
+  /** A phone opens at a readable zoom on the Guild Master, not at the whole hall in miniature; Fit hall still shows it all. */
+  private openReadable(): void {
+    const cam = this.cameras.main
+    const worldW = px(this.layout.width, this.layout.tileSize)
+    const worldH = px(this.layout.height, this.layout.tileSize)
+    const zoom = openZoom(this.scale.width, this.scale.height, worldW, worldH)
+    if (zoom > this.zoomLevel) {
+      this.zoomLevel = zoom
+      cam.setZoom(zoom)
+      cam.centerOn(this.at.x * this.layout.tileSize, this.at.y * this.layout.tileSize)
+    }
   }
 
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
@@ -630,7 +654,9 @@ export class HallScene extends Phaser.Scene {
     const label = this.add.bitmapText(0, 0, FONT, text, 16).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
     const w = label.width + 8
     const back = this.add.rectangle(0, 0, w, 20, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 26, [back, label]).setDepth(30)
+    const root = this.add
+      .container(x, bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y), [back, label])
+      .setDepth(30)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()

@@ -51,6 +51,7 @@ const STATUS: Record<string, { tone: Tone; text: string }> = {
   running: { tone: 'info', text: 'Running' },
   publishing: { tone: 'info', text: 'Publishing' },
   awaiting_seal: { tone: 'warn', text: 'Awaiting Seal' },
+  awaiting_children: { tone: 'warn', text: 'Awaiting children' },
   awaiting: { tone: 'warn', text: 'Awaiting' },
   done: { tone: 'ok', text: 'Done' },
   passed: { tone: 'ok', text: 'Passed' },
