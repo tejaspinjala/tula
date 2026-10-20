@@ -16,6 +16,7 @@ export type RateRoute =
   | 'checkpoint-finish'
   | 'quest-post'
   | 'seal-posted'
+  | 'mcp'
   | 'proposal-post'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
@@ -57,6 +58,12 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'checkpoint-finish': writeLimits(10, 30),
   'quest-post': writeLimits(60, 300),
   'seal-posted': writeLimits(30, 120),
+  // The MCP gateway: no guild in the path, so it is bounded per client; every tool call is also
+  // authorised by a signed lease token, and a forged one costs a MAC check.
+  mcp: {
+    client: { limit: 600, windowMs: MINUTE },
+    unknown: { limit: 120, windowMs: MINUTE },
+  },
   'proposal-post': writeLimits(60, 300),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {

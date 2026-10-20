@@ -23,6 +23,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
+  mcp: { client: NO_LIMIT },
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
@@ -43,6 +44,7 @@ export interface HarnessOptions {
       | 'seals'
       | 'proposals'
       | 'quests'
+      | 'mcp'
       | 'tripwires'
       | 'streamTickets'
       | 'objectStore'
@@ -108,6 +110,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       seals: composed.seals,
       proposals: composed.proposals,
       quests: composed.quests,
+      mcp: composed.mcp,
       tripwires: composed.tripwires,
       streamTickets: composed.streamTickets,
       classifier: composed.classifier,

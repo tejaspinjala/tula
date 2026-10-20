@@ -4,6 +4,7 @@ import { FileKeyProvider } from './adapters/file-key-provider'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { PgConfigStore } from './adapters/pg-config-store'
+import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgProposalStore } from './adapters/pg-proposal-store'
@@ -13,6 +14,7 @@ import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { PgStreamTicketStore } from './adapters/pg-stream-ticket-store'
+import { PgToolsetStore } from './adapters/pg-toolset-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -20,6 +22,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadWebauthnEnv } from './env'
+import { McpGateway } from './mcp/gateway'
 import { ProposalEngine } from './proposals'
 import { SealEngine } from './seals'
 
@@ -49,6 +52,8 @@ export async function compose(
   const clock = overrides.clock ?? new SystemClock()
   const rp = loadWebauthnEnv()
   const config = overrides.config ?? new PgConfigStore(db, keys)
+  const notes = overrides.notes ?? new PgNoteStore(db, keys)
+  const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const adapters: AppDeps = {
     ...overrides,
     clock,
@@ -73,8 +78,20 @@ export async function compose(
     proposals:
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
-    notes: overrides.notes ?? new PgNoteStore(db, keys),
-    quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
+    notes,
+    quests,
+    mcp:
+      overrides.mcp ??
+      new McpGateway({
+        quests,
+        config,
+        notes,
+        objectStore,
+        handoffs: new PgHandoffStore(db, keys),
+        toolsets: new PgToolsetStore(db),
+        keys,
+        clock,
+      }),
     tripwires: overrides.tripwires ?? new PgTripwireStore(db, keys, clock),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
