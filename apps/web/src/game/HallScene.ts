@@ -205,7 +205,13 @@ export class HallScene extends Phaser.Scene {
     for (const view of this.members.values()) {
       const lift = view.bubble?.getData('lift')
       if (view.bubble && typeof lift === 'number') {
-        view.bubble.setPosition(view.root.x, view.root.y - lift)
+        // Above the sprite; below it when that would run off the top of the hall.
+        const half = lift - 16
+        const above = view.root.y - lift
+        view.bubble.setPosition(
+          Math.max(BUBBLE_WRAP / 2 + 6, view.root.x),
+          above - half < 0 ? view.root.y + 14 + half : above
+        )
       }
     }
     if (!this.player) {
