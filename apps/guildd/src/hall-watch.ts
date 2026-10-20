@@ -10,7 +10,7 @@ import { type HallUsage, runTripwires } from './tripwires'
 export interface HallWatchDeps {
   config: Pick<ConfigStore, 'current'>
   tripwires: TripwireStore
-  ledger: Pick<ModelLedger, 'dayTotals' | 'report' | 'revokeHallRuns'>
+  ledger: Pick<ModelLedger, 'hallDayTotals' | 'revokeHallRuns'>
   quests: Pick<QuestQueue, 'list' | 'get'>
   sealStore: Pick<SealStore, 'list'>
   clock: Clock
@@ -24,23 +24,20 @@ function day(at: Date): string {
   return at.toISOString().slice(0, 10)
 }
 
-/** The previous seven days' token totals, oldest first; a day with no usage counts as zero. */
-async function tokensPerDay7d(
-  ledger: Pick<ModelLedger, 'report'>,
+/** A Hall's tokens used today and on each of the previous seven days (oldest first; zero for a day with no usage). */
+async function hallTokens(
+  ledger: Pick<ModelLedger, 'hallDayTotals'>,
   guildId: string,
+  hallId: string,
   now: Date
-): Promise<number[]> {
+): Promise<{ today: number; perDay7d: number[] }> {
   const days = Array.from({ length: 7 }, (_, i) => day(new Date(now.getTime() - (7 - i) * DAY_MS)))
-  const tokens = new Map<string, number>()
-  let after: string | undefined
-  do {
-    const page = await ledger.report(guildId, 'day', { limit: PAGE, ...(after ? { after } : {}) })
-    for (const row of page.rows) {
-      tokens.set(row.key, row.inputTokens + row.outputTokens)
-    }
-    after = page.next ?? undefined
-  } while (after !== undefined)
-  return days.map((d) => tokens.get(d) ?? 0)
+  const rows = await ledger.hallDayTotals(guildId, hallId, {
+    from: days[0] ?? day(now),
+    to: day(now),
+  })
+  const tokens = new Map(rows.map((r) => [r.day, r.tokens]))
+  return { today: tokens.get(day(now)) ?? 0, perDay7d: days.map((d) => tokens.get(d) ?? 0) }
 }
 
 /** How many Seals of each Hall were denied in the last hour. */
@@ -103,8 +100,8 @@ async function attemptsPerHall(
  * gate denials and loops pause a Hall in the real loop. Deterministic code; a paused Hall takes
  * no further claims (`QuestQueue.claim` skips it). Measures:
  *
- * - `tokensToday` and the 7-day baseline: the guild's metered usage from the ModelLedger (the
- *   ledger cannot split a day by Hall, so a burn is judged guild-wide and applies to every Hall);
+ * - `tokensToday` and the 7-day baseline: the Hall's own metered usage from the ModelLedger, so a
+ *   burn pauses only the Hall that burned;
  * - `gateDenialsLastHour`: the Hall's Seals denied in the last hour;
  * - `maxActionRepeats`: the most attempts spent on one of the Hall's Quests still being retried.
  *
@@ -113,15 +110,14 @@ async function attemptsPerHall(
 export async function watchHalls(deps: HallWatchDeps, guildId: string): Promise<string[]> {
   const now = deps.clock.now()
   const { config } = await deps.config.current(guildId)
-  const totals = await deps.ledger.dayTotals(guildId, day(now))
-  const baseline = await tokensPerDay7d(deps.ledger, guildId, now)
   const denials = await denialsLastHour(deps, guildId, now)
   const repeats = await attemptsPerHall(deps.quests, guildId)
   const paused: string[] = []
   for (const hall of config.halls) {
+    const tokens = await hallTokens(deps.ledger, guildId, hall.id, now)
     const usage: HallUsage = {
-      tokensToday: totals.tokens,
-      tokensPerDay7d: baseline,
+      tokensToday: tokens.today,
+      tokensPerDay7d: tokens.perDay7d,
       gateDenialsLastHour: denials.get(hall.id) ?? 0,
       maxActionRepeats: repeats.get(hall.id) ?? 0,
     }
