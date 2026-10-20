@@ -141,3 +141,15 @@ test('restoring a version posts to the restore route', async () => {
   expect((await restoreVersion(session, 2, fetcher)).status).toBe('pending')
   expect(seen[0]?.method).toBe('POST')
 })
+
+test('an unknown-key refusal names the offending keys in its message', async () => {
+  const { fetcher } = fakes({
+    [`PUT ${cfg}`]: {
+      status: 422,
+      body: { error: 'unknown_config_key', unknownKeys: ['caps.bogus', 'extra'] },
+    },
+  })
+  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  expect(error instanceof Error && error.message).toContain('caps.bogus')
+  expect(error instanceof Error && error.message).toContain('extra')
+})

@@ -11,10 +11,12 @@ import {
   withScratchSchema,
 } from './test-db'
 
+/** Counts only the database this worktree owns; others come and go with concurrent workers. */
 const dbCount = async () => {
   const admin = postgres(process.env.DATABASE_URL ?? testDbUrl(), { max: 1 })
   try {
-    const [row] = await admin`select count(*)::int as n from pg_database`
+    const [row] =
+      await admin`select count(*)::int as n from pg_database where datname = ${testDbName()}`
     return row?.n
   } finally {
     await admin.end()
@@ -24,9 +26,15 @@ const dbCount = async () => {
 test('the central test database is named from DATABASE_URL and ensuring it again creates nothing', async () => {
   expect(testDbName()).toMatch(/_test(_[0-9a-f]{8})?$/)
   const before = await dbCount()
-  await ensureTestDatabase()
-  await ensureTestDatabase()
-  expect(await dbCount()).toBe(before)
+  // Other worktrees create and drop their own databases at the same time; simulate one.
+  const other = await createIsolatedTestDb(`count-churn-${crypto.randomUUID()}`)
+  try {
+    await ensureTestDatabase()
+    await ensureTestDatabase()
+    expect(await dbCount()).toBe(before)
+  } finally {
+    await other.drop()
+  }
 })
 
 test('no test or harness code issues create database (only the central setup does)', async () => {

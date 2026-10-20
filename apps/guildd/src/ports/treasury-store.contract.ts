@@ -298,6 +298,17 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         })
       })
 
+      test('releasing by key denies a spend still waiting for the Guild Master', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const waiting = await request(store, g, 'k-wait', 900)
+        expect(waiting.status).toBe('pending_approval')
+        expect(await store.releaseSpendByKey(g, 'k-wait', ACTOR)).toMatchObject({
+          ok: true,
+          spend: { id: waiting.id, status: 'denied' },
+        })
+      })
+
       test('releasing a reservation frees all of it and is idempotent', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
