@@ -144,13 +144,23 @@ async function launch(
   guildId: string,
   claimed: Quest,
   profileId: string,
-  sandboxId: string
+  sandboxId: string,
+  deadline: { passed: boolean }
 ): Promise<Launch> {
   let run: Awaited<ReturnType<typeof openRun>>
   try {
     run = await openRun(deps, guildId, claimed, profileId)
   } catch (cause) {
     return { kind: 'provider_error', cause }
+  }
+  if (deadline.passed) {
+    // The deadline's revoke found no row, so a run that settled late holds a live token: end it now.
+    try {
+      await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
+    } catch {
+      // cleanUp revokes again once the launch settles.
+    }
+    return { kind: 'sandbox_failed' }
   }
   if (!('token' in run)) {
     return { kind: 'refused', error: run.error }
@@ -198,7 +208,8 @@ export async function startRun(
       report(error)
     }
   }
-  const launching = launch(deps, guildId, claimed, profileId, sandboxId)
+  const deadline = { passed: false }
+  const launching = launch(deps, guildId, claimed, profileId, sandboxId, deadline)
   let timer: ReturnType<typeof setTimeout> | undefined
   const expired = new Promise<'timeout'>((resolve) => {
     timer = setTimeout(
@@ -213,6 +224,7 @@ export async function startRun(
     clearTimeout(timer)
   }
   if (outcome === 'timeout') {
+    deadline.passed = true
     // Revoke first so a late container holds no live token, then give the Quest back.
     try {
       await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
