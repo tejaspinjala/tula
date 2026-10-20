@@ -41,7 +41,7 @@ export async function compose(
     objectStore,
     identity:
       overrides.identity ??
-      new WebAuthnIdentityProvider(new PgIdentityStore(db), {
+      new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
         clock,
         rpId: rp.WEBAUTHN_RP_ID,
         rpName: 'Guildhall',

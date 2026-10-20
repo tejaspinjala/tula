@@ -55,7 +55,7 @@ async function tamper(run: () => Promise<unknown>) {
 describe('audit chain', () => {
   test('a freshly founded guild verifies intact with its founding event chained', async () => {
     const id = await found()
-    expect(await verify(id)).toEqual({ status: 200, body: { intact: true, entries: 1 } })
+    expect(await verify(id)).toEqual({ status: 200, body: { intact: true, entries: 2 } })
   })
 
   test('each event gets one entry linking to the previous MAC', async () => {
@@ -63,12 +63,12 @@ describe('audit chain', () => {
     await grow(id, 3)
     const rows = await harness.owner`
       select seq, prev_mac, mac from audit_chain where guild_id = ${id} order by seq`
-    expect(rows.map((r) => Number(r.seq))).toEqual([1, 2, 3, 4])
+    expect(rows.map((r) => Number(r.seq))).toEqual([1, 2, 3, 4, 5])
     expect(rows[0]?.prev_mac).toBe('0'.repeat(64))
     for (let i = 1; i < rows.length; i++) {
       expect(rows[i]?.prev_mac).toBe(rows[i - 1]?.mac)
     }
-    expect(await verify(id)).toEqual({ status: 200, body: { intact: true, entries: 4 } })
+    expect(await verify(id)).toEqual({ status: 200, body: { intact: true, entries: 5 } })
   })
 
   test('a rolled-back event leaves no entry', async () => {
@@ -79,7 +79,7 @@ describe('audit chain', () => {
         throw new Error('boom')
       })
       .catch(() => {})
-    expect((await verify(id)).body).toEqual({ intact: true, entries: 1 })
+    expect((await verify(id)).body).toEqual({ intact: true, entries: 2 })
   })
 
   test('concurrent appends keep one linear intact chain', async () => {
@@ -89,7 +89,7 @@ describe('audit chain', () => {
         db.withGuild(id, (tx) => appendEvent(tx, keys, 'test.n', { i }))
       )
     )
-    expect((await verify(id)).body).toEqual({ intact: true, entries: 11 })
+    expect((await verify(id)).body).toEqual({ intact: true, entries: 12 })
   })
 
   test('the HMAC key is not in Postgres: another key cannot verify, and no table holds it', async () => {
@@ -99,7 +99,7 @@ describe('audit chain', () => {
     const columns = await harness.owner`
       select column_name from information_schema.columns where table_name = 'audit_chain'`
     expect(columns.map((c) => c.column_name).sort()).toEqual(['guild_id', 'mac', 'prev_mac', 'seq'])
-    expect(rows.length).toBe(2)
+    expect(rows.length).toBe(3)
   })
 
   test('editing an entry fails verify and names that entry', async () => {
@@ -243,7 +243,7 @@ describe('founding is chained atomically', () => {
       const verdict = await h.request(`/guilds/${id}/audit/verify`, {
         headers: { 'x-guild-id': id },
       })
-      expect(Verdict.parse(await verdict.json())).toEqual({ intact: true, entries: 1 })
+      expect(Verdict.parse(await verdict.json())).toEqual({ intact: true, entries: 2 })
     } finally {
       await h.close()
     }
