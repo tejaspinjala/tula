@@ -91,6 +91,8 @@ export interface Db {
    * migration 0050; returns how many Quests changed.
    */
   releaseAllLeases(reason: string): Promise<number>
+  /** Whether any guild exists, through the security-definer `any_guild_exists` of migration 0056 (a bare boolean). */
+  anyGuildExists(): Promise<boolean>
   /**
    * The guild holding a credential id, or null, through the security-definer
    * `guild_for_credential` of migration 0057 (a bare uuid crosses the tenant boundary).
@@ -208,6 +210,10 @@ export function createDb(
     async releaseAllLeases(reason) {
       const [row] = await sql`select release_all_leases(${reason}) as released`
       return z.object({ released: z.number() }).parse(row).released
+    },
+    async anyGuildExists() {
+      const [row] = await sql`select any_guild_exists() as exists`
+      return z.object({ exists: z.boolean() }).parse(row).exists
     },
     async guildForCredential(credentialId) {
       const [row] = await sql`select guild_for_credential(${credentialId}) as guild_id`

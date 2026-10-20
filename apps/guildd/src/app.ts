@@ -415,6 +415,8 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: 'rate_limited' }, 429)
   }
   app.post('/guilds', limited('founding'))
+  app.post('/sign-in/begin', limited('signin-begin'))
+  app.post('/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
@@ -452,6 +454,13 @@ export function createApp(deps: AppDeps): Hono {
       return c.body(null, 202)
     }
     return c.json(reply.body, reply.status)
+  })
+
+  // Whether the web app should offer "Found your guild": a boolean only, nothing about any guild.
+  app.get('/founding', async (c) => {
+    const mode = deps.foundingMode ?? 'open'
+    const open = mode === 'open' || (mode === 'once' && !(await deps.db.anyGuildExists()))
+    return c.json({ open })
   })
 
   app.post('/guilds', async (c) => {
@@ -599,6 +608,22 @@ export function createApp(deps: AppDeps): Hono {
       body.data.response
     )
     return c.json(session)
+  })
+
+  // Usernameless sign-in: the authenticator offers a discoverable credential, and the guild is
+  // resolved from the credential id it asserts. No guild appears in the path.
+  app.post('/sign-in/begin', async (c) => {
+    return c.json(await deps.identity.beginDiscoverableSignIn())
+  })
+
+  app.post('/sign-in/finish', async (c) => {
+    const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json(
+      await deps.identity.finishDiscoverableSignIn(body.data.challengeId, body.data.response)
+    )
   })
 
   app.post('/session/reauth/begin', async (c) => {

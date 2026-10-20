@@ -111,6 +111,7 @@ describe('usernameless passkey sign-in over HTTP', () => {
   test('begin and finish are rate limited like the per-guild sign-in routes', async () => {
     const tight = { client: { limit: 1, windowMs: 60_000 } }
     const limited = await createHarness({
+      isolatedDb: true,
       devGuildHeader: false,
       app: {
         rateLimits: {
