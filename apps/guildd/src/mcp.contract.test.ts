@@ -74,7 +74,7 @@ describe('MCP gateway over HTTP, on the real stores', () => {
     expect(stored[0]?.n).toBe(1)
   })
 
-  test('missives carry ids and hashes only', async () => {
+  test('handoffs and artifacts carry ids and hashes only', async () => {
     const { guild, quest } = await guildWithQuest()
     const run = await new ScriptedMember(http, { goal: 'Draft', output: () => 'SECRET-BODY' }).run(
       await harness.adapters.mcp.assign(guild, quest)
