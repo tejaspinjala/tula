@@ -137,8 +137,22 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       expect(await s.identity.hasCredentials(s.guildId)).toBe(true)
       const session = await signIn(s)
       expect(session.guildId).toBe(s.guildId)
-      expect(await s.identity.resolveSession(session.token)).toEqual({ guildId: s.guildId })
       expect(await s.identity.resolveSession('not-a-token')).toBeNull()
+    })
+
+    test('a session resolves to the guild\'s Guild Master principal, stable across sessions', async () => {
+      const s = await registered()
+      const first = await s.identity.resolveSession((await signIn(s)).token)
+      const second = await s.identity.resolveSession((await signIn(s)).token)
+      expect(first).toEqual({
+        guildId: s.guildId,
+        memberId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        role: 'guild_master',
+      })
+      expect(second).toEqual(first)
+      const other = await registered()
+      const elsewhere = await other.identity.resolveSession((await signIn(other)).token)
+      expect(elsewhere?.memberId).not.toBe(first?.memberId)
     })
 
     test('a challenge is single use', async () => {
