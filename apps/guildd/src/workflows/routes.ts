@@ -185,7 +185,12 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
     })
     if (!result.ok) {
       return c.json(
-        { error: result.error, nodeId: result.nodeId, errors: result.errors },
+        {
+          error: result.error,
+          nodeId: result.nodeId,
+          errors: result.errors,
+          runKey: result.runKey,
+        },
         RUN_STATUS[result.error]
       )
     }
