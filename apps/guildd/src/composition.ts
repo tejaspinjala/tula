@@ -10,6 +10,7 @@ import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgGateStore } from './adapters/pg-gate-store'
+import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
@@ -165,6 +166,7 @@ export async function compose(
   const adapters: AppDeps = {
     ...overrides,
     subscriptionEnabled: subscriptionProvider !== undefined,
+    guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
     pushStore,
     pushNotifier,
     pushRelay:

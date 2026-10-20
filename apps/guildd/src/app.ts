@@ -18,6 +18,7 @@ import type { Gates } from './gates'
 import { type GuildConfig, guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import { GatesBarredError, type LearningEngine } from './learning-engine'
+import { characterLook } from './look-catalogue'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
@@ -25,6 +26,7 @@ import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
+import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import type { ModelLedger } from './ports/model-ledger'
@@ -127,6 +129,8 @@ export interface AppDeps {
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
   pushStore: PushStore
+  /** The Guild Master's saved character look, the same on every device. */
+  guildMasterLooks: GuildMasterLookStore
   /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
@@ -1235,6 +1239,29 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'endpoint_taken' }, 409)
     }
     return removed === 'removed' ? c.body(null, 204) : c.json({ error: 'not_found' }, 404)
+  })
+
+  // The Guild Master's character look: saved server-side so every device shows the same character.
+  // The body is checked against the fixed catalogue; a look is cosmetic and governs nothing.
+  app.get('/guilds/:id/guild-master/look', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json({ look: await deps.guildMasterLooks.get(who.guild) })
+  })
+
+  app.put('/guilds/:id/guild-master/look', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = z.object({ look: characterLook }).safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_look' }, 400)
+    }
+    await deps.guildMasterLooks.set(who.guild, body.data.look)
+    return c.json({ look: body.data.look })
   })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
