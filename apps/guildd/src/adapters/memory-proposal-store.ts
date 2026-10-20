@@ -89,7 +89,9 @@ export class MemoryProposalStore implements ProposalStore {
     return found ? structuredClone(found) : null
   }
 
-  async latestForQuest(_guildId: string, _questId: string): Promise<Proposal | null> {
-    throw new Error('not implemented')
+  async latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
+    const mine = [...this.proposals(guildId).values()].filter((p) => p.questId === questId)
+    const latest = mine.at(-1)
+    return latest ? this.copy(latest) : null
   }
 }
