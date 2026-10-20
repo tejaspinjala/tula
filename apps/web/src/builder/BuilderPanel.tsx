@@ -30,6 +30,9 @@ export interface BuilderPanelProps {
   desktop?: boolean
 }
 
+// One stable function: a fresh default per render would re-run the loading effect forever.
+const liveFetch: Fetcher = (url, init) => fetch(url, init)
+
 const WIDE = '(min-width: 768px)'
 
 const query = () => (typeof window.matchMedia === 'function' ? window.matchMedia(WIDE) : null)
@@ -61,7 +64,7 @@ function startDrag(piece: string) {
 /** The Guild builder: a drag-and-drop canvas for Halls and Members, saved as versioned config. */
 export function BuilderPanel({
   session,
-  fetcher = (url, init) => fetch(url, init),
+  fetcher = liveFetch,
   browser = webAuthnBrowser,
   desktop,
 }: BuilderPanelProps) {

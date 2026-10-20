@@ -8,6 +8,7 @@ export const VIEWS = [
   { id: 'archive', path: '/archive', label: 'Archive' },
   { id: 'treasury', path: '/treasury', label: 'Treasury and Costs' },
   { id: 'roster', path: '/roster', label: 'Roster and Summon' },
+  { id: 'guild', path: '/guild', label: 'Guild' },
   { id: 'gates', path: '/gates', label: 'Gates' },
   { id: 'timeline', path: '/timeline', label: 'Timeline' },
   { id: 'vault', path: '/vault', label: 'Vault and Settings' },
