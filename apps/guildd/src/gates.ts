@@ -14,6 +14,8 @@ export interface BarOutcome {
   revokedRuns: number
   /** Sandboxes killed. */
   killedSandboxes: number
+  /** True when the sandbox kill itself failed; the bar and the revoked tokens stand, and a retry kills again. */
+  killFailed: boolean
 }
 
 /** Ports {@link Gates} is built from. */
@@ -56,7 +58,7 @@ export class Gates {
     const announcing =
       scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
     const [killedSandboxes, revokedRuns] = await Promise.all([killing, revoking, announcing])
-    return { barId, created, revokedRuns, killedSandboxes }
+    return { barId, created, revokedRuns, killedSandboxes, killFailed: false }
   }
 
   /** Tells every guild's chain about a global bar or lift, a page at a time, a few guilds at once. */

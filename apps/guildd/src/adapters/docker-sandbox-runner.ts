@@ -30,6 +30,8 @@ export interface DockerSandboxOptions {
   exec?: DockerExec
   /** Extra labels on every container (tests use one to find leftovers). */
   extraLabels?: Record<string, string>
+  /** Overall deadline for `kill`, in ms, below the per-call timeout. Defaults to 2000. */
+  killDeadlineMs?: number
   /** Longest any one docker call may take, in ms. Defaults to 10000. */
   timeoutMs?: number
 }
