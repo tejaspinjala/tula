@@ -47,9 +47,30 @@ export function proposalStoreContract(name: string, make: () => Promise<Proposal
     test('proposing the same content again returns the same Proposal and keeps its Verdict', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const a = await store.propose(g, draft('Same'), { passed: true, findings: PASS })
-      const again = await store.propose(g, draft('Same'), { passed: false, findings: FAIL })
+      const quest = draft('Same')
+      const a = await store.propose(g, quest, { passed: true, findings: PASS })
+      const again = await store.propose(g, quest, { passed: false, findings: FAIL })
       expect(again).toEqual(a)
+    })
+
+    test("the same content under a second Quest is that Quest's own Proposal, sharing one Verdict", async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const first = draft('Shared')
+      const second = draft('Shared')
+      const a = await store.propose(g, first, { passed: true, findings: PASS })
+      const b = await store.propose(g, second, { passed: false, findings: FAIL })
+      expect(b.id).not.toBe(a.id)
+      expect(a.questId).toBe(first.questId)
+      expect(b.questId).toBe(second.questId)
+      expect(b.hash).toBe(a.hash)
+      expect(b.verdict).toEqual(a.verdict)
+      expect(await store.get(g, b.id)).toEqual(b)
+      expect((await store.list(g, { limit: 10 })).proposals.map((p) => p.questId).sort()).toEqual(
+        [first.questId, second.questId].sort()
+      )
+      expect(await store.verdictFor(g, a.hash)).toEqual(a.verdict)
+      expect(await store.propose(g, second, { passed: true, findings: PASS })).toEqual(b)
     })
 
     test('same-tick proposals of the same content create exactly one Proposal', async () => {
