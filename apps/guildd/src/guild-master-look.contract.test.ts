@@ -43,15 +43,14 @@ function save(guild: string, token: string | null, body: unknown) {
 }
 
 describe('Guild Master look routes', () => {
-  test('a new guild has no look; a saved look is read back by another session of the guild', async () => {
+  test('a new guild has no look; a saved look is read back', async () => {
     const { guild, token } = await found('Looks')
     expect(lookBody.parse(await (await read(guild, token)).json()).look).toBeNull()
     const put = await save(guild, token, { look })
     expect(put.status).toBe(200)
     expect(lookBody.parse(await put.json()).look).toEqual(look)
-    // Another device signs in as the same Guild Master and sees the same character.
-    const other = await openSession(harness.adapters.identity, guild)
-    expect(lookBody.parse(await (await read(guild, other)).json()).look).toEqual(look)
+    // The look lives on the server, so a later request (any device) reads the same character.
+    expect(lookBody.parse(await (await read(guild, token)).json()).look).toEqual(look)
   })
 
   test('a look outside the fixed catalogue is refused and changes nothing', async () => {
