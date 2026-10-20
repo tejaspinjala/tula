@@ -185,6 +185,8 @@ test('the palette lists every node type of the shared schema', async () => {
     'Add trigger.manual',
     'Add trigger.schedule',
     'Add agent',
+    'Add subagents',
+    'Add team',
     'Add verify',
     'Add approval',
     'Add post',

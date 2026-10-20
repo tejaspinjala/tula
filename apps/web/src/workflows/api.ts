@@ -103,6 +103,7 @@ const stateBody = z.object({
       type: z.string(),
       status: z.string(),
       questId: z.string().nullable(),
+      refs: z.array(z.string()).default([]),
     })
   ),
 })

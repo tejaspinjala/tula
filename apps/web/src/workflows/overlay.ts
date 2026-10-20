@@ -67,7 +67,10 @@ export function runOverlay(
 ): Map<string, NodeOverlay> {
   const overlay = new Map<string, NodeOverlay>()
   for (const node of nodes) {
-    const own = node.type === 'agent' ? node.questId : null
+    const own =
+      node.type === 'agent' || node.type === 'subagents' || node.type === 'team'
+        ? node.questId
+        : null
     const shown = STATUS[node.status] ?? { tone: 'neutral' as const, text: node.status }
     overlay.set(node.id, {
       status: node.status,

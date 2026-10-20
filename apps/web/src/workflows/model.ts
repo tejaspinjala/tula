@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   type WorkflowGraph,
   type WorkflowNode,
@@ -30,12 +31,18 @@ export function fieldsFor(type: string): FieldSpec[] {
       continue
     }
     const optional = field.type === 'optional'
-    const inner = 'unwrap' in field && typeof field.unwrap === 'function' ? field.unwrap() : field
-    const kind =
-      typeof inner === 'object' && inner !== null && 'type' in inner && inner.type === 'number'
-        ? 'number'
-        : 'string'
-    fields.push({ key, kind, optional })
+    const inner =
+      optional && 'unwrap' in field && typeof field.unwrap === 'function' ? field.unwrap() : field
+    const innerType =
+      typeof inner === 'object' && inner !== null && 'type' in inner ? inner.type : ''
+    if (innerType === 'array') {
+      fields.push({ key, kind: 'lines', optional })
+    } else if (innerType === 'enum' && 'options' in inner) {
+      const options = z.array(z.string()).safeParse(inner.options)
+      fields.push({ key, kind: 'choice', optional, options: options.success ? options.data : [] })
+    } else {
+      fields.push({ key, kind: innerType === 'number' ? 'number' : 'string', optional })
+    }
   }
   return fields
 }
