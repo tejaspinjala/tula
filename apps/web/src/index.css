@@ -235,6 +235,28 @@ ul[aria-label] {
   margin: 0;
 }
 
+/* Guild Hall (the Phaser canvas): sized by classes only, since the CSP blocks inline styles. */
+.game-frame {
+  width: 100%;
+  height: min(70vh, 640px);
+  min-height: 260px;
+  margin-top: 0.75rem;
+  background: #1b1b26;
+  overflow: hidden;
+  touch-action: none;
+}
+.game-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.game-scrub {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .muted {
   color: var(--muted);
 }
