@@ -37,6 +37,12 @@ const MAX_BACKOFF_MS = 10_000
 /** Most pull requests read per scan: one bounded page, never a walk of the whole history. */
 const PULL_PAGE = 50
 
+/** Whether `value` is an https URL on github.com; anything else is never stored or rendered as a link. */
+function isGithubUrl(value: string): boolean {
+  const parsed = URL.canParse(value) ? new URL(value) : null
+  return parsed !== null && parsed.protocol === 'https:' && parsed.hostname === 'github.com'
+}
+
 const pullsReply = z.array(
   z.object({
     number: z.number().int(),
@@ -85,7 +91,7 @@ export class GitHubRestEnvoy implements GitHubEnvoy {
       throw new EnvoyError('bad_response')
     }
     return data.data.flatMap((p) =>
-      p.merged_at
+      p.merged_at && isGithubUrl(p.html_url)
         ? [
             {
               number: p.number,
@@ -159,6 +165,8 @@ export class GitHubRestEnvoy implements GitHubEnvoy {
           'x-github-api-version': '2022-11-28',
           'user-agent': 'guildhall-envoy',
         },
+        // A redirect would carry the bearer token to wherever it points; a 3xx is just a failure.
+        redirect: 'manual',
         signal: AbortSignal.timeout(this.timeoutMs),
       })
     } catch {
