@@ -102,14 +102,6 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       const member = new ScriptedMember((request) => w.mcp.handle(request), {
         goal: 'Announce',
         output: () => reply.text,
-        afterArtifact: async () => {
-          await w.proposals.propose(guild, {
-            questId,
-            author: quest.ownerId,
-            kind: 'post',
-            content: reply.text,
-          })
-        },
       })
       return member.runLeased(handle)
     }
