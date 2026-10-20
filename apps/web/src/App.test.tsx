@@ -111,8 +111,71 @@ test('signing in with a passkey needs no guild id, then shows the guild name and
   expect(urls).toContain('/api/sign-in/finish')
   expect(host.textContent).toContain('Ember Guild')
   expect(host.textContent).toContain(guild)
-  expect(host.querySelector('#vault-heading')).not.toBeNull()
+  expect(host.querySelector('#home-heading')).not.toBeNull()
+  expect(host.querySelector('#vault-heading')).toBeNull()
   await act(async () => root.unmount())
+})
+
+test('signed in, only the active view renders and the nav moves between views', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  window.history.pushState({}, '', '/')
+  const { host, root } = await mount()
+  await click(button(host, 'Sign in with passkey'))
+  const nav = host.querySelector('nav[aria-label="Ledger"]')
+  const labels = [...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent?.trim())
+  expect(labels).toEqual([
+    'Home',
+    'Quest Board',
+    'Seals',
+    'Archive',
+    'Treasury and Costs',
+    'Roster and Summon',
+    'Gates',
+    'Timeline',
+    'Vault and Settings',
+  ])
+  const link = [...(nav?.querySelectorAll('a') ?? [])].find(
+    (a) => a.textContent?.trim() === 'Treasury and Costs'
+  )
+  if (!link) {
+    throw new Error('no Treasury link')
+  }
+  await click(link)
+  expect(window.location.pathname).toBe('/treasury')
+  expect(host.querySelector('#treasury-heading')).not.toBeNull()
+  expect(host.querySelector('#home-heading')).toBeNull()
+  expect(host.querySelectorAll('main h1').length).toBe(1)
+  await act(async () => root.unmount())
+})
+
+test('a deep link opens its own view, and a Seal link opens the Seals view', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  window.history.pushState({}, '', '/vault')
+  const first = await mount()
+  await click(button(first.host, 'Sign in with passkey'))
+  expect(first.host.querySelector('#vault-heading')).not.toBeNull()
+  expect(first.host.querySelector('#home-heading')).toBeNull()
+  await act(async () => first.root.unmount())
+
+  window.history.pushState({}, '', '/?seal=abc')
+  const second = await mount()
+  await click(button(second.host, 'Sign in with passkey'))
+  expect(second.host.querySelector('#seals-heading')).not.toBeNull()
+  await act(async () => second.root.unmount())
+  window.history.pushState({}, '', '/')
+})
+
+test('signed out at a deep link shows only sign-in, never the view', async () => {
+  foundingIsOpen = false
+  window.history.pushState({}, '', '/vault')
+  const { host, root } = await mount()
+  expect(button(host, 'Sign in with passkey')).toBeTruthy()
+  expect(host.querySelector('#vault-heading')).toBeNull()
+  expect(host.querySelector('nav')).toBeNull()
+  await act(async () => root.unmount())
+  window.history.pushState({}, '', '/')
 })
 
 test('a refused passkey sign-in is announced', async () => {
