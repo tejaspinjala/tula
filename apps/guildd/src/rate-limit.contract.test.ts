@@ -147,6 +147,14 @@ describe('rate limits on unauthenticated identity routes', () => {
     }
   })
 
+  test('the model gateway call route is limited per client', async () => {
+    const { post } = await harnessWith({ 'gateway-call': { client: tight(1) } })
+    expect((await post('/gateway/complete')).status).toBe(401)
+    const refused = await post('/gateway/complete')
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
   test('X-Forwarded-For is ignored unless TRUST_PROXY is set', async () => {
     const { post, found } = await harnessWith({ 'signin-begin': { client: tight(2) } })
     const { id } = await found()

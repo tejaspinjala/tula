@@ -9,6 +9,7 @@ import {
   type questRank,
   newQuest as queueQuest,
 } from './ports/quest-queue'
+import type { TripwireStore } from './ports/tripwire-store'
 
 /** A Quest template: the Hall, rank, data class, done-condition and round limit a Quest is posted with. */
 export interface QuestTemplate {
@@ -61,6 +62,7 @@ export type PostQuestInput = z.input<typeof postQuestInput>
 export type PostQuestError =
   | 'unknown_template'
   | 'hall_locked'
+  | 'hall_paused'
   | 'hall_not_found'
   | 'unknown_owner'
   | 'unknown_blocker'
@@ -89,10 +91,11 @@ function chooseOwner(
 
 /**
  * Posts a Quest from a template. The Hall, rank and data class come from the template; the guild
- * config (current version) decides whether the Hall is locked and who may own the Quest.
+ * config (current version) decides whether the Hall is locked and who may own the Quest; a Hall
+ * paused by a Tripwire (or by the Guild Master) takes no new Quests.
  */
 export async function postQuest(
-  deps: { config: ConfigStore; queue: QuestQueue },
+  deps: { config: ConfigStore; queue: QuestQueue; tripwires: TripwireStore },
   guildId: string,
   input: PostQuestInput
 ): Promise<PostQuestResult> {
@@ -104,6 +107,9 @@ export async function postQuest(
   const accepts = hallAcceptsQuests(config, template.hallId)
   if (!accepts.ok) {
     return { ok: false, error: accepts.error }
+  }
+  if (await deps.tripwires.isPaused(guildId, template.hallId)) {
+    return { ok: false, error: 'hall_paused' }
   }
   const ownerId = chooseOwner(config, template, input.ownerId)
   if (ownerId === null) {

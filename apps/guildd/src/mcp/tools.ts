@@ -1,0 +1,107 @@
+import { z } from 'zod'
+
+/** The MCP spec revision the gateway speaks (stateless: no session, every call stands alone). */
+export const MCP_PROTOCOL_VERSION = '2026-07-28'
+
+/** The lease handle a Member passes to every tool after claiming: Quest, attempt (the fencing token) and token. */
+export const leaseHandle = z.strictObject({
+  questId: z.uuid(),
+  attempt: z.number().int().min(1),
+  token: z.string().min(1).max(2000),
+})
+/** A lease handle. */
+export type LeaseHandle = z.infer<typeof leaseHandle>
+
+/** Largest artifact a tool moves, decoded. */
+export const MAX_TOOL_ARTIFACT_BYTES = 1024 * 1024
+
+/** Arguments of `claim_quest`. */
+export const claimQuestArgs = z.strictObject({ assignment: z.string().min(1).max(2000) })
+/** Arguments of `read_archive`: one note by id, or a search of the Hall's notes. */
+export const readArchiveArgs = z.strictObject({
+  lease: leaseHandle,
+  noteId: z.uuid().optional(),
+  query: z.string().trim().max(200).optional(),
+  after: z.string().max(64).optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+})
+/** Arguments of `write_archive`. */
+export const writeArchiveArgs = z.strictObject({
+  lease: leaseHandle,
+  title: z.string().trim().min(1).max(150),
+  body: z.string().min(1).max(20000),
+  claim: z.enum(['fact', 'assumption']),
+  evidence: z.string().trim().min(1).max(2000).optional(),
+})
+/** Arguments of `get_artifact`. */
+export const getArtifactArgs = z.strictObject({
+  lease: leaseHandle,
+  hash: z.string().regex(/^[0-9a-f]{64}$/),
+})
+/** Arguments of `put_artifact`. */
+export const putArtifactArgs = z.strictObject({
+  lease: leaseHandle,
+  contentBase64: z
+    .string()
+    .min(1)
+    .max(Math.ceil((MAX_TOOL_ARTIFACT_BYTES * 4) / 3) + 4),
+})
+/** Arguments of `complete_quest`; the Handoff is checked separately, for an actionable error. */
+export const completeQuestArgs = z.strictObject({ lease: leaseHandle, handoff: z.unknown() })
+
+/** One tool of the catalogue: its name, what it does, and the arguments it accepts. */
+export interface ToolDef {
+  name: string
+  description: string
+  /** The roles (ranks) that get this tool. */
+  roles: readonly string[]
+  args: z.ZodType
+}
+
+const ALL_ROLES = ['apprentice', 'journeyman', 'adept']
+const SENIOR_ROLES = ['journeyman', 'adept']
+
+/** Every tool of this slice, in the order a role's list shows them. */
+export const TOOL_CATALOG: readonly ToolDef[] = [
+  {
+    name: 'claim_quest',
+    roles: ALL_ROLES,
+    description: 'Claim the assigned Quest; returns the lease handle and the Brief.',
+    args: claimQuestArgs,
+  },
+  {
+    name: 'read_archive',
+    roles: ALL_ROLES,
+    description: "Read a note by id, or search the notes of the Quest's own Hall.",
+    args: readArchiveArgs,
+  },
+  {
+    name: 'write_archive',
+    roles: SENIOR_ROLES,
+    description: "Add a note to the Archive, filed under the Quest's own Hall.",
+    args: writeArchiveArgs,
+  },
+  {
+    name: 'get_artifact',
+    roles: ALL_ROLES,
+    description: 'Read an artifact this Quest holds, by hash; returns base64.',
+    args: getArtifactArgs,
+  },
+  {
+    name: 'put_artifact',
+    roles: ALL_ROLES,
+    description: 'Store an artifact for this Quest; returns its hash.',
+    args: putArtifactArgs,
+  },
+  {
+    name: 'complete_quest',
+    roles: ALL_ROLES,
+    description: 'Finish the Quest with a schema-checked Handoff. A Handoff is final per attempt.',
+    args: completeQuestArgs,
+  },
+]
+
+/** The ordered tool names `role` gets from `catalog`; an unknown role gets none. */
+export function roleToolNames(role: string, catalog: readonly ToolDef[] = TOOL_CATALOG): string[] {
+  return catalog.filter((t) => t.roles.includes(role)).map((t) => t.name)
+}

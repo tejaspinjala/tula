@@ -65,6 +65,13 @@ export interface NoteDetail {
   backlinks: Backlink[]
 }
 
+/** Paging for lists and searches; `hall` limits the result to notes filed under that Hall (applied in the store). */
+export interface NotePaging {
+  after?: string
+  limit: number
+  hall?: string
+}
+
 /** One page of notes in id order; `next` is the cursor for the following page, null at the end. */
 export interface NotePage {
   notes: Note[]
@@ -149,14 +156,14 @@ export function mergeChanges(current: NoteVersion, changes: NoteChanges) {
  * over each note's current version, scoped to one guild.
  */
 export interface NoteStore {
-  /** Adds a note (version 1). A fact without evidence throws {@link NoteError} `evidence_required`. */
-  add(guildId: string, input: NewNote): Promise<Note>
+  /** Adds a note (version 1), filed under `hallId` when given (otherwise no Hall: the Guild Master's own). A fact without evidence throws {@link NoteError} `evidence_required`. */
+  add(guildId: string, input: NewNote, hallId?: string): Promise<Note>
   /** Writes a new NoteVersion with the given fields changed; throws {@link NoteError}. */
   edit(guildId: string, id: string, changes: NoteChanges): Promise<Note>
-  /** The note, all its versions and its backlinks; null when absent for this guild. */
-  get(guildId: string, id: string): Promise<NoteDetail | null>
+  /** The note, all its versions and its backlinks; null when absent for this guild or, with `hall`, filed under another Hall (or none). */
+  get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null>
   /** Notes in id order, strictly after `after`, at most `limit`. */
-  list(guildId: string, page: { after?: string; limit: number }): Promise<NotePage>
+  list(guildId: string, page: NotePaging): Promise<NotePage>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */
-  search(guildId: string, query: string, page: { after?: string; limit: number }): Promise<NotePage>
+  search(guildId: string, query: string, page: NotePaging): Promise<NotePage>
 }
