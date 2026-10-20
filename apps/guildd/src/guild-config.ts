@@ -103,6 +103,8 @@ export const caps = z.object({
   maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
   /** Missives one Quest may send; {@link DEFAULT_MAX_MISSIVES_PER_QUEST} when absent. Raising it widens risk. */
   maxMissivesPerQuest: z.number().int().min(0).max(200).optional(),
+  /** Research calls one Quest may make; 0 (research off) when absent. Enabling or raising it widens risk. */
+  maxResearchPerQuest: z.number().int().min(0).max(100).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -143,6 +145,14 @@ export const DEFAULT_MAX_MISSIVES_PER_QUEST = 20
 /** The guild's cap on Missives one Quest may send (all its attempts). */
 export function missiveCap(config: GuildConfig): number {
   return config.caps.maxMissivesPerQuest ?? DEFAULT_MAX_MISSIVES_PER_QUEST
+}
+
+/** Research calls one Quest may make when the config sets no cap: none, so research is off. */
+export const DEFAULT_MAX_RESEARCH_PER_QUEST = 0
+
+/** The guild's cap on research calls one Quest may make (all its attempts); 0 means research is off. */
+export function researchCap(config: GuildConfig): number {
+  return config.caps.maxResearchPerQuest ?? DEFAULT_MAX_RESEARCH_PER_QUEST
 }
 
 /** Concurrent Members of a Hall when its cap is unset: no limit beyond the guild's Quest concurrency. */
@@ -458,6 +468,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     spawnDepthCap(next) <= spawnDepthCap(prev) &&
     campaignQuestCap(next) <= campaignQuestCap(prev) &&
     missiveCap(next) <= missiveCap(prev) &&
+    researchCap(next) <= researchCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -467,6 +478,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxSpawnDepth',
       'maxQuestsPerCampaign',
       'maxMissivesPerQuest',
+      'maxResearchPerQuest',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
