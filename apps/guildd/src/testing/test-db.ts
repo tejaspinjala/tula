@@ -4,10 +4,8 @@ import { migrate, provisionAppRole } from '../db/migrate'
 
 const DEFAULT_URL = 'postgres://guildhall:guildhall@localhost:5432/guildhall'
 
-/** Advisory lock key serialising creation and migration of the central test database. */
+/** Advisory lock key serialising every cluster-wide catalog write the tests make. */
 const SETUP_LOCK = 7_340_100
-/** Advisory lock key serialising creation and dropping of scratch schemas. */
-const SCRATCH_LOCK = 7_340_101
 
 /**
  * Login password of the `guildhall_app` role in tests. The role is cluster-wide, so every test
@@ -68,10 +66,8 @@ export function testDbUrl(role: 'owner' | 'app' = 'owner', name: string = testDb
  * place that ever issues `create database`.
  */
 export async function ensureTestDatabase(name: string = testDbName()): Promise<void> {
-  const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
   try {
-    await admin`select pg_advisory_lock(${SETUP_LOCK})`
-    try {
+    await withClusterDdlLock(async (admin) => {
       const found = await admin`select 1 from pg_database where datname = ${name}`
       if (found.length === 0) {
         await admin.unsafe(`create database "${name}"`)
@@ -79,18 +75,50 @@ export async function ensureTestDatabase(name: string = testDbName()): Promise<v
       const owner = postgres(testDbUrl('owner', name), { max: 1, onnotice: () => {} })
       try {
         await migrate(owner)
-        await provisionAppRole(owner, TEST_APP_PASSWORD)
+        if (!(await appRoleHasPassword(name))) {
+          await provisionAppRole(owner, TEST_APP_PASSWORD)
+        }
       } finally {
         await owner.end()
       }
-    } finally {
-      await admin`select pg_advisory_unlock(${SETUP_LOCK})`
-    }
+    })
   } catch (cause) {
     throw new Error(
       `Contract tests need Postgres at ${baseUrl().host}: run \`docker compose up -d\` (set POSTGRES_PORT and DATABASE_URL if 5432 is taken).`,
       { cause }
     )
+  }
+}
+
+/** Whether `guildhall_app` can already log in with {@link TEST_APP_PASSWORD}, so no `alter role` is needed. */
+async function appRoleHasPassword(name: string): Promise<boolean> {
+  const app = postgres(testDbUrl('app', name), { max: 1, onnotice: () => {}, connect_timeout: 10 })
+  try {
+    await app`select 1`
+    return true
+  } catch {
+    return false
+  } finally {
+    await app.end()
+  }
+}
+
+/**
+ * Runs `fn` while holding the cross-process advisory lock that serialises every cluster-wide
+ * catalog write the tests make (`create`/`drop database`, `create`/`alter role`, grants on
+ * roles). Concurrent writers to those shared catalogs fail with "tuple concurrently updated".
+ * `fn` gets the admin connection holding the lock; it must not call anything that takes the
+ * lock again (the lock is not re-entrant across connections).
+ */
+export async function withClusterDdlLock<T>(fn: (admin: Sql) => Promise<T>): Promise<T> {
+  const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
+  try {
+    await admin`select pg_advisory_lock(${SETUP_LOCK})`
+    try {
+      return await fn(admin)
+    } finally {
+      await admin`select pg_advisory_unlock(${SETUP_LOCK})`
+    }
   } finally {
     await admin.end()
   }
@@ -105,20 +133,19 @@ export async function withScratchSchema<T>(
   fn: (sql: Sql, schema: string) => Promise<T>
 ): Promise<T> {
   const schema = `scratch_${crypto.randomUUID().replaceAll('-', '')}`
-  const sql = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
-  const locked = async (statement: string) => {
-    await sql.begin(async (tx) => {
-      await tx`select pg_advisory_xact_lock(${SCRATCH_LOCK})`
-      await tx.unsafe(statement)
-    })
-  }
-  await locked(`create schema ${schema}`)
-  try {
-    return await fn(sql, schema)
-  } finally {
-    await locked(`drop schema ${schema} cascade`)
-    await sql.end()
-  }
+  return withClusterDdlLock(async () => {
+    const sql = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
+    try {
+      await sql.unsafe(`create schema ${schema}`)
+      try {
+        return await fn(sql, schema)
+      } finally {
+        await sql.unsafe(`drop schema ${schema} cascade`)
+      }
+    } finally {
+      await sql.end()
+    }
+  })
 }
 
 /** A database private to one test file, for tests whose operations reach every guild (global bars). */
@@ -138,20 +165,11 @@ export interface IsolatedTestDb {
 export async function createIsolatedTestDb(key: string = Bun.main): Promise<IsolatedTestDb> {
   const hash = new Bun.CryptoHasher('sha256').update(key).digest('hex').slice(0, 8)
   const name = `${testDbName()}_g${hash}`
-  const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
-  const drop = async () => {
-    const dropper = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
-    try {
-      await dropper.unsafe(`drop database if exists "${name}" with (force)`)
-    } finally {
-      await dropper.end()
-    }
-  }
-  try {
-    await drop()
-    await ensureTestDatabase(name)
-  } finally {
-    await admin.end()
-  }
+  const drop = () =>
+    withClusterDdlLock(async (admin) => {
+      await admin.unsafe(`drop database if exists "${name}" with (force)`)
+    })
+  await drop()
+  await ensureTestDatabase(name)
   return { name, drop }
 }
