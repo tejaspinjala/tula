@@ -1,14 +1,13 @@
+import { createPrivateKey, type KeyObject, sign } from 'node:crypto'
 import {
-  createCipheriv,
-  createECDH,
-  createPrivateKey,
-  hkdfSync,
-  type KeyObject,
-  randomBytes,
-  sign,
-} from 'node:crypto'
-import type { PushNotifier, PushOutcome, PushPayload } from '../ports/push-notifier'
+  type PushNotifier,
+  type PushOutcome,
+  type PushPayload,
+  PushRejectedError,
+} from '../ports/push-notifier'
 import type { PushSubscription } from '../ports/push-store'
+import { isPushEndpoint, PUSH_SERVICE_HOSTS } from '../push-endpoint'
+import { encryptPayload } from './web-push-crypto'
 
 /** The slice of `fetch` the notifier uses; tests pass a fake push service. */
 export type PushFetch = (url: string, init: RequestInit) => Promise<Response>
@@ -34,15 +33,12 @@ export interface WebPushOptions {
   allowedHosts?: readonly string[] | undefined
 }
 
-const RECORD_SIZE = 4096
 const JWT_TTL_SECONDS = 12 * 3600
 const PUSH_TTL_SECONDS = 24 * 3600
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url')
-const hkdf = (ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Buffer =>
-  Buffer.from(hkdfSync('sha256', ikm, salt, info, length))
 
-/** Thrown when the push service stays unavailable or rejects the request; carries no key material. */
+/** Thrown when the push service stays unavailable (transient); carries no key material. */
 export class PushUnavailableError extends Error {
   constructor(readonly status: number | null) {
     super('push_unavailable')
@@ -52,9 +48,12 @@ export class PushUnavailableError extends Error {
 
 /**
  * Web Push over VAPID (RFC 8292) with aes128gcm payload encryption (RFC 8291), on `node:crypto`
- * and `fetch` only. Each attempt has a timeout; 429, 5xx and network failures are retried a
- * bounded number of times with jittered exponential backoff; 404 and 410 mean the subscription
- * is gone; any other refusal fails at once.
+ * and `fetch` only. Every send re-checks that the endpoint is https on a known push service
+ * (never an IP literal or internal name) and never follows a redirect. Each attempt has a
+ * timeout; 429, 5xx and network failures are retried a bounded number of times with jittered
+ * exponential backoff and then throw {@link PushUnavailableError}. 404 and 410 mean the
+ * subscription is gone. Anything else permanent (bad key, other 4xx, 3xx) throws
+ * {@link PushRejectedError}.
  */
 export class WebPushNotifier implements PushNotifier {
   private readonly signingKey: KeyObject
@@ -64,6 +63,7 @@ export class WebPushNotifier implements PushNotifier {
   private readonly baseDelayMs: number
   private readonly sleep: (ms: number) => Promise<void>
   private readonly random: () => number
+  private readonly allowedHosts: readonly string[]
 
   constructor(private readonly options: WebPushOptions) {
     const point = Buffer.from(options.publicKey, 'base64url')
@@ -83,10 +83,19 @@ export class WebPushNotifier implements PushNotifier {
     this.baseDelayMs = options.baseDelayMs ?? 200
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.random = options.random ?? Math.random
+    this.allowedHosts = options.allowedHosts ?? PUSH_SERVICE_HOSTS
   }
 
   async send(subscription: PushSubscription, payload: PushPayload): Promise<PushOutcome> {
-    const body = this.encrypt(subscription, Buffer.from(JSON.stringify(payload)))
+    if (!isPushEndpoint(subscription.endpoint, this.allowedHosts)) {
+      throw new PushRejectedError('endpoint_not_allowed')
+    }
+    let body: Buffer
+    try {
+      body = encryptPayload(subscription, Buffer.from(JSON.stringify(payload)))
+    } catch {
+      throw new PushRejectedError('bad_device_key')
+    }
     let lastStatus: number | null = null
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       if (attempt > 0) {
@@ -101,7 +110,7 @@ export class WebPushNotifier implements PushNotifier {
       }
       lastStatus = status
       if (status !== null && status !== 429 && status < 500) {
-        break
+        throw new PushRejectedError(`status_${status}`)
       }
     }
     throw new PushUnavailableError(lastStatus)
@@ -120,6 +129,7 @@ export class WebPushNotifier implements PushNotifier {
           urgency: 'high',
         },
         body,
+        redirect: 'manual',
         signal: AbortSignal.timeout(this.timeoutMs),
       })
       return res.status
@@ -144,30 +154,5 @@ export class WebPushNotifier implements PushNotifier {
       dsaEncoding: 'ieee-p1363',
     })
     return `vapid t=${header}.${claims}.${b64(signature)}, k=${this.options.publicKey}`
-  }
-
-  /** RFC 8291 aes128gcm: one record, fresh ephemeral key and salt per message. */
-  private encrypt(subscription: PushSubscription, plaintext: Buffer): Buffer {
-    const uaPublic = Buffer.from(subscription.p256dh, 'base64url')
-    const authSecret = Buffer.from(subscription.auth, 'base64url')
-    const ephemeral = createECDH('prime256v1')
-    const asPublic = ephemeral.generateKeys()
-    const shared = ephemeral.computeSecret(uaPublic)
-    const keyInfo = Buffer.concat([Buffer.from('WebPush: info\0'), uaPublic, asPublic])
-    const ikm = hkdf(shared, authSecret, keyInfo, 32)
-    const salt = randomBytes(16)
-    const cek = hkdf(ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16)
-    const nonce = hkdf(ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12)
-    const cipher = createCipheriv('aes-128-gcm', cek, nonce)
-    const sealed = Buffer.concat([
-      cipher.update(Buffer.concat([plaintext, Buffer.from([2])])),
-      cipher.final(),
-      cipher.getAuthTag(),
-    ])
-    const header = Buffer.alloc(21)
-    salt.copy(header, 0)
-    header.writeUInt32BE(RECORD_SIZE, 16)
-    header.writeUInt8(asPublic.length, 20)
-    return Buffer.concat([header, asPublic, sealed])
   }
 }
