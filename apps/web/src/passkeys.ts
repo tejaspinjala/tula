@@ -49,7 +49,8 @@ async function send<T>(
   body: unknown,
   schema: z.ZodType<T>,
   token?: string,
-  proof?: string
+  proof?: string,
+  foundingToken?: string
 ): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (token) {
@@ -57,6 +58,9 @@ async function send<T>(
   }
   if (proof) {
     headers['x-reauth-proof'] = proof
+  }
+  if (foundingToken) {
+    headers['x-founding-token'] = foundingToken
   }
   const res = await fetcher(`/api${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
   const data: unknown = await res.json().catch(() => null)
@@ -68,17 +72,26 @@ async function send<T>(
 }
 
 /**
- * Registers a passkey for `guildId`. The first passkey needs nothing; adding another needs the
+ * Registers a passkey for `guildId`. The first passkey needs the one-time `foundingToken`; adding another needs the
  * session `token` and a re-authentication `proof` (a sensitive action).
  */
 export async function registerPasskey(
   guildId: string,
   auth: { token: string; proof: string } | undefined,
   fetcher: Fetcher,
-  browser: PasskeyBrowser
+  browser: PasskeyBrowser,
+  foundingToken?: string
 ): Promise<void> {
   const base = `/guilds/${guildId}/passkeys`
-  const begin = await send(fetcher, `${base}/begin`, {}, creation, auth?.token, auth?.proof)
+  const begin = await send(
+    fetcher,
+    `${base}/begin`,
+    {},
+    creation,
+    auth?.token,
+    auth?.proof,
+    foundingToken
+  )
   const response = await browser.create(begin.options)
   await send(fetcher, `${base}/finish`, { challengeId: begin.challengeId, response }, z.unknown())
 }
@@ -111,6 +124,17 @@ export async function reauthenticate(
     token
   )
   return done.proof
+}
+
+const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+
+/** Founds a guild; the one-time `foundingToken` it returns authorises the first passkey. */
+export async function foundGuild(
+  name: string,
+  goal: string,
+  fetcher: Fetcher
+): Promise<z.infer<typeof foundedBody>> {
+  return send(fetcher, '/guilds', { name, goal }, foundedBody)
 }
 
 /** The real browser ceremonies, backed by the platform WebAuthn implementation. */
