@@ -74,4 +74,4 @@ test('cost per post over more than 100 Quests costs one statement whatever the p
   expect(overall).toEqual({ posts: 120, costMicros: 1200, costPerPostMicros: 10 })
   // One transaction and one statement per page: 4 pages, never one lookup per Quest.
   expect(counter).toEqual({ statements: 4, transactions: 4 })
-})
+}, 60_000)

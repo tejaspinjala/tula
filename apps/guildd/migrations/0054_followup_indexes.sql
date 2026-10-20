@@ -9,3 +9,6 @@ create index model_usage_hall_day on model_usage (guild_id, hall_id, day);
 
 -- Proposals created in a window (failed Verdicts in the last hour): ProposalStore.listFailedSince.
 create index proposals_guild_created on proposals (guild_id, created_at);
+
+-- A Quest's spend (cost per accepted post): PgPostCostReader joins consumed Seals to it.
+create index model_usage_quest on model_usage (guild_id, quest_id);
