@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { Hono } from 'hono'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryRateLimiter } from './adapters/memory-rate-limiter'
-import { DEFAULT_RATE_LIMITS, RATE_ROUTE_AUTH } from './rate-limits'
+import { DEFAULT_RATE_LIMITS, RATE_ROUTE_AUTH, rateLimit } from './rate-limits'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
@@ -95,6 +96,32 @@ describe('unauthenticated identity routes still limit per guild before auth', ()
       expect((await begin()).status).not.toBe(429)
     }
     expect((await begin()).status).toBe(429)
+  })
+})
+
+describe('session lookups', () => {
+  test('a session route with no guild rule does zero session lookups', async () => {
+    let lookups = 0
+    const app = new Hono()
+    app.post(
+      '/guilds/:id/x',
+      rateLimit(
+        new MemoryRateLimiter(new MemoryClock(new Date('2026-01-01T00:00:00.000Z'))),
+        'learning-scan',
+        { client: { limit: 10, windowMs: window } },
+        false,
+        async () => {
+          lookups += 1
+          return null
+        }
+      ),
+      (c) => c.json({ ok: true })
+    )
+    const res = await app.request('/guilds/0b0f6d0e-5f0a-4f0e-8a0e-0b0f6d0e5f0a/x', {
+      method: 'POST',
+    })
+    expect(res.status).toBe(200)
+    expect(lookups).toBe(0)
   })
 })
 
