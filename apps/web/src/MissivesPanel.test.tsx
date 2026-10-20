@@ -84,7 +84,7 @@ async function mount(ui: React.ReactElement) {
 test('a Hall’s exchange is listed newest first with Member names, as plain text', async () => {
   const m = await mount(<MissivesPanel session={session} />)
   const heading = m.host.querySelector('h2')
-  expect(heading?.textContent).toBe('Hall missives')
+  expect(heading?.textContent).toBe('Guild chat')
   const rows = [...m.host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
   expect(rows).toHaveLength(2)
   expect(rows[0]).toContain('Herald Journeyman')
@@ -166,4 +166,20 @@ test('a new Missive arrives live: missive.sent refetches the list by route', asy
   expect(rows[0]).toContain('Fresh from the road.')
   await act(async () => root.unmount())
   fresh.length = 0
+})
+
+test('the Guild Master can address a Member from the chat through the talk path', async () => {
+  const talked: string[] = []
+  const m = await mount(<MissivesPanel session={session} onTalk={(id) => talked.push(id)} />)
+  expect(m.host.querySelector('select[name="chat-member"]')).not.toBeNull()
+  const talk = [...m.host.querySelectorAll('button')].find((b) => b.textContent === 'Talk')
+  await act(async () => talk?.click())
+  expect(talked).toEqual(['heralds-captain'])
+  await m.unmount()
+})
+
+test('without a talk path, the chat offers no addressing', async () => {
+  const m = await mount(<MissivesPanel session={session} />)
+  expect(m.host.querySelector('select[name="chat-member"]')).toBeNull()
+  await m.unmount()
 })

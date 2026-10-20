@@ -12,12 +12,13 @@ import { CharacterPanel } from './CharacterPanel'
 import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
-import { deriveScene, type SceneQuest } from './game/scene'
+import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
+import { InspectCard } from './InspectCard'
 import { LiveEvents } from './live-events'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
@@ -26,7 +27,7 @@ import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
 import { TalkDialog } from './TalkDialog'
-import { ItemGet, PixelButton } from './ui/pixel'
+import { DialogueBox, ItemGet, PixelButton } from './ui/pixel'
 
 const MAX_RECONNECT_MS = 10_000
 const BANNER_MS = 4000
@@ -37,6 +38,8 @@ export interface WorldSlots {
   hallControls: ReactNode
   /** Returns keyboard focus to the world after an overlay closes. */
   focusWorld: () => void
+  /** Opens the talk conversation with a Member (the Guild chat's way to address one). */
+  talkTo: (memberId: string) => void
 }
 
 /**
@@ -67,6 +70,11 @@ export function GamePanel({
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
   const [customizing, setCustomizing] = useState(false)
+  // The Member whose greeting shows in the DialogueBox before the conversation opens.
+  const [speaking, setSpeaking] = useState<string | null>(null)
+  const speakingNow = useRef<string | null>(null)
+  speakingNow.current = speaking
+  const known = useRef<SceneState | null>(null)
   const [missiveTexts, setMissiveTexts] = useState<Record<string, string>>({})
   const asked = useRef(new Set<string>())
   const frame = useRef<HTMLDivElement | null>(null)
@@ -239,7 +247,12 @@ export function GamePanel({
           onOpenSeal: () => open.current('/seals'),
           onRoom: setRoomSlot,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
-          onInteract: () => dispatchTalk({ type: 'interact' }),
+          onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
+          onInspect: (id) => {
+            if (known.current?.members[id] && speakingNow.current === null) {
+              dispatchTalk({ type: 'inspect', id })
+            }
+          },
         })
         handle.current = started
       })
@@ -255,6 +268,7 @@ export function GamePanel({
   }, [session])
 
   useEffect(() => {
+    known.current = scene
     if (scene) {
       handle.current?.render(scene)
     }
@@ -379,6 +393,33 @@ export function GamePanel({
           The guild hall could not load everything; retrying through the stream.
         </p>
       )}
+      <InspectCard
+        session={session}
+        fetcher={fetch}
+        memberId={speaking === null ? talk.inspect : null}
+        scene={scene}
+        quests={quests}
+        events={events}
+        onTalk={() => setSpeaking(talk.inspect)}
+        onFollow={(id) => {
+          dispatchTalk({ type: 'close' })
+          handle.current?.follow(id)
+          focusWorld()
+        }}
+        onClose={() => {
+          dispatchTalk({ type: 'close' })
+          focusWorld()
+        }}
+      />
+      {speaking !== null && scene?.members[speaking] && (
+        <Greeting
+          name={scene.members[speaking].name}
+          onDone={() => {
+            setSpeaking(null)
+            dispatchTalk({ type: 'talk' })
+          }}
+        />
+      )}
       <TalkDialog
         session={session}
         fetcher={fetch}
@@ -389,8 +430,32 @@ export function GamePanel({
         navigate={navigate}
       />
       <LiveEvents.Provider value={events}>
-        {children({ hallControls, focusWorld })}
+        {children({
+          hallControls,
+          focusWorld,
+          talkTo: (id) => {
+            dispatchTalk({ type: 'inspect', id })
+            dispatchTalk({ type: 'talk' })
+          },
+        })}
       </LiveEvents.Provider>
     </section>
+  )
+}
+
+/** The Member's greeting in the DialogueBox, before the conversation opens. */
+function Greeting({ name, onDone }: { name: string; onDone: () => void }) {
+  const dock = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    dock.current?.querySelector('button')?.focus()
+  }, [])
+  return (
+    <div className="world-dialogue" ref={dock}>
+      <DialogueBox
+        speaker={name}
+        lines={['Guild Master! What would you have of me?']}
+        onDone={onDone}
+      />
+    </div>
   )
 }

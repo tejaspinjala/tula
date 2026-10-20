@@ -11,7 +11,14 @@ const PAGE = 20
  * The Hall's Missives in the Guild Hall view: what its Members said to each other, newest first,
  * a page at a time. The text is other Members' words, so it is only ever rendered as text.
  */
-export function MissivesPanel({ session }: { session: Session | null }) {
+export function MissivesPanel({
+  session,
+  onTalk,
+}: {
+  session: Session | null
+  /** Addresses a Member through the talk path (the Guild chat page passes it). */
+  onTalk?: ((memberId: string) => void) | undefined
+}) {
   const [roster, setRoster] = useState<Roster | null>(null)
   const [hallId, setHallId] = useState('')
   const [missives, setMissives] = useState<HallMissive[]>([])
