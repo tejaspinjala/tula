@@ -125,8 +125,18 @@ export class Summon {
     if (claimed === null) {
       return { ok: false, error: 'run_not_started' }
     }
-    const run = await this.openRun(guildId, claimed.id, claimed.attempts, claimed.hallId, profileId)
+    const release = (reason: string) =>
+      this.deps.quests.fail(guildId, claimed.id, claimed.attempts, reason)
+    let run: Awaited<ReturnType<Summon['openRun']>>
+    try {
+      run = await this.openRun(guildId, claimed.id, claimed.attempts, claimed.hallId, profileId)
+    } catch (error) {
+      // Never leave the Quest holding a live lease no worker will use.
+      await release('provider_error')
+      throw error
+    }
     if (!('token' in run)) {
+      await release('routing_blocked')
       return { ok: false, error: run.error }
     }
     try {
@@ -137,8 +147,13 @@ export class Summon {
         doneCondition: claimed.doneCondition,
       })
     } catch {
-      await this.deps.quests.fail(guildId, claimed.id, claimed.attempts, 'worker_crash')
+      await release('sandbox_unavailable')
       return { ok: false, error: 'sandbox_unavailable' }
+    }
+    // A bar that landed while the container started could not see it yet: stop it here.
+    if (await this.deps.gates.isBarred(guildId)) {
+      await this.deps.sandboxes.kill({ guildId })
+      return { ok: false, error: 'gates_barred' }
     }
     return { ok: true, status: await this.status(guildId) }
   }

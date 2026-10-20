@@ -80,6 +80,7 @@ export const FAIL_REASONS = [
   'provider_error',
   'routing_blocked',
   'worker_crash',
+  'sandbox_unavailable',
   'unknown',
 ] as const
 
