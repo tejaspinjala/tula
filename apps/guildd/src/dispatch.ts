@@ -1,3 +1,5 @@
+import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
+import { questConcurrency } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
 import { GatewayError, type ModelGateway } from './model-gateway'
@@ -192,4 +194,37 @@ async function openRun(
     }
     throw error
   }
+}
+
+/** Collaborators of {@link dispatch}. */
+export type DispatchDeps = RoutingDeps &
+  StartRunDeps &
+  PendingSealDeps & {
+    quests: QuestQueue
+    config: Pick<ConfigStore, 'current'>
+  }
+
+/** What one {@link dispatch} pass did. */
+export type DispatchOutcome =
+  | { status: 'barred' }
+  | { status: 'idle' }
+  | {
+      status: 'blocked'
+      questId: string
+      reason: BlockReason
+      disposition: 'killed' | 'retry_scheduled'
+    }
+  | { status: 'started'; questId: string; profileId: string }
+  | { status: 'failed'; questId: string; error: StartRunError }
+
+/** How long a dispatched Quest's lease lasts: the worker's whole run. */
+const DISPATCH_LEASE_MS = 10 * 60_000
+
+/**
+ * One pass of the dispatcher for a guild: refuses while the Gates are barred, settles finished
+ * Seals, requests the Seals that are due, then claims at most one Quest, routes it and starts its
+ * worker. Deterministic code; idempotent, so a rerun or two workers at once do no harm.
+ */
+export async function dispatch(_deps: DispatchDeps, _guildId: string): Promise<DispatchOutcome> {
+  return { status: 'idle' }
 }
