@@ -128,7 +128,7 @@ export class LearningEngine {
     } else {
       const existing =
         decided.reason === 'already_decided' ? await this.store.get(guildId, id) : null
-      if (!existing || existing.status !== 'accepted' || existing.noteId !== null) {
+      if (existing?.status !== 'accepted' || existing.noteId !== null) {
         return decided
       }
       suggestion = existing

@@ -6,11 +6,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
+  html:root,
+  html:root *,
+  html:root *::before,
+  html:root *::after {
+    animation: none;
+    transition: none;
+    scroll-behavior: auto;
   }
 }

@@ -3,14 +3,17 @@ import { createDb } from '../db/client'
 import { eventsAfter } from '../events'
 import { modelLedgerContract } from '../ports/model-ledger.contract'
 import { foundTestGuild } from '../testing/found-guild'
-import { testDbUrl } from '../testing/test-db'
+import { createIsolatedTestDb, testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgModelLedger } from './pg-model-ledger'
 
-const db = createDb(testDbUrl('app'))
+// Global bars and revokes reach every guild of a database, so this file gets its own.
+const isolated = await createIsolatedTestDb()
+const db = createDb(testDbUrl('app', isolated.name))
 const keys = new MemoryKeyProvider()
 afterAll(async () => {
   await db.close()
+  await isolated.drop()
 })
 
 modelLedgerContract('postgres', async () => ({

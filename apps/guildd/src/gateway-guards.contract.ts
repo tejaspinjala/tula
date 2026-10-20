@@ -269,6 +269,8 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
           expect(await f.sandboxes.list(b)).toEqual([])
         } finally {
           await f.gates.lift(actor(a), 'global')
+          // The lift announces to every guild after its response; end that before the test does.
+          await f.gates.settled()
         }
         expect(await codeOf(f.gateway.complete(tokenB, message))).toBe('token_revoked')
       })
