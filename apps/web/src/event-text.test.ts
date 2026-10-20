@@ -27,6 +27,13 @@ const cases: Array<[ReplayEvent, string]> = [
     ev('artifact.attached', { quest_id: 'q1', hash: 'abc123' }),
     'Artifact abc123 attached to Quest q1',
   ],
+  [ev('gates.barred', {}), 'The Gates were barred'],
+  [ev('gates.lifted', {}), 'The Gates were lifted'],
+  [ev('workflow.run_started', {}), 'A workflow run started'],
+  [
+    ev('seal.approved', { sealId: 'a40f17b7-2938-4be5-a089-1b35ccd2c004' }),
+    'Seal a40f17b7…c004 approved',
+  ],
   [
     ev('handoff.recorded', { quest_id: 'q1', attempt: 1, handoff_hash: 'abc123' }),
     'Handoff recorded for Quest q1',

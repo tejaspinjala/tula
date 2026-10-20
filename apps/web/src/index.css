@@ -77,6 +77,12 @@
   }
 }
 
+/* Anything scrolled into view (a focused control, a tapped link) clears the sticky header and the phone tab bar. */
+html {
+  scroll-padding-top: 4.5rem;
+  scroll-padding-bottom: calc(var(--touch) + var(--space-8));
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -393,6 +399,10 @@ thead th {
   font-size: var(--text-figure);
   font-weight: 700;
   line-height: 1.1;
+}
+
+.figure-small {
+  font-size: var(--text-lg);
 }
 
 .actions {

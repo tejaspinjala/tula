@@ -87,27 +87,39 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
     case 'verdict.recorded':
       return `Verdict recorded for Proposal ${str(p, 'proposalId')}: ${p.passed === true ? 'passed' : 'failed'}`
     case 'seal.requested':
-      return `Seal ${str(p, 'sealId')} requested for Quest ${q(p, 'questId', names)}`
+      return `Seal ${shortenId(str(p, 'sealId'))} requested for Quest ${q(p, 'questId', names)}`
     case 'seal.approved':
-      return `Seal ${str(p, 'sealId')} approved`
+      return `Seal ${shortenId(str(p, 'sealId'))} approved`
     case 'seal.denied':
-      return `Seal ${str(p, 'sealId')} denied`
+      return `Seal ${shortenId(str(p, 'sealId'))} denied`
     case 'seal.reserved':
-      return `Seal ${str(p, 'sealId')} reserved`
+      return `Seal ${shortenId(str(p, 'sealId'))} reserved`
     case 'seal.consumed':
-      return `Seal ${str(p, 'sealId')} consumed`
+      return `Seal ${shortenId(str(p, 'sealId'))} consumed`
     case 'seal.released':
-      return `Seal ${str(p, 'sealId')} released`
+      return `Seal ${shortenId(str(p, 'sealId'))} released`
     case 'seal.expired':
-      return `Seal ${str(p, 'sealId')} expired`
+      return `Seal ${shortenId(str(p, 'sealId'))} expired`
     case 'post.published_manually':
-      return `Post for Seal ${str(p, 'sealId')} published by hand`
+      return `Post for Seal ${shortenId(str(p, 'sealId'))} published by hand`
     case 'treasury.entry':
       return `Treasury entry: ${str(p, 'kind')} of ${cents(p)} in ${str(p, 'bucket')}`
     case 'treasury.spend':
       return `Treasury spend ${str(p, 'spendId')} ${str(p, 'status')}, ${cents(p)}`
     case 'steward.cap_reached':
       return `Steward reported the ${str(p, 'reason')} cap reached on ${str(p, 'day')}`
+    case 'gates.barred':
+      return 'The Gates were barred'
+    case 'gates.lifted':
+      return 'The Gates were lifted'
+    case 'quest.spawned':
+      return 'A Sub-Quest was spawned'
+    case 'workflow.run_started':
+      return 'A workflow run started'
+    case 'workflow.version_saved':
+      return 'A workflow version was saved'
+    case 'workflow.version_confirmed':
+      return 'A workflow version was confirmed'
     default:
       return `Event ${event.type}, number ${event.seq}`
   }

@@ -171,7 +171,9 @@ export function HomePanel({
           {posts.state === 'error' && <Failed what="The cost per accepted post" />}
           {posts.state === 'ok' && (
             <>
-              <p className="figure">
+              <p
+                className={`figure${posts.data.overall.costMicros === 0 && posts.data.overall.posts > 0 ? ' figure-small' : ''}`}
+              >
                 {posts.data.overall.posts === 0 ? 'None yet' : costPerPostText(posts.data.overall)}
               </p>
               <p className="muted">
