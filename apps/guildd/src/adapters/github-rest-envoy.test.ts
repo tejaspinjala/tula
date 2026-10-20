@@ -164,6 +164,31 @@ test('a client error is not retried, and nothing the failure carries includes th
   expect(seen).toHaveLength(1)
 })
 
+test('redirects are never followed: a 301 is unavailable after exactly one request', async () => {
+  const { envoy, seen } = await setup(
+    () => new Response(null, { status: 301, headers: { location: 'https://evil.example/steal' } })
+  )
+  expect(await envoy.mergedPulls(GUILD, 'o/r').catch((e: unknown) => e)).toMatchObject({
+    code: 'unavailable',
+  })
+  expect(seen).toHaveLength(1)
+  expect(seen[0]?.init.redirect).toBe('manual')
+})
+
+test('a pull request whose link is not a github.com https URL is dropped, never stored', async () => {
+  const bad = (html_url: string) => ({ ...pulls[0], number: 4, html_url })
+  const { envoy } = await setup(() =>
+    ok([
+      pulls[0],
+      bad('javascript:alert(1)'),
+      bad('http://github.com/o/r/pull/4'),
+      bad('https://evil.example/o/r/pull/4'),
+      bad('https://github.com.evil.example/x'),
+    ])
+  )
+  expect((await envoy.mergedPulls(GUILD, 'o/r')).map((p) => p.number)).toEqual([3])
+})
+
 test('a response that does not match the schema is refused', async () => {
   const { envoy } = await setup(() => ok({ not: 'an array' }))
   expect(await envoy.mergedPulls(GUILD, 'o/r').catch((e: unknown) => e)).toMatchObject({
