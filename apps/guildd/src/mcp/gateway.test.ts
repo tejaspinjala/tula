@@ -31,7 +31,7 @@ import { MAX_PROPOSALS_PER_QUEST, TOOL_CATALOG, type ToolDef } from './tools'
 const SPAWN_TOOLS = ['spawn_subquest', 'await_children', 'child_results']
 const lease = z.object({ questId: z.string(), attempt: z.number(), token: z.string() })
 
-async function setup(overrides: Partial<McpGatewayDeps> = {}) {
+async function setup(overrides: Partial<McpGatewayDeps> & { clock?: MemoryClock } = {}) {
   const clock = overrides.clock ?? new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const keys = new MemoryKeyProvider()
   const quests = new MemoryQuestQueue(clock, () => 0.5)
@@ -1740,7 +1740,7 @@ describe('research', () => {
     )
     expect(await ask(await lease1())).toMatchObject({
       isError: true,
-      data: { error: 'treasury_declined' },
+      data: { error: 'research_declined' },
     })
     expect(provider.queries).toEqual([])
   })

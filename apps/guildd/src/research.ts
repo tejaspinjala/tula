@@ -20,7 +20,7 @@ export const MAX_TITLE_CHARS = 200
 export type ResearchError =
   | 'research_cap'
   | 'provider_not_private_eligible'
-  | 'treasury_declined'
+  | 'research_declined'
   | 'research_timeout'
   | 'research_failed'
 
@@ -128,7 +128,7 @@ export class Research {
           await treasury.denySpend(guildId, spend.spend.id, member)
         }
         await store.release(guildId, slot.call.id)
-        return { ok: false, error: 'treasury_declined' }
+        return { ok: false, error: 'research_declined' }
       }
       spendId = spend.spend.id
     }
