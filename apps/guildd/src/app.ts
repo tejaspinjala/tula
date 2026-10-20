@@ -27,6 +27,7 @@ import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-s
 import type { GitHubEnvoy } from './ports/github-envoy'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import type { MissiveStore } from './ports/missive-store'
 import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
 import type { ModelProvider } from './ports/model-provider'
@@ -83,6 +84,8 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** Missives between the Members of a Hall, read by the Guild Master in the ledger. */
+  missives: MissiveStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */

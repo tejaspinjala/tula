@@ -13,6 +13,7 @@ import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
 import type { KeyProvider } from '../ports/key-provider'
+import type { MissiveStore } from '../ports/missive-store'
 import { NoteError, type NoteStore } from '../ports/note-store'
 import { hashBytes, type ObjectStore } from '../ports/object-store'
 import {
@@ -58,6 +59,8 @@ export interface McpGatewayDeps {
   quests: QuestQueue
   config: ConfigStore
   notes: NoteStore
+  /** Missives between the Members of a Hall (`send_missive`, `read_missives`). */
+  missives: MissiveStore
   objectStore: ObjectStore
   handoffs: HandoffStore
   toolsets: ToolsetStore

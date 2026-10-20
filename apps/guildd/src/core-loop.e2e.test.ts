@@ -5,6 +5,7 @@ import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryHandoffStore } from './adapters/memory-handoff-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryMissiveStore } from './adapters/memory-missive-store'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryNoteStore } from './adapters/memory-note-store'
@@ -64,6 +65,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     quests,
     config,
     notes: new MemoryNoteStore(),
+    missives: new MemoryMissiveStore(),
     objectStore: new MemoryObjectStore(),
     handoffs: new MemoryHandoffStore(),
     toolsets: new MemoryToolsetStore(),
