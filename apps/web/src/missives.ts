@@ -37,7 +37,7 @@ export async function loadMissives(
   return pageBody.parse(data)
 }
 
-/** The Missives `memberId` sent or received (not those the Hall merely shared). */
+/** The Missives `memberId` sent or received, plus those sent to the whole Hall (`hall`); the list is one Hall's. */
 export function missivesOf(missives: readonly HallMissive[], memberId: string): HallMissive[] {
-  return missives.filter((m) => m.from === memberId || m.to === memberId)
+  return missives.filter((m) => m.from === memberId || m.to === memberId || m.to === 'hall')
 }
