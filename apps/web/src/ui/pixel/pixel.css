@@ -466,6 +466,10 @@
   overflow: hidden;
 }
 
+.px-slot-glyph::before {
+  content: attr(data-glyph);
+}
+
 .px-slot[draggable="true"] {
   cursor: grab;
 }

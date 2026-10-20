@@ -533,13 +533,16 @@ thead th {
   overflow-x: auto;
 }
 
+/* Tables wrap inside their cells, so even a 320 px screen needs no sideways scroll (which a
+   keyboard could not reach). */
 .table-scroll table {
-  min-width: 28rem;
+  width: 100%;
+  table-layout: auto;
 }
 
-/* Headings never break mid-word; the table scrolls instead. */
-.table-scroll th {
-  white-space: nowrap;
+.table-scroll th,
+.table-scroll td {
+  overflow-wrap: anywhere;
 }
 
 /* A tab never shrinks to nothing, so with the More menu open the tab bar wraps onto its own row

@@ -97,9 +97,7 @@ export function SlotGrid({ label, slots, columns, onSelect, dragType }: SlotGrid
           {slot.glyph === undefined ? (
             <span className="px-slot-art" aria-hidden="true" />
           ) : (
-            <span className="px-slot-glyph" aria-hidden="true">
-              {slot.glyph}
-            </span>
+            <span className="px-slot-glyph" data-glyph={slot.glyph} aria-hidden="true" />
           )}
           {slot.count !== undefined && (
             <span className="px-slot-count" aria-hidden="true">
