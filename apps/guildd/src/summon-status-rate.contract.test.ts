@@ -14,6 +14,7 @@ async function setup(limits: RouteLimits) {
     app: { rateLimits: { ...UNLIMITED_RATE_LIMITS, 'summon-status': limits } },
   })
   const guildId = await harness.foundGuild({ name: 'Summon', goal: 'g' })
+  await harness.adapters.config.seed(guildId)
   const key = await SoftwareAuthenticator.create('localhost', 'http://localhost:5173')
   const founding = await harness.adapters.identity.issueFoundingToken(guildId)
   const reg = await harness.adapters.identity.beginRegistration(guildId, {
