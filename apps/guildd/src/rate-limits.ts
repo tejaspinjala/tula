@@ -16,6 +16,7 @@ export type RateRoute =
   | 'checkpoint-finish'
   | 'quest-post'
   | 'seal-posted'
+  | 'proposal-post'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -56,6 +57,7 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'checkpoint-finish': writeLimits(10, 30),
   'quest-post': writeLimits(60, 300),
   'seal-posted': writeLimits(30, 120),
+  'proposal-post': writeLimits(60, 300),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
