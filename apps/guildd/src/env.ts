@@ -44,6 +44,18 @@ function base64urlBytes(length: number, first?: number) {
   }, `must be base64url of ${length} bytes`)
 }
 
+const vapidFields = {
+  /** VAPID public key for web push: base64url of the 65-byte uncompressed P-256 point. */
+  VAPID_PUBLIC_KEY: base64urlBytes(65, 0x04).optional(),
+  /** VAPID private key: base64url of the 32-byte P-256 scalar. Secret. */
+  VAPID_PRIVATE_KEY: base64urlBytes(32).optional(),
+  /** VAPID contact the push service may reach: a `mailto:` or `https:` URL. */
+  VAPID_SUBJECT: z
+    .string()
+    .regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/)
+    .optional(),
+}
+
 const VAPID_KEYS = ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'] as const
 
 /** Web push needs all three VAPID settings: required in production, all-or-none elsewhere. */
@@ -104,15 +116,7 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  /** VAPID public key for web push: base64url of the 65-byte uncompressed P-256 point. */
-  VAPID_PUBLIC_KEY: base64urlBytes(65, 0x04).optional(),
-  /** VAPID private key: base64url of the 32-byte P-256 scalar. Secret. */
-  VAPID_PRIVATE_KEY: base64urlBytes(32).optional(),
-  /** VAPID contact the push service may reach: a `mailto:` or `https:` URL. */
-  VAPID_SUBJECT: z
-    .string()
-    .regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/)
-    .optional(),
+  ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
@@ -171,7 +175,13 @@ export function loadWebauthnEnv(source: Record<string, string | undefined> = pro
   return webauthnSchema.parse(source)
 }
 
+const vapidSchema = z
+  .object({ NODE_ENV: productionFields.NODE_ENV, ...vapidFields })
+  .superRefine(vapid)
+
 /** The web push VAPID settings, or undefined when push is not configured (development only). */
-export function loadVapidEnv(_source: Record<string, string | undefined> = process.env) {
-  return undefined as { publicKey: string; privateKey: string; subject: string } | undefined
+export function loadVapidEnv(source: Record<string, string | undefined> = process.env) {
+  const env = vapidSchema.parse(source)
+  const { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: subject } = env
+  return publicKey && privateKey && subject ? { publicKey, privateKey, subject } : undefined
 }
