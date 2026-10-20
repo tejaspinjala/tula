@@ -253,3 +253,37 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
     ? { status: 'started', questId: claimed.id, profileId: routed.profileId }
     : { status: 'failed', questId: claimed.id, error: started.error }
 }
+
+/** The dispatcher bound to its collaborators; what the app and the job hook call. */
+export class Dispatcher {
+  constructor(private readonly deps: DispatchDeps) {}
+
+  /** Runs one {@link dispatch} pass for the guild. */
+  dispatch(guildId: string): Promise<DispatchOutcome> {
+    return dispatch(this.deps, guildId)
+  }
+}
+
+/**
+ * The job hook: one dispatch pass for each guild given, in order, keeping no cron state (the
+ * caller supplies the guilds and the schedule). A failing guild does not stop the rest; its error
+ * is returned beside the outcomes.
+ */
+export async function dispatchAll(
+  dispatcher: Pick<Dispatcher, 'dispatch'>,
+  guildIds: readonly string[]
+): Promise<
+  Array<{ guildId: string; outcome: DispatchOutcome } | { guildId: string; error: unknown }>
+> {
+  const results: Array<
+    { guildId: string; outcome: DispatchOutcome } | { guildId: string; error: unknown }
+  > = []
+  for (const guildId of guildIds) {
+    try {
+      results.push({ guildId, outcome: await dispatcher.dispatch(guildId) })
+    } catch (error) {
+      results.push({ guildId, error })
+    }
+  }
+  return results
+}

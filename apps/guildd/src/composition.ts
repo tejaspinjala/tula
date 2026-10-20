@@ -30,6 +30,7 @@ import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
+import { Dispatcher } from './dispatch'
 import {
   loadEnv,
   loadPlatformOperators,
@@ -104,10 +105,12 @@ export async function compose(
       rpName: 'Guildhall',
       origin: rp.WEBAUTHN_ORIGIN,
     })
+  const modelLedger = overrides.modelLedger ?? new PgModelLedger(db, keys)
+  const sealStore = overrides.sealStore ?? new PgSealStore(db, keys, clock)
   const gateway =
     overrides.gateway ??
     new ModelGateway({
-      ledger: new PgModelLedger(db, keys),
+      ledger: modelLedger,
       secrets,
       config,
       provider: overrides.modelProvider ?? new AnthropicModelProvider(),
@@ -130,6 +133,14 @@ export async function compose(
       tripwires,
       gates: gateStore,
     })
+  const seals = overrides.seals ?? new SealEngine({ store: sealStore, config, identity })
+  const proposals =
+    overrides.proposals ??
+    new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
+  // No cheap model is wired yet (and no model id lives in engine code): the deterministic
+  // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
+  const classifier = overrides.classifier ?? new MemoryClassifier()
+  const routingLog = overrides.routingLog ?? new PgRoutingLog(db)
   const adapters: AppDeps = {
     ...overrides,
     pushStore,
@@ -148,13 +159,11 @@ export async function compose(
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
-    seals:
-      overrides.seals ??
-      new SealEngine({ store: new PgSealStore(db, keys, clock), config, identity }),
+    seals,
+    sealStore,
+    modelLedger,
     secrets,
-    proposals:
-      overrides.proposals ??
-      new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config }),
+    proposals,
     notes,
     quests,
     mcp,
@@ -180,10 +189,27 @@ export async function compose(
         clock,
       }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
-    // No cheap model is wired yet (and no model id lives in engine code): the deterministic
-    // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
-    classifier: overrides.classifier ?? new MemoryClassifier(),
-    routingLog: overrides.routingLog ?? new PgRoutingLog(db),
+    classifier,
+    routingLog,
+    dispatcher:
+      overrides.dispatcher ??
+      new Dispatcher({
+        config,
+        quests,
+        sealStore,
+        proposals,
+        seals,
+        routing: { classifier, log: routingLog, keys },
+        ledger: modelLedger,
+        clock,
+        random: Math.random,
+        // Hosted (v2) deployments are not built yet: self-hosted accepts every configured provider.
+        hosted: false,
+        gates: gateStore,
+        gateway,
+        mcp,
+        sandboxes,
+      }),
     gateway,
     sandboxes,
     summon:

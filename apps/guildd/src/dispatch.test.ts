@@ -7,7 +7,7 @@ import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
 import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
-import { dispatch, routeClaimed } from './dispatch'
+import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
@@ -218,5 +218,27 @@ describe('dispatch', () => {
       disposition: 'retry_scheduled',
     })
     expect(await w.started()).toEqual([])
+  })
+})
+
+describe('dispatchAll', () => {
+  test('runs one pass per guild and isolates a failing guild', async () => {
+    const seen: string[] = []
+    const dispatcher = {
+      dispatch: async (guildId: string) => {
+        seen.push(guildId)
+        if (guildId === 'bad') {
+          throw new Error('boom')
+        }
+        return { status: 'idle' as const }
+      },
+    }
+    const results = await dispatchAll(dispatcher, ['a', 'bad', 'c'])
+    expect(seen).toEqual(['a', 'bad', 'c'])
+    expect(results.map((r) => ('outcome' in r ? r.outcome.status : 'error'))).toEqual([
+      'idle',
+      'error',
+      'idle',
+    ])
   })
 })
