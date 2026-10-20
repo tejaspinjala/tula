@@ -354,11 +354,15 @@ describe('MCP gateway', () => {
 
     test('a Quest too large for the Brief cap is refused with a coded error, on read and on claim', async () => {
       const s = await setup()
-      const huge = await s.post({ doneCondition: 'x'.repeat(9000) })
-      const claimed = await s.claim(huge)
-      expect(claimed.out).toMatchObject({ isError: true, data: { error: 'brief_too_large' } })
-      const handle = await s.gateway.lease(s.guild, (await s.quests.get(s.guild, huge.id)) ?? huge)
-      const out = await callTool(s.transport, 'read_brief', { lease: handle })
+      const tight = new McpGateway({ ...s.deps, briefTokenCap: 10 })
+      const via = (r: object) => tight.handle(r)
+      const quest = await s.post({ doneCondition: 'x'.repeat(200) })
+      const claimed = await callTool(via, 'claim_quest', {
+        assignment: await tight.assign(s.guild, quest),
+      })
+      expect(claimed).toMatchObject({ isError: true, data: { error: 'brief_too_large' } })
+      const handle = await tight.lease(s.guild, (await s.quests.get(s.guild, quest.id)) ?? quest)
+      const out = await callTool(via, 'read_brief', { lease: handle })
       expect(out).toMatchObject({ isError: true, data: { error: 'brief_too_large' } })
     })
 

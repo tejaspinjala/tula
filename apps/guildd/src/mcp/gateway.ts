@@ -47,6 +47,8 @@ export interface McpGatewayDeps {
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** The tools on offer; defaults to {@link TOOL_CATALOG}. A role's list is frozen per Campaign from it. */
   catalog?: readonly ToolDef[]
+  /** Largest Brief in tokens; defaults to {@link BRIEF_TOKEN_CAP}. */
+  briefTokenCap?: number
   /** Lease length at claim; defaults to ten minutes. */
   leaseMs?: number
   /** How long an assignment may be used to claim; defaults to fifteen minutes. */
@@ -301,7 +303,7 @@ export class McpGateway {
     switch (name) {
       case 'read_brief':
         readBriefArgs.parse(args)
-        return ok({ brief: await this.brief(caller) })
+        return this.briefReply(caller, await this.exposed(caller), (brief) => ok({ brief }))
       case 'read_archive':
         return this.readArchive(caller, readArchiveArgs.parse(args))
       case 'write_archive':
@@ -418,13 +420,25 @@ export class McpGateway {
       }),
     }
     const tools = await this.exposed({ ...caller, quest: claimed })
-    const brief = await this.compile({ ...caller, quest: claimed }, tools)
-    return ok({ lease, brief, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+    return this.briefReply({ ...caller, quest: claimed }, tools, (brief) =>
+      ok({ lease, brief, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+    )
   }
 
-  /** The Brief for the caller's Quest, over its role's frozen tool list. */
-  private async brief(caller: Caller): Promise<string> {
-    return this.compile(caller, await this.exposed(caller))
+  /** Compiles the Brief and hands it to `onBrief`; a Quest too large for the cap is a coded refusal. */
+  private async briefReply(
+    caller: Caller,
+    tools: readonly string[],
+    onBrief: (brief: string) => ToolReply
+  ): Promise<ToolReply> {
+    try {
+      return onBrief(await this.compile(caller, tools))
+    } catch (error) {
+      if (error instanceof Error && error.message === 'brief_too_large') {
+        return refuse('brief_too_large')
+      }
+      throw error
+    }
   }
 
   private async compile(caller: Caller, tools: readonly string[]): Promise<string> {
