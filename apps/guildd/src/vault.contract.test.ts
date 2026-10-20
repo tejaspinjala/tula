@@ -106,6 +106,28 @@ describe('vault over HTTP', () => {
     expect(await harness.adapters.secrets.resolve(who.guildId, 'openai')).toBe('sk-reauth-1')
   })
 
+  test('authentication comes before the body: unauthenticated posts get 401 whatever they send', async () => {
+    const who = await signedIn()
+    const path = `/guilds/${who.guildId}/vault/secrets`
+    const res = await post(path, { not: 'a secret' })
+    expect(res.status).toBe(401)
+  })
+
+  test('a body over the cap is refused with 413 before it is read', async () => {
+    const who = await signedIn()
+    const path = `/guilds/${who.guildId}/vault/secrets`
+    const big = JSON.stringify({ ref: 'openai', value: 'x'.repeat(20 * 1024) })
+    const sized = { 'content-length': String(big.length) }
+    const anon = await post(path, JSON.parse(big), sized)
+    expect(anon.status).toBe(401)
+    const headers = { ...who.auth, ...sized, 'x-reauth-proof': await who.proof() }
+    const res = await post(path, JSON.parse(big), headers)
+    expect(res.status).toBe(413)
+    expect(await harness.adapters.secrets.check(who.guildId, ['openai'])).toEqual([
+      { ref: 'openai', status: 'missing' },
+    ])
+  })
+
   test('a session cannot add a secret to another guild', async () => {
     const who = await signedIn()
     const other = await harness.adapters.db.foundGuild({ name: 'Other', goal: 'g' })

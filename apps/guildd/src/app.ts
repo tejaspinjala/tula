@@ -55,6 +55,8 @@ const foundGuildBody = z.object({
 })
 
 const uuid = z.uuid()
+/** Largest accepted request body for adding a secret. */
+const MAX_SECRET_REQUEST_BYTES = 16 * 1024
 const addSecretBody = z.object({ ref: secretRef, value: secretValue })
 const checkSecretsBody = z.object({ refs: z.array(secretRef).min(1).max(MAX_SECRET_PAGE) })
 const secretPage = z.object({
@@ -291,16 +293,31 @@ export function createApp(deps: AppDeps): Hono {
   // The Vault. Adding a secret is a sensitive action (fresh passkey re-authentication, spent by
   // the check); nothing here ever returns, logs or errors with a secret value.
   app.post('/guilds/:id/vault/secrets', async (c) => {
-    const body = addSecretBody.safeParse(await c.req.json().catch(() => null))
-    if (!body.success) {
-      return c.json({ error: 'invalid_secret' }, 400)
-    }
     const check = await checkSensitive(deps.identity, c.req.raw.headers)
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
     if (c.req.param('id') !== check.guildId) {
       return c.json({ error: 'not_found' }, 404)
+    }
+    if (Number(c.req.header('content-length') ?? 0) > MAX_SECRET_REQUEST_BYTES) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    const raw = await readCapped(c.req.raw.body, MAX_SECRET_REQUEST_BYTES)
+    if (!raw) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    const body = addSecretBody.safeParse(
+      (() => {
+        try {
+          return JSON.parse(new TextDecoder().decode(raw))
+        } catch {
+          return null
+        }
+      })()
+    )
+    if (!body.success) {
+      return c.json({ error: 'invalid_secret' }, 400)
     }
     try {
       await deps.secrets.add(check.guildId, body.data.ref, body.data.value)
