@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
+import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
 import { GatesPanel } from './GatesPanel'
 import { HomePanel } from './HomePanel'
@@ -59,6 +60,8 @@ function ViewBody({
           <SummonPanel session={session} />
         </>
       )
+    case 'guild':
+      return <BuilderPanel session={session} />
     case 'gates':
       return (
         <>

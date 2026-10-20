@@ -1320,7 +1320,15 @@ export function createApp(deps: AppDeps): Hono {
     }
     const body = putConfigBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
-      return c.json({ error: 'invalid_config' }, 400)
+      // Paths and messages only, so the builder can mark the offending node; never the submitted values.
+      return c.json(
+        {
+          error: 'invalid_config',
+          // Paths are relative to the config document, not the request body that wraps it.
+          issues: body.error.issues.map((i) => ({ path: i.path.slice(1), message: i.message })),
+        },
+        400
+      )
     }
     if (namesDisabledSubscription(body.data.config)) {
       return c.json({ error: 'subscription_disabled' }, 409)
