@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { formatDollars, loadCostPerPost, loadCosts } from './costs'
+import { campaignLabel, formatDollars, loadCostPerPost, loadCosts } from './costs'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -67,4 +67,9 @@ test('dollars are shown from millionths without float drift', () => {
   expect(formatDollars(0)).toBe('$0.00')
   expect(formatDollars(1)).toBe('$0.000001')
   expect(formatDollars(10_000_000)).toBe('$10.00')
+})
+
+test('a Campaign reads as a short label, never a raw id', () => {
+  expect(campaignLabel('7d4f0ea7-3473-41a4-a826-54bfdb90a29e')).toBe('Campaign 7d4f0ea7')
+  expect(campaignLabel(null)).toBe('No Campaign')
 })
