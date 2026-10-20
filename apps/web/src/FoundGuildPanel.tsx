@@ -93,7 +93,7 @@ export function FoundGuildPanel({
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
         />
-        <button type="submit" className="btn-primary" disabled={busy}>
+        <button type="submit" className={founded ? 'btn-primary' : undefined} disabled={busy}>
           {founded ? 'Create passkey' : 'Found your guild'}
         </button>
         <p role="alert">{error}</p>

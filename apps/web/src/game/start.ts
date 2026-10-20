@@ -7,6 +7,8 @@ export interface GameHandle {
   render: (state: SceneState) => void
   zoomBy: (step: number) => void
   fit: () => void
+  /** Moves the Guild Master to a room (its slot), or to the entrance (null). */
+  teleport: (slot: number | null) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
   setPaused: (paused: boolean) => void
   destroy: () => void
@@ -40,6 +42,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     render: (state) => scene.render(state),
     zoomBy: (step) => scene.zoomBy(step),
     fit: () => scene.fit(),
+    teleport: (slot) => scene.teleport(slot),
     setPaused: (paused) => {
       if (paused) {
         game.loop.sleep()

@@ -1,14 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Badge, questTone } from './Badge'
-import type { Session } from './passkeys'
+import { PasskeyRequestError, type Session } from './passkeys'
 import {
   BOARD_STATES,
   type BoardQuest,
+  childrenOf,
   fetchStreamTicket,
   groupByState,
   loadQuests,
+  postQuest,
+  QUEST_TEMPLATES,
   questStreamUrl,
   readQuestFrame,
+  roundText,
 } from './quests'
 
 const COLUMN_NAMES: Record<BoardQuest['state'], string> = {
@@ -29,7 +33,35 @@ const MAX_RECONNECT_MS = 10_000
 export function QuestBoardPanel({ session }: { session: Session | null }) {
   const [quests, setQuests] = useState<BoardQuest[]>([])
   const [failed, setFailed] = useState(false)
+  const [hallId, setHallId] = useState(QUEST_TEMPLATES[0]?.hallId ?? '')
+  const [templateId, setTemplateId] = useState(QUEST_TEMPLATES[0]?.id ?? '')
+  const [title, setTitle] = useState('')
+  const [posting, setPosting] = useState('')
   const lastSeq = useRef(0)
+  const halls = [...new Map(QUEST_TEMPLATES.map((t) => [t.hallId, t.hallName]))]
+  const templates = QUEST_TEMPLATES.filter((t) => t.hallId === hallId)
+
+  const post = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault()
+      if (!session || title.trim() === '') {
+        return
+      }
+      try {
+        await postQuest(
+          session,
+          { templateId, title: title.trim(), jobKey: crypto.randomUUID() },
+          fetch
+        )
+        setTitle('')
+        setPosting('Quest posted.')
+        setQuests(await loadQuests(session, fetch))
+      } catch (e) {
+        setPosting(e instanceof PasskeyRequestError ? `Refused: ${e.code}` : 'The request failed.')
+      }
+    },
+    [session, templateId, title]
+  )
 
   useEffect(() => {
     if (!session) {
@@ -101,10 +133,61 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
   return (
     <section aria-labelledby="quests-heading" className="card">
       <h2 id="quests-heading" className="card-title">
-        Quest Board
+        Quests by state
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
+      {session && (
+        <form className="post-quest" onSubmit={post} aria-label="Post a Quest">
+          <label className="flex flex-col">
+            Hall
+            <select
+              name="quest-hall"
+              value={hallId}
+              onChange={(event) => {
+                setHallId(event.target.value)
+                setTemplateId(
+                  QUEST_TEMPLATES.find((t) => t.hallId === event.target.value)?.id ?? ''
+                )
+              }}
+            >
+              {halls.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col">
+            Template
+            <select
+              name="quest-template"
+              value={templateId}
+              onChange={(event) => setTemplateId(event.target.value)}
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col">
+            Title
+            <input
+              name="quest-title"
+              required
+              maxLength={200}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <button type="submit" className="btn-primary">
+            Post Quest
+          </button>
+        </form>
+      )}
+      {posting && <p role="status">{posting}</p>}
       {session && (
         <div className="board" aria-live="polite">
           {BOARD_STATES.map((state) => (
@@ -121,10 +204,10 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
                     <div>
                       {quest.hallId} / {quest.ownerId}
                     </div>
-                    <div>
-                      Round {quest.round} of {quest.roundLimit}
-                    </div>
+                    <div>{roundText(quest)}</div>
                     {quest.state === 'dead' && quest.lastError && <div>{quest.lastError}</div>}
+                    {quest.parentId !== null && <div>Sub-Quest</div>}
+                    <SubQuests quests={quests} parentId={quest.id} />
                   </li>
                 ))}
               </ul>
@@ -133,5 +216,25 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
         </div>
       )}
     </section>
+  )
+}
+
+/** The Sub-Quests of one Quest with their status, or nothing when it spawned none. */
+function SubQuests({ quests, parentId }: { quests: readonly BoardQuest[]; parentId: string }) {
+  const children = childrenOf(quests, parentId)
+  if (children.length === 0) {
+    return null
+  }
+  return (
+    <div>
+      <div>{`Sub-Quests (${children.length})`}</div>
+      <ul aria-label="Sub-Quests" className="mt-1 flex flex-col gap-1">
+        {children.map((child) => (
+          <li key={child.id} data-testid={`subquest-${child.id}`}>
+            {child.title} <Badge tone={questTone(child.state)}>{COLUMN_NAMES[child.state]}</Badge>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

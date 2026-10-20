@@ -43,6 +43,41 @@ export const newQuest = z.object({
 /** Input to {@link QuestQueue.post}. */
 export type NewQuest = z.input<typeof newQuest>
 
+/** How a waiting Quest's fan-in is met: every sub-Quest finished, or the first one done. */
+export type WaitMode = 'all' | 'any'
+
+/** The link from a sub-Quest to the Quest that spawned it. */
+export interface QuestLink {
+  parentId: string
+  childId: string
+  /** 1 for a child of a posted Quest, 2 for its child, and so on. */
+  depth: number
+  /** The parent's delivery that spawned it. */
+  attempt: number
+  /** Hash of the spawn request; with the parent and attempt it makes a retried spawn idempotent. */
+  briefHash: string
+  /** The data class the child inherited. */
+  dataClass: DataClass
+  createdAt: string
+}
+
+/** What {@link QuestQueue.spawn} needs: the parent's delivery, the child and the caps to enforce. */
+export interface SpawnRequest {
+  parentId: string
+  /** The parent's attempt: the fencing token. */
+  attempt: number
+  briefHash: string
+  /** The child Quest; its job key is derived from the parent, attempt and brief hash. */
+  child: Omit<NewQuest, 'jobKey' | 'campaignId' | 'blockedBy'>
+  maxChildren: number
+  maxDepth: number
+}
+
+/** The outcome of {@link QuestQueue.spawn}: the child and its link, or the cap that refused it (no row written). */
+export type SpawnResult =
+  | { ok: true; quest: Quest; link: QuestLink; created: boolean }
+  | { ok: false; error: 'spawn_cap' | 'depth_cap' }
+
 /** A Quest as the queue holds it. */
 export interface Quest {
   id: string
@@ -62,6 +97,10 @@ export interface Quest {
   round: number
   roundLimit: number
   blockedBy: string[]
+  /** Sub-Quests this Quest is parked on (see {@link QuestQueue.park}); empty unless it is waiting. */
+  waitingOn: string[]
+  /** How the wait is met; meaningful only while `waitingOn` is not empty. */
+  waitMode: WaitMode
   /** Deliveries so far; each claim, including a reclaim after a lease expired, is one. */
   attempts: number
   maxAttempts: number
@@ -223,6 +262,35 @@ export interface QuestQueue {
    * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
    */
   kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest>
+  /**
+   * Gives a claimed Quest's worker slot back while it waits on `waitingOn` (its sub-Quests): the
+   * Quest returns to `queued` with its lease cleared, and is not deliverable until the wait is
+   * over (`all`: every one is done or dead; `any`: one is done, or all are finished). Fenced by
+   * `attempt`; `invalid_state` unless active; `unknown_blocker` for an id the guild lacks.
+   * Idempotent: a repeat for the same delivery changes nothing. The next claim clears the wait.
+   */
+  park(
+    guildId: string,
+    id: string,
+    attempt: number,
+    waitingOn: readonly string[],
+    mode: WaitMode
+  ): Promise<Quest>
+  /**
+   * Posts a sub-Quest of a Quest the caller holds (fenced by `attempt`: `stale_lease` or
+   * `invalid_state` otherwise), links it to its parent and appends `quest.spawned`, atomically.
+   * Idempotent per (parent, attempt, brief hash): a repeat returns the same child with
+   * `created: false`, whatever the caps now say. Over `maxChildren` the parent already has, or past
+   * `maxDepth`, it refuses with `spawn_cap` / `depth_cap` and writes nothing. A sub-Quest belongs to
+   * no Campaign and is blocked by nothing, so it is deliverable at once.
+   */
+  spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult>
+  /** The sub-Quests of a Quest, in spawn order (at most the guild's `maxChildrenPerQuest`). */
+  children(guildId: string, parentId: string): Promise<QuestLink[]>
+  /** The links of those of `childIds` (at most a page of Quests) that are Sub-Quests, for the Quest Board. */
+  linksFor(guildId: string, childIds: readonly string[]): Promise<QuestLink[]>
+  /** The link of a sub-Quest to its parent, or null for a Quest nobody spawned. */
+  linkOf(guildId: string, childId: string): Promise<QuestLink | null>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */
@@ -248,6 +316,33 @@ export function hasLiveLease(quest: Quest, now: Date): boolean {
   )
 }
 
+/** Throws unless the Quest is leased and `attempt` is the delivery it was given; for adapters that fence on it. */
+export function assertHeld(quest: Quest, attempt: number): void {
+  held(quest, attempt)
+}
+
+/**
+ * The cap a spawn would break, or null: `depth_cap` when the child's depth passes `maxDepth`,
+ * `spawn_cap` when the parent already has `maxChildren` sub-Quests. Pure; shared by both adapters.
+ */
+export function spawnRefusal(
+  parentDepth: number,
+  childCount: number,
+  request: Pick<SpawnRequest, 'maxChildren' | 'maxDepth'>
+): 'spawn_cap' | 'depth_cap' | null {
+  if (parentDepth + 1 > request.maxDepth) {
+    return 'depth_cap'
+  }
+  return childCount >= request.maxChildren ? 'spawn_cap' : null
+}
+
+/** The job key a sub-Quest is posted under: one per parent, delivery and request. */
+export function spawnJobKey(
+  request: Pick<SpawnRequest, 'parentId' | 'attempt' | 'briefHash'>
+): string {
+  return `spawn:${request.parentId}:${request.attempt}:${request.briefHash}`
+}
+
 /** Throws unless the Quest is leased and `attempt` is the delivery it was given. */
 function held(quest: Quest, attempt: number): void {
   if (quest.state !== 'active') {
@@ -269,6 +364,7 @@ export function claimTransition(quest: Quest, now: Date, leaseMs: number): Trans
       state: 'active',
       attempts: quest.attempts + 1,
       leaseExpiresAt: new Date(now.getTime() + leaseMs).toISOString(),
+      waitingOn: [],
     },
     event: 'quest.claimed',
   }
@@ -386,6 +482,46 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
   }
 }
 
+/** Parks a claimed Quest on its sub-Quests; a repeat for the same delivery is a no-op. */
+export function parkTransition(
+  quest: Quest,
+  attempt: number,
+  waitingOn: readonly string[],
+  mode: WaitMode,
+  now: Date
+): Transition {
+  if (quest.state === 'queued' && quest.attempts === attempt && quest.waitingOn.length > 0) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      waitingOn: [...new Set(waitingOn)],
+      waitMode: mode,
+      // A wait is not a crash: the extra delivery it costs does not shrink the retry budget.
+      maxAttempts: quest.maxAttempts + 1,
+      notBefore: now.toISOString(),
+    },
+    event: null,
+  }
+}
+
+/**
+ * Whether a parked Quest's wait is over: `all` once every sub-Quest is done or dead; `any` once
+ * one is done, or all have finished. A Quest that waits on nothing is always ready.
+ */
+export function waitMet(quest: Quest, byId: ReadonlyMap<string, Quest>): boolean {
+  if (quest.waitingOn.length === 0) {
+    return true
+  }
+  const states = quest.waitingOn.map((id) => byId.get(id)?.state)
+  const finished = (s: QuestState | undefined) => s === 'done' || s === 'dead'
+  return states.every(finished) || (quest.waitMode === 'any' && states.some((s) => s === 'done'))
+}
+
 /** Dead-letters a claimed Quest with a coded reason; a repeat for the same delivery is a no-op. */
 export function killTransition(quest: Quest, attempt: number, reason: string): Transition {
   if (quest.state === 'dead' && quest.attempts === attempt) {
@@ -479,8 +615,10 @@ export function pickClaimable(
     return null
   }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
+  const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&
     q.blockedBy.every((id) => doneIds.has(id)) &&

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
 import { readEventFrame, sceneSummary } from './game/text'
+import { announceRoom } from './game/walk'
 import { loadHistory } from './history'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -30,6 +31,7 @@ export function GamePanel({
   const [position, setPosition] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [roomSlot, setRoomSlot] = useState<number | null>(null)
   const frame = useRef<HTMLDivElement | null>(null)
   const handle = useRef<GameHandle | null>(null)
   const lastSeq = useRef(0)
@@ -171,6 +173,7 @@ export function GamePanel({
             typeof matchMedia === 'function' ? matchMedia.bind(globalThis) : undefined
           ),
           onOpenSeal: () => open.current('/seals'),
+          onRoom: setRoomSlot,
         })
         handle.current = started
       })
@@ -207,7 +210,7 @@ export function GamePanel({
   return (
     <section aria-labelledby="game-heading" className="card">
       <h2 id="game-heading" className="card-title">
-        Guild Hall
+        The hall, live
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the guild hall.</p>}
       {session && (
@@ -222,6 +225,26 @@ export function GamePanel({
             <button type="button" onClick={() => handle.current?.fit()}>
               Fit hall
             </button>
+            <label className="game-teleport">
+              Teleport to
+              <select
+                value=""
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (value !== '') {
+                    handle.current?.teleport(value === 'entrance' ? null : Number(value))
+                  }
+                }}
+              >
+                <option value="">choose a room</option>
+                <option value="entrance">Entrance</option>
+                {(scene?.rooms ?? []).map((room, slot) => (
+                  <option key={room.hallId} value={slot}>
+                    {room.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="game-scrub">
               Replay
               <input
@@ -242,6 +265,12 @@ export function GamePanel({
           <div ref={frame} className="game-frame" data-testid="game-frame" />
           <p role="status" aria-live="polite" className="muted" data-testid="game-summary">
             {summary}
+          </p>
+          <p role="status" aria-live="polite" className="muted" data-testid="game-location">
+            {announceRoom(
+              roomSlot === null ? null : scene?.rooms[roomSlot]?.name,
+              roomSlot !== null
+            )}
           </p>
           {(failed || loadError) && (
             <p role="alert" className="muted">

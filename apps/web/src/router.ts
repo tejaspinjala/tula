@@ -32,15 +32,27 @@ export function viewFor(pathname: string, search: string): ViewId {
   return new URLSearchParams(search).has('seal') ? 'seals' : 'home'
 }
 
+/** Whether `pathname` is `/` or one of the ledger's view paths; anything else redirects to `/`. */
+export function isKnownPath(pathname: string): boolean {
+  const trimmed = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
+  return VIEWS.some((view) => view.path === trimmed)
+}
+
 /** The current view and a `navigate` that changes the path without a page load. */
 export function useRoute(): { view: ViewId; navigate: (path: string) => void } {
   const [view, setView] = useState<ViewId>(() =>
     viewFor(window.location.pathname, window.location.search)
   )
   useEffect(() => {
-    const onPop = () => setView(viewFor(window.location.pathname, window.location.search))
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
+    const sync = () => {
+      if (!isKnownPath(window.location.pathname)) {
+        window.history.replaceState({}, '', '/')
+      }
+      setView(viewFor(window.location.pathname, window.location.search))
+    }
+    sync()
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
   }, [])
   const navigate = useCallback((path: string) => {
     window.history.pushState({}, '', path)

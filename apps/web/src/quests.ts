@@ -16,10 +16,20 @@ const questBody = z.object({
   attempts: z.number(),
   lastError: z.string().nullable(),
 })
-const pageBody = z.object({ quests: z.array(questBody), next: z.string().nullable() })
+const linkBody = z.object({ parentId: z.string(), childId: z.string() })
+const pageBody = z.object({
+  quests: z.array(questBody),
+  next: z.string().nullable(),
+  links: z.array(linkBody).default([]),
+})
 
-/** A Quest as the Quest Board shows it. */
-export type BoardQuest = z.infer<typeof questBody>
+/** A Quest as the Quest Board shows it; `parentId` is set on a Sub-Quest. */
+export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
+
+/** The Sub-Quests of `parentId` among `quests`, in board order. */
+export function childrenOf(quests: readonly BoardQuest[], parentId: string): BoardQuest[] {
+  return quests.filter((q) => q.parentId === parentId)
+}
 /** The Quest Board's columns, in lifecycle order. */
 export const BOARD_STATES = QUEST_STATES
 
@@ -32,7 +42,8 @@ export async function loadQuests(
   fetcher: Fetcher,
   options: { limit?: number; deadLetters?: boolean } = {}
 ): Promise<BoardQuest[]> {
-  const quests: BoardQuest[] = []
+  const loaded: z.infer<typeof questBody>[] = []
+  const parents = new Map<string, string>()
   const limit = options.limit ?? 50
   const path = `/api/guilds/${session.guildId}/quests${options.deadLetters ? '/dead-letters' : ''}`
   let after: string | null = null
@@ -47,9 +58,12 @@ export async function loadQuests(
       throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
     }
     const body = pageBody.parse(data)
-    quests.push(...body.quests)
+    loaded.push(...body.quests)
+    for (const link of body.links) {
+      parents.set(link.childId, link.parentId)
+    }
     if (body.next === null) {
-      return quests
+      return loaded.map((q) => ({ ...q, parentId: parents.get(q.id) ?? null }))
     }
     after = body.next
   }
@@ -128,4 +142,48 @@ export function readQuestFrame(raw: string): { refresh: boolean; seq: number | n
     return { refresh: true, seq: null }
   }
   return { refresh: parsed.data.event.type.startsWith('quest.'), seq: parsed.data.event.seq }
+}
+
+/** Which round a Quest is on, for display. */
+export function roundText(quest: Pick<BoardQuest, 'round' | 'roundLimit'>): string {
+  const round = Math.min(Math.max(quest.round, 1), quest.roundLimit)
+  return `Round ${round} of ${quest.roundLimit}`
+}
+
+/** A Quest template the Guild Master can post from (mirrors guildd's code-defined templates). */
+export interface QuestTemplateChoice {
+  id: string
+  name: string
+  hallId: string
+  hallName: string
+}
+
+/** The templates the post form offers, by Hall. */
+export const QUEST_TEMPLATES: readonly QuestTemplateChoice[] = [
+  { id: 'herald-brief', name: 'Herald brief', hallId: 'heralds', hallName: 'Heralds Hall' },
+  {
+    id: 'herald-announcement',
+    name: 'Herald announcement',
+    hallId: 'heralds',
+    hallName: 'Heralds Hall',
+  },
+]
+
+/** Posts a Quest from a template (`POST /guilds/:id/quests`); `jobKey` makes a retry harmless. */
+export async function postQuest(
+  session: Session,
+  input: { templateId: string; title: string; jobKey: string },
+  fetcher: Fetcher
+): Promise<BoardQuest> {
+  const res = await fetcher(`/api/guilds/${session.guildId}/quests`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return { ...questBody.parse(data), parentId: null }
 }

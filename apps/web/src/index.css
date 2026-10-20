@@ -77,6 +77,12 @@
   }
 }
 
+/* Anything scrolled into view (a focused control, a tapped link) clears the sticky header and the phone tab bar. */
+html {
+  scroll-padding-top: 4.5rem;
+  scroll-padding-bottom: calc(var(--touch) + var(--space-8));
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -358,6 +364,11 @@ thead th {
   font-weight: 700;
 }
 
+.count-badge-neutral {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+
 /* Home dashboard. */
 .tiles {
   display: grid;
@@ -388,6 +399,10 @@ thead th {
   font-size: var(--text-figure);
   font-weight: 700;
   line-height: 1.1;
+}
+
+.figure-small {
+  font-size: var(--text-lg);
 }
 
 .actions {
@@ -429,7 +444,13 @@ thead th {
 
 .shell-header {
   grid-column: 1 / -1;
-  padding: var(--space-4);
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -444,12 +465,25 @@ thead th {
   font-size: var(--text-lg);
   font-weight: 700;
   margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .shell-main {
   padding: var(--space-4);
   max-width: 72rem;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A wide table scrolls inside its own container, never the page. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table-scroll table {
+  min-width: 28rem;
 }
 
 .shell-main:focus {
@@ -462,24 +496,57 @@ thead th {
   z-index: 10;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  overflow-x: auto;
 }
 
 .shell-nav ul {
   display: flex;
+  flex-wrap: wrap;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.shell-nav li {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+
+.shell-nav .nav-extra {
+  display: none;
+}
+
+/* The More menu: the views past the fourth open as full-width rows above the tab bar. */
+.shell-nav[data-more="open"] .nav-extra {
+  display: flex;
+  order: -1;
+  flex: 1 1 100%;
+  border-bottom: 1px solid var(--border);
+}
+
+.shell-nav .nav-more button {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  border-top: 3px solid transparent;
+  background: transparent;
+  font-size: var(--text-sm);
+}
+
+.shell-nav .nav-more button[data-active-inside="true"] {
+  border-top-color: var(--accent);
+  color: var(--accent);
+}
+
 .shell-nav a {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
+  text-align: center;
   min-height: var(--touch);
   min-width: var(--touch);
-  padding: 0 var(--space-4);
-  white-space: nowrap;
+  padding: 0 var(--space-1);
   color: var(--text);
   text-decoration: none;
   font-size: var(--text-sm);
@@ -530,29 +597,42 @@ thead th {
   }
 
   .shell-header {
-    padding: var(--space-4) var(--space-8);
+    grid-column: 2;
+    padding: var(--space-3) var(--space-8);
   }
 
   .shell-main {
     padding: var(--space-6) var(--space-8);
   }
 
+  /* The rail spans the full height of the page; its list sticks to the top while the page scrolls. */
   .shell-nav {
-    position: sticky;
-    top: 0;
-    right: auto;
-    bottom: auto;
-    left: auto;
-    align-self: start;
-    height: 100vh;
+    position: static;
+    grid-column: 1;
+    grid-row: 1 / -1;
+    align-self: stretch;
     border-top: 0;
     border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: var(--space-4) 0;
   }
 
   .shell-nav ul {
+    position: sticky;
+    top: 0;
     flex-direction: column;
+    flex-wrap: nowrap;
+    padding: var(--space-4) 0;
+  }
+
+  .shell-nav .nav-extra {
+    display: flex;
+  }
+
+  .shell-nav .nav-more {
+    display: none;
+  }
+
+  .shell-main {
+    grid-column: 2;
   }
 
   .shell-nav a {
@@ -701,4 +781,62 @@ thead th {
 
 .flow-step .flow-badges {
   align-items: center;
+}
+
+/* A disclosure: a bordered summary with a turning chevron. */
+.disclosure {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-3);
+}
+
+.disclosure > summary {
+  list-style: none;
+  font-weight: 600;
+  gap: var(--space-2);
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "\25B8";
+  transition: transform 0.15s;
+}
+
+.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.disclosure > :not(summary) {
+  margin-bottom: var(--space-3);
+}
+
+.guild-id {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+ul.evidence-list {
+  margin: 0;
+  padding-left: var(--space-6);
+  list-style: disc;
+}
+
+.post-quest {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 1fr;
+  align-items: end;
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 48rem) {
+  .post-quest {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  }
 }

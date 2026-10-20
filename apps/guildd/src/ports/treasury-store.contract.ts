@@ -583,10 +583,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         })
         expect((await store.listSpends(b, { limit: 10 })).items).toEqual([])
         expect((await store.snapshot(b, LIMITS)).balances.operating).toBe(7000)
-        expect((await store.listEntries(b, { limit: 100 })).items.map((e) => e.spendId)).toEqual([
-          null,
-          null,
-        ])
+        expect((await store.listEntries(b, { limit: 100 })).items).toEqual([])
       })
     })
   })

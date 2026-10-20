@@ -76,9 +76,18 @@ test('Treasury events carry ids and amounts only, never evidence or purpose text
   expect(JSON.stringify(events)).not.toContain('SECRET')
 })
 
+/** Writes the first ledger entries: opening the Treasury is a read, so only a write funds it. */
+async function fund(g: string) {
+  await store().recordRevenue(
+    g,
+    { key: 'fund', amountCents: 100, evidence: 'e', actorMember: 'm' },
+    DEFAULT_TREASURY
+  )
+}
+
 test('the ledger is append-only: the app role and the owner both fail to alter or remove an entry', async () => {
   const g = await newGuild()
-  await store().snapshot(g, DEFAULT_TREASURY)
+  await fund(g)
   await expect(
     db.withGuild(g, (tx) => tx`update treasury_ledger set amount_cents = 1 where guild_id = ${g}`)
   ).rejects.toThrow()
@@ -101,7 +110,7 @@ test('the ledger is append-only: the app role and the owner both fail to alter o
 
 test('the database refuses revenue without evidence and a non-paper entry', async () => {
   const g = await newGuild()
-  await store().snapshot(g, DEFAULT_TREASURY)
+  await fund(g)
   const insert = (kind: string, evidence: string | null, mode: string) =>
     db.withGuild(
       g,
@@ -147,7 +156,7 @@ function ledgerRowsRead(node: PlanNode): number {
 
 test("the day-spend query reads only the day's reservations, however many old spends exist", async () => {
   const g = await newGuild()
-  await store().snapshot(g, DEFAULT_TREASURY)
+  await fund(g)
   const zeros = '0'.repeat(64)
   const read = await owner.begin(async (tx) => {
     await tx`select set_config('app.guild_id', ${g}, true)`

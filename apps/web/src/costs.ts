@@ -112,3 +112,13 @@ export function formatDollars(micros: number): string {
   const trimmed = frac.replace(/0+$/, '')
   return `$${whole}.${trimmed.length >= 2 ? trimmed : frac.slice(0, 2)}`
 }
+
+/**
+ * One post's cost for display: dollars, or "unmetered (subscription)" when posts were accepted but
+ * nothing was metered (the spend all ran on a subscription, so no dollar figure exists).
+ */
+export function costPerPostText(cost: PostCost): string {
+  return cost.posts > 0 && cost.costMicros === 0
+    ? 'unmetered (subscription)'
+    : formatDollars(cost.costPerPostMicros)
+}

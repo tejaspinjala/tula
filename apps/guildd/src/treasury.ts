@@ -45,7 +45,7 @@ export class Treasury {
     return guildTreasury((await this.config.current(guildId)).config)
   }
 
-  /** Balances, today's net spend and the limits in force. Funds a new guild's Treasury. */
+  /** Balances, today's net spend and the limits in force. Read-only: never funds the Treasury. */
   async overview(guildId: string): Promise<TreasuryOverview> {
     const limits = await this.limits(guildId)
     return { ...(await this.store.snapshot(guildId, limits)), limits }
@@ -102,7 +102,6 @@ export class Treasury {
     guildId: string,
     page: { after?: number; limit: number }
   ): Promise<TreasuryPage<Spend>> {
-    await this.overview(guildId)
     return this.store.listSpends(guildId, page)
   }
 
@@ -111,13 +110,11 @@ export class Treasury {
     guildId: string,
     page: { after?: number; limit: number }
   ): Promise<TreasuryPage<LedgerEntry>> {
-    await this.overview(guildId)
     return this.store.listEntries(guildId, page)
   }
 
   /** Replays the ledger's hash chain. */
   async verify(guildId: string): Promise<LedgerVerdict> {
-    await this.overview(guildId)
     return this.store.verifyLedger(guildId)
   }
 }
