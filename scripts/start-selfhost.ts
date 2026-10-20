@@ -77,8 +77,9 @@ export function selfhostPlan(
       FOUNDING_MODE: input.FOUNDING_MODE,
       WEBAUTHN_ORIGIN: publicOrigin ? publicOrigin.origin : `http://localhost:${input.PORT}`,
       WEBAUTHN_RP_ID: publicOrigin ? publicOrigin.hostname : 'localhost',
-      // The tunnel is exactly one proxy hop; rate limits key on the client it forwards.
-      ...(publicOrigin ? { TRUST_PROXY: 'true' } : {}),
+      // The tunnel is exactly one proxy hop; rate limits key on the client it forwards. A public
+      // guildd never trusts the dev guild header, whatever the caller's environment says.
+      ...(publicOrigin ? { TRUST_PROXY: 'true', DEV_GUILD_HEADER: 'false' } : {}),
     },
   }
 }

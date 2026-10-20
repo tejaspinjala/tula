@@ -138,9 +138,14 @@ Docker, and serving others through a subscription breaks Anthropic's terms (ADR-
      your Cloudflare account and route a hostname you own to `http://localhost:8787`.
 2. Start Guildhall with the tunnel's origin: `PUBLIC_ORIGIN=https://<hostname> bun run start:selfhost`.
    It must be `https://`. This sets `WEBAUTHN_ORIGIN`, `WEBAUTHN_RP_ID` (the hostname) and
-   `TRUST_PROXY=true`, keeps `HOST=127.0.0.1` (the tunnel connects locally) and prints the URL.
-3. Found your guild first, then leave `FOUNDING_MODE=once` (the `start:selfhost` default): once any
-   guild exists `POST /guilds` answers 403 `founding_closed`. `closed` refuses always. If you lose
+   `TRUST_PROXY=true`, forces `DEV_GUILD_HEADER=false`, keeps `HOST=127.0.0.1` (the tunnel
+   connects locally) and prints the URL. `TRUST_PROXY` is only safe because guildd listens on
+   loopback: nothing but the tunnel can reach it to forge the last `X-Forwarded-For` hop.
+3. Found your guild right away, then leave `FOUNDING_MODE=once` (the `start:selfhost` default):
+   once any guild exists `POST /guilds` answers 403 `founding_closed`. Until then founding is open
+   to anyone who has the URL, and the first founder wins, so share the hostname with no one, found
+   within minutes, and check that the guild you see is yours (or put Cloudflare Access in front
+   first). `closed` refuses always. If you lose
    your passkey, restart with an explicit `FOUNDING_MODE=open`, re-found, then go back to `once`.
 4. Optional extra gate: put Cloudflare Access in front of the hostname so only your identity
    reaches guildd at all.
