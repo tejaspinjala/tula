@@ -219,4 +219,47 @@ describe('push routes', () => {
         (await harness.adapters.pushStore.list(guild, { limit: 100 })).subscriptions,
     })
   })
+
+  test('a session whose principal is not the Guild Master cannot subscribe or unsubscribe', async () => {
+    const real = await found('Roles')
+    const identity = harness.adapters.identity
+    // Test-only: the same identity, except every session resolves to a non-Guild-Master member.
+    const demoted = new Proxy(identity, {
+      get(target, prop) {
+        if (prop === 'resolveSession') {
+          return async (token: string) => {
+            const principal = await target.resolveSession(token)
+            return principal && { ...principal, role: 'agent' }
+          }
+        }
+        const value = Reflect.get(target, prop)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const limited = await createHarness({
+      devGuildHeader: false,
+      app: { identity: demoted, pushAllowedHosts: HOSTS },
+    })
+    try {
+      const sub = await subscribe(
+        real.guild,
+        real.token,
+        device('https://push.example/agent'),
+        limited
+      )
+      expect(sub.status).toBe(403)
+      const del = await limited.request(`/guilds/${real.guild}/push/subscriptions`, {
+        method: 'DELETE',
+        headers: { ...json, authorization: `Bearer ${real.token}` },
+        body: JSON.stringify({ endpoint: 'https://push.example/agent' }),
+      })
+      expect(del.status).toBe(403)
+      const key = await limited.request(`/guilds/${real.guild}/push/key`, {
+        headers: { authorization: `Bearer ${real.token}` },
+      })
+      expect(key.status).not.toBe(403)
+    } finally {
+      await limited.close()
+    }
+  })
 })
