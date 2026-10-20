@@ -416,10 +416,13 @@ export function sealSettleTransition(
     }
     return { quest, event: null }
   }
+  if (opts.round !== undefined && quest.round !== opts.round) {
+    throw new QuestError('invalid_state')
+  }
   if (outcome === 'posted') {
     return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
   }
-  if (quest.round >= quest.roundLimit) {
+  if (opts.terminal || quest.round >= quest.roundLimit) {
     return {
       quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: reason },
       event: 'quest.dead',

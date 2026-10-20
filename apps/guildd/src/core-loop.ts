@@ -1,7 +1,30 @@
 import type { Quest, QuestQueue } from './ports/quest-queue'
 import type { Seal, SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
-import type { SealEngine } from './seals'
+import { type SealEngine, SealRequestError } from './seals'
+
+/** One stderr line naming the failed step and the ids, never the error text. */
+function logPassFailure(step: string, guildId: string, questId: string, error: unknown): void {
+  const name = error instanceof Error ? error.name : 'unknown'
+  process.stderr.write(`seal ${step} failed: guild=${guildId} quest=${questId} ${name}\n`)
+}
+
+/** Dead-letters a Quest whose Seal can never be requested, isolating a failure of that too. */
+async function settleDead(
+  deps: Pick<PendingSealDeps, 'quests'>,
+  guildId: string,
+  quest: Quest
+): Promise<void> {
+  try {
+    await deps.quests.settleSeal(guildId, quest.id, 'rejected', {
+      terminal: true,
+      reason: 'requester_reserved',
+      round: quest.round,
+    })
+  } catch (error) {
+    logPassFailure('dead-letter', guildId, quest.id, error)
+  }
+}
 
 /** Collaborators of {@link reconcileSeals}. */
 export interface CoreLoopDeps {
@@ -35,19 +58,23 @@ export async function reconcileSeals(
       ...(after === undefined ? {} : { after }),
     })
     for (const quest of page.quests) {
-      const seal = await deps.seals.forQuest(guildId, quest.id)
-      if (!seal || seal.round !== quest.round) {
-        continue
-      }
-      const outcome =
-        seal.status === 'consumed'
-          ? 'posted'
-          : seal.status === 'denied' || seal.status === 'expired'
-            ? 'rejected'
-            : null
-      if (outcome !== null) {
-        await deps.quests.settleSeal(guildId, quest.id, outcome)
-        settled += 1
+      try {
+        const seal = await deps.seals.forQuest(guildId, quest.id)
+        if (!seal || seal.round !== quest.round) {
+          continue
+        }
+        const outcome =
+          seal.status === 'consumed'
+            ? 'posted'
+            : seal.status === 'denied' || seal.status === 'expired'
+              ? 'rejected'
+              : null
+        if (outcome !== null) {
+          await deps.quests.settleSeal(guildId, quest.id, outcome, { round: seal.round })
+          settled += 1
+        }
+      } catch (error) {
+        logPassFailure('reconcile', guildId, quest.id, error)
       }
     }
     after = page.next ?? undefined
@@ -122,7 +149,9 @@ export interface PendingSealDeps extends SealRequestDeps {
 /**
  * Requests the Seal of every `awaiting_seal` Quest of the guild that has none for its current
  * round (see {@link requestQuestSeal}). Quests already holding a Seal for this round are skipped,
- * so a rerun asks for nothing twice. Returns how many Seals it requested.
+ * so a rerun asks for nothing twice. A Quest that fails is logged (ids only) and skipped, so one
+ * poisoned Quest never stops the rest; one whose requester is refused is dead-lettered. Returns
+ * how many Seals it requested.
  */
 export async function requestPendingSeals(
   deps: PendingSealDeps,
@@ -137,12 +166,21 @@ export async function requestPendingSeals(
       ...(after === undefined ? {} : { after }),
     })
     for (const quest of page.quests) {
-      const seal = await deps.sealStore.forQuest(guildId, quest.id)
-      if (seal && seal.round === quest.round) {
-        continue
-      }
-      if ((await requestQuestSeal(deps, guildId, quest)).outcome === 'requested') {
-        requested += 1
+      try {
+        const seal = await deps.sealStore.forQuest(guildId, quest.id)
+        if (seal && seal.round === quest.round) {
+          continue
+        }
+        if ((await requestQuestSeal(deps, guildId, quest)).outcome === 'requested') {
+          requested += 1
+        }
+      } catch (error) {
+        if (error instanceof SealRequestError) {
+          // The Quest's owner may never request a Seal: retrying cannot help, so dead-letter it.
+          await settleDead(deps, guildId, quest)
+        } else {
+          logPassFailure('request', guildId, quest.id, error)
+        }
       }
     }
     after = page.next ?? undefined
