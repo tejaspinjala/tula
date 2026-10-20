@@ -1,5 +1,6 @@
 import {
   createServer,
+  type IncomingHttpHeaders,
   type IncomingMessage,
   request,
   type Server,
