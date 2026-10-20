@@ -67,7 +67,13 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   async issueFoundingToken(guildId: string, tx?: TenantTx) {
     const token = randomToken()
     const expiresAt = new Date(this.config.clock.now().getTime() + FOUNDING_TTL_MS)
-    await this.store.issueFounding(guildId, await hashOf(token), expiresAt, tx)
+    await this.store.issueFounding(
+      guildId,
+      await hashOf(token),
+      expiresAt,
+      { type: 'identity.founding_token_issued', payload: {} },
+      tx
+    )
     return { token, expiresAt }
   }
 
@@ -146,13 +152,20 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
         guildId,
         stored,
         challenge.foundingHash,
-        this.config.clock.now()
+        this.config.clock.now(),
+        [
+          { type: 'identity.founding_token_spent', payload: { credentialId: stored.id } },
+          { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
+        ]
       )
       if (!founded) {
         throw new IdentityError('registration_closed')
       }
     } else {
-      await this.store.saveCredential(guildId, stored)
+      await this.store.saveCredential(guildId, stored, {
+        type: 'identity.passkey_registered',
+        payload: { credentialId: stored.id },
+      })
     }
     return { credentialId: credential.id }
   }
@@ -172,13 +185,18 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     await this.verifyAssertion(guildId, challenge, response)
     const token = `${guildId}.${randomToken()}`
     const expiresAt = new Date(this.config.clock.now().getTime() + SESSION_TTL_MS)
-    await this.store.saveSession(guildId, {
-      id: crypto.randomUUID(),
-      tokenHash: await hashOf(token),
-      expiresAt,
-      reauthHash: null,
-      reauthExpiresAt: null,
-    })
+    const sessionId = crypto.randomUUID()
+    await this.store.saveSession(
+      guildId,
+      {
+        id: sessionId,
+        tokenHash: await hashOf(token),
+        expiresAt,
+        reauthHash: null,
+        reauthExpiresAt: null,
+      },
+      { type: 'identity.signed_in', payload: { sessionId } }
+    )
     return { token, guildId, expiresAt }
   }
 
@@ -213,7 +231,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     await this.verifyAssertion(live.guildId, challenge, response)
     const proof = randomToken()
     const expiresAt = new Date(this.config.clock.now().getTime() + REAUTH_TTL_MS)
-    await this.store.setReauth(live.guildId, live.session.id, await hashOf(proof), expiresAt)
+    await this.store.setReauth(live.guildId, live.session.id, await hashOf(proof), expiresAt, {
+      type: 'identity.reauthenticated',
+      payload: { sessionId: live.session.id },
+    })
     return { proof, expiresAt }
   }
 
