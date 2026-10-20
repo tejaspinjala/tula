@@ -98,5 +98,19 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       expect(await events(other)).toEqual(['gates.barred', 'gates.lifted'])
       expect(await events(actor)).toEqual(['gates.barred', 'gates.lifted'])
     })
+
+    test("the latest global lift is remembered in the acting guild's chain only", async () => {
+      const { store, newGuild } = await make()
+      const actor = await newGuild()
+      const other = await newGuild()
+      expect(await store.latestGlobalLift(actor)).toBeNull()
+      const first = await store.bar({ guildId: actor, memberId: GM }, 'global')
+      expect(await store.lift({ guildId: actor, memberId: GM }, 'global')).toBe(first.barId)
+      const second = await store.bar({ guildId: actor, memberId: GM }, 'global')
+      expect(await store.latestGlobalLift(actor)).toBe(first.barId)
+      expect(await store.lift({ guildId: actor, memberId: GM }, 'global')).toBe(second.barId)
+      expect(await store.latestGlobalLift(actor)).toBe(second.barId)
+      expect(await store.latestGlobalLift(other)).toBeNull()
+    })
   })
 }

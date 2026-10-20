@@ -13,6 +13,7 @@ function world(n: number) {
   const calls: string[] = []
   const barredAt: boolean[] = []
   let running = 0
+  let failing: string | null = null
   let widest = 0
   const observe = async () => {
     barredAt.push(await slowStore.isBarred(guilds[0] ?? ''))
@@ -20,6 +21,9 @@ function world(n: number) {
   // Announcements are slow on purpose, so unbounded concurrency would show.
   class SlowStore extends MemoryGateStore {
     override async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
+      if (guildId === failing) {
+        throw new Error('announce failed')
+      }
       running += 1
       widest = Math.max(widest, running)
       await Bun.sleep(1)
@@ -55,7 +59,17 @@ function world(n: number) {
     guildIds: async (after, limit) =>
       guilds.filter((g) => after === undefined || g > after).slice(0, limit),
   })
-  return { guilds, gates, events, calls, barredAt, widest: () => widest }
+  return {
+    failAnnounceTo: (guildId: string | null) => {
+      failing = guildId
+    },
+    guilds,
+    gates,
+    events,
+    calls,
+    barredAt,
+    widest: () => widest,
+  }
 }
 
 describe('a global bar over many guilds', () => {
@@ -85,6 +99,26 @@ describe('a global bar over many guilds', () => {
     const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
     await w.gates.bar(actor, 'global')
     expect(await w.gates.lift(actor, 'global')).toBe(true)
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
+    }
+  })
+})
+
+describe('a global lift that failed partway', () => {
+  test('is finished by retrying the lift, with no duplicate announcements', async () => {
+    const w = world(20)
+    const actor = { guildId: w.guilds[0] ?? '', memberId: OPERATOR }
+    await w.gates.bar(actor, 'global')
+    w.failAnnounceTo(w.guilds[5] ?? '')
+    await expect(w.gates.lift(actor, 'global')).rejects.toThrow('announce failed')
+    expect(w.events.get(w.guilds[5] ?? '')).toEqual(['gates.barred'])
+    w.failAnnounceTo(null)
+    expect(await w.gates.lift(actor, 'global')).toBe(false)
+    for (const g of w.guilds) {
+      expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
+    }
+    expect(await w.gates.lift(actor, 'global')).toBe(false)
     for (const g of w.guilds) {
       expect(w.events.get(g)).toEqual(['gates.barred', 'gates.lifted'])
     }

@@ -36,6 +36,8 @@ export interface GateStore {
   bar(actor: GateActor, scope: GateScope): Promise<{ barId: string; created: boolean }>
   /** Lifts; the lifted bar's id, or null (and no event) when no such bar was up. */
   lift(actor: GateActor, scope: GateScope): Promise<string | null>
+  /** The id of the latest global bar lifted by an actor in `guildId`'s own chain, or null. */
+  latestGlobalLift(guildId: string): Promise<string | null>
   /**
    * Appends a global bar's or lift's event to `guildId`'s own chain, once per (bar id, type, guild):
    * true when appended, false when that guild's chain already has it (the acting guild gets it

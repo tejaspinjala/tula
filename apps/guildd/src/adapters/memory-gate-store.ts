@@ -55,6 +55,10 @@ export class MemoryGateStore implements GateStore {
     return barId
   }
 
+  async latestGlobalLift(_guildId: string): Promise<string | null> {
+    return null
+  }
+
   async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
     const key = `${guildId}|${event.type}|${event.barId}`
     if (this.announced.has(key)) {

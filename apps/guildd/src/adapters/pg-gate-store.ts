@@ -63,6 +63,10 @@ export class PgGateStore implements GateStore {
     })
   }
 
+  async latestGlobalLift(_guildId: string): Promise<string | null> {
+    return null
+  }
+
   async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
     return this.db.withGuild(guildId, async (tx) => {
       // One announcer per (guild, type, bar) at a time, so a re-run racing another never duplicates.
