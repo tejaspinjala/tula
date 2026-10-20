@@ -55,6 +55,26 @@ function defaults(type: WorkflowNode['type'], id: string): WorkflowNode {
         doneCondition: 'An announcement draft is ready for a Seal',
         maxUsd: 1,
       }
+    case 'subagents':
+      return {
+        id,
+        type,
+        hallId: 'heralds',
+        templateId: 'herald-brief',
+        briefs: ['Describe the first piece of work.'],
+        join: 'all',
+        maxUsd: 1,
+      }
+    case 'team':
+      return {
+        id,
+        type,
+        hallId: 'heralds',
+        goal: 'Describe the goal for the team.',
+        maxMembers: 2,
+        maxQuests: 3,
+        maxUsd: 1,
+      }
     case 'verify':
     case 'approval':
     case 'post':

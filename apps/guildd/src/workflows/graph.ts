@@ -32,6 +32,34 @@ const agent = z.object({
    */
   maxUsd: z.number().min(0).max(100_000),
 })
+const subagents = z.object({
+  id: nodeId,
+  type: z.literal('subagents'),
+  name: label,
+  hallId: z.string().min(1).max(64),
+  /** The Quest template of the coordinating Quest and of every Sub-Quest it spawns. */
+  templateId: z.string().min(1).max(64),
+  /** One brief per Sub-Quest; the coordinating Quest spawns one for each (at most `maxChildrenPerQuest`). */
+  briefs: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
+  /** The fan-in: wait for `all` the Sub-Quests, or for the first one done (`any`). */
+  join: z.enum(['all', 'any']),
+  /** Advisory spend for the whole fan-out, summed against the daily spend cap at save time. */
+  maxUsd: z.number().min(0).max(100_000),
+})
+const team = z.object({
+  id: nodeId,
+  type: z.literal('team'),
+  name: label,
+  hallId: z.string().min(1).max(64),
+  /** The goal the Hall's Captain plans the Campaign for. */
+  goal: z.string().trim().min(1).max(1500),
+  /** The most Members that may work the Campaign at once (checked against the Hall's `maxConcurrentMembers`). */
+  maxMembers: z.number().int().min(1).max(1000),
+  /** The most Quests the Captain may post (checked against `maxQuestsPerCampaign`). */
+  maxQuests: z.number().int().min(1).max(100),
+  /** Advisory spend for the whole Campaign, summed against the daily spend cap at save time. */
+  maxUsd: z.number().min(0).max(100_000),
+})
 const verify = z.object({
   id: nodeId,
   type: z.literal('verify'),
@@ -59,6 +87,8 @@ export const workflowNode = z.discriminatedUnion('type', [
   triggerManual,
   triggerSchedule,
   agent,
+  subagents,
+  team,
   verify,
   approval,
   post,

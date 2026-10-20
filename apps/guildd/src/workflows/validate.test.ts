@@ -169,3 +169,95 @@ describe('validateWorkflow', () => {
     expect(codes(g)).toContain('agent_after_gate:more')
   })
 })
+
+const subagentsNode = (over: Record<string, unknown> = {}) => ({
+  id: 'fan',
+  type: 'subagents' as const,
+  hallId: 'heralds',
+  templateId: 'herald-brief',
+  briefs: ['one', 'two'],
+  join: 'all' as const,
+  maxUsd: 1,
+  ...over,
+})
+const teamNode = (over: Record<string, unknown> = {}) => ({
+  id: 'crew',
+  type: 'team' as const,
+  hallId: 'heralds',
+  goal: 'Ship the launch notes',
+  maxMembers: 2,
+  maxQuests: 3,
+  maxUsd: 1,
+  ...over,
+})
+/** A trigger feeding one fan-out node. */
+const fanGraph = (node: Record<string, unknown>) => ({
+  nodes: [{ id: 'start', type: 'trigger.manual' }, node],
+  edges: [{ from: 'start', to: String(node.id) }],
+})
+const withCaps = (caps: Partial<GuildConfig['caps']>): GuildConfig => {
+  const c = config()
+  return { ...c, caps: { ...c.caps, ...caps } }
+}
+
+describe('validateWorkflow: subagents and team nodes', () => {
+  test('a valid fan-out and a valid team are accepted as path ends', () => {
+    expect(codes(fanGraph(subagentsNode()))).toEqual([])
+    expect(codes(fanGraph(teamNode()))).toEqual([])
+  })
+
+  test('subagents: N over maxChildrenPerQuest is children_cap', () => {
+    const g = fanGraph(subagentsNode({ briefs: ['a', 'b', 'c', 'd'] }))
+    expect(codes(g)).toEqual(['children_cap:fan'])
+    expect(codes(g, withCaps({ maxChildrenPerQuest: 4 }))).toEqual([])
+  })
+
+  test('subagents: depth over maxSpawnDepth is depth_cap', () => {
+    expect(codes(fanGraph(subagentsNode()), withCaps({ maxSpawnDepth: 0 }))).toEqual([
+      'depth_cap:fan',
+    ])
+  })
+
+  test('subagents: Hall and template references are checked', () => {
+    expect(codes(fanGraph(subagentsNode({ hallId: 'ghost' })))).toContain('unknown_hall:fan')
+    expect(codes(fanGraph(subagentsNode({ templateId: 'ghost' })))).toContain(
+      'unknown_template:fan'
+    )
+  })
+
+  test('team: maxMembers over the Hall cap is member_cap, maxQuests over the Campaign cap is campaign_cap', () => {
+    const c = config()
+    const halls = c.halls.map((h) => (h.id === 'heralds' ? { ...h, maxConcurrentMembers: 1 } : h))
+    expect(codes(fanGraph(teamNode()), { ...c, halls })).toEqual(['member_cap:crew'])
+    expect(codes(fanGraph(teamNode({ maxQuests: 11 })))).toEqual(['campaign_cap:crew'])
+    expect(
+      codes(fanGraph(teamNode({ maxQuests: 11 })), withCaps({ maxQuestsPerCampaign: 11 }))
+    ).toEqual([])
+  })
+
+  test('team: a Hall without a Captain is no_captain; an unknown Hall is refused', () => {
+    const c = config()
+    const halls = c.halls.map((h) => (h.id === 'heralds' ? { ...h, captain: null } : h))
+    expect(codes(fanGraph(teamNode()), { ...c, halls })).toEqual(['no_captain:crew'])
+    expect(codes(fanGraph(teamNode({ hallId: 'ghost' })))).toContain('unknown_hall:crew')
+  })
+
+  test('team: nothing may run after a team node (agent_after_team)', () => {
+    const g = clone()
+    g.nodes.push(teamNode() as WorkflowGraph['nodes'][number])
+    g.edges.push({ from: 'start', to: 'crew' }, { from: 'crew', to: 'draft' })
+    expect(codes(g)).toContain('agent_after_team:draft')
+  })
+
+  test('the gate rule still holds with a fan-out beside the path to post', () => {
+    const g = clone()
+    g.nodes.push(subagentsNode() as WorkflowGraph['nodes'][number])
+    g.edges.push({ from: 'start', to: 'fan' }, { from: 'fan', to: 'publish' })
+    expect(codes(g)).toContain('gate_unapproved:publish')
+  })
+
+  test('maxUsd of the new nodes counts against the daily spend cap', () => {
+    const g = fanGraph(subagentsNode({ maxUsd: 11 }))
+    expect(codes(g, withCaps({ dailySpendCents: 1_000 }))).toEqual(['budget_exceeded'])
+  })
+})
