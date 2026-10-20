@@ -588,6 +588,102 @@
   margin: 0;
 }
 
+/* Theme controls. */
+.px-theme {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--px) * 6);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+}
+
+.px-theme-choices {
+  display: flex;
+  gap: calc(var(--px) * 4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.px-theme label {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--px) * 2);
+  min-height: calc(var(--px) * 22);
+}
+
+/* Kitchen sink (dev only). */
+.px-sink {
+  min-height: 100vh;
+  padding: calc(var(--px) * 8);
+  background: var(--px-grass-700);
+  color: var(--px-text);
+  font-family: var(--font-body);
+}
+
+.px-sink-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--px) * 6);
+  margin-bottom: calc(var(--px) * 8);
+  padding: calc(var(--px) * 4) calc(var(--px) * 6);
+  background: var(--px-paper);
+}
+
+.px-sink-head h1 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: var(--head-lg);
+  font-weight: 400;
+}
+
+.px-sink-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: calc(var(--px) * 12);
+}
+
+.px-sink-wide {
+  grid-column: 1 / -1;
+}
+
+.px-sink-title {
+  margin: 0 0 calc(var(--px) * 4);
+  font-family: var(--font-head);
+  font-size: var(--head-md);
+  font-weight: 400;
+}
+
+.px-sink-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: calc(var(--px) * 8);
+  margin-top: calc(var(--px) * 4);
+}
+
+.px-sink-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--px) * 6);
+}
+
+.px-sink-note {
+  margin: calc(var(--px) * 3) 0 0;
+  color: var(--px-text-muted);
+  font-size: var(--text-sm);
+}
+
+.px-sink-stage {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--px) * 6);
+}
+
 /* Under reduced motion nothing slides, types, bobs or loops. */
 @media (prefers-reduced-motion: reduce) {
   .px-itemget,
