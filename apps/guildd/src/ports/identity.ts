@@ -4,6 +4,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/server'
+import type { TenantTx } from '../db/client'
 
 /** Why an identity call was refused; never reveals whether a guild exists. */
 export type IdentityFailure =
@@ -58,8 +59,10 @@ export interface IdentityProvider {
   /**
    * Issues the guild's single-use founding token (replacing any earlier one). It is returned once;
    * only its hash is kept. The first passkey of a guild cannot be registered without it.
+   * Given the founding transaction `tx`, a database-backed adapter writes inside it so the token
+   * commits or rolls back with the guild; the memory adapter has no transaction and ignores it.
    */
-  issueFoundingToken(guildId: string): Promise<{ token: string; expiresAt: Date }>
+  issueFoundingToken(guildId: string, tx?: TenantTx): Promise<{ token: string; expiresAt: Date }>
   /**
    * Starts registering a passkey. A guild with no passkey needs its `foundingToken`; a guild that
    * has one needs a `sessionToken` of that guild. Anything else throws `registration_closed`.

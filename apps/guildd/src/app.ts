@@ -119,10 +119,13 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
     }
-    const id = await deps.db.foundGuildChained(body.data, deps.keys)
+    // The founding token is issued inside the founding transaction, so a failure leaves no guild.
     // Returned once; only its hash is kept. Needed to register the guild's first passkey.
-    const founding = await deps.identity.issueFoundingToken(id)
-    return c.json({ id, foundingToken: founding.token }, 201)
+    let foundingToken = ''
+    const id = await deps.db.foundGuildChained(body.data, deps.keys, async (tx, guildId) => {
+      foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
+    })
+    return c.json({ id, foundingToken }, 201)
   })
 
   /**

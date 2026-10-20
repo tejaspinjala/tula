@@ -1,6 +1,6 @@
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
-import type { Db } from '../db/client'
+import type { Db, TenantTx } from '../db/client'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import type {
   IdentityStore,
@@ -84,14 +84,17 @@ export class PgIdentityStore implements IdentityStore {
     })
   }
 
-  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-    await this.db.withGuild(
-      guildId,
-      (tx) =>
-        tx`insert into identity_founding (guild_id, token_hash, expires_at)
-           values (${guildId}, ${tokenHash}, ${expiresAt})
-           on conflict (guild_id) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`
-    )
+  async issueFounding(
+    guildId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    tx?: TenantTx
+  ): Promise<void> {
+    const write = (t: TenantTx) =>
+      t`insert into identity_founding (guild_id, token_hash, expires_at)
+        values (${guildId}, ${tokenHash}, ${expiresAt})
+        on conflict (guild_id) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`
+    await (tx ? write(tx) : this.db.withGuild(guildId, write))
   }
 
   async hasFounding(guildId: string, tokenHash: string, now: Date): Promise<boolean> {

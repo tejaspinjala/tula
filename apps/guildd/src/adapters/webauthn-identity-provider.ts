@@ -9,6 +9,7 @@ import {
 } from '@simplewebauthn/server'
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
+import type { TenantTx } from '../db/client'
 import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
@@ -63,10 +64,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return (await this.store.listCredentials(guildId)).length > 0
   }
 
-  async issueFoundingToken(guildId: string) {
+  async issueFoundingToken(guildId: string, tx?: TenantTx) {
     const token = randomToken()
     const expiresAt = new Date(this.config.clock.now().getTime() + FOUNDING_TTL_MS)
-    await this.store.issueFounding(guildId, await hashOf(token), expiresAt)
+    await this.store.issueFounding(guildId, await hashOf(token), expiresAt, tx)
     return { token, expiresAt }
   }
 
