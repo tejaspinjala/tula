@@ -102,6 +102,19 @@ describe('POST /guilds/:id/campaigns/team', () => {
     expect((await start(g, { hall: 'heralds', goal: 'G' })).status).toBe(400)
   })
 
+  test('a blocker that is not a Quest of the guild is 422 unknown_blocker and writes no Quest', async () => {
+    const g = await found('Team')
+    const res = await start(g, {
+      hall: 'heralds',
+      campaignId: 'blocked',
+      goal: 'G',
+      blockedBy: [crypto.randomUUID()],
+    })
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: 'unknown_blocker' })
+    expect((await harness.adapters.quests.list(g, { limit: 100 })).quests).toHaveLength(0)
+  })
+
   test('needs a session', async () => {
     const g = await found('Team')
     const res = await start(
