@@ -182,6 +182,9 @@ export class ModelGateway {
     guildId: string,
     input: { questId: string; attempt: number; hallId: string; profileId: string }
   ): Promise<OpenRunResult> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      return { status: 'refused', reason: 'gates_barred' }
+    }
     const quest = await this.deps.quests.get(guildId, input.questId)
     if (
       !quest ||
@@ -240,6 +243,9 @@ export class ModelGateway {
 
   /** Admits queued runs, oldest first, while the caps have room; returns the tokens issued. */
   async admitQueued(guildId: string, limit: number): Promise<AdmittedRun[]> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      return []
+    }
     const admitted: AdmittedRun[] = []
     for (const run of await this.deps.ledger.listQueued(guildId, limit)) {
       const { config } = await this.deps.config.current(guildId)
@@ -277,8 +283,8 @@ export class ModelGateway {
   }
 
   /** Revokes every run token of the guild for good (Bar the Gates); returns how many. */
-  revokeGuildRuns(_guildId: string): Promise<number> {
-    return Promise.resolve(0)
+  revokeGuildRuns(guildId: string): Promise<number> {
+    return this.deps.ledger.revokeGuildRuns(guildId)
   }
 
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */
@@ -296,6 +302,9 @@ export class ModelGateway {
   async complete(token: string, call: GatewayCall): Promise<ModelResponse> {
     const request = gatewayCall.safeParse(call)
     const guildId = this.guildOf(token)
+    if (await this.deps.gates.isBarred(guildId)) {
+      throw new GatewayError('gates_barred')
+    }
     const run = await this.deps.ledger.findByTokenHash(guildId, sha256(token))
     if (!run) {
       throw new GatewayError('invalid_token')

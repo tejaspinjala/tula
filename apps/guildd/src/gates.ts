@@ -1,6 +1,8 @@
 import type { GateActor, GateScope, GateStatus, GateStore } from './ports/gate-store'
 import type { SandboxRunner } from './ports/sandbox-runner'
 
+const GUILD_PAGE = 50
+
 /** What barring did: the bar, and how much running work it stopped. */
 export interface BarOutcome {
   barId: string
@@ -33,8 +35,28 @@ export class Gates {
 
   /** Bars one guild or all; immediate, idempotent, and always (re)runs the stop steps. */
   async bar(actor: GateActor, scope: GateScope): Promise<BarOutcome> {
+    // The bar commits (with its event) before any slow I/O, so the gates are shut first.
     const { barId, created } = await this.deps.store.bar(actor, scope)
-    return { barId, created, revokedRuns: 0, killedSandboxes: 0 }
+    const [revokedRuns, killedSandboxes] = await Promise.all([
+      scope === 'global' ? this.revokeAll() : this.deps.runs.revokeGuildRuns(actor.guildId),
+      this.deps.sandboxes.kill(scope === 'global' ? 'all' : { guildId: actor.guildId }),
+    ])
+    return { barId, created, revokedRuns, killedSandboxes }
+  }
+
+  private async revokeAll(): Promise<number> {
+    let revoked = 0
+    let after: string | undefined
+    for (;;) {
+      const page = await this.deps.guildIds(after, GUILD_PAGE)
+      const counts = await Promise.all(page.map((g) => this.deps.runs.revokeGuildRuns(g)))
+      revoked += counts.reduce((sum, n) => sum + n, 0)
+      const last = page.at(-1)
+      if (!last || page.length < GUILD_PAGE) {
+        return revoked
+      }
+      after = last
+    }
   }
 
   /** Lifts the bar; false when it was not up. Revoked run tokens stay revoked. */

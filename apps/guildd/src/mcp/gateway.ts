@@ -266,11 +266,19 @@ export class McpGateway {
     }
   }
 
+  /** Bar the Gates: read on every call, right after the token names its guild, before any other work. */
+  private async requireOpen(guild: string): Promise<void> {
+    if (await this.deps.gates.isBarred(guild)) {
+      throw new Denied('gates_barred')
+    }
+  }
+
   private async fromAssignment(token: string): Promise<Caller> {
     const claims = await verifyToken(this.deps.keys, token)
     if (claims?.k !== 'assign' || claims.exp <= this.deps.clock.now().getTime()) {
       throw new Denied('invalid_assignment')
     }
+    await this.requireOpen(claims.g)
     const quest = await this.deps.quests.get(claims.g, claims.q)
     if (!quest || quest.ownerId !== claims.m) {
       throw new Denied('invalid_assignment')
@@ -289,6 +297,7 @@ export class McpGateway {
     if (claims?.k !== 'lease' || claims.q !== handle.questId || claims.a !== handle.attempt) {
       throw new Denied('invalid_lease')
     }
+    await this.requireOpen(claims.g)
     const quest = await this.deps.quests.get(claims.g, claims.q)
     if (!quest || quest.ownerId !== claims.m) {
       throw new Denied('invalid_lease')
