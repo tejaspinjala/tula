@@ -2,7 +2,15 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { fitZoom, type HallLayout, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
+import {
+  bubbleCentreY,
+  fitZoom,
+  type HallLayout,
+  hallLayout,
+  openZoom,
+  seatsIn,
+  withClosedDoors,
+} from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -646,7 +654,9 @@ export class HallScene extends Phaser.Scene {
     const label = this.add.bitmapText(0, 0, FONT, text, 16).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
     const w = label.width + 8
     const back = this.add.rectangle(0, 0, w, 20, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 26, [back, label]).setDepth(30)
+    const root = this.add
+      .container(x, bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y), [back, label])
+      .setDepth(30)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()

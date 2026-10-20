@@ -156,5 +156,13 @@ export function bubbleCentreY(
   x: number,
   y: number
 ): number {
-  return y - 26
+  const above = y - 26
+  // A room's label is a 20px band under its top edge; a 20px bubble above the speaker would cover it.
+  const covers = rooms.some((room) => {
+    const top = room.y * tileSize
+    return (
+      x >= room.x * tileSize && x < (room.x + room.w) * tileSize && y > top && above - 10 < top + 20
+    )
+  })
+  return covers ? y + 26 : above
 }
