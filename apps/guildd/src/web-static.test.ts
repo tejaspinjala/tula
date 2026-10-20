@@ -76,8 +76,10 @@ describe('withWebApp', () => {
       '/%00',
     ]) {
       const res = await app.request(path, asBrowser)
-      expect(await res.text()).not.toContain('nope')
-      expect([404, 400]).toContain(res.status)
+      const body = await res.text()
+      expect(body).not.toContain('nope')
+      // The URL parser may normalise a plain `..`; then the SPA shell is all that can come back.
+      expect(res.status === 404 || body === html).toBe(true)
     }
   })
 
