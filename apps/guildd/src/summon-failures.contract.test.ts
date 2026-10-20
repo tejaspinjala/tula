@@ -112,6 +112,34 @@ describe('Summon failure paths', () => {
     const result = await summon.start(g, 'cloud-mid')
     expect(result).toEqual({ ok: false, error: 'gates_barred' })
     expect(await runner.list(g)).toEqual([])
+    const quest = await harness.adapters.quests.findByJobKey(g, SUMMON_JOB_KEY)
+    expect(quest?.state).toBe('queued')
+    expect(quest?.leaseExpiresAt).toBeNull()
+  })
+
+  test('a bar during start with a failing kill ends the Quest failed, with a coded result', async () => {
+    const g = await found()
+    const runner = new MemorySandboxRunner()
+    const summon = summonWith(
+      () => ({ status: 'started', token: 't', expiresAt: '2030-01-01T00:00:00.000Z' }),
+      {
+        start: async (guild, spec) => {
+          await harness.adapters.gates.bar(
+            { guildId: guild, memberId: (await memberOf(guild)) ?? '' },
+            'guild'
+          )
+          return runner.start(guild, spec)
+        },
+        kill: async () => {
+          throw new Error('docker unreachable')
+        },
+      }
+    )
+    expect(await summon.start(g, 'cloud-mid')).toEqual({ ok: false, error: 'sandbox_unavailable' })
+    const quest = await harness.adapters.quests.findByJobKey(g, SUMMON_JOB_KEY)
+    expect(quest?.state).toBe('queued')
+    expect(quest?.leaseExpiresAt).toBeNull()
+    expect(String(quest?.lastError)).toBe('sandbox_unavailable')
   })
 })
 

@@ -20,6 +20,7 @@ describe('sandboxRunnerFor', () => {
         image: `worker@sha256:${'b'.repeat(64)}`,
         network: 'guildhall-sandbox',
         scope: 'default',
+        killDeadlineMs: 2000,
         proxyUrl: 'http://egress-proxy:3128',
         gatewayUrl: 'http://guildd:3000',
       },

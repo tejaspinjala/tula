@@ -153,6 +153,7 @@ describe('sandbox settings', () => {
       image: docker.SANDBOX_IMAGE,
       network: 'guildhall-sandbox',
       scope: 'default',
+      killDeadlineMs: 2000,
       proxyUrl: 'http://egress-proxy:3128',
       gatewayUrl: 'http://guildd:3000',
     })
@@ -165,6 +166,15 @@ describe('sandbox settings', () => {
     )
     expect(() => loadSandboxEnv({ ...docker, EGRESS_PROXY_URL: undefined })).toThrow(
       /EGRESS_PROXY_URL/
+    )
+  })
+  test('the kill deadline is configurable and must be a positive number of ms', () => {
+    expect(
+      loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '500' }).kind === 'docker' &&
+        loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '500' })
+    ).toMatchObject({ killDeadlineMs: 500 })
+    expect(() => loadSandboxEnv({ ...docker, SANDBOX_KILL_DEADLINE_MS: '0' })).toThrow(
+      /SANDBOX_KILL_DEADLINE_MS/
     )
   })
   test('refuses an option-like image and a host-wide or option-like network', () => {

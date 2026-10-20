@@ -18,4 +18,19 @@ describe('DockerSandboxRunner.kill deadline', () => {
     await expect(runner.kill({ guildId: crypto.randomUUID() })).rejects.toThrow()
     expect(performance.now() - started).toBeLessThan(1000)
   })
+
+  test('a docker that answers only after the deadline is not a confirmed kill', async () => {
+    const slow: DockerExec = async () => {
+      await Bun.sleep(300)
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    const runner = new DockerSandboxRunner({
+      image: `w@sha256:${'a'.repeat(64)}`,
+      network: 'n',
+      scope: 's',
+      exec: slow,
+      killDeadlineMs: 100,
+    })
+    await expect(runner.kill('all')).rejects.toMatchObject({ code: 'kill_failed' })
+  })
 })

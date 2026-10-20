@@ -215,6 +215,8 @@ export type SandboxEnv =
       image: string
       network: string
       scope: string
+      /** Overall deadline for killing sandboxes, in ms (`SANDBOX_KILL_DEADLINE_MS`). */
+      killDeadlineMs: number
       /** Where a sandbox finds the egress proxy. */
       proxyUrl: string
       /** The one origin (model gateway and MCP gateway) a sandbox reaches through the proxy. */
@@ -257,6 +259,7 @@ export function loadSandboxEnv(
     image: docker.SANDBOX_IMAGE,
     network: docker.SANDBOX_NETWORK,
     scope: docker.SANDBOX_SCOPE,
+    killDeadlineMs: 2000,
     proxyUrl: docker.EGRESS_PROXY_URL,
     gatewayUrl: docker.SANDBOX_GATEWAY_URL,
   }

@@ -143,6 +143,26 @@ describe('egress proxy', () => {
     expect(seen.host).toBe(`127.0.0.1:${target}`)
   })
 
+  test('the scheme default port is not guessed: CONNECT host:80 is denied when only host:443 is allowed', async () => {
+    const proxy = await listen(createEgressProxy({ allowedHosts: ['127.0.0.1:443'] }))
+    const reply = await raw(proxy, 'CONNECT 127.0.0.1:80 HTTP/1.1\r\nHost: x\r\n\r\n')
+    expect(reply.startsWith('HTTP/1.1 403')).toBe(true)
+  })
+
+  test('an http URL without a port means port 80, and an explicit :80 is permitted when allowed', async () => {
+    const proxy = await listen(
+      createEgressProxy({ allowedHosts: ['127.0.0.1:80'], connectTimeoutMs: 300 })
+    )
+    const explicit = await raw(proxy, get('127.0.0.1', 80))
+    const implicit = await raw(
+      proxy,
+      'GET http://127.0.0.1/x HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'
+    )
+    // Allowed means the proxy tries to connect (nothing listens on 80 here: 502), never 403.
+    expect(explicit).not.toContain('403')
+    expect(implicit).not.toContain('403')
+  })
+
   test('refuses connection N+1 beyond maxConnections', async () => {
     const target = await upstream()
     const proxy = await proxyFor([target], { maxConnections: 1 })
