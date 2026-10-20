@@ -10,7 +10,7 @@ test('opens an artifact by hash, reading its class and decoded bytes', async () 
     return new Response('quarterly notes', { headers: { 'x-artifact-class': 'report' } })
   }
 
-  const result = await openArtifact('abc123', guild, fetcher)
+  const result = await openArtifact('abc123', { guildId: guild }, fetcher)
 
   expect(seen).toEqual({ url: '/api/artifacts/abc123', guild })
   expect(result).toEqual({
@@ -21,6 +21,20 @@ test('opens an artifact by hash, reading its class and decoded bytes', async () 
 
 test('a 404 is a clean not-found and other failures are errors', async () => {
   const reply = (status: number) => async () => new Response('', { status })
-  expect(await openArtifact('x', guild, reply(404))).toEqual({ kind: 'not_found' })
-  expect(await openArtifact('x', guild, reply(500))).toEqual({ kind: 'error', status: 500 })
+  expect(await openArtifact('x', { guildId: guild }, reply(404))).toEqual({ kind: 'not_found' })
+  expect(await openArtifact('x', { guildId: guild }, reply(500))).toEqual({
+    kind: 'error',
+    status: 500,
+  })
+})
+
+test('with a session it sends the bearer token and no dev guild header', async () => {
+  let seen: Headers | undefined
+  const fetcher = async (_url: string, init?: RequestInit) => {
+    seen = new Headers(init?.headers)
+    return new Response('x')
+  }
+  await openArtifact('abc', { token: 'tok-1' }, fetcher)
+  expect(seen?.get('authorization')).toBe('Bearer tok-1')
+  expect(seen?.get('x-guild-id')).toBeNull()
 })
