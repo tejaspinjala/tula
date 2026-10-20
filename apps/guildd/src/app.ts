@@ -850,11 +850,16 @@ export function createApp(deps: AppDeps): Hono {
     }
     // Catch the log up first so Seals requested before this device existed are never pushed to it.
     await deps.pushRelay.dispatch(who.guild)
-    await deps.pushStore.add(who.guild, who.member, {
-      endpoint: body.data.endpoint,
-      p256dh: body.data.keys.p256dh,
-      auth: body.data.keys.auth,
-    })
+    await deps.pushStore.add(
+      who.guild,
+      who.member,
+      {
+        endpoint: body.data.endpoint,
+        p256dh: body.data.keys.p256dh,
+        auth: body.data.keys.auth,
+      },
+      0
+    )
     return c.json({ endpoint: body.data.endpoint }, 201)
   })
 
@@ -867,7 +872,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_subscription' }, 400)
     }
-    return (await deps.pushStore.remove(who.guild, body.data.endpoint))
+    return (await deps.pushStore.remove(who.guild, who.member, body.data.endpoint)) === 'removed'
       ? c.body(null, 204)
       : c.json({ error: 'not_found' }, 404)
   })

@@ -90,7 +90,8 @@ export async function compose(
     pushStore,
     pushNotifier,
     pushRelay:
-      overrides.pushRelay ?? createSealPushRelay({ db, store: pushStore, notifier: pushNotifier }),
+      overrides.pushRelay ??
+      createSealPushRelay({ db, store: pushStore, notifier: pushNotifier, clock }),
     vapidPublicKey: overrides.vapidPublicKey ?? vapid?.publicKey ?? null,
     clock,
     db,

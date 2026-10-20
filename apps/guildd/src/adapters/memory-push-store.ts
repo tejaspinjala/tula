@@ -1,79 +1,71 @@
 import type {
+  DeliveryClaim,
+  DeliveryLease,
   PushStore,
   PushSubscription,
   PushSubscriptionPage,
-  StoredPushSubscription,
 } from '../ports/push-store'
 
-interface GuildPush {
-  subscriptions: Map<string, StoredPushSubscription>
-  claims: Set<string>
-  cursor: number
+const todo = (): never => {
+  throw new Error('not implemented')
 }
 
-/**
- * Memory {@link PushStore}. Every operation checks and writes with no `await` between, so claims
- * are atomic. State is per instance.
- */
+/** Memory {@link PushStore}. */
 export class MemoryPushStore implements PushStore {
-  private readonly guilds = new Map<string, GuildPush>()
-
-  private of(guildId: string): GuildPush {
-    let state = this.guilds.get(guildId)
-    if (!state) {
-      state = { subscriptions: new Map(), claims: new Set(), cursor: 0 }
-      this.guilds.set(guildId, state)
-    }
-    return state
+  async add(
+    _guildId: string,
+    _memberId: string,
+    _subscription: PushSubscription,
+    _sinceSeq: number
+  ): Promise<'added' | 'updated' | 'conflict'> {
+    return todo()
   }
 
-  async add(guildId: string, memberId: string, subscription: PushSubscription): Promise<void> {
-    this.of(guildId).subscriptions.set(subscription.endpoint, { ...subscription, memberId })
+  async remove(
+    _guildId: string,
+    _memberId: string,
+    _endpoint: string
+  ): Promise<'removed' | 'not_found' | 'conflict'> {
+    return todo()
   }
 
-  async remove(guildId: string, endpoint: string): Promise<boolean> {
-    const state = this.of(guildId)
-    for (const claim of state.claims) {
-      if (claim.endsWith(`|${endpoint}`)) {
-        state.claims.delete(claim)
-      }
-    }
-    return state.subscriptions.delete(endpoint)
+  async drop(_guildId: string, _endpoint: string): Promise<boolean> {
+    return todo()
   }
 
   async list(
-    guildId: string,
-    page: { after?: string; limit: number }
+    _guildId: string,
+    _page: { after?: string; limit: number }
   ): Promise<PushSubscriptionPage> {
-    const after = page.after
-    const sorted = [...this.of(guildId).subscriptions.values()]
-      .filter((s) => after === undefined || s.endpoint > after)
-      .sort((x, y) => (x.endpoint < y.endpoint ? -1 : 1))
-    const subscriptions = sorted.slice(0, page.limit).map((s) => ({ ...s }))
-    const last = subscriptions.at(-1)
-    return { subscriptions, next: sorted.length > page.limit && last ? last.endpoint : null }
+    return todo()
   }
 
-  async claimDelivery(guildId: string, sealId: string, endpoint: string): Promise<boolean> {
-    const state = this.of(guildId)
-    const key = `${sealId}|${endpoint}`
-    if (!state.subscriptions.has(endpoint) || state.claims.has(key)) {
-      return false
-    }
-    state.claims.add(key)
-    return true
+  async claimDelivery(
+    _guildId: string,
+    _sealId: string,
+    _endpoint: string,
+    _lease: DeliveryLease
+  ): Promise<DeliveryClaim> {
+    return todo()
   }
 
-  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
-    this.of(guildId).claims.delete(`${sealId}|${endpoint}`)
+  async completeDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
+    todo()
   }
 
-  async cursor(guildId: string): Promise<number> {
-    return this.of(guildId).cursor
+  async releaseDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
+    todo()
   }
 
-  async advanceCursor(guildId: string, seq: number): Promise<void> {
-    const state = this.of(guildId)
-    state.cursor = Math.max(state.cursor, seq)
+  async cursor(_guildId: string): Promise<number> {
+    return todo()
+  }
+
+  async advanceCursor(_guildId: string, _seq: number): Promise<void> {
+    todo()
+  }
+
+  async withDispatchLock<T>(_guildId: string, _fn: () => Promise<T>): Promise<T> {
+    return todo()
   }
 }

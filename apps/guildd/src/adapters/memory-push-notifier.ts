@@ -1,4 +1,9 @@
-import type { PushNotifier, PushOutcome, PushPayload } from '../ports/push-notifier'
+import {
+  type PushNotifier,
+  type PushOutcome,
+  type PushPayload,
+  PushRejectedError,
+} from '../ports/push-notifier'
 import type { PushSubscription } from '../ports/push-store'
 
 /**
@@ -8,11 +13,17 @@ import type { PushSubscription } from '../ports/push-store'
 export class MemoryPushNotifier implements PushNotifier {
   private readonly sent = new Map<string, PushPayload[]>()
   private readonly gone = new Set<string>()
+  private readonly rejected = new Set<string>()
   private failures = 0
 
   /** Makes sends to `endpoint` answer `gone`. */
   markGone(endpoint: string): void {
     this.gone.add(endpoint)
+  }
+
+  /** Makes sends to `endpoint` throw {@link PushRejectedError}, as a bad key or a 400 would. */
+  reject(endpoint: string): void {
+    this.rejected.add(endpoint)
   }
 
   /** Makes the next `count` sends throw, as an exhausted retry would. */
@@ -33,6 +44,9 @@ export class MemoryPushNotifier implements PushNotifier {
   }
 
   async send(subscription: PushSubscription, payload: PushPayload): Promise<PushOutcome> {
+    if (this.rejected.has(subscription.endpoint)) {
+      throw new PushRejectedError('rejected')
+    }
     if (this.failures > 0) {
       this.failures -= 1
       throw new Error('push service unavailable')
