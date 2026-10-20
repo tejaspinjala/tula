@@ -557,6 +557,48 @@ describe('Bar the Gates mid-call', () => {
     })
   }
 
+  test('a failed bar check fails closed: the call aborts as gates_unavailable, charging the reservation', async () => {
+    const slow = new SlowProvider()
+    const { gateway, gates, ledger, open } = await setup(config(), { subscription: slow })
+    const run = await started(open('run-fail', { profileId: 'sub-mid' }))
+    // The first read is the pre-call check; every poll after it fails.
+    const real = gates.isBarred.bind(gates)
+    let reads = 0
+    spyOn(gates, 'isBarred').mockImplementation(async (guildId) => {
+      if (++reads === 1) {
+        return real(guildId)
+      }
+      throw new Error('store down')
+    })
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('gates_unavailable')
+    expect(slow.aborts).toBe(1)
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
+  })
+
+  test('a slow bar check is never stacked: at most one is outstanding', async () => {
+    const slow = new SlowProvider()
+    const { gateway, gates, open } = await setup(config(), { subscription: slow })
+    const run = await started(open('run-slowbar', { profileId: 'sub-mid' }))
+    let active = 0
+    let peak = 0
+    let calls = 0
+    let reads = 0
+    spyOn(gates, 'isBarred').mockImplementation(async () => {
+      if (++reads === 1) {
+        return false
+      }
+      calls++
+      active++
+      peak = Math.max(peak, active)
+      await Bun.sleep(700)
+      active--
+      return true
+    })
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('gates_barred')
+    expect(calls).toBe(1)
+    expect(peak).toBe(1)
+  })
+
   test('a call that finishes unbarred stops polling', async () => {
     const subscription = new MemoryModelProvider()
     subscription.script({ ok: true, text: 'ok', usage: { inputTokens: 1, outputTokens: 1 } })

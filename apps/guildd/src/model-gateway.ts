@@ -26,6 +26,7 @@ export type GatewayErrorCode =
   | 'hall_paused'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
+  | 'gates_unavailable'
   | 'cap_reached'
   | 'unknown_profile'
   | 'model_unconfigured'
