@@ -101,7 +101,47 @@ services:
     volumes:
       - backup-data:/backups
 
+  # Sandboxes (profile `sandbox`): the egress proxy is the only way out of a worker container. It
+  # joins the internal `sandbox` network (no route out) and the `egress` network, and forwards only
+  # to EGRESS_ALLOWED_HOSTS: the model gateway and MCP gateway host, nothing else. guildd runs on
+  # the host in development, so the default allowed host is host.docker.internal.
+  # Workers are not services: guildd starts them per Quest (SANDBOX_RUNNER=docker), hardened, on the
+  # `sandbox` network. Build the worker image once with
+  # `docker compose --profile sandbox build worker-image`, then set SANDBOX_IMAGE to its image id.
+  egress-proxy:
+    profiles: [sandbox]
+    build:
+      context: .
+      dockerfile: docker/egress-proxy.Dockerfile
+    image: guildhall-egress-proxy:local
+    environment:
+      EGRESS_ALLOWED_HOSTS: '${EGRESS_ALLOWED_HOSTS:-host.docker.internal}'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    networks: [sandbox, egress]
+
+  worker-image:
+    profiles: [sandbox]
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    image: guildhall-worker:local
+    entrypoint: ['true']
+    network_mode: none
+
 volumes:
   backup-data:
   postgres-data:
   minio-data:
+
+networks:
+  # Internal: containers on it have no route to the internet or the host. The egress proxy is
+  # attached to both, so it is the only path out.
+  sandbox:
+    name: guildhall-sandbox
+    internal: true
+  egress:
+    name: guildhall-egress

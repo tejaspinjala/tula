@@ -156,6 +156,10 @@ describe('sandbox settings', () => {
       proxyUrl: 'http://egress-proxy:3128',
       gatewayUrl: 'http://guildd:3000',
     })
+    // A locally built image is pinned by its image id.
+    expect(loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `sha256:${'c'.repeat(64)}` }).kind).toBe(
+      'docker'
+    )
     expect(() => loadSandboxEnv({ ...docker, SANDBOX_IMAGE: 'guildhall-worker:latest' })).toThrow(
       /SANDBOX_IMAGE/
     )
