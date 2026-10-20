@@ -321,13 +321,15 @@ const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']
 export function pickClaimable(
   quests: readonly Quest[],
   now: Date,
-  options: ClaimOptions
+  options: ClaimOptions,
+  hallPaused: (hallId: string) => boolean = () => false
 ): Quest | null {
   if (quests.filter((q) => hasLiveLease(q, now)).length >= options.maxActive) {
     return null
   }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
   const eligible = (q: Quest): boolean =>
+    !hallPaused(q.hallId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&
     q.blockedBy.every((id) => doneIds.has(id)) &&

@@ -67,9 +67,36 @@ export const caps = z.object({
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
 
+/** The guild's effective Tripwire thresholds. */
+export function guildTripwires(config: GuildConfig): TripwireThresholds {
+  return config.tripwires ?? DEFAULT_TRIPWIRES
+}
+
 /** The guild's Quest concurrency cap: how many Quests may be leased at once. */
 export function questConcurrency(config: GuildConfig): number {
   return config.caps.concurrentQuests ?? DEFAULT_CONCURRENT_QUESTS
+}
+
+/**
+ * Tripwire thresholds (data, not code): when a Hall's usage crosses one, the Hall is paused.
+ * Lowering a threshold tightens; raising one widens risk.
+ */
+export const tripwireThresholds = z.object({
+  /** Pause when today's tokens exceed this multiple of the 7-day median. */
+  tokenBurnMultiple: z.number().min(1).max(1000),
+  /** Pause when gate denials in the last hour reach this count. */
+  gateDenialsPerHour: z.number().int().min(1).max(100_000),
+  /** Pause when one action repeats this many times. */
+  loopRepeats: z.number().int().min(2).max(100_000),
+})
+/** Tripwire thresholds. */
+export type TripwireThresholds = z.infer<typeof tripwireThresholds>
+
+/** The thresholds a new guild is founded with, and those used by a config that sets none. */
+export const DEFAULT_TRIPWIRES: TripwireThresholds = {
+  tokenBurnMultiple: 3,
+  gateDenialsPerHour: 10,
+  loopRepeats: 5,
 }
 
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
@@ -82,6 +109,8 @@ export const guildConfig = z
     providers: z.array(provider).max(MAX_ITEMS),
     routingProfiles: z.array(routingProfile).max(MAX_ITEMS),
     schedules: z.array(schedule).max(MAX_ITEMS),
+    /** Absent in configs older than Tripwires; {@link DEFAULT_TRIPWIRES} then applies. */
+    tripwires: tripwireThresholds.optional(),
   })
   .superRefine((config, ctx) => {
     const known = new Set(config.providers.map((p) => p.id))
@@ -143,6 +172,7 @@ export function defaultConfig(): GuildConfig {
     providers: [],
     routingProfiles: [],
     schedules: [],
+    tripwires: DEFAULT_TRIPWIRES,
   }
 }
 
@@ -197,6 +227,14 @@ function hallNoWider(prev: Hall, next: Hall): boolean {
   )
 }
 
+function tripwiresNoWider(prev: TripwireThresholds, next: TripwireThresholds): boolean {
+  return (
+    next.tokenBurnMultiple <= prev.tokenBurnMultiple &&
+    next.gateDenialsPerHour <= prev.gateDenialsPerHour &&
+    next.loopRepeats <= prev.loopRepeats
+  )
+}
+
 /** True only when `next` is provably no riskier than `prev`, field by field; anything else fails closed. */
 function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
@@ -216,6 +254,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
+    tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&
     removedHallsOk &&
     next.halls.every((h) => {
       const before = prevHalls.get(h.id)
@@ -229,6 +268,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'providers',
       'routingProfiles',
       'schedules',
+      'tripwires',
     ])
   )
 }
