@@ -120,6 +120,9 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {
+    if (this.isGuildBarred(guildId)) {
+      return null
+    }
     const now = this.clock.now()
     if (options.questId !== undefined) {
       const target = this.mustFind(guildId, options.questId)

@@ -179,6 +179,13 @@ export class PgQuestQueue implements QuestQueue {
 
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {
     return this.db.withGuild(guildId, async (tx) => {
+      // Bar the Gates comes first: a barred guild (or a global bar) starts nothing.
+      const [bar] = await tx`
+        select exists (select 1 from guild_gates where guild_id = ${guildId})
+            or exists (select 1 from global_gate) as barred`
+      if (z.object({ barred: z.boolean() }).parse(bar).barred) {
+        return null
+      }
       await this.lock(tx, guildId)
       const now = this.clock.now()
       if (options.questId !== undefined) {
