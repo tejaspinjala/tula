@@ -71,7 +71,12 @@ export class Summon {
   async status(guildId: string): Promise<SummonStatus> {
     const { config } = await this.deps.config.current(guildId)
     const apiKeyProviders = new Set(
-      config.providers.filter((p) => p.auth === 'api_key').map((p) => p.id)
+      config.providers
+        .filter(
+          (p) =>
+            p.auth === 'api_key' || (p.auth === 'subscription' && this.deps.subscriptionEnabled)
+        )
+        .map((p) => p.id)
     )
     const provider = config.routingProfiles.some((p) => apiKeyProviders.has(p.provider))
     const quest = await this.deps.quests.findByJobKey(guildId, SUMMON_JOB_KEY)
