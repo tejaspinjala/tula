@@ -22,11 +22,13 @@ const pageBody = z.object({
 async function found(): Promise<string> {
   const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
   await harness.adapters.config.seed(g)
+  tokens.set(g, await openSession(harness.adapters.identity, g))
   return g
 }
 
 const base = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/missives`
-const headers = (g: string) => ({ 'x-guild-id': g })
+const tokens = new Map<string, string>()
+const headers = (g: string) => ({ authorization: `Bearer ${tokens.get(g) ?? 'none'}` })
 
 async function sendSome(g: string, texts: string[], hallId = 'heralds') {
   const questId = crypto.randomUUID()
@@ -90,7 +92,7 @@ describe('Hall missives route', () => {
 
   test('a session whose principal is not the Guild Master gets 403; the Guild Master still reads', async () => {
     const g = await found()
-    const token = await openSession(harness.adapters.identity, g)
+    const token = tokens.get(g) ?? 'none'
     const identity = harness.adapters.identity
     // Test-only: the same identity, except every session resolves to a non-Guild-Master member.
     const demoted = new Proxy(identity, {
@@ -116,8 +118,9 @@ describe('Hall missives route', () => {
   })
 
   test('cross-guild probe: another guild looks like a missing one', async () => {
+    const caller = await found()
     await expectGuildIsolation(harness, {
-      build: (caller, target) => [base(target), { headers: headers(caller) }],
+      build: (_caller, target) => [base(target), { headers: headers(caller) }],
       snapshot: (g) => harness.adapters.missives.list(g, { hallId: 'heralds', limit: 100 }),
     })
   })
