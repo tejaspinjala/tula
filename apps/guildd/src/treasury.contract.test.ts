@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { eventsAfter } from './events'
 import { DEFAULT_TREASURY, defaultConfig } from './guild-config'
 import { TOOL_CATALOG } from './mcp/tools'
 import { MAX_TREASURY_PAGE } from './ports/treasury-store'
@@ -91,6 +92,16 @@ describe('Treasury routes', () => {
       balances: { operating: 7000, reserve: 3000, profit: 0 },
       limits: { dailyCapCents: 1000, treasurerLimitCents: 500 },
     })
+  })
+
+  test('opening the Treasury (overview, entries, spends, verify) writes no event', async () => {
+    const { guildId, auth } = await signedIn()
+    const before = await harness.adapters.db.withGuild(guildId, (tx) => eventsAfter(tx, 0))
+    for (const suffix of ['', '/entries', '/spends', '/verify']) {
+      expect((await send('GET', `/guilds/${guildId}/treasury${suffix}`, auth)).status).toBe(200)
+    }
+    const after = await harness.adapters.db.withGuild(guildId, (tx) => eventsAfter(tx, 0))
+    expect(after.map((e) => e.type)).toEqual(before.map((e) => e.type))
   })
 
   test('writes need a real session: the dev guild header and no credential both fail', async () => {
