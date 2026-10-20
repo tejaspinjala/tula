@@ -229,6 +229,10 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
+  app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
+  app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
+  app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
