@@ -9,6 +9,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
 } from './identity-store'
@@ -168,6 +169,18 @@ export class PgIdentityStore implements IdentityStore {
            returning 1`
     )
     return rows.length > 0
+  }
+
+  async guildForCredential(credentialId: string) {
+    return this.db.guildForCredential(credentialId)
+  }
+
+  async saveDiscoverableChallenge(challenge: StoredDiscoverableChallenge, now: Date) {
+    await this.db.saveSigninChallenge(challenge, now)
+  }
+
+  async takeDiscoverableChallenge(id: string) {
+    return this.db.takeSigninChallenge(id)
   }
 
   async takeChallenge(guildId: string, id: string): Promise<StoredChallenge | null> {

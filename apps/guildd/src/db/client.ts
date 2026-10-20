@@ -91,6 +91,23 @@ export interface Db {
    * migration 0050; returns how many Quests changed.
    */
   releaseAllLeases(reason: string): Promise<number>
+  /**
+   * The guild holding a credential id, or null, through the security-definer
+   * `guild_for_credential` of migration 0057 (a bare uuid crosses the tenant boundary).
+   */
+  guildForCredential(credentialId: string): Promise<string | null>
+  /**
+   * Stores a usernameless sign-in challenge in `signin_challenges` (not tenant data, see migration
+   * 0057), first deleting those that expired at `now`.
+   */
+  saveSigninChallenge(
+    challenge: { id: string; challenge: string; expiresAt: Date },
+    now: Date
+  ): Promise<void>
+  /** Returns and deletes a usernameless sign-in challenge in one statement, so it is single-use. */
+  takeSigninChallenge(
+    id: string
+  ): Promise<{ id: string; challenge: string; expiresAt: Date } | null>
   /** Closes the pools. */
   close(): Promise<void>
 }
@@ -191,6 +208,28 @@ export function createDb(
     async releaseAllLeases(reason) {
       const [row] = await sql`select release_all_leases(${reason}) as released`
       return z.object({ released: z.number() }).parse(row).released
+    },
+    async guildForCredential(credentialId) {
+      const [row] = await sql`select guild_for_credential(${credentialId}) as guild_id`
+      return z.object({ guild_id: z.string().nullable() }).parse(row).guild_id
+    },
+    async saveSigninChallenge(challenge, now) {
+      await sql.begin(async (tx) => {
+        await tx`delete from signin_challenges where expires_at <= ${now}`
+        await tx`insert into signin_challenges (challenge_id, challenge, expires_at)
+          values (${challenge.id}, ${challenge.challenge}, ${challenge.expiresAt})`
+      })
+    },
+    async takeSigninChallenge(id) {
+      const [row] = await sql`delete from signin_challenges where challenge_id = ${id}
+        returning challenge_id, challenge, expires_at`
+      if (!row) {
+        return null
+      }
+      const parsed = z
+        .object({ challenge_id: z.string(), challenge: z.string(), expires_at: z.date() })
+        .parse(row)
+      return { id: parsed.challenge_id, challenge: parsed.challenge, expiresAt: parsed.expires_at }
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),
