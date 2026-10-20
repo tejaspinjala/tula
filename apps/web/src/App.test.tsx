@@ -12,6 +12,7 @@ const { App } = await import('./App')
 
 const urls: string[] = []
 let foundingIsOpen = false
+let foundingStatus = 200
 let signInStatus = 200
 
 beforeAll(() => {
@@ -24,7 +25,9 @@ beforeAll(() => {
         return Response.json({ status: 'ok' })
       }
       if (url === '/api/founding') {
-        return Response.json({ open: foundingIsOpen })
+        return foundingStatus === 429
+          ? Response.json({ error: 'rate_limited' }, { status: 429 })
+          : Response.json({ open: foundingIsOpen })
       }
       if (url.endsWith('/sign-in/begin')) {
         return Response.json({ challengeId: 'c1', options })
@@ -115,7 +118,7 @@ test('signing in with a passkey needs no guild id, then shows the guild name and
   expect(urls).toContain('/api/sign-in/begin')
   expect(urls).toContain('/api/sign-in/finish')
   expect(host.textContent).toContain('Ember Guild')
-  expect(host.textContent).toContain(guild)
+  expect(host.querySelector('header')?.textContent).not.toContain(guild)
   expect(host.querySelector('#home-heading')).not.toBeNull()
   expect(host.querySelector('#vault-heading')).toBeNull()
   await act(async () => root.unmount())
@@ -211,5 +214,107 @@ test('a guild id fallback signs in through the per-guild route', async () => {
   expect(urls).toContain(`/api/guilds/${guild}/sign-in/begin`)
   expect(urls).not.toContain('/api/sign-in/begin')
   expect(host.textContent).toContain('Ember Guild')
+  await act(async () => root.unmount())
+})
+
+test('a rate-limited /founding shows a try again shortly state instead of vanishing (B3)', async () => {
+  foundingIsOpen = true
+  foundingStatus = 429
+  const { host, root } = await mount()
+  expect(host.textContent).toContain('try again shortly')
+  foundingStatus = 200
+  await act(async () => root.unmount())
+})
+
+test('signed out: says what Guildhall and a passkey are, and shows guildd only when it is down', async () => {
+  foundingIsOpen = true
+  const { host, root } = await mount()
+  expect(host.textContent).toContain('What is a passkey')
+  expect(host.textContent).not.toContain('guildd:')
+  const sign = button(host, 'Sign in with passkey')
+  expect(sign.className).toContain('btn-primary')
+  const found = button(host, 'Found your guild')
+  expect(found.className).not.toContain('btn-primary')
+  await act(async () => root.unmount())
+})
+
+async function signedIn(path = '/') {
+  foundingIsOpen = false
+  signInStatus = 200
+  visit(path)
+  const mounted = await mount()
+  await click(button(mounted.host, 'Sign in with passkey'))
+  return mounted
+}
+
+test('signed in: the header names the guild, has Sign out, and hides guildd while ok (U4, U5, U1)', async () => {
+  const { host, root } = await signedIn()
+  const header = host.querySelector('header')
+  expect(header?.textContent).toContain('Ember Guild')
+  expect(header?.textContent).not.toContain('guildd:')
+  expect(header?.textContent).not.toContain(guild)
+  await click(button(header as HTMLElement, 'Sign out'))
+  expect(window.location.pathname).toBe('/')
+  expect(button(host, 'Sign in with passkey')).toBeTruthy()
+  await act(async () => root.unmount())
+})
+
+test('Sign out from a deeper view returns to / (U4)', async () => {
+  const { host, root } = await signedIn('/timeline')
+  expect(window.location.pathname).toBe('/timeline')
+  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  expect(window.location.pathname).toBe('/')
+  await act(async () => root.unmount())
+})
+
+test('the guild id appears only in Vault and Settings, truncated with a copy button (U5)', async () => {
+  const { host, root } = await signedIn('/vault')
+  const main = host.querySelector('main')
+  expect(main?.textContent).not.toContain(guild)
+  expect(main?.textContent).toContain(`${guild.slice(0, 8)}…${guild.slice(-4)}`)
+  expect(button(main as HTMLElement, 'Copy guild id')).toBeTruthy()
+  await act(async () => root.unmount())
+})
+
+test('document.title names the view (F3)', async () => {
+  const { host, root } = await signedIn('/')
+  expect(document.title).toBe('Home | Guildhall')
+  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Seals')
+  await click(link as HTMLElement)
+  expect(document.title).toBe('Seals | Guildhall')
+  await act(async () => root.unmount())
+})
+
+test('an unknown path redirects to / (U18)', async () => {
+  const { root } = await signedIn('/no-such-view')
+  expect(window.location.pathname).toBe('/')
+  await act(async () => root.unmount())
+})
+
+test('the phone nav has a More menu that opens and closes (U10)', async () => {
+  const { host, root } = await signedIn('/')
+  const more = button(host.querySelector('nav') as HTMLElement, 'More')
+  expect(more.getAttribute('aria-expanded')).toBe('false')
+  await click(more)
+  expect(more.getAttribute('aria-expanded')).toBe('true')
+  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Timeline')
+  await click(link as HTMLElement)
+  expect(
+    button(host.querySelector('nav') as HTMLElement, 'More').getAttribute('aria-expanded')
+  ).toBe('false')
+  await act(async () => root.unmount())
+})
+
+test('the active tab is scrolled into view (F2)', async () => {
+  const scrolled: string[] = []
+  const original = HTMLElement.prototype.scrollIntoView
+  HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this.textContent ?? '')
+  }
+  const { host, root } = await signedIn('/')
+  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Quest Board')
+  await click(link as HTMLElement)
+  HTMLElement.prototype.scrollIntoView = original
+  expect(scrolled).toContain('Quest Board')
   await act(async () => root.unmount())
 })
