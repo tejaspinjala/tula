@@ -84,6 +84,14 @@ export class MemoryProposalStore implements ProposalStore {
     return { proposals, next: matching.length > page.limit && last ? last.id : null }
   }
 
+  async listFailedSince(
+    _guildId: string,
+    _since: string,
+    _page: { after?: string; limit: number }
+  ): Promise<ProposalPage> {
+    throw new Error('not implemented')
+  }
+
   async verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null> {
     const found = this.verdicts.get(`${guildId}\u0000${proposalHash}`)
     return found ? structuredClone(found) : null

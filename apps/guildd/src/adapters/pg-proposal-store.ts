@@ -148,6 +148,14 @@ export class PgProposalStore implements ProposalStore {
     })
   }
 
+  async listFailedSince(
+    _guildId: string,
+    _since: string,
+    _page: { after?: string; limit: number }
+  ): Promise<ProposalPage> {
+    throw new Error('not implemented')
+  }
+
   async verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null> {
     return this.db.withGuild(guildId, async (tx) => {
       const [found] = await tx`
