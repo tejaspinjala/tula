@@ -83,6 +83,9 @@ export const FAIL_REASONS = [
   'sandbox_unavailable',
   'seal_rejected',
   'blocker_dead',
+  'hall_locked',
+  'hall_not_found',
+  'private_provider_unavailable',
   'unknown',
 ] as const
 
@@ -341,6 +344,36 @@ export function failTransition(
       notBefore: new Date(now.getTime() + delayMs).toISOString(),
     },
     event: 'quest.retry_scheduled',
+  }
+}
+
+/** Gives a claimed Quest back to `queued` until `notBefore`; a repeat for the same delivery is a no-op. */
+export function releaseClaimTransition(quest: Quest, attempt: number, notBefore: Date): Transition {
+  if (quest.state === 'queued' && quest.attempts === attempt && attempt > 0) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: 'routing_blocked',
+      notBefore: notBefore.toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/** Dead-letters a claimed Quest with a coded reason; a repeat for the same delivery is a no-op. */
+export function killTransition(quest: Quest, attempt: number, reason: string): Transition {
+  if (quest.state === 'dead' && quest.attempts === attempt) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: failReason(reason) },
+    event: 'quest.dead',
   }
 }
 

@@ -14,6 +14,7 @@ import {
   failReason,
   failTransition,
   isExhausted,
+  killTransition,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -24,6 +25,7 @@ import {
   type QuestQueue,
   questRank,
   questState,
+  releaseClaimTransition,
   renewTransition,
   retryDelayMs,
   type SealOutcome,
@@ -288,16 +290,16 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   async releaseClaim(
-    _guildId: string,
-    _id: string,
-    _attempt: number,
-    _notBefore: Date
+    guildId: string,
+    id: string,
+    attempt: number,
+    notBefore: Date
   ): Promise<Quest> {
-    throw new Error('not implemented')
+    return this.mutate(guildId, id, (q) => releaseClaimTransition(q, attempt, notBefore))
   }
 
-  async kill(_guildId: string, _id: string, _attempt: number, _reason: string): Promise<Quest> {
-    throw new Error('not implemented')
+  async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
+    return this.mutate(guildId, id, (q) => killTransition(q, attempt, reason))
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
