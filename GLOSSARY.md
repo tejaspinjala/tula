@@ -174,6 +174,9 @@ A passkey was added to the guild (payload: credential id).
 **identity.signed_in**:
 A passkey sign-in opened a session (payload: session id).
 
+**identity.signed_out**:
+A session was ended by sign-out and its token stopped working (payload: session id).
+
 **identity.reauthenticated**:
 A session re-authenticated with its passkey and received a short-lived proof (payload: session id).
 
