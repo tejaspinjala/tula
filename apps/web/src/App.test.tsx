@@ -6,7 +6,7 @@ const guild = '11111111-1111-4111-8111-111111111111'
 const options = { challenge: 'abc' }
 const realFetch = globalThis.fetch
 
-GlobalRegistrator.register()
+GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 const { App } = await import('./App')
 
@@ -46,6 +46,11 @@ afterAll(async () => {
   globalThis.fetch = realFetch
   await GlobalRegistrator.unregister()
 })
+
+/** Sets the page address, as a deep link or a tapped push link would. */
+function visit(path: string) {
+  window.history.pushState({}, '', path)
+}
 
 const browser = {
   create: async () => ({ created: true }),
@@ -119,7 +124,7 @@ test('signing in with a passkey needs no guild id, then shows the guild name and
 test('signed in, only the active view renders and the nav moves between views', async () => {
   foundingIsOpen = false
   signInStatus = 200
-  window.history.pushState({}, '', '/')
+  visit('/')
   const { host, root } = await mount()
   await click(button(host, 'Sign in with passkey'))
   const nav = host.querySelector('nav[aria-label="Ledger"]')
@@ -152,30 +157,30 @@ test('signed in, only the active view renders and the nav moves between views', 
 test('a deep link opens its own view, and a Seal link opens the Seals view', async () => {
   foundingIsOpen = false
   signInStatus = 200
-  window.history.pushState({}, '', '/vault')
+  visit('/vault')
   const first = await mount()
   await click(button(first.host, 'Sign in with passkey'))
   expect(first.host.querySelector('#vault-heading')).not.toBeNull()
   expect(first.host.querySelector('#home-heading')).toBeNull()
   await act(async () => first.root.unmount())
 
-  window.history.pushState({}, '', '/?seal=abc')
+  visit('/?seal=abc')
   const second = await mount()
   await click(button(second.host, 'Sign in with passkey'))
   expect(second.host.querySelector('#seals-heading')).not.toBeNull()
   await act(async () => second.root.unmount())
-  window.history.pushState({}, '', '/')
+  visit('/')
 })
 
 test('signed out at a deep link shows only sign-in, never the view', async () => {
   foundingIsOpen = false
-  window.history.pushState({}, '', '/vault')
+  visit('/vault')
   const { host, root } = await mount()
   expect(button(host, 'Sign in with passkey')).toBeTruthy()
   expect(host.querySelector('#vault-heading')).toBeNull()
   expect(host.querySelector('nav')).toBeNull()
   await act(async () => root.unmount())
-  window.history.pushState({}, '', '/')
+  visit('/')
 })
 
 test('a refused passkey sign-in is announced', async () => {
