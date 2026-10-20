@@ -358,6 +358,11 @@ thead th {
   font-weight: 700;
 }
 
+.count-badge-neutral {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+
 /* Home dashboard. */
 .tiles {
   display: grid;
