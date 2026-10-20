@@ -163,36 +163,40 @@ export class ClaudeCliModelProvider implements ModelProvider {
       env: this.env,
       cwd,
     })
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      proc.kill('SIGKILL')
-    }, this.timeoutMs)
-    try {
+    const reader = proc.stdout.getReader()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // The deadline is raced against the read: a grandchild holding stdout open cannot outlast it.
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new ModelProviderError('timeout')), this.timeoutMs)
+    })
+    const collect = async (): Promise<{ text: string; exitCode: number }> => {
       proc.stdin.write(prompt)
       await proc.stdin.end()
       const chunks: Uint8Array[] = []
       let size = 0
-      for await (const chunk of proc.stdout) {
-        size += chunk.byteLength
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+          break
+        }
+        size += value.byteLength
         if (size > this.maxStdoutBytes) {
-          proc.kill('SIGKILL')
           throw new ModelProviderError('invalid_response')
         }
-        chunks.push(chunk)
+        chunks.push(value)
       }
-      const exitCode = await proc.exited
-      if (timedOut) {
-        throw new ModelProviderError('timeout')
-      }
-      return { text: Buffer.concat(chunks).toString('utf8'), exitCode }
+      return { text: Buffer.concat(chunks).toString('utf8'), exitCode: await proc.exited }
+    }
+    try {
+      return await Promise.race([collect(), deadline])
     } catch (e) {
-      if (timedOut) {
-        throw new ModelProviderError('timeout')
-      }
       throw e instanceof ModelProviderError ? e : new ModelProviderError('unavailable')
     } finally {
       clearTimeout(timer)
+      // Whatever happened, the child is dead and reaped before the concurrency slot is freed.
+      proc.kill('SIGKILL')
+      await reader.cancel().catch(() => undefined)
+      await proc.exited
     }
   }
 
