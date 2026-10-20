@@ -10,7 +10,7 @@ import type { TripwireStore } from './ports/tripwire-store'
 import { type PostQuestError, postQuest } from './quests'
 
 /** The Quest template the Summon test Quest is posted from; its done-condition needs no Seal. */
-export const SUMMON_TEMPLATE_ID = 'herald-announcement'
+export const SUMMON_TEMPLATE_ID = 'herald-brief'
 
 /** The job key of the one test Quest of a guild's "Summon your first member" check. */
 export const SUMMON_JOB_KEY = 'summon:first-member'
