@@ -14,6 +14,7 @@ import { defaultConfig, type GuildConfig } from './guild-config'
 import { ConfigError } from './ports/config-store'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
+import type { Sandbox, SandboxRunner } from './ports/sandbox-runner'
 
 const START = new Date('2030-01-01T00:00:00.000Z')
 const LEASE = { leaseMs: 60_000, maxActive: 5 }
@@ -230,6 +231,69 @@ describe('dispatch', () => {
     expect(results.find((r) => r.guildId === w.guild)).toMatchObject({
       outcome: { status: 'started', questId: quest.id },
     })
+  })
+
+  /** A runner whose start for `hungGuild` waits on a promise the test settles; other guilds start at once. */
+  function hangingRunner(hungGuild: string) {
+    const inner = new MemorySandboxRunner()
+    let settle: (sandbox: Sandbox) => void = () => {}
+    const pending = new Promise<Sandbox>((resolve) => {
+      settle = resolve
+    })
+    const runner: SandboxRunner = {
+      start: (guildId, spec) => (guildId === hungGuild ? pending : inner.start(guildId, spec)),
+      kill: (target) => inner.kill(target),
+      list: (guildId) => inner.list(guildId),
+    }
+    return {
+      runner,
+      inner,
+      /** The container finally comes up. */
+      comeUp: async (guildId: string, questId: string) => {
+        settle(await inner.start(guildId, { questId }))
+      },
+    }
+  }
+
+  test('a sandbox start that never resolves releases its Quest and does not block the next guild', async () => {
+    const w = world()
+    const other = crypto.randomUUID()
+    const hang = hangingRunner(w.guild)
+    const deps = { ...w.deps, sandboxes: hang.runner, sandboxStartTimeoutMs: 20 }
+    const stuck = await w.queue()
+    await w.quests.post(other, {
+      jobKey: crypto.randomUUID(),
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Brief',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'A draft brief is filed',
+      roundLimit: 2,
+    })
+    const results = await dispatchAll({ dispatch: (g) => dispatch(deps, g) }, [w.guild, other])
+    expect(results.find((r) => r.guildId === w.guild)).toMatchObject({
+      outcome: { status: 'failed', questId: stuck.id, error: 'sandbox_unavailable' },
+    })
+    expect(results.find((r) => r.guildId === other)).toMatchObject({
+      outcome: { status: 'started' },
+    })
+    expect(await w.quests.get(w.guild, stuck.id)).toMatchObject({
+      state: 'queued',
+      lastError: 'timeout',
+    })
+  })
+
+  test('a container that comes up after its start timed out is stopped', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const deps = { ...w.deps, sandboxes: hang.runner, sandboxStartTimeoutMs: 20 }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.comeUp(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(await hang.inner.list(w.guild)).toEqual([])
   })
 
   test('a barred guild is refused before anything is claimed', async () => {
