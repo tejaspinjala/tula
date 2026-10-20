@@ -10,7 +10,15 @@ export interface FrameProps {
   className?: string
 }
 
-/** Stub for the red run. */
-export function Frame(_props: FrameProps) {
-  return null
+/**
+ * A pixel container. `wood` is the 9-slice wood-and-parchment frame, `paper` the parchment panel,
+ * `dialog` the white dialogue box with stacked hard borders, `slot` a recessed inventory slot.
+ * All the look is in `pixel.css`; pages compose Frames and never restyle them.
+ */
+export function Frame({ variant = 'wood', children, className }: FrameProps) {
+  return (
+    <div className={className ? `px-frame ${className}` : 'px-frame'} data-variant={variant}>
+      {children}
+    </div>
+  )
 }
