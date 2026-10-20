@@ -373,6 +373,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
+  app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
