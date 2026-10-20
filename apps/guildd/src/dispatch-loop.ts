@@ -44,12 +44,8 @@ export function startDispatchLoop<Handle>(deps: DispatchLoopDeps<Handle>): Dispa
     let after: string | undefined
     for (;;) {
       const page = await deps.guildIds(after, deps.pageSize ?? GUILD_PAGE)
-      const dispatcher = deps.dispatcher ?? {
-        dispatch: async (): Promise<never> => {
-          throw new Error('no dispatcher')
-        },
-      }
-      for (const result of await dispatchAll(dispatcher, page)) {
+      const results = deps.dispatcher ? await dispatchAll(deps.dispatcher, page) : []
+      for (const result of results) {
         if ('error' in result) {
           deps.onError(result.error, result.guildId)
         }
