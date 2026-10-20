@@ -10,6 +10,7 @@ export type RateRoute =
   | 'passkeys-begin'
   | 'passkeys-finish'
   | 'founding'
+  | 'founding-status'
   | 'reauth'
   | 'stream-ticket'
   | 'checkpoint-begin'
@@ -53,6 +54,11 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   founding: {
     client: { limit: 10, windowMs: MINUTE },
     unknown: { limit: 3, windowMs: MINUTE },
+  },
+  // A cheap boolean read the signed-out page makes once per load.
+  'founding-status': {
+    client: { limit: 30, windowMs: MINUTE },
+    unknown: { limit: 10, windowMs: MINUTE },
   },
   // Issued to a signed-in session; a person opens few streams, so the guild ceiling is modest.
   'stream-ticket': {
@@ -205,6 +211,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'passkeys-begin': 'unauthenticated',
   'passkeys-finish': 'unauthenticated',
   founding: 'unauthenticated',
+  'founding-status': 'unauthenticated',
   reauth: 'unauthenticated',
   'stream-ticket': 'session',
   'checkpoint-begin': 'session',

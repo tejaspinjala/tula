@@ -222,6 +222,15 @@ describe('rate limits on unauthenticated identity routes', () => {
     expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
   })
 
+  test('GET /founding is limited per client', async () => {
+    const { harness } = await harnessWith({ 'founding-status': { client: tight(2) } })
+    expect((await harness.request('/founding')).status).toBe(200)
+    expect((await harness.request('/founding')).status).toBe(200)
+    const refused = await harness.request('/founding')
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
   test('callers with no known address share a stricter bucket', async () => {
     const { post, found } = await harnessWith({
       'signin-begin': { client: tight(5), unknown: tight(1) },

@@ -5,6 +5,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
 } from './identity-store'
@@ -14,6 +15,7 @@ import { type WebAuthnIdentityConfig, WebAuthnIdentityProvider } from './webauth
 export class MemoryIdentityStore implements IdentityStore {
   private readonly credentials = new Map<string, StoredCredential[]>()
   private readonly challenges = new Map<string, StoredChallenge>()
+  private readonly discoverable = new Map<string, StoredDiscoverableChallenge>()
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly events = new Map<string, IdentityEvent[]>()
@@ -120,6 +122,28 @@ export class MemoryIdentityStore implements IdentityStore {
       }
     }
     return false
+  }
+
+  async guildForCredential(credentialId: string) {
+    const holders = [...this.credentials].filter(([, list]) =>
+      list.some((c) => c.id === credentialId)
+    )
+    return holders.length === 1 ? (holders[0]?.[0] ?? null) : null
+  }
+
+  async saveDiscoverableChallenge(challenge: StoredDiscoverableChallenge, now: Date) {
+    for (const [key, held] of this.discoverable) {
+      if (held.expiresAt <= now) {
+        this.discoverable.delete(key)
+      }
+    }
+    this.discoverable.set(challenge.id, challenge)
+  }
+
+  async takeDiscoverableChallenge(id: string) {
+    const challenge = this.discoverable.get(id) ?? null
+    this.discoverable.delete(id)
+    return challenge
   }
 
   async takeChallenge(guildId: string, id: string) {

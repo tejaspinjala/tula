@@ -122,7 +122,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       userID: new TextEncoder().encode(guildId),
       attestationType: 'none',
       excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
-      authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
     })
     const challengeId = await this.saveChallenge(
       guildId,
@@ -164,25 +164,38 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       counter: credential.counter,
       transports: credential.transports ?? [],
     }
-    if (challenge.foundingHash) {
-      const founded = await this.store.foundCredential(
-        guildId,
-        stored,
-        challenge.foundingHash,
-        this.config.clock.now(),
-        [
-          { type: 'identity.founding_token_spent', payload: { credentialId: stored.id } },
-          { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
-        ]
-      )
-      if (!founded) {
-        throw new IdentityError('registration_closed')
+    // Credential ids are unique across guilds (migration 0058); refuse before the founding token is spent.
+    const holder = await this.store.guildForCredential(stored.id)
+    if (holder && holder !== guildId) {
+      throw new IdentityError('credential_exists')
+    }
+    try {
+      if (challenge.foundingHash) {
+        const founded = await this.store.foundCredential(
+          guildId,
+          stored,
+          challenge.foundingHash,
+          this.config.clock.now(),
+          [
+            { type: 'identity.founding_token_spent', payload: { credentialId: stored.id } },
+            { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
+          ]
+        )
+        if (!founded) {
+          throw new IdentityError('registration_closed')
+        }
+      } else {
+        await this.store.saveCredential(guildId, stored, {
+          type: 'identity.passkey_registered',
+          payload: { credentialId: stored.id },
+        })
       }
-    } else {
-      await this.store.saveCredential(guildId, stored, {
-        type: 'identity.passkey_registered',
-        payload: { credentialId: stored.id },
-      })
+    } catch (error) {
+      // A concurrent registration of the same id lost the unique index race (Postgres 23505).
+      if (z.object({ code: z.literal('23505') }).safeParse(error).success) {
+        throw new IdentityError('credential_exists')
+      }
+      throw error
     }
     return { credentialId: credential.id }
   }
@@ -206,6 +219,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   ): Promise<IdentitySession> {
     const challenge = await this.takeChallenge(guildId, challengeId, 'signin')
     await this.verifyAssertion(guildId, challenge, response)
+    return this.openSession(guildId)
+  }
+
+  private async openSession(guildId: string): Promise<IdentitySession> {
     const token = `${guildId}.${randomToken()}`
     const expiresAt = new Date(this.config.clock.now().getTime() + SESSION_TTL_MS)
     const sessionId = crypto.randomUUID()
@@ -223,6 +240,40 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       { type: 'identity.signed_in', payload: { sessionId } }
     )
     return { token, guildId, expiresAt }
+  }
+
+  async beginDiscoverableSignIn() {
+    const options = await generateAuthenticationOptions({
+      rpID: this.config.rpId,
+      userVerification: 'required',
+      allowCredentials: [],
+    })
+    const id = crypto.randomUUID()
+    const now = this.config.clock.now()
+    await this.store.saveDiscoverableChallenge(
+      { id, challenge: options.challenge, expiresAt: new Date(now.getTime() + CHALLENGE_TTL_MS) },
+      now
+    )
+    return { challengeId: id, options }
+  }
+
+  async finishDiscoverableSignIn(
+    challengeId: string,
+    response: AuthenticationResponseJSON
+  ): Promise<IdentitySession> {
+    const held = z.uuid().safeParse(challengeId).success
+      ? await this.store.takeDiscoverableChallenge(challengeId)
+      : null
+    if (!held || held.expiresAt <= this.config.clock.now()) {
+      throw new IdentityError('invalid_challenge')
+    }
+    // An unknown credential answers like a bad signature, so the response never says which.
+    const guildId = await this.store.guildForCredential(response.id)
+    if (!guildId) {
+      throw new IdentityError('verification_failed')
+    }
+    await this.verifyAssertion(guildId, held, response)
+    return this.openSession(guildId)
   }
 
   async beginReauth(sessionToken: string) {
@@ -485,7 +536,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
 
   private async verifyAssertion(
     guildId: string,
-    challenge: StoredChallenge,
+    challenge: { challenge: string },
     response: AuthenticationResponseJSON
   ): Promise<void> {
     const credentials = await this.store.listCredentials(guildId)

@@ -1,11 +1,14 @@
 import { expect, test } from 'bun:test'
 import {
+  fetchGuild,
   foundGuild,
+  foundingOpen,
   type PasskeyBrowser,
   PasskeyRequestError,
   reauthenticate,
   registerPasskey,
   signIn,
+  signInWithPasskey,
 } from './passkeys'
 
 const guild = '11111111-1111-4111-8111-111111111111'
@@ -91,4 +94,39 @@ test('a refused founding surfaces the status so the screen can say rate limited'
   const error = await foundGuild('Ember', 'Ship it', fetcher).catch((e: unknown) => e)
   expect(error).toBeInstanceOf(PasskeyRequestError)
   expect(error instanceof PasskeyRequestError && error.status).toBe(429)
+})
+
+test('signing in with a passkey posts to /sign-in with no guild id', async () => {
+  const { seen, fetcher, browser } = fakes({
+    '/api/sign-in/begin': { challengeId: 'c4', options },
+    '/api/sign-in/finish': { token: 't', guildId: guild },
+  })
+  expect(await signInWithPasskey(fetcher, browser)).toEqual({ token: 't', guildId: guild })
+  expect(seen.map((s) => s.url)).toEqual(['/api/sign-in/begin', '/api/sign-in/finish'])
+  expect(seen[1]?.body).toEqual({ challengeId: 'c4', response: { signed: 'abc' } })
+})
+
+test('founding is open only when guildd says so; a failed call reads as closed', async () => {
+  const reply =
+    (body: unknown, status = 200) =>
+    async () =>
+      Response.json(body, { status })
+  expect(await foundingOpen(reply({ open: true }))).toBe(true)
+  expect(await foundingOpen(reply({ open: false }))).toBe(false)
+  expect(await foundingOpen(reply({ error: 'x' }, 503))).toBe(false)
+  expect(await foundingOpen(reply({ unexpected: 1 }))).toBe(false)
+})
+
+test('the signed-in guild is read with the session token', async () => {
+  const auth: Array<string | null> = []
+  const fetcher = async (url: string, init?: RequestInit) => {
+    auth.push(new Headers(init?.headers).get('authorization'))
+    expect(url).toBe(`/api/guilds/${guild}`)
+    return Response.json({ id: guild, name: 'Ember', goal: 'Ship' })
+  }
+  expect(await fetchGuild({ token: 't', guildId: guild }, fetcher)).toEqual({
+    id: guild,
+    name: 'Ember',
+  })
+  expect(auth).toEqual(['Bearer t'])
 })
