@@ -29,9 +29,21 @@ const toolReply = z.object({
   error: z.object({ message: z.string() }).optional(),
 })
 
-/** The prompt a Member's model call gets for a Quest; stubbed until the worker builds it from the Brief. */
-export function buildPrompt(_brief: string, _doneCondition: string): string {
-  return ''
+const MODEL_MAX_TOKENS = 1024
+
+/**
+ * The prompt a Member's model call gets for a Quest: the Brief (Quest, instructions, any revision
+ * reason), the done-condition, and a plain instruction to write the deliverable itself rather than
+ * talk about writing it. Pure.
+ */
+export function buildPrompt(brief: string, doneCondition: string): string {
+  return [
+    brief.trimEnd(),
+    '',
+    `The Quest is done when: ${doneCondition}`,
+    '',
+    'Produce the deliverable itself, now. Reply with only the finished text a reader would see (no preamble, no commentary, no offer to help, and no statement that you are ready or will draft it).',
+  ].join('\n')
 }
 
 /** Why a worker step failed; coded, never the gateway's text. */
@@ -91,10 +103,8 @@ export async function runWorker(input: WorkerInput): Promise<void> {
     '/gateway/complete',
     { authorization: `Bearer ${input.runToken}` },
     {
-      messages: [
-        { role: 'user', content: `${brief}\nReply with one short sentence saying you are ready.` },
-      ],
-      maxTokens: 64,
+      messages: [{ role: 'user', content: buildPrompt(brief, input.doneCondition) }],
+      maxTokens: MODEL_MAX_TOKENS,
     }
   )
   if (!model.ok) {
