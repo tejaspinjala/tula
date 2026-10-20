@@ -8,12 +8,12 @@ const networks = new TestNetworks()
 beforeAll(() => networks.create())
 afterAll(() => networks.cleanup())
 
-/** The Docker runner with an idle command; labelled so cleanup finds what the contract leaves. */
+/** A Docker runner in its own scope (so `kill("all")` sees only its sandboxes), idle, labelled for cleanup. */
 function idleRunner(): DockerSandboxRunner {
   return new DockerSandboxRunner({
     image: PINNED_BUN_IMAGE,
     network: networks.sandbox,
-    scope: networks.tag,
+    scope: `${networks.tag}-${crypto.randomUUID().slice(0, 6)}`,
     command: ['sleep', '300'],
     extraLabels: { 'guildhall.test': networks.tag },
   })
