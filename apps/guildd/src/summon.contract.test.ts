@@ -19,9 +19,10 @@ class RecordingRunner extends MemorySandboxRunner {
 }
 
 const runner = new RecordingRunner()
+const provider = new MemoryModelProvider()
 const harness = await createHarness({
   devGuildHeader: true,
-  app: { modelProvider: new MemoryModelProvider(), sandboxes: runner },
+  app: { modelProvider: provider, sandboxes: runner },
 })
 afterAll(async () => {
   await harness.close()
@@ -61,7 +62,8 @@ async function found(auth: 'api_key' | 'subscription' | null) {
     await harness.adapters.secrets.add(g, 'cloud', 'sk-summon-test-key')
   }
   const session = await openSession(harness.adapters.identity, g)
-  return { g, auth: { authorization: `Bearer ${session}` } }
+  const member = (await harness.adapters.identity.resolveSession(session))?.memberId ?? ''
+  return { g, member, auth: { authorization: `Bearer ${session}` } }
 }
 
 const status = async (g: string, auth: Record<string, string>) =>
@@ -76,6 +78,7 @@ const summon = (g: string, auth: Record<string, string>, profileId = 'cloud-mid'
 
 /** Plays the sandboxed worker: one model call through the gateway, then files and completes over MCP. */
 async function playWorker(spec: SandboxSpec) {
+  provider.script({ ok: true, text: 'ready', usage: { inputTokens: 4, outputTokens: 2 } })
   const lease = leaseHandle.parse(JSON.parse(spec.leaseHandle ?? ''))
   const call = await harness.request('/gateway/complete', {
     method: 'POST',
@@ -164,8 +167,8 @@ describe('Summon your first member', () => {
   })
 
   test('a barred guild summons nothing', async () => {
-    const { g, auth } = await found('api_key')
-    await harness.adapters.gates.bar({ guildId: g, memberId: 'guild-master' }, 'guild')
+    const { g, member, auth } = await found('api_key')
+    await harness.adapters.gates.bar({ guildId: g, memberId: member }, 'guild')
     const res = await summon(g, auth)
     expect(res.status).toBe(409)
     expect(errorBody.parse(await res.json()).error).toBe('gates_barred')
@@ -180,9 +183,12 @@ describe('Summon your first member', () => {
 
   test("one guild cannot read or start another's summon", async () => {
     const other = await found('api_key')
+    const sessions = new Map<string, string>()
     await expectGuildIsolation(harness, {
       build: async (caller, target) => {
-        const session = await openSession(harness.adapters.identity, caller)
+        const session =
+          sessions.get(caller) ?? (await openSession(harness.adapters.identity, caller))
+        sessions.set(caller, session)
         return [
           `/guilds/${target}/summon`,
           {

@@ -186,7 +186,8 @@ export async function compose(
     gateway,
     sandboxes,
     summon:
-      overrides.summon ?? new Summon({ config, quests, tripwires, gateway, mcp, sandboxes, clock }),
+      overrides.summon ??
+      new Summon({ config, quests, tripwires, gates: gateStore, gateway, mcp, sandboxes, clock }),
     platformOperators: overrides.platformOperators ?? loadPlatformOperators(),
     gates:
       overrides.gates ??
