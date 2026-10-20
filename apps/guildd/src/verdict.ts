@@ -27,7 +27,7 @@ export interface ContentPolicy {
   bannedTerms: string[]
   requiredTerms: string[]
   /** True lets a draft that talks about doing the task through. Absent or false rejects meta-drafts; setting it is widening. */
-  allowMetaDrafts?: boolean
+  allowMetaDrafts?: boolean | undefined
 }
 
 /** The policy used until guild config carries its own banned and required terms. */
