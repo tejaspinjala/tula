@@ -85,7 +85,7 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const other = await newGuild()
       const { barId } = await store.bar({ guildId: actor, memberId: GM }, 'global')
       try {
-        const barred = { type: 'gates.barred', barId, memberId: GM } as const
+        const barred = { type: 'gates.barred', barId } as const
         expect(await store.announceGlobal(other, barred)).toBe(true)
         expect(await store.announceGlobal(other, barred)).toBe(false)
         expect(await store.announceGlobal(actor, barred)).toBe(false)
@@ -94,7 +94,7 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       } finally {
         await store.lift({ guildId: actor, memberId: GM }, 'global')
       }
-      const lifted = { type: 'gates.lifted', barId, memberId: GM } as const
+      const lifted = { type: 'gates.lifted', barId } as const
       expect(await store.announceGlobal(other, lifted)).toBe(true)
       expect(await store.announceGlobal(other, lifted)).toBe(false)
       expect(await events(other)).toEqual(['gates.barred', 'gates.lifted'])
@@ -107,7 +107,7 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const other = await newGuild()
       const { barId } = await store.bar({ guildId: actor, memberId: GM }, 'global')
       try {
-        await store.announceGlobal(other, { type: 'gates.barred', barId, memberId: GM })
+        await store.announceGlobal(other, { type: 'gates.barred', barId })
       } finally {
         await store.lift({ guildId: actor, memberId: GM }, 'global')
       }

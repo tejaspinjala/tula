@@ -54,9 +54,7 @@ export class Gates {
         ? this.deps.runs.revokeAllRuns()
         : this.deps.runs.revokeGuildRuns(actor.guildId)
     const announcing =
-      scope === 'global'
-        ? this.announceAll({ type: 'gates.barred', barId, memberId: actor.memberId })
-        : Promise.resolve()
+      scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
     const [killedSandboxes, revokedRuns] = await Promise.all([killing, revoking, announcing])
     return { barId, created, revokedRuns, killedSandboxes }
   }
@@ -93,13 +91,13 @@ export class Gates {
       if (scope === 'global') {
         const pending = await this.deps.store.latestGlobalLift(actor.guildId)
         if (pending !== null) {
-          await this.announceAll({ type: 'gates.lifted', barId: pending, memberId: actor.memberId })
+          await this.announceAll({ type: 'gates.lifted', barId: pending })
         }
       }
       return false
     }
     if (scope === 'global') {
-      await this.announceAll({ type: 'gates.lifted', barId, memberId: actor.memberId })
+      await this.announceAll({ type: 'gates.lifted', barId })
     }
     return true
   }
