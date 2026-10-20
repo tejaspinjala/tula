@@ -227,6 +227,8 @@ describe('session cookie review fixes', () => {
         statuses.push(res.status)
       }
       expect(statuses.filter((s) => s === 429)).toEqual([])
+      // Every request authenticated by the cookie, not merely un-throttled.
+      expect(new Set(statuses)).toEqual(new Set([200]))
     } finally {
       await limited.close()
     }
