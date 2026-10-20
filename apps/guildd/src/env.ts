@@ -388,3 +388,10 @@ export function loadResearchEnv(source: Record<string, string | undefined> = pro
 export function loadSubscriptionEnv(source: Record<string, string | undefined> = process.env) {
   return subscriptionSchema.parse(source)
 }
+
+/** Reads `SANDBOX_START_TIMEOUT_MS` (default 10s): how long a Quest's worker may take to start; throws at boot on a bad value. */
+export function loadSandboxStartTimeoutMs(
+  source: Record<string, string | undefined> = process.env
+): number {
+  return z.coerce.number().int().positive().default(10_000).parse(source.SANDBOX_START_TIMEOUT_MS)
+}

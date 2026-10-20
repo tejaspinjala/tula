@@ -1,6 +1,10 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { z } from 'zod'
 import { createHarness } from './testing/harness'
+import { withClusterDdlLock } from './testing/test-db'
+
+// Each test creates and migrates its own database, which queues behind other workers' DDL.
+setDefaultTimeout(60_000)
 
 type Mode = 'open' | 'once' | 'closed'
 
@@ -60,6 +64,26 @@ describe('FOUNDING_MODE', () => {
       const results = await Promise.all([found(), found(), found(), found()])
       const statuses = results.map((r) => r.status).sort()
       expect(statuses).toEqual([201, 403, 403, 403])
+    })
+  })
+})
+
+describe('FOUNDING_MODE under a busy shared cluster', () => {
+  test('a founding test whose database setup waits on other workers still passes', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const locked = new Promise<void>((resolve) => {
+      void withClusterDdlLock(async () => {
+        resolve()
+        await held
+      })
+    })
+    await locked
+    setTimeout(release, 6_000)
+    await withMode('closed', async (found) => {
+      expect((await found()).status).toBe(403)
     })
   })
 })

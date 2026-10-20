@@ -5,7 +5,11 @@ export class MemorySandboxRunner implements SandboxRunner {
   private readonly running = new Map<string, Sandbox>()
 
   async start(guildId: string, spec: SandboxSpec): Promise<Sandbox> {
-    const sandbox: Sandbox = { sandboxId: crypto.randomUUID(), guildId, questId: spec.questId }
+    const sandbox: Sandbox = {
+      sandboxId: spec.sandboxId ?? crypto.randomUUID(),
+      guildId,
+      questId: spec.questId,
+    }
     this.running.set(sandbox.sandboxId, sandbox)
     return sandbox
   }
@@ -16,7 +20,8 @@ export class MemorySandboxRunner implements SandboxRunner {
       if (
         target === 'all' ||
         (sandbox.guildId === target.guildId &&
-          (target.questId === undefined || sandbox.questId === target.questId))
+          (target.questId === undefined || sandbox.questId === target.questId) &&
+          (target.sandboxId === undefined || sandbox.sandboxId === target.sandboxId))
       ) {
         this.running.delete(id)
         killed += 1

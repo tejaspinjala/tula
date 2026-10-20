@@ -11,7 +11,10 @@ export interface LoopTimer<Handle> {
 
 /** Collaborators of {@link startDispatchLoop}. */
 export interface DispatchLoopDeps<Handle> {
-  dispatcher: Pick<Dispatcher, 'dispatch'>
+  /** Absent for a loop that only runs `guildSweeps`. */
+  dispatcher?: Pick<Dispatcher, 'dispatch'>
+  /** Idempotent per-guild upkeep run after each guild's dispatch (for example reaping stale research slots). */
+  guildSweeps?: Array<(guildId: string) => Promise<unknown>>
   /** A page of guild ids after the cursor, ascending. */
   guildIds(after: string | undefined, limit: number): Promise<string[]>
   intervalMs: number
@@ -41,9 +44,19 @@ export function startDispatchLoop<Handle>(deps: DispatchLoopDeps<Handle>): Dispa
     let after: string | undefined
     for (;;) {
       const page = await deps.guildIds(after, deps.pageSize ?? GUILD_PAGE)
-      for (const result of await dispatchAll(deps.dispatcher, page)) {
+      const results = deps.dispatcher ? await dispatchAll(deps.dispatcher, page) : []
+      for (const result of results) {
         if ('error' in result) {
           deps.onError(result.error, result.guildId)
+        }
+      }
+      for (const guildId of page) {
+        for (const guildSweep of deps.guildSweeps ?? []) {
+          try {
+            await guildSweep(guildId)
+          } catch (error) {
+            deps.onError(error, guildId)
+          }
         }
       }
       const last = page.at(-1)

@@ -26,6 +26,7 @@ await adapters.gates.resumeAnnouncements()
 
 // Off unless DISPATCH_INTERVAL_MS is set. A plain setInterval is fine: the loop keeps no durable
 // state (the queue and Seals are the state, and dispatch is idempotent), so nothing is lost on restart.
+const { research } = adapters
 const loop =
   env.DISPATCH_INTERVAL_MS === undefined
     ? null
@@ -44,10 +45,32 @@ const loop =
         },
       })
 
+// Research slots and spends a crash left behind are released on their own timer, whether or not
+// the dispatch loop is on (the sweep is idempotent and keeps no state here).
+const RESEARCH_SWEEP_MS = 60_000
+const researchSweep = research
+  ? startDispatchLoop({
+      guildSweeps: [(guildId) => research.sweep(guildId)],
+      guildIds: (after, limit) => adapters.db.guildIds(after, limit),
+      intervalMs: RESEARCH_SWEEP_MS,
+      timer: {
+        schedule: (fn, ms) => setInterval(fn, ms),
+        clear: (handle) => clearInterval(handle),
+      },
+      onError: (error, guildId) => {
+        process.stderr.write(
+          `research sweep failed: guild=${guildId ?? 'all'} ${error instanceof Error ? error.name : 'unknown'}\n`
+        )
+      },
+    })
+  : null
+
 // Always registered, loop or not: the background announcements of a global bar end at a page
 // boundary and what they left untold is finished by the next boot.
 const shutdown = () => {
-  void Promise.allSettled([loop?.stop(), adapters.gates.stop()]).finally(() => process.exit(0))
+  void Promise.allSettled([loop?.stop(), researchSweep?.stop(), adapters.gates.stop()]).finally(
+    () => process.exit(0)
+  )
 }
 process.once('SIGTERM', shutdown)
 process.once('SIGINT', shutdown)

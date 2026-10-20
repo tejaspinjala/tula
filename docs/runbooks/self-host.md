@@ -56,6 +56,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `SANDBOX_NETWORK` | none | with `docker` | Dedicated internal Docker network (not `host`, `bridge`, `none`). |
 | `SANDBOX_SCOPE` | `default` | optional | Label scoping sandboxes for cleanup. |
 | `SANDBOX_KILL_DEADLINE_MS` | `2000` | optional | Deadline for killing sandboxes (1 to 10000). |
+| `SANDBOX_START_TIMEOUT_MS` | `10000` | optional | How long opening a run, leasing and starting its sandbox may take before the Quest is released as `timeout`. |
 | `EGRESS_PROXY_URL` | none | with `docker` | Where a sandbox finds the egress proxy. |
 | `SANDBOX_GATEWAY_URL` | none | with `docker`, must be `https` | The one origin sandboxes reach through the proxy. |
 | `SUBSCRIPTION_PROVIDER` | disabled | leave disabled on hosted | `enabled` allows a `subscription` provider (see Models). |

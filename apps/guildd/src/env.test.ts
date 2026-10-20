@@ -5,6 +5,7 @@ import {
   loadPlatformOperators,
   loadResearchEnv,
   loadSandboxEnv,
+  loadSandboxStartTimeoutMs,
   loadSubscriptionEnv,
   loadVapidEnv,
   loadWebauthnEnv,
@@ -311,5 +312,16 @@ describe('loadResearchEnv', () => {
     expect(() => loadResearchEnv({ ...memory, RESEARCH_MEMORY_SEED: '{' })).toThrow()
     expect(loadResearchEnv(memory)).toMatchObject({ kind: 'memory', privateEligible: false })
     expect(() => loadResearchEnv({ ...memory, NODE_ENV: 'production' })).toThrow()
+  })
+})
+
+describe('loadSandboxStartTimeoutMs', () => {
+  test('defaults to 10s and takes a positive integer of milliseconds', () => {
+    expect(loadSandboxStartTimeoutMs({})).toBe(10_000)
+    expect(loadSandboxStartTimeoutMs({ SANDBOX_START_TIMEOUT_MS: '2500' })).toBe(2500)
+  })
+
+  test.each(['0', '-5', 'soon', '1.5'])('rejects %s at boot', (value) => {
+    expect(() => loadSandboxStartTimeoutMs({ SANDBOX_START_TIMEOUT_MS: value })).toThrow()
   })
 })

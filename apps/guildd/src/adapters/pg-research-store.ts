@@ -13,6 +13,8 @@ const row = z.object({
   quest_id: z.string(),
   member_id: z.string(),
 })
+const tried = z.object({ ok: z.boolean() })
+const ids = z.object({ call_id: z.string() })
 const counted = z.object({ n: z.number() })
 
 /**
@@ -63,5 +65,42 @@ export class PgResearchStore implements ResearchStore {
         where guild_id = ${guildId} and quest_id = ${questId} and released_at is null`
     )
     return counted.parse(held).n
+  }
+
+  async settle(guildId: string, callId: string): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        update research_calls set settled_at = now()
+        where guild_id = ${guildId} and call_id = ${callId} and settled_at is null`
+    )
+  }
+
+  async stale(guildId: string, before: Date, limit: number): Promise<string[]> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // A second replica sweeping the same guild skips; the work is idempotent either way.
+      const [lock] = await tx`
+        select pg_try_advisory_xact_lock(hashtextextended(${`research-sweep:${guildId}`}, 0)) as ok`
+      if (!tried.parse(lock).ok) {
+        return []
+      }
+      const rows = await tx`
+        select call_id from research_calls
+        where guild_id = ${guildId} and released_at is null and settled_at is null
+          and made_at < ${before}
+        order by made_at, call_id limit ${limit}`
+      return rows.map((r) => ids.parse(r).call_id)
+    })
+  }
+
+  async close(guildId: string, callId: string, outcome: 'freed' | 'settled'): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        update research_calls
+        set settled_at = coalesce(settled_at, now()),
+            released_at = case when ${outcome === 'freed'} then coalesce(released_at, now()) else released_at end
+        where guild_id = ${guildId} and call_id = ${callId}`
+    )
   }
 }

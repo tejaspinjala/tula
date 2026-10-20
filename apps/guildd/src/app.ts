@@ -60,6 +60,7 @@ import type { ProposalEngine } from './proposals'
 import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
+import type { Research } from './research'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
@@ -115,6 +116,8 @@ export interface AppDeps {
   routingLog: RoutingLog
   /** The model gateway: per-run tokens, metering and caps in front of the model providers. */
   gateway: ModelGateway
+  /** Composition-only: governed web research, swept by the dispatch loop; absent when no provider is configured. */
+  research?: Research
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
   /** Serves `subscription` providers; tests inject a memory one, production the `claude` CLI adapter. */
@@ -341,6 +344,8 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
 }
 const summonBody = z.object({ profileId: z.string().min(1).max(64) })
 const putConfigBody = z.object({ config: guildConfig })
+/** The most unknown config key names one 422 refusal echoes back. */
+const MAX_UNKNOWN_KEYS_LISTED = 20
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
   after: configVersion.optional(),
@@ -1488,6 +1493,20 @@ export function createApp(deps: AppDeps): Hono {
     }
     const body = putConfigBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
+      const unknownKeys = body.error.issues.flatMap((i) =>
+        i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path.slice(1), k].join('.')) : []
+      )
+      if (unknownKeys.length > 0) {
+        const truncated = unknownKeys.length > MAX_UNKNOWN_KEYS_LISTED
+        return c.json(
+          {
+            error: 'unknown_config_key',
+            unknownKeys: unknownKeys.slice(0, MAX_UNKNOWN_KEYS_LISTED),
+            ...(truncated ? { truncated: true } : {}),
+          },
+          422
+        )
+      }
       // Paths and messages only, so the builder can mark the offending node; never the submitted values.
       return c.json(
         {

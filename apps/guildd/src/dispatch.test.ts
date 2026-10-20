@@ -1,19 +1,25 @@
 import { describe, expect, test } from 'bun:test'
+import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
+import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
 import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
+import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
+import { GatewayError, ModelGateway, runIdFor } from './model-gateway'
 import { ConfigError } from './ports/config-store'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
+import type { Sandbox, SandboxRunner } from './ports/sandbox-runner'
 
 const START = new Date('2030-01-01T00:00:00.000Z')
 const LEASE = { leaseMs: 60_000, maxActive: 5 }
@@ -155,6 +161,7 @@ describe('dispatch', () => {
           token: 'run-token',
           expiresAt: START.toISOString(),
         }),
+        revokeRun: async () => true,
       },
       mcp: {
         lease: async (_g: string, q: { id: string }) => ({
@@ -232,6 +239,273 @@ describe('dispatch', () => {
     })
   })
 
+  /** A runner whose start for `hungGuild` waits on a promise the test settles; other guilds start at once. */
+  function hangingRunner(hungGuild: string, options: { killFails?: boolean } = {}) {
+    const inner = new MemorySandboxRunner()
+    let settle: (sandbox: Sandbox) => void = () => {}
+    let fail: (error: Error) => void = () => {}
+    const pending = new Promise<Sandbox>((resolve, reject) => {
+      settle = resolve
+      fail = reject
+    })
+    let sandboxId: string | undefined
+    const runner: SandboxRunner = {
+      start: (guildId, spec) => {
+        if (guildId !== hungGuild) {
+          return inner.start(guildId, spec)
+        }
+        sandboxId = spec.sandboxId
+        return pending
+      },
+      kill: async (target) => {
+        if (options.killFails) {
+          throw new Error('docker down')
+        }
+        return inner.kill(target)
+      },
+      list: (guildId) => inner.list(guildId),
+    }
+    return {
+      runner,
+      inner,
+      /** The container finally comes up. */
+      comeUp: async (guildId: string, questId: string) => {
+        settle(await inner.start(guildId, { questId, sandboxId }))
+      },
+      /** The container is created, then the start call fails. */
+      createThenReject: async (guildId: string, questId: string) => {
+        await inner.start(guildId, { questId, sandboxId })
+        fail(new Error('start_failed'))
+      },
+    }
+  }
+
+  const postOther = (w: ReturnType<typeof world>) => {
+    const other = crypto.randomUUID()
+    return w.quests
+      .post(other, {
+        jobKey: crypto.randomUUID(),
+        templateId: 'herald-brief',
+        hallId: 'heralds',
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: 'Brief',
+        ownerId: 'heralds-member-2',
+        doneCondition: 'A draft brief is filed',
+        roundLimit: 2,
+      })
+      .then(() => other)
+  }
+
+  test('a sandbox start that never resolves releases its Quest and does not block the next guild', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const deps = { ...w.deps, sandboxes: hang.runner, sandboxStartTimeoutMs: 20 }
+    const stuck = await w.queue()
+    const other = await postOther(w)
+    const results = await dispatchAll({ dispatch: (g) => dispatch(deps, g) }, [w.guild, other])
+    expect(results.find((r) => r.guildId === w.guild)).toMatchObject({
+      outcome: { status: 'failed', questId: stuck.id, error: 'sandbox_unavailable' },
+    })
+    expect(results.find((r) => r.guildId === other)).toMatchObject({
+      outcome: { status: 'started' },
+    })
+    expect(await w.quests.get(w.guild, stuck.id)).toMatchObject({
+      state: 'queued',
+      lastError: 'timeout',
+    })
+  })
+
+  test('a container that comes up after its start timed out is stopped', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const deps = { ...w.deps, sandboxes: hang.runner, sandboxStartTimeoutMs: 20 }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.comeUp(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(await hang.inner.list(w.guild)).toEqual([])
+  })
+
+  test('a start that creates its container and then fails late leaves no container', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const deps = { ...w.deps, sandboxes: hang.runner, sandboxStartTimeoutMs: 20 }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.createThenReject(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(await hang.inner.list(w.guild)).toEqual([])
+  })
+
+  test('the timeout revokes the run so its token is dead before any late container', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const revoked: string[] = []
+    const deps = {
+      ...w.deps,
+      sandboxes: hang.runner,
+      sandboxStartTimeoutMs: 20,
+      gateway: {
+        ...w.deps.gateway,
+        revokeRun: async (_g: string, runId: string) => {
+          revoked.push(runId)
+          return true
+        },
+      },
+    }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    expect(revoked).toEqual([runIdFor(stuck.id, 1)])
+  })
+
+  test('a run opened after the start deadline is refused before the Quest is released', async () => {
+    const w = world()
+    const secrets = new MemorySecretStore(new MemoryKeyProvider())
+    await secrets.add(w.guild, 'cloud', 'sk-key')
+    let openLedger: () => void = () => {}
+    const ledgerGate = new Promise<void>((resolve) => {
+      openLedger = resolve
+    })
+    class SlowOpenLedger extends MemoryModelLedger {
+      override async openRun(...args: Parameters<MemoryModelLedger['openRun']>) {
+        await ledgerGate
+        return super.openRun(...args)
+      }
+    }
+    const config = configWith({
+      routingProfiles: [
+        {
+          id: 'cloud-mid',
+          provider: 'cloud',
+          tier: 'mid',
+          model: 'm',
+          price: { inputMicrosPerMTok: 1, outputMicrosPerMTok: 1 },
+        },
+      ],
+    })
+    const gateway = new ModelGateway({
+      activity: new MemoryActivityLog(),
+      ledger: new SlowOpenLedger(),
+      secrets,
+      config: { current: async () => ({ version: 1, config }) },
+      provider: new MemoryModelProvider(),
+      clock: w.clock,
+      tripwires: new MemoryTripwireStore(w.clock),
+      gates: new MemoryGateStore(),
+      quests: w.quests,
+    })
+    const tokens: string[] = []
+    let finishRelease: () => void = () => {}
+    const releaseGate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const quests = Object.create(w.quests, {
+      fail: {
+        value: async (...args: Parameters<typeof w.quests.fail>) => {
+          await releaseGate
+          return w.quests.fail(...args)
+        },
+      },
+    })
+    const deps = {
+      ...w.deps,
+      quests,
+      sandboxStartTimeoutMs: 20,
+      gateway: {
+        openRun: async (...args: Parameters<ModelGateway['openRun']>) => {
+          const out = await gateway.openRun(...args)
+          if (out.status === 'started') {
+            tokens.push(out.token)
+          }
+          return out
+        },
+        revokeRun: (...args: Parameters<ModelGateway['revokeRun']>) => gateway.revokeRun(...args),
+      },
+    }
+    const stuck = await w.queue()
+    const dispatching = dispatch(deps, w.guild)
+    await Bun.sleep(40)
+    openLedger()
+    await Bun.sleep(10)
+    // The Quest is not released yet, but the late token must already be dead.
+    const [token] = tokens
+    if (!token) {
+      throw new Error('expected the late openRun to issue a token')
+    }
+    const err = await gateway
+      .complete(token, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 10 })
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GatewayError)
+    expect(err instanceof GatewayError ? err.code : null).toBe('token_revoked')
+    finishRelease()
+    await dispatching
+    expect(await w.quests.get(w.guild, stuck.id)).toMatchObject({ state: 'queued' })
+  })
+
+  test('a late kill that fails is reported once, with ids only', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild, { killFails: true })
+    const reports: Array<{ guildId: string; questId: string; sandboxId: string }> = []
+    const deps = {
+      ...w.deps,
+      sandboxes: hang.runner,
+      sandboxStartTimeoutMs: 20,
+      onError: (_e: unknown, ctx: { guildId: string; questId: string; sandboxId: string }) => {
+        reports.push(ctx)
+      },
+    }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.comeUp(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toMatchObject({ guildId: w.guild, questId: stuck.id })
+  })
+
+  test('a late cleanup whose revoke fails still kills the container, reporting each failure once', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const reports: unknown[] = []
+    const deps = {
+      ...w.deps,
+      sandboxes: hang.runner,
+      sandboxStartTimeoutMs: 20,
+      gateway: {
+        ...w.deps.gateway,
+        revokeRun: async (): Promise<boolean> => {
+          throw new Error('db down')
+        },
+      },
+      onError: (e: unknown) => {
+        reports.push(e)
+      },
+    }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.comeUp(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(await hang.inner.list(w.guild)).toEqual([])
+    // One revoke failure at the deadline, one in the late cleanup.
+    expect(reports).toHaveLength(2)
+  })
+
+  test('an MCP lease that never resolves releases the Quest and does not block the next guild', async () => {
+    const w = world()
+    const deps = {
+      ...w.deps,
+      sandboxStartTimeoutMs: 20,
+      mcp: { lease: () => new Promise<never>(() => {}) },
+    }
+    const stuck = await w.queue()
+    const out = await dispatch(deps, w.guild)
+    expect(out).toMatchObject({ status: 'failed', questId: stuck.id })
+    expect(await w.quests.get(w.guild, stuck.id)).toMatchObject({
+      state: 'queued',
+      lastError: 'timeout',
+    })
+  })
+
   test('a barred guild is refused before anything is claimed', async () => {
     const w = world()
     const quest = await w.queue()
@@ -272,5 +546,21 @@ describe('dispatchAll', () => {
       'error',
       'idle',
     ])
+  })
+
+  test('a guild that never finishes does not hold back the guilds after it', async () => {
+    const finished: string[] = []
+    const dispatcher = {
+      dispatch: async (guildId: string) => {
+        if (guildId === 'slow') {
+          return new Promise<never>(() => {})
+        }
+        finished.push(guildId)
+        return { status: 'idle' as const }
+      },
+    }
+    void dispatchAll(dispatcher, ['slow', 'b', 'c', 'd', 'e', 'f'])
+    await Bun.sleep(10)
+    expect(finished).toEqual(['b', 'c', 'd', 'e', 'f'])
   })
 })

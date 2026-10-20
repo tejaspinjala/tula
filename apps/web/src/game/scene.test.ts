@@ -113,10 +113,21 @@ test('Treasury spend adds to the coin counter; revenue does not', () => {
   seq = 0
   const events = [
     ev('treasury.entry', { kind: 'revenue', bucket: 'operating', amountCents: 5000 }),
-    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: -120 }),
-    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: -30 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -120 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -30 }),
   ]
   expect(deriveScene({ roster, quests, events, upTo: null }).coinsCents).toBe(150)
+})
+
+test('the coin counter is the net spend: reserves minus settle refunds and releases', () => {
+  seq = 0
+  const events = [
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -10 }),
+    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: 4 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -20 }),
+    ev('treasury.entry', { kind: 'spend_release', bucket: 'operating', amountCents: 20 }),
+  ]
+  expect(deriveScene({ roster, quests, events, upTo: null }).coinsCents).toBe(6)
 })
 
 test('replay: upTo folds only events up to that seq', () => {
@@ -159,4 +170,23 @@ test("a Captain the roster lists apart from the Members is still in their Hall's
   const scene = deriveScene({ roster: apart, quests: [], events: [], upTo: null })
   expect(scene.rooms[0]?.memberIds).toEqual(['cap', 'm2'])
   expect(scene.members.cap).toMatchObject({ rank: 'captain', hallId: 'h', status: 'idle' })
+})
+
+test('only a recent Missive pops a bubble; one minutes old stays out of the bubble', () => {
+  seq = 0
+  const events = [ev('missive.sent', { missiveId: 'mv1', from: 'm2' })]
+  const said = Date.parse(events[0]?.occurredAt ?? '')
+  const missiveTexts = { mv1: 'The ledger is balanced.' }
+  const fresh = deriveScene({ roster, quests, events, upTo: null, missiveTexts, now: said + 5_000 })
+  expect(fresh.members.m2?.bubble?.text).toBe('The ledger is balanced.')
+  const stale = deriveScene({
+    roster,
+    quests,
+    events,
+    upTo: null,
+    missiveTexts,
+    now: said + 300_000,
+  })
+  expect(stale.members.m2?.bubble).toBeNull()
+  expect(stale.members.m2?.saying?.text).toBe('The ledger is balanced.')
 })

@@ -6,6 +6,7 @@ import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } fr
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
   apprenticeSeats,
+  bubbleCentreX,
   bubbleCentreY,
   type HallLayout,
   hallLayout,
@@ -434,7 +435,10 @@ export class HallScene extends Phaser.Scene {
         const { x, y } = view.root
         const centre = bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y)
         const extra = (height - 20) / 2
-        view.bubble.setPosition(x, centre < y ? centre - extra : centre + extra)
+        const wide = view.bubble.getData('width')
+        const left =
+          typeof wide === 'number' ? bubbleCentreX(this.cameras.main.worldView, wide, x) : x
+        view.bubble.setPosition(left, centre < y ? centre - extra : centre + extra)
       }
     }
     this.stepMembers(Math.min(delta, 100) / 1000)
@@ -1240,6 +1244,7 @@ export class HallScene extends Phaser.Scene {
     const root = this.add.container(x, y, [back, label]).setDepth(30)
     // The bubble rides with the sprite (a Member walking to the Quest Board), so `update` places it.
     root.setData('height', h)
+    root.setData('width', w)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()
