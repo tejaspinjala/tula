@@ -81,6 +81,7 @@ export const FAIL_REASONS = [
   'routing_blocked',
   'worker_crash',
   'sandbox_unavailable',
+  'seal_rejected',
   'unknown',
 ] as const
 
@@ -325,6 +326,39 @@ export function failTransition(
       leaseExpiresAt: null,
       lastError,
       notBefore: new Date(now.getTime() + delayMs).toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/**
+ * Settles a Quest held for a Seal. `posted` finishes it; `rejected` queues a revision round, or
+ * dead-letters it when `round >= roundLimit`. Anything not `awaiting_seal` is returned unchanged
+ * when it already left that state by this route (done, queued, dead), else `invalid_state`.
+ */
+export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Date): Transition {
+  if (quest.state !== 'awaiting_seal') {
+    if (quest.state === 'active') {
+      throw new QuestError('invalid_state')
+    }
+    return { quest, event: null }
+  }
+  if (outcome === 'posted') {
+    return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
+  }
+  if (quest.round >= quest.roundLimit) {
+    return {
+      quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'seal_rejected' },
+      event: 'quest.dead',
+    }
+  }
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: 'seal_rejected',
+      notBefore: now.toISOString(),
     },
     event: 'quest.retry_scheduled',
   }
