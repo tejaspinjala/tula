@@ -4,7 +4,7 @@ import type { Tone } from '../Badge'
 /** One validation error as the server reports it. */
 export interface WorkflowIssue {
   code: string
-  nodeId?: string
+  nodeId?: string | undefined
   message: string
 }
 
