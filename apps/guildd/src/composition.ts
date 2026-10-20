@@ -6,6 +6,7 @@ import { MemoryClassifier } from './adapters/memory-classifier'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
+import { PgProposalStore } from './adapters/pg-proposal-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
 import { PgRoutingLog } from './adapters/pg-routing-log'
@@ -18,6 +19,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadWebauthnEnv } from './env'
+import { ProposalEngine } from './proposals'
 import { SealEngine } from './seals'
 
 /**
@@ -67,6 +69,8 @@ export async function compose(
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
     seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
+    proposals:
+      overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
     quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
