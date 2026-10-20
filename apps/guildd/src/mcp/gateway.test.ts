@@ -221,6 +221,88 @@ describe('MCP gateway', () => {
     })
   })
 
+  describe('read_brief', () => {
+    test('returns the deterministic Brief for the leased Quest, with no secrets', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: l } = await s.claim(quest)
+      const first = await callTool(s.transport, 'read_brief', { lease: l })
+      expect(first).toMatchObject({ status: 200, isError: false })
+      const brief = z.string().parse(first.data.brief)
+      expect(brief).toContain('Done when: A draft brief is filed in the Archive')
+      expect(brief).toContain(`Quest: Draft the brief (${quest.id})`)
+      expect(brief).not.toContain(lease.parse(l).token)
+      expect(await callTool(s.transport, 'read_brief', { lease: l })).toEqual(first)
+    })
+
+    test('lists the Hall notes by id and title only, never their body', async () => {
+      const s = await setup()
+      const note = await s.notes.add(
+        s.guild,
+        { kind: 'text', title: 'Tone guide', body: 'SECRET-BODY-TEXT', claim: 'fact' },
+        'heralds'
+      )
+      const { lease: l } = await s.claim(await s.post())
+      const brief = z
+        .string()
+        .parse((await callTool(s.transport, 'read_brief', { lease: l })).data.brief)
+      expect(brief).toContain(`note ${note.id}: Tone guide`)
+      expect(brief).not.toContain('SECRET-BODY-TEXT')
+    })
+
+    test('a forged, foreign or lapsed lease is refused', async () => {
+      const s = await setup()
+      const q1 = await s.post()
+      const q2 = await s.post()
+      const { lease: l1 } = await s.claim(q1)
+      const { lease: l2 } = await s.claim(q2)
+      const forged = await callTool(s.transport, 'read_brief', {
+        lease: { ...lease.parse(l1), token: 'x' },
+      })
+      expect(forged).toMatchObject({ status: 401, rpcError: 'invalid_lease' })
+      const foreign = await callTool(s.transport, 'read_brief', {
+        lease: { ...lease.parse(l1), questId: lease.parse(l2).questId },
+      })
+      expect(foreign).toMatchObject({ status: 401, rpcError: 'invalid_lease' })
+      s.clock.advance(60 * 60 * 1000)
+      const lapsed = await callTool(s.transport, 'read_brief', { lease: l1 })
+      expect(lapsed).toMatchObject({ status: 401, rpcError: 'lease_expired' })
+    })
+
+    test('a superseded attempt is fenced out', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: first } = await s.claim(quest)
+      s.clock.advance(60 * 60 * 1000)
+      const { lease: second } = await s.claim(quest)
+      const stale = await callTool(s.transport, 'read_brief', { lease: first })
+      expect(stale).toMatchObject({ status: 401, rpcError: 'lease_expired' })
+      expect((await callTool(s.transport, 'read_brief', { lease: second })).status).toBe(200)
+    })
+
+    test('a barred guild is denied', async () => {
+      const gates = new MemoryGateStore()
+      const s = await setup({ gates })
+      const { lease: l } = await s.claim(await s.post())
+      await gates.bar({ guildId: s.guild, memberId: 'owner' }, 'guild')
+      const out = await callTool(s.transport, 'read_brief', { lease: l })
+      expect(out).toMatchObject({ status: 401, rpcError: 'gates_barred' })
+    })
+
+    test('a Campaign started before the tool existed never sees it', async () => {
+      const s = await setup()
+      const withoutIt = TOOL_CATALOG.filter((t) => t.name !== 'read_brief')
+      const old = new McpGateway({ ...s.deps, catalog: withoutIt })
+      const first = await s.post({ campaignId: 'old' })
+      const claimed = await callTool((r) => old.handle(r), 'claim_quest', {
+        assignment: await old.assign(s.guild, first),
+      })
+      // The catalogue gains read_brief; the Campaign's frozen list stays as it was.
+      const out = await callTool(s.transport, 'read_brief', { lease: claimed.data.lease })
+      expect(out.rpcError).toBe('unknown_tool')
+    })
+  })
+
   describe('complete_quest', () => {
     test('a Quest whose template requires a Seal ends awaiting_seal after complete_quest, never done', async () => {
       const s = await setup()
