@@ -624,6 +624,38 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         })
       })
 
+      test('a park and its resume do not spend the crash-retry budget, and attempts never pass maxAttempts', async () => {
+        const { queue, clock, newGuild } = await make()
+        const g = await newGuild()
+        const { quest: parent } = await queue.post(g, quest({ maxAttempts: 2 }))
+        const { quest: c1 } = await queue.post(g, quest())
+        const { quest: c2 } = await queue.post(g, quest())
+        const claim = async (id: string) => {
+          const claimed = await queue.claim(g, { ...LEASE, questId: id })
+          if (!claimed) {
+            throw new Error('expected a claim')
+          }
+          return claimed
+        }
+        const first = await claim(parent.id)
+        await queue.park(g, parent.id, first.attempts, [c1.id], 'all')
+        await queue.complete(g, c1.id, (await claim(c1.id)).attempts)
+        const second = await claim(parent.id)
+        await queue.park(g, parent.id, second.attempts, [c2.id], 'all')
+        await queue.complete(g, c2.id, (await claim(c2.id)).attempts)
+        const third = await claim(parent.id)
+        expect(third.attempts).toBe(3)
+        // Two crashes are still allowed: the two waits did not use them up.
+        expect(await queue.fail(g, parent.id, third.attempts, 'timeout')).toMatchObject({
+          state: 'queued',
+        })
+        clock.advance(300_000)
+        const fourth = await claim(parent.id)
+        const dead = await queue.fail(g, parent.id, fourth.attempts, 'timeout')
+        expect(dead.state).toBe('dead')
+        expect(dead.attempts).toBeLessThanOrEqual(dead.maxAttempts)
+      })
+
       test('with any, one finished child resumes the parent', async () => {
         const f = await setup('any')
         const first = await run(f, f.c1.id)
