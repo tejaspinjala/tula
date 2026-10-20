@@ -213,6 +213,9 @@ export class PgIdentityStore implements IdentityStore {
   }
 
   async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
+    if (!z.uuid().safeParse(memberId).success) {
+      return null
+    }
     const rows = await this.db.withGuild(
       guildId,
       (tx) =>

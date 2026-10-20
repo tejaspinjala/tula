@@ -146,7 +146,7 @@ export class MemoryIdentityStore implements IdentityStore {
 
   async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
     const master = this.masters.get(guildId)
-    return master?.memberId === memberId ? master : null
+    return master && master.memberId.toLowerCase() === memberId.toLowerCase() ? master : null
   }
 
   async saveSession(guildId: string, session: StoredSession, event: IdentityEvent) {

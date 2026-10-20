@@ -16,7 +16,7 @@ import type {
  */
 export const GUILD_MASTER_ID = 'guild-master'
 
-/** Thrown by {@link SealEngine.requestSeal} when the requester id is reserved for the Guild Master. */
+/** Thrown by {@link SealEngine.requestSeal} when the requester id is reserved: the Guild Master name or any member's id. */
 export class SealRequestError extends Error {
   constructor(readonly code: 'requester_reserved') {
     super(code)
@@ -66,7 +66,8 @@ export class SealEngine {
    * quest and text. Reads the guild's Seal Policy first (throws `ConfigError` for an unseeded guild).
    */
   async requestSeal(guildId: string, input: SealRequest): Promise<Seal> {
-    if (input.requestedBy.trim().toLowerCase() === GUILD_MASTER_ID) {
+    const requester = input.requestedBy.trim().toLowerCase()
+    if (requester === GUILD_MASTER_ID || (await this.identity.findMember(guildId, requester))) {
       throw new SealRequestError('requester_reserved')
     }
     await this.config.current(guildId)
@@ -87,7 +88,10 @@ export class SealEngine {
     if (!seal) {
       return { ok: false, reason: 'not_found' }
     }
-    if (decider.role !== 'guild_master' || decider.id === seal.requestedBy) {
+    if (
+      decider.role !== 'guild_master' ||
+      decider.id.trim().toLowerCase() === seal.requestedBy.trim().toLowerCase()
+    ) {
       return { ok: false, reason: 'not_authorised' }
     }
     return this.store.decide(guildId, id, { ...decision, decidedBy: decider.id })

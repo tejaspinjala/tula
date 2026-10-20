@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { PgSealStore } from './adapters/pg-seal-store'
 import { eventsAfter } from './events'
 import { hashProposal, SEAL_RESERVATION_MS } from './ports/seal-store'
 import { expectGuildIsolation } from './testing/cross-guild'
@@ -75,7 +76,10 @@ async function signedIn() {
     return proofBody.parse(await done.json()).proof
   }
   async function request(text: string, requestedBy = 'herald-1') {
-    return harness.adapters.seals.requestSeal(guildId, {
+    // The store directly: the engine refuses a member as requester, but the route must still
+    // refuse a decider equal to the requester if such a Seal ever exists.
+    const a = harness.adapters
+    return new PgSealStore(a.db, a.keys, a.clock).request(guildId, {
       questId: crypto.randomUUID(),
       requestedBy,
       kind: 'post',
