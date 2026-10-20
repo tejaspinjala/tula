@@ -95,8 +95,8 @@ function serve(path: string, method: string, immutable: boolean): Response {
 export function withWebApp(api: Hono, dist: string): Hono {
   const root = dist.replace(/[\\/]+$/, '')
   const outer = new Hono()
-  // Mounted, not re-dispatched with a rewritten Request: Bun's `server.upgrade` only accepts the
-  // original Request, so a socket under /api needs the real one to reach the handler.
+  // Mounted, not re-requested: Bun upgrades WebSockets and reports the client address only for
+  // the Request it handed to fetch, so `/api` must reach the API with that same Request.
   outer.route(API_PREFIX, api)
   outer.all('*', (c) => {
     const req = c.req.raw
