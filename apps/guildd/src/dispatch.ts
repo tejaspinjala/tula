@@ -225,6 +225,31 @@ const DISPATCH_LEASE_MS = 10 * 60_000
  * Seals, requests the Seals that are due, then claims at most one Quest, routes it and starts its
  * worker. Deterministic code; idempotent, so a rerun or two workers at once do no harm.
  */
-export async function dispatch(_deps: DispatchDeps, _guildId: string): Promise<DispatchOutcome> {
-  return { status: 'idle' }
+export async function dispatch(deps: DispatchDeps, guildId: string): Promise<DispatchOutcome> {
+  if (await deps.gates.isBarred(guildId)) {
+    return { status: 'barred' }
+  }
+  await reconcileSeals({ quests: deps.quests, seals: deps.sealStore }, guildId)
+  await requestPendingSeals(deps, guildId)
+  const { config } = await deps.config.current(guildId)
+  const claimed = await deps.quests.claim(guildId, {
+    leaseMs: DISPATCH_LEASE_MS,
+    maxActive: questConcurrency(config),
+  })
+  if (claimed === null) {
+    return { status: 'idle' }
+  }
+  const routed = await routeClaimed(deps, guildId, claimed)
+  if (routed.status === 'blocked') {
+    return {
+      status: 'blocked',
+      questId: claimed.id,
+      reason: routed.reason,
+      disposition: routed.disposition,
+    }
+  }
+  const started = await startRun(deps, guildId, claimed, routed.profileId)
+  return started.ok
+    ? { status: 'started', questId: claimed.id, profileId: routed.profileId }
+    : { status: 'failed', questId: claimed.id, error: started.error }
 }

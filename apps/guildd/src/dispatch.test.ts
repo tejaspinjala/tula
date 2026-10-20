@@ -171,7 +171,15 @@ describe('dispatch', () => {
         })
       ).quest
     const started = async () => (await sandboxes.list(s.guild)).map((x) => x.questId)
-    return { ...s, deps, started, queue, bar: () => void (barred = true) }
+    return {
+      ...s,
+      deps,
+      started,
+      queue,
+      bar: () => {
+        barred = true
+      },
+    }
   }
 
   test('an empty queue is idle', async () => {
