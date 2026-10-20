@@ -27,6 +27,7 @@ export const UNLIMITED_RATE_LIMITS = {
   mcp: { client: NO_LIMIT },
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'push-subscribe': { client: NO_LIMIT, guild: NO_LIMIT },
+  'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */
@@ -49,6 +50,9 @@ export interface HarnessOptions {
       | 'mcp'
       | 'tripwires'
       | 'treasury'
+      | 'learning'
+      | 'githubEnvoy'
+      | 'suggestions'
       | 'streamTickets'
       | 'pushStore'
       | 'pushNotifier'
@@ -123,6 +127,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       mcp: composed.mcp,
       tripwires: composed.tripwires,
       treasury: composed.treasury,
+      learning: composed.learning,
       streamTickets: composed.streamTickets,
       pushStore: composed.pushStore,
       pushNotifier: composed.pushNotifier,

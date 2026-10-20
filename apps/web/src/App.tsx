@@ -3,6 +3,7 @@ import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
 import { GatesPanel } from './GatesPanel'
+import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import type { Session } from './passkeys'
@@ -38,6 +39,7 @@ export function App() {
           <a href="#vault-heading">Vault</a>
           <a href="#roster-heading">Roster</a>
           <a href="#archive-heading">Archive</a>
+          <a href="#learning-heading">Learnings</a>
           <a href="#proposals-heading">Proposals</a>
           <a href="#seals-heading">Seals</a>
           <a href="#quests-heading">Quest Board</a>
@@ -53,6 +55,7 @@ export function App() {
         <VaultPanel session={session} />
         <RosterPanel session={session} />
         <ArchivePanel session={session} />
+        <LearningPanel session={session} />
         <ProposalPanel session={session} />
         <SealPanel session={session} />
         <GatesPanel session={session} />

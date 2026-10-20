@@ -15,12 +15,14 @@ import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import type { LearningEngine } from './learning-engine'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
+import type { GitHubEnvoy } from './ports/github-envoy'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
@@ -43,6 +45,7 @@ import {
   secretValue,
 } from './ports/secret-store'
 import type { StreamTicketStore } from './ports/stream-ticket'
+import { MAX_SUGGESTION_PAGE, type SuggestionStore } from './ports/suggestion-store'
 import { MAX_TREASURY_PAGE, type TreasuryRefusal } from './ports/treasury-store'
 import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
@@ -112,6 +115,15 @@ export interface AppDeps {
    * reach it (writes need a session, approvals re-authentication); no agent-facing tool does.
    */
   treasury: Treasury
+  /**
+   * Weekly learning suggestions from allowlisted repos. Only routes (a Guild Master session) and a
+   * Schedule reach it; it never calls a model.
+   */
+  learning: LearningEngine
+  /** Composition-only: the read-only GitHub Envoy the learning engine reads through. */
+  githubEnvoy?: GitHubEnvoy
+  /** Composition-only: where suggested learnings are kept. */
+  suggestions?: SuggestionStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -369,6 +381,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
+  app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -1845,6 +1858,69 @@ export function createApp(deps: AppDeps): Hono {
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
     })
   })
+
+  // Weekly learning suggestions. Reads follow `callerGuild`; scan, accept and dismiss need a real
+  // Guild Master session (agents have none). Scanning is the hook a weekly Schedule calls (a plain
+  // call with no state in the process); no route or step here calls a model.
+  const learningPage = z.object({
+    after: z.uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(MAX_SUGGESTION_PAGE).default(50),
+    status: z.enum(['pending', 'accepted', 'dismissed']).optional(),
+  })
+
+  app.get('/guilds/:id/learning/suggestions', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = learningPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      status: c.req.query('status'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { after, limit, status } = page.data
+    return c.json(
+      await deps.learning.list(who.guild, {
+        limit,
+        ...(after === undefined ? {} : { after }),
+        ...(status === undefined ? {} : { status }),
+      })
+    )
+  })
+
+  app.post('/guilds/:id/learning/scan', async (c) => {
+    const who = await treasuryWriter(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return treasuryRoute(c, async () => c.json(await deps.learning.scan(who.guild)))
+  })
+
+  for (const verb of ['accept', 'dismiss'] as const) {
+    app.post(`/guilds/:id/learning/suggestions/:suggestionId/${verb}`, async (c) => {
+      const who = await treasuryWriter(c)
+      if ('res' in who) {
+        return who.res
+      }
+      const id = uuid.safeParse(c.req.param('suggestionId'))
+      if (!id.success) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      const result =
+        verb === 'accept'
+          ? await deps.learning.accept(who.guild, id.data)
+          : await deps.learning.dismiss(who.guild, id.data)
+      if (!result.ok) {
+        return result.reason === 'not_found'
+          ? c.json({ error: 'not_found' }, 404)
+          : c.json({ error: result.reason }, 409)
+      }
+      return c.json({ suggestion: result.suggestion })
+    })
+  }
 
   return app
 }
