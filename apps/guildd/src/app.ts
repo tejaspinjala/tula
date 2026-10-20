@@ -22,6 +22,7 @@ import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
@@ -34,6 +35,7 @@ import {
   secretValue,
 } from './ports/secret-store'
 import type { StreamTicketStore } from './ports/stream-ticket'
+import type { ProposalEngine } from './proposals'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { GUILD_MASTER_ID, type SealEngine } from './seals'
@@ -58,6 +60,8 @@ export interface AppDeps {
   notes: NoteStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
+  /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
+  proposals: ProposalEngine
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
@@ -127,6 +131,16 @@ const sealPage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
   status: z.enum(SEAL_STATUSES).optional(),
+})
+const proposalPage = z.object({
+  after: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PROPOSAL_PAGE).default(50),
+})
+const proposalBody = z.object({
+  questId: uuid,
+  author: z.string().trim().min(1).max(200),
+  kind: z.string().trim().min(1).max(100),
+  content: z.string().min(1).max(20000),
 })
 const sealDecisionBody = z.object({
   actionHash,
@@ -233,6 +247,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
+  app.post('/guilds/:id/proposals', limited('proposal-post'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -1035,6 +1050,60 @@ export function createApp(deps: AppDeps): Hono {
     }),
     (c) => c.json({ error: 'upgrade_required' }, 426)
   )
+  // Proposals and Verdicts. Reads follow `callerGuild`; a write needs a real session (the dev header
+  // never writes). The Verdict is computed here by deterministic checks and bound to the content hash.
+  app.post('/guilds/:id/proposals', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = proposalBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json(await deps.proposals.propose(who.guild, body.data), 201)
+  })
+
+  app.get('/guilds/:id/proposals', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = proposalPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.proposals.list(who.guild, {
+        limit: page.data.limit,
+        ...(page.data.after ? { after: page.data.after } : {}),
+      })
+    )
+  })
+
+  app.get('/guilds/:id/proposals/:proposalId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const id = uuid.safeParse(c.req.param('proposalId'))
+    const proposal = id.success ? await deps.proposals.get(who.guild, id.data) : null
+    return proposal ? c.json(proposal) : c.json({ error: 'not_found' }, 404)
+  })
+
+  app.get('/guilds/:id/verdicts/:hash', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const hash = actionHash.safeParse(c.req.param('hash'))
+    const verdict = hash.success ? await deps.proposals.verdictFor(who.guild, hash.data) : null
+    return verdict ? c.json(verdict) : c.json({ error: 'not_found' }, 404)
+  })
+
   // The Seal inbox. Reads follow `callerGuild`; approving or denying is a sensitive action (fresh
   // passkey re-authentication, spent by the check) made by the Guild Master's session; marking a
   // Seal posted needs the session. Only the session's own guild is ever acted on.
