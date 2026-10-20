@@ -19,6 +19,7 @@ export interface HarnessOptions {
       AppDeps,
       | 'identity'
       | 'secrets'
+      | 'config'
       | 'objectStore'
       | 'keys'
       | 'objectStoreTimeoutMs'
@@ -68,6 +69,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       memoryStore,
       identity: composed.identity,
       secrets: composed.secrets,
+      config: composed.config,
       keys,
     },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */

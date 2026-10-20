@@ -5,8 +5,10 @@ import { verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
+import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { Clock } from './ports/clock'
+import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import type { ObjectStore } from './ports/object-store'
@@ -30,6 +32,8 @@ export interface AppDeps {
   keys: KeyProvider
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
+  /** Versioned guild config: Halls, roster, Seal Policy, caps; widening changes wait for re-auth. */
+  config: ConfigStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
@@ -62,6 +66,16 @@ const checkSecretsBody = z.object({ refs: z.array(secretRef).min(1).max(MAX_SECR
 const secretPage = z.object({
   after: secretRef.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SECRET_PAGE).default(50),
+})
+const putConfigBody = z.object({ config: guildConfig })
+const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
+const versionPage = z.object({
+  after: configVersion.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_CONFIG_PAGE).default(50),
+})
+const rosterPage = z.object({
+  after: z.string().max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_CONFIG_PAGE).default(50),
 })
 const artifactClass = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const artifactHash = z.string().regex(/^[0-9a-f]{64}$/)
@@ -141,6 +155,8 @@ export function createApp(deps: AppDeps): Hono {
     let foundingToken = ''
     const id = await deps.db.foundGuildChained(body.data, deps.keys, async (tx, guildId) => {
       foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
+      // The Steward, Heralds Hall and locked Halls are seeded in the founding transaction.
+      await deps.config.seed(guildId, tx)
     })
     return c.json({ id, foundingToken }, 201)
   })
@@ -366,6 +382,147 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return c.json({ results: await deps.secrets.check(caller, body.data.refs) })
+  })
+
+  // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
+  // writes config, and agents have no session, so no agent-facing route can change it. A widening
+  // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
+  /** The calling session's guild when it is `:id`, else a ready response. */
+  async function sessionGuildFor(c: Context): Promise<{ guild: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return { res: c.json({ error: 'not_found' }, 404) }
+    }
+    return { guild: session.guildId }
+  }
+
+  function configFailure(c: Context, error: unknown): Response {
+    if (error instanceof ConfigError) {
+      return error.code === 'not_found'
+        ? c.json({ error: 'not_found' }, 404)
+        : c.json({ error: error.code }, 409)
+    }
+    throw error
+  }
+
+  app.get('/guilds/:id/config', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      return c.json(await deps.config.current(caller))
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.get('/guilds/:id/config/versions', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const page = versionPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.config.history(caller, {
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
+    )
+  })
+
+  // The ledger view's roster: the Steward plus Halls (with Captain and Members), paginated by Hall id.
+  app.get('/guilds/:id/roster', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const page = rosterPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    try {
+      const { config } = await deps.config.current(caller)
+      const halls = config.halls
+        .filter((h) => page.data.after === undefined || h.id > page.data.after)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      const items = halls.slice(0, page.data.limit)
+      const last = items.at(-1)
+      return c.json({
+        steward: config.steward,
+        halls: items,
+        next: halls.length > page.data.limit && last ? last.id : null,
+      })
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.put('/guilds/:id/config', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = putConfigBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_config' }, 400)
+    }
+    try {
+      const result = await deps.config.propose(who.guild, body.data.config)
+      return c.json(result, result.status === 'pending' ? 202 : 200)
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.post('/guilds/:id/config/versions/:version/restore', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const version = configVersion.safeParse(c.req.param('version'))
+    if (!version.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      const result = await deps.config.restore(who.guild, version.data)
+      return c.json(result, result.status === 'pending' ? 202 : 200)
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  })
+
+  app.post('/guilds/:id/config/versions/:version/confirm', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const version = configVersion.safeParse(c.req.param('version'))
+    if (c.req.param('id') !== check.guildId || !version.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    try {
+      await deps.config.confirm(check.guildId, version.data)
+      return c.json({ version: version.data, status: 'applied' })
+    } catch (error) {
+      return configFailure(c, error)
+    }
   })
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
