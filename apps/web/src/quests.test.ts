@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { type BoardQuest, groupByState, loadQuests, questStreamUrl, readQuestFrame } from './quests'
+import {
+  type BoardQuest,
+  fetchStreamTicket,
+  groupByState,
+  loadQuests,
+  questStreamUrl,
+  readQuestFrame,
+} from './quests'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -57,13 +64,25 @@ test('the Quest Board groups Quests into a column per state', () => {
   expect(board.awaiting_seal).toEqual([])
 })
 
-test('the stream url carries the cursor and token, over ws or wss to match the page', () => {
-  expect(questStreamUrl(session, 'http://localhost:5173', 7)).toBe(
-    `ws://localhost:5173/api/guilds/${guild}/events?last_seq=7&access_token=t1`
+test('the stream url carries the cursor and the ticket, never the session token', () => {
+  expect(questStreamUrl(session, 'http://localhost:5173', 7, 'tk')).toBe(
+    `ws://localhost:5173/api/guilds/${guild}/events?last_seq=7&ticket=tk`
   )
-  expect(questStreamUrl(session, 'https://guild.example', 0)).toBe(
-    `wss://guild.example/api/guilds/${guild}/events?last_seq=0&access_token=t1`
-  )
+  const secure = questStreamUrl(session, 'https://guild.example', 0, 'tk')
+  expect(secure).toBe(`wss://guild.example/api/guilds/${guild}/events?last_seq=0&ticket=tk`)
+  expect(secure).not.toContain('t1')
+})
+
+test('a stream ticket is fetched with the session token as a Bearer header', async () => {
+  const seen: string[] = []
+  const fetcher = async (url: string, init?: RequestInit) => {
+    seen.push(`${init?.method}|${url}|${new Headers(init?.headers).get('authorization')}`)
+    return Response.json({ ticket: 'abc', expiresAt: '2030-01-01T00:00:00.000Z' })
+  }
+  expect(await fetchStreamTicket(session, fetcher)).toBe('abc')
+  expect(seen).toEqual([`POST|/api/guilds/${guild}/events/ticket|Bearer t1`])
+  const refused = async () => Response.json({ error: 'unauthenticated' }, { status: 401 })
+  await expect(fetchStreamTicket(session, refused)).rejects.toThrow()
 })
 
 test('only quest events and snapshots ask the board to refresh; others just move the cursor', () => {

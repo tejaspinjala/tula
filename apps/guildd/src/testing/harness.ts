@@ -34,6 +34,7 @@ export interface HarnessOptions {
       | 'config'
       | 'notes'
       | 'quests'
+      | 'streamTickets'
       | 'objectStore'
       | 'keys'
       | 'objectStoreTimeoutMs'
@@ -92,6 +93,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       config: composed.config,
       notes: composed.notes,
       quests: composed.quests,
+      streamTickets: composed.streamTickets,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,

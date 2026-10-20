@@ -3,6 +3,7 @@ import type { Session } from './passkeys'
 import {
   BOARD_STATES,
   type BoardQuest,
+  fetchStreamTicket,
   groupByState,
   loadQuests,
   questStreamUrl,
@@ -49,8 +50,19 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
         })
         .catch(() => !closed && setFailed(true))
 
-    const connect = () => {
-      socket = new WebSocket(questStreamUrl(session, window.location.origin, lastSeq.current))
+    const connect = async () => {
+      // Each connection, including every reconnect, needs a fresh single-use ticket.
+      const ticket = await fetchStreamTicket(session, fetch).catch(() => null)
+      if (closed) {
+        return
+      }
+      if (ticket === null) {
+        retry()
+        return
+      }
+      socket = new WebSocket(
+        questStreamUrl(session, window.location.origin, lastSeq.current, ticket)
+      )
       socket.onmessage = (message) => {
         attempt = 0
         const read = readQuestFrame(String(message.data))
@@ -61,13 +73,15 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
           refresh()
         }
       }
-      socket.onclose = () => {
-        if (!closed) {
-          // Jittered backoff so many tabs do not reconnect in lockstep.
-          const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
-          attempt += 1
-          timer = setTimeout(connect, ceiling / 2 + Math.random() * (ceiling / 2))
-        }
+      socket.onclose = retry
+    }
+
+    function retry() {
+      if (!closed) {
+        // Jittered backoff so many tabs do not reconnect in lockstep.
+        const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
+        attempt += 1
+        timer = setTimeout(connect, ceiling / 2 + Math.random() * (ceiling / 2))
       }
     }
 

@@ -24,6 +24,7 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import type { StreamTicketStore } from './ports/stream-ticket'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { bearerToken, checkSensitive } from './sensitive'
@@ -45,6 +46,8 @@ export interface AppDeps {
   notes: NoteStore
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
+  /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
+  streamTickets: StreamTicketStore
   /** Routing step 1 for free-text goals; the deterministic adapter until a cheap model is wired. */
   classifier: Classifier
   /** Routing decision log (insert-only), read by the future Oracle. */
@@ -225,11 +228,16 @@ export function createApp(deps: AppDeps): Hono {
 
   /**
    * The caller of a WebSocket upgrade from a browser, which cannot set an Authorization header:
-   * the session token may come as `?access_token=`. Used only by the event stream.
+   * a single-use `?ticket=` (see `POST /guilds/:id/events/ticket`), honoured only on an upgrade
+   * request and spent here. A session token in the URL is never accepted.
    */
-  async function queryTokenGuild(c: Context): Promise<string | null> {
-    const token = c.req.query('access_token')
-    return token ? ((await deps.identity.resolveSession(token))?.guildId ?? null) : null
+  async function ticketGuild(c: Context): Promise<string | null> {
+    const ticket = c.req.query('ticket')
+    const guild = uuid.safeParse(c.req.param('id'))
+    if (!ticket || !guild.success || c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
+      return null
+    }
+    return (await deps.streamTickets.consume(guild.data, ticket)) ? guild.data : null
   }
 
   /** Whether the guild exists (the guild row is visible only under its own tenant context). */
@@ -583,6 +591,15 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/quests', (c) => questList(c, false))
   app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))
 
+  // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
+  app.post('/guilds/:id/events/ticket', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    return c.json(await deps.streamTickets.issue(who.guild))
+  })
+
   // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
   // writes config, and agents have no session, so no agent-facing route can change it. A widening
   // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
@@ -810,7 +827,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = (await callerGuild(c)) ?? (await queryTokenGuild(c))
+      const caller = (await callerGuild(c)) ?? (await ticketGuild(c))
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }

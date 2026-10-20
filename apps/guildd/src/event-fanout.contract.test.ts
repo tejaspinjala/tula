@@ -47,6 +47,7 @@ function countingApp(
     config: harness.adapters.config,
     notes: harness.adapters.notes,
     quests: harness.adapters.quests,
+    streamTickets: harness.adapters.streamTickets,
     classifier: harness.adapters.classifier,
     routingLog: harness.adapters.routingLog,
     keys,

@@ -73,12 +73,31 @@ export function groupByState(
   return board
 }
 
-/** The event-stream URL for a session; a browser socket cannot set headers, so the token rides the query. */
-export function questStreamUrl(session: Session, origin: string, lastSeq: number): string {
+/** Trades the session for a single-use stream ticket (a browser socket cannot send headers). */
+export async function fetchStreamTicket(session: Session, fetcher: Fetcher): Promise<string> {
+  const res = await fetcher(`/api/guilds/${session.guildId}/events/ticket`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return z.object({ ticket: z.string() }).parse(data).ticket
+}
+
+/** The event-stream URL: the cursor and a single-use ticket; the session token never goes in a URL. */
+export function questStreamUrl(
+  session: Session,
+  origin: string,
+  lastSeq: number,
+  ticket: string
+): string {
   const url = new URL(`/api/guilds/${session.guildId}/events`, origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   url.searchParams.set('last_seq', String(lastSeq))
-  url.searchParams.set('access_token', session.token)
+  url.searchParams.set('ticket', ticket)
   return url.toString()
 }
 
