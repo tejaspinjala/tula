@@ -59,6 +59,15 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(page.quests.map((x) => x.id)).toEqual([inA.quest.id])
     })
 
+    test('a Campaign list never returns another guild`s Quest of the same Campaign id', async () => {
+      const { queue, newGuild } = await make()
+      const [a, b] = [await newGuild(), await newGuild()]
+      const mine = await queue.post(a, quest({ jobKey: 'a1', campaignId: 'shared' }))
+      await queue.post(b, quest({ jobKey: 'b1', campaignId: 'shared' }))
+      const page = await queue.list(a, { limit: 10, campaignId: 'shared' })
+      expect(page.quests.map((x) => x.id)).toEqual([mine.quest.id])
+    })
+
     test('a paused Hall has no Quest claimed until it resumes; other Halls still are', async () => {
       const { queue, newGuild, setHallPaused } = await make()
       const g = await newGuild()

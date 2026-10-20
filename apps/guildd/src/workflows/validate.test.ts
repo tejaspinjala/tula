@@ -242,11 +242,29 @@ describe('validateWorkflow: subagents and team nodes', () => {
     expect(codes(fanGraph(teamNode({ hallId: 'ghost' })))).toContain('unknown_hall:crew')
   })
 
-  test('team: nothing may run after a team node (agent_after_team)', () => {
+  test('team: no Quest-starting node may run after a team node (node_after_team)', () => {
     const g = clone()
     g.nodes.push(teamNode() as WorkflowGraph['nodes'][number])
     g.edges.push({ from: 'start', to: 'crew' }, { from: 'crew', to: 'draft' })
-    expect(codes(g)).toContain('agent_after_team:draft')
+    expect(codes(g)).toContain('node_after_team:draft')
+
+    const toSubagents = {
+      nodes: [{ id: 'start', type: 'trigger.manual' }, teamNode(), subagentsNode()],
+      edges: [
+        { from: 'start', to: 'crew' },
+        { from: 'crew', to: 'fan' },
+      ],
+    }
+    expect(codes(toSubagents)).toEqual(['node_after_team:fan'])
+
+    const toTeam = {
+      nodes: [{ id: 'start', type: 'trigger.manual' }, teamNode(), teamNode({ id: 'crew2' })],
+      edges: [
+        { from: 'start', to: 'crew' },
+        { from: 'crew', to: 'crew2' },
+      ],
+    }
+    expect(codes(toTeam)).toEqual(['node_after_team:crew2'])
   })
 
   test('the gate rule still holds with a fan-out beside the path to post', () => {
