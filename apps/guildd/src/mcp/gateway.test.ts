@@ -1090,6 +1090,130 @@ describe('MCP gateway', () => {
     })
   })
 
+  describe('Hall teams', () => {
+    const board = (t: Setup, l: unknown, over: Record<string, unknown> = {}) =>
+      callTool(t.transport, 'post_to_board', {
+        lease: l,
+        title: 'Write the intro',
+        brief: 'Draft the introduction',
+        template: 'herald-brief',
+        ...over,
+      })
+    const captainLease = async (t: Setup, over: Partial<Parameters<Setup['post']>[0]> = {}) => {
+      const { lease: l } = await t.claim(
+        await t.post({ ownerId: 'heralds-captain', campaignId: 'team-1', ...over })
+      )
+      return lease.parse(l)
+    }
+
+    test('the Captain posts into their own Hall under their Campaign; the Members then claim it', async () => {
+      const s = await setup()
+      const captain = await captainLease(s)
+      const out = await board(s, captain, { blockedBy: [] })
+      expect(out).toMatchObject({ status: 200, isError: false, data: { created: true } })
+      const posted = await s.quests.get(s.guild, z.string().parse(out.data.questId))
+      expect(posted).toMatchObject({
+        title: 'Write the intro',
+        doneCondition: 'Draft the introduction',
+        hallId: 'heralds',
+        campaignId: 'team-1',
+        board: true,
+        state: 'queued',
+      })
+      expect(['heralds-member-2', 'heralds-captain']).toContain(posted?.ownerId ?? '')
+    })
+
+    test('a Member is refused with captain_only and nothing is posted', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await s.post({ campaignId: 'team-1' }))
+      expect(await board(s, l)).toMatchObject({ isError: true, data: { error: 'captain_only' } })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(1)
+    })
+
+    test('a Captain whose Quest has no Campaign is refused with no_campaign', async () => {
+      const s = await setup()
+      const captain = await captainLease(s, { campaignId: undefined })
+      expect(await board(s, captain)).toMatchObject({
+        isError: true,
+        data: { error: 'no_campaign' },
+      })
+    })
+
+    test('the Campaign cap holds at its boundary and follows the config at once', async () => {
+      const s = await setup()
+      const captain = await captainLease(s)
+      const { config } = await s.deps.config.current(s.guild)
+      const capTo = async (n: number) => {
+        const proposed = await s.deps.config.propose(s.guild, {
+          ...config,
+          caps: { ...config.caps, maxQuestsPerCampaign: n },
+        })
+        if (proposed.status === 'pending') {
+          await s.deps.config.confirm(s.guild, proposed.version)
+        }
+      }
+      await capTo(2)
+      expect((await board(s, captain, { brief: 'one' })).isError).toBe(false)
+      expect((await board(s, captain, { brief: 'two' })).isError).toBe(false)
+      expect(await board(s, captain, { brief: 'three' })).toMatchObject({
+        isError: true,
+        data: { error: 'campaign_cap' },
+      })
+      await capTo(1)
+      expect(await board(s, captain, { brief: 'four' })).toMatchObject({
+        data: { error: 'campaign_cap' },
+      })
+    })
+
+    test('a repeated post of the same Quest in one attempt returns it again', async () => {
+      const s = await setup()
+      const captain = await captainLease(s)
+      const first = await board(s, captain)
+      const again = await board(s, captain)
+      expect(again.data).toMatchObject({ created: false, questId: first.data.questId })
+    })
+
+    test('the Hall and Campaign are not arguments: a Hall argument is refused', async () => {
+      const s = await setup()
+      const captain = await captainLease(s)
+      expect(await board(s, captain, { hall: 'scribes' })).toMatchObject({
+        rpcError: 'invalid_arguments',
+      })
+      expect(await board(s, captain, { template: 'no-such' })).toMatchObject({
+        data: { error: 'unknown_template' },
+      })
+    })
+
+    test('blockedBy must name Quests of the same Campaign', async () => {
+      const s = await setup()
+      const captain = await captainLease(s)
+      const mine = await board(s, captain, { brief: 'first' })
+      const stranger = await s.post({ campaignId: 'other-campaign' })
+      const ok = await board(s, captain, {
+        brief: 'second',
+        blockedBy: [z.string().parse(mine.data.questId)],
+      })
+      expect(ok.isError).toBe(false)
+      expect(await board(s, captain, { brief: 'third', blockedBy: [stranger.id] })).toMatchObject({
+        isError: true,
+        data: { error: 'unknown_blocker' },
+      })
+      expect(
+        await board(s, captain, { brief: 'fourth', blockedBy: [crypto.randomUUID()] })
+      ).toMatchObject({ isError: true, data: { error: 'unknown_blocker' } })
+    })
+
+    test('a lease from another guild opens nothing, and a Bar the Gates stops the Captain', async () => {
+      const gates = new MemoryGateStore()
+      const s = await setup({ gates })
+      const captain = await captainLease(s)
+      const other = await setup()
+      expect(await board(other, captain)).toMatchObject({ status: 401 })
+      await gates.bar({ guildId: s.guild, memberId: crypto.randomUUID() }, 'guild')
+      expect(await board(s, captain)).toMatchObject({ status: 401, rpcError: 'gates_barred' })
+    })
+  })
+
   describe('frozen tool lists', () => {
     const extra: ToolDef = {
       name: 'search_web',

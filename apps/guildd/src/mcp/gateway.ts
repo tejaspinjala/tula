@@ -39,6 +39,7 @@ import {
   MAX_PROPOSALS_PER_QUEST,
   MAX_TOOL_ARTIFACT_BYTES,
   MCP_PROTOCOL_VERSION,
+  postToBoardArgs,
   putArtifactArgs,
   readArchiveArgs,
   readBriefArgs,
@@ -359,6 +360,8 @@ export class McpGateway {
         return this.submitProposal(caller, submitProposalArgs.parse(args))
       case 'spawn_subquest':
         return this.spawnSubquest(caller, spawnSubquestArgs.parse(args))
+      case 'post_to_board':
+        return this.postToBoard(caller, postToBoardArgs.parse(args))
       case 'await_children':
         return this.awaitChildren(caller, awaitChildrenArgs.parse(args).mode)
       case 'child_results':
@@ -662,6 +665,13 @@ export class McpGateway {
       }
       throw error
     }
+  }
+
+  private async postToBoard(
+    _caller: Caller,
+    _a: z.infer<typeof postToBoardArgs>
+  ): Promise<ToolReply> {
+    return refuse('not_implemented')
   }
 
   /** The Quests the leased Quest spawned, in spawn order. */
