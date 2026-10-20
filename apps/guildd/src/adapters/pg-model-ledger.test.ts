@@ -1,16 +1,20 @@
 import { afterAll, expect, test } from 'bun:test'
+import postgres from 'postgres'
 import { createDb } from '../db/client'
 import { eventsAfter } from '../events'
 import { modelLedgerContract } from '../ports/model-ledger.contract'
 import { foundTestGuild } from '../testing/found-guild'
-import { testDbUrl } from '../testing/test-db'
+import { createIsolatedTestDb, testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgModelLedger } from './pg-model-ledger'
 
-const db = createDb(testDbUrl('app'))
+// Global bars and revokes reach every guild of a database, so this file gets its own.
+const isolated = await createIsolatedTestDb()
+const db = createDb(testDbUrl('app', isolated.name))
 const keys = new MemoryKeyProvider()
 afterAll(async () => {
   await db.close()
+  await isolated.drop()
 })
 
 modelLedgerContract('postgres', async () => ({
@@ -72,4 +76,23 @@ test('the app role can settle a pending charge once, and cannot rewrite anything
   // A retried settle of an already settled charge changes nothing and does not fail.
   await ledger.settle(g, 'c1', { inputTokens: 1, outputTokens: 1, costMicros: 1 })
   expect((await ledger.dayTotals(g, '2026-03-04')).tokens).toBe(12)
+})
+
+test('no two indexes on model_usage cover the same columns', async () => {
+  const owner = postgres(testDbUrl('owner', isolated.name), { max: 1, onnotice: () => {} })
+  try {
+    const rows = await owner`
+      select array_agg(a.attname order by k.ord) as cols
+      from pg_index i
+      join pg_class c on c.oid = i.indrelid
+      cross join lateral unnest(i.indkey) with ordinality as k(attnum, ord)
+      join pg_attribute a on a.attrelid = c.oid and a.attnum = k.attnum
+      where c.relname = 'model_usage'
+      group by i.indexrelid`
+    const keys = rows.map((row) => JSON.stringify(row.cols))
+    expect(keys.length).toBeGreaterThan(0)
+    expect(new Set(keys).size).toBe(keys.length)
+  } finally {
+    await owner.end()
+  }
 })

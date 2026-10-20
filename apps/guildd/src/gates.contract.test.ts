@@ -6,13 +6,19 @@ import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 /** Member ids allowed to bar every guild; tests add the operator they sign in as. */
 const operators: string[] = []
-const harness = await createHarness({ devGuildHeader: true, app: { platformOperators: operators } })
+const harness = await createHarness({
+  isolatedDb: true,
+  devGuildHeader: true,
+  app: { platformOperators: operators },
+})
 afterAll(async () => {
   await harness.close()
 })
 // A test that fails with a global bar up must not leave it up for the next one (every guild would
 // be refused), so the gate is cleared after each test whatever happened.
 afterEach(async () => {
+  // A lift announces to every guild after its response; that must end before the next test starts.
+  await harness.adapters.gates.settled()
   await harness.owner`delete from global_gate`
 })
 

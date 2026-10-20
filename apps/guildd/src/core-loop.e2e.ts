@@ -2,19 +2,19 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import type { MemoryClock } from './adapters/memory-clock'
 import type { MemoryModelProvider } from './adapters/memory-model-provider'
-import { compileBrief } from './brief'
 import { costPerPost } from './cost-per-post'
 import type { Dispatcher } from './dispatch'
 import type { Gates } from './gates'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { ModelLedger } from './ports/model-ledger'
+import type { PostCostReader } from './ports/post-cost-reader'
 import type { NewQuest, Quest, QuestQueue } from './ports/quest-queue'
 import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
 import type { SealEngine } from './seals'
 import type { RecordingSandboxRunner } from './testing/recording-sandbox'
-import { ScriptedMember } from './testing/scripted-member'
+import { callTool, ScriptedMember } from './testing/scripted-member'
 import type { ContentPolicy } from './verdict'
 
 /** What a guild needs from {@link E2eWorld.newGuild}. */
@@ -37,6 +37,7 @@ export interface E2eWorld {
   mcp: McpGateway
   gates: Gates
   ledger: ModelLedger
+  postCosts: PostCostReader
   provider: MemoryModelProvider
   sandboxes: RecordingSandboxRunner
   /** A guild with one api-key provider priced at 3 and 15 per million tokens, and its Guild Master's member id. */
@@ -84,7 +85,11 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       if (!(quest && spec.runToken)) {
         throw new Error('the sandbox was handed no Quest or run token')
       }
-      const brief = compileBrief({ quest, role: quest.rank, tools: [], notes: [] }).text
+      // The Brief comes from the MCP tool, as a real worker's does, not from the test.
+      const read = await callTool((request) => w.mcp.handle(request), 'read_brief', {
+        lease: handle,
+      })
+      const brief = z.string().parse(read.data.brief)
       w.provider.script({
         ok: true,
         text: content,
@@ -106,7 +111,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           })
         },
       })
-      return member.runLeased(handle, brief)
+      return member.runLeased(handle)
     }
 
     /** Posts, dispatches and works a Quest, then dispatches again so its Seal is requested. */
@@ -168,11 +173,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
 
       const spend = await w.ledger.report(guildId, 'quest', { limit: 100 })
       expect(spend.rows.find((r) => r.key === quest.id)?.costMicros).toBe(CALL_COST_MICROS)
-      const cost = await costPerPost(
-        { ledger: w.ledger, quests: w.quests, sealStore: w.sealStore },
-        guildId,
-        { limit: 10 }
-      )
+      const cost = await costPerPost({ postCosts: w.postCosts }, guildId, { limit: 10 })
       expect(cost.overall).toEqual({
         posts: 1,
         costMicros: CALL_COST_MICROS,

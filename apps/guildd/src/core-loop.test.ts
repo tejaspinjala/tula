@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryIdentityStore } from './adapters/memory-identity-provider'
@@ -40,7 +41,7 @@ async function setup(roundLimit = 2) {
       evidence: 'verdict: pass',
       round,
     })
-  const deps = { quests, seals }
+  const deps = { quests, seals, awaiting: new MemoryAwaitingSealReader(quests, seals) }
   return { clock, quests, seals, guild, quest: held, ask, deps }
 }
 
@@ -111,6 +112,7 @@ describe('requestQuestSeal', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -164,7 +166,14 @@ describe('requestQuestSeal', () => {
       verdict: 'denied',
       expectedHash: first?.actionHash ?? '',
     })
-    await reconcileSeals({ quests: g.quests, seals: g.seals }, g.guild)
+    await reconcileSeals(
+      {
+        quests: g.quests,
+        seals: g.seals,
+        awaiting: new MemoryAwaitingSealReader(g.quests, g.seals),
+      },
+      g.guild
+    )
     const again = await g.quests.claim(g.guild, { leaseMs: 60_000, maxActive: 5 })
     const second = await g.quests.submitForSeal(g.guild, g.quest.id, again?.attempts ?? 0)
     const result = await requestQuestSeal(g.deps, g.guild, second)
@@ -204,6 +213,7 @@ describe('requestPendingSeals', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -252,6 +262,7 @@ describe('requestPendingSeals', () => {
     const deps = {
       quests: s.quests,
       sealStore: s.seals,
+      awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -268,13 +279,74 @@ describe('requestPendingSeals', () => {
     const seal = await s.ask(1)
     await s.seals.decide(s.guild, seal.id, { verdict: 'denied', expectedHash: seal.actionHash })
     const failing = {
-      list: s.quests.list.bind(s.quests),
       settleSeal: async (): Promise<never> => {
         throw new Error('boom')
       },
     }
-    await expect(reconcileSeals({ quests: failing, seals: s.seals }, s.guild)).resolves.toEqual({
+    await expect(
+      reconcileSeals(
+        {
+          quests: failing,
+          seals: s.seals,
+          awaiting: new MemoryAwaitingSealReader(s.quests, s.seals),
+        },
+        s.guild
+      )
+    ).resolves.toEqual({
       settled: 0,
     })
+  })
+})
+
+describe('passes read only what has work', () => {
+  test('reconcile does not scan Quests that are waiting on a live Seal', async () => {
+    const s = await setup()
+    for (let i = 0; i < 30; i++) {
+      const { quest } = await s.quests.post(s.guild, {
+        jobKey: `waiting-${i}`,
+        templateId: 'herald-announcement',
+        hallId: 'heralds',
+        rank: 'apprentice',
+        dataClass: 'public',
+        title: `Waiting ${i}`,
+        ownerId: 'heralds-member-1',
+        doneCondition: 'x',
+        roundLimit: 2,
+      })
+      const claimed = await s.quests.claim(s.guild, { leaseMs: 60_000, maxActive: 50 })
+      const held = await s.quests.submitForSeal(s.guild, quest.id, claimed?.attempts ?? 0)
+      await s.seals.request(s.guild, {
+        questId: held.id,
+        requestedBy: 'heralds-member-1',
+        kind: 'post',
+        text: `Hello ${i}`,
+        evidence: 'e',
+        round: held.round,
+      })
+    }
+    const seal = await s.ask(1)
+    await s.seals.decide(s.guild, seal.id, { verdict: 'approved', expectedHash: seal.actionHash })
+    await s.seals.markPosted(s.guild, seal.id, 'Hello', { reauthenticated: true })
+    let scanned = 0
+    const awaiting = new MemoryAwaitingSealReader(s.quests, s.seals)
+    const deps = {
+      quests: {
+        list: async (): Promise<never> => {
+          throw new Error('scanned every held Quest')
+        },
+        settleSeal: s.quests.settleSeal.bind(s.quests),
+      },
+      seals: s.seals,
+      awaiting: {
+        hasWork: awaiting.hasWork.bind(awaiting),
+        due: async (...args: Parameters<typeof awaiting.due>) => {
+          const page = await awaiting.due(...args)
+          scanned += page.items.length
+          return page
+        },
+      },
+    }
+    expect((await reconcileSeals(deps, s.guild)).settled).toBe(1)
+    expect(scanned).toBe(1)
   })
 })

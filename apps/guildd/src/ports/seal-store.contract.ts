@@ -389,6 +389,22 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect(pending.seals).toHaveLength(2)
     })
 
+    test('list with decidedSince returns only Seals decided at or after that instant', async () => {
+      const { store, clock, newGuild } = await make()
+      const g = await newGuild()
+      const old = await seed(store, g, 'old denial')
+      await store.decide(g, old.seal.id, { verdict: 'denied', expectedHash: old.hash })
+      clock.advance(2 * 60 * 60 * 1000)
+      const since = clock.now().toISOString()
+      const recent = await seed(store, g, 'recent denial')
+      await store.decide(g, recent.seal.id, { verdict: 'denied', expectedHash: recent.hash })
+      await seed(store, g, 'undecided')
+      const page = await store.list(g, { limit: 10, status: 'denied', decidedSince: since })
+      expect(page.seals.map((s) => s.id)).toEqual([recent.seal.id])
+      const all = await store.list(g, { limit: 10, decidedSince: since })
+      expect(all.seals.map((s) => s.id)).toEqual([recent.seal.id])
+    })
+
     test("another guild cannot read or decide a guild's Seal", async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

@@ -1,3 +1,4 @@
+import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
 import type { Quest, QuestQueue } from './ports/quest-queue'
 import type { Seal, SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
@@ -28,8 +29,9 @@ async function settleDead(
 
 /** Collaborators of {@link reconcileSeals}. */
 export interface CoreLoopDeps {
-  quests: Pick<QuestQueue, 'list' | 'settleSeal'>
-  seals: Pick<SealStore, 'forQuest' | 'expireDue'>
+  quests: Pick<QuestQueue, 'settleSeal'>
+  seals: Pick<SealStore, 'expireDue'>
+  awaiting: AwaitingSealReader
 }
 
 /** Hours an approved Seal may wait to be posted when the caller passes no window (72). */
@@ -50,16 +52,17 @@ export async function reconcileSeals(
 ): Promise<{ settled: number }> {
   await deps.seals.expireDue(guildId, { approvedWindowMs: postWindowMs })
   let settled = 0
+  if (!(await deps.awaiting.hasWork(guildId))) {
+    return { settled }
+  }
   let after: string | undefined
   do {
-    const page = await deps.quests.list(guildId, {
+    const page = await deps.awaiting.due(guildId, {
       limit: 100,
-      state: 'awaiting_seal',
       ...(after === undefined ? {} : { after }),
     })
-    for (const quest of page.quests) {
+    for (const { quest, seal } of page.items) {
       try {
-        const seal = await deps.seals.forQuest(guildId, quest.id)
         if (!seal || seal.round !== quest.round) {
           continue
         }
@@ -142,8 +145,9 @@ export async function requestQuestSeal(
 
 /** Collaborators of {@link requestPendingSeals}. */
 export interface PendingSealDeps extends SealRequestDeps {
-  quests: Pick<QuestQueue, 'list' | 'settleSeal'>
+  quests: Pick<QuestQueue, 'settleSeal'>
   sealStore: Pick<SealStore, 'forQuest' | 'expireDue'>
+  awaiting: AwaitingSealReader
 }
 
 /**
@@ -158,17 +162,19 @@ export async function requestPendingSeals(
   guildId: string
 ): Promise<{ requested: number }> {
   let requested = 0
+  if (!(await deps.awaiting.hasWork(guildId))) {
+    return { requested }
+  }
   let after: string | undefined
   do {
-    const page = await deps.quests.list(guildId, {
+    const page = await deps.awaiting.due(guildId, {
       limit: 100,
-      state: 'awaiting_seal',
       ...(after === undefined ? {} : { after }),
     })
-    for (const quest of page.quests) {
+    for (const { quest, seal } of page.items) {
       try {
-        const seal = await deps.sealStore.forQuest(guildId, quest.id)
         if (seal && seal.round === quest.round) {
+          // Its Seal ended: reconcile settles it; there is nothing to ask for.
           continue
         }
         if ((await requestQuestSeal(deps, guildId, quest)).outcome === 'requested') {

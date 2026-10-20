@@ -3,6 +3,7 @@ import type { Db } from '../db/client'
 import { appendEvent } from '../events'
 import type { KeyProvider } from '../ports/key-provider'
 import {
+  type HallDayTotals,
   isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
@@ -35,6 +36,11 @@ const usageRow = z.object({
   calls: z.coerce.number(),
   input_tokens: z.coerce.number(),
   output_tokens: z.coerce.number(),
+  cost_micros: z.coerce.number(),
+})
+const hallDayRow = z.object({
+  day: z.string(),
+  tokens: z.coerce.number(),
   cost_micros: z.coerce.number(),
 })
 const totalsRow = z.object({ tokens: z.coerce.number(), cost_micros: z.coerce.number() })
@@ -232,6 +238,30 @@ export class PgModelLedger implements ModelLedger {
     )
     const parsed = totalsRow.parse(row)
     return { tokens: parsed.tokens, costMicros: parsed.cost_micros }
+  }
+
+  async hallDayTotals(
+    guildId: string,
+    hallId: string,
+    range: { from: string; to: string }
+  ): Promise<HallDayTotals[]> {
+    if (!isUsageDate(range.from) || !isUsageDate(range.to)) {
+      return []
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select day::text as day, sum(input_tokens + output_tokens) as tokens,
+               coalesce(sum(cost_micros), 0) as cost_micros
+        from model_usage
+        where guild_id = ${guildId} and hall_id = ${hallId}
+          and day between ${range.from}::date and ${range.to}::date
+        group by day order by day`
+    )
+    return rows.map((r) => {
+      const parsed = hallDayRow.parse(r)
+      return { day: parsed.day, tokens: parsed.tokens, costMicros: parsed.cost_micros }
+    })
   }
 
   async report(

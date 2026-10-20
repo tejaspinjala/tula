@@ -61,7 +61,8 @@ const questRow = z.object({
   created_at: iso,
 })
 
-function toQuest(raw: unknown): Quest {
+/** Parses a `quests` row (`select *`, extra columns ignored) into a {@link Quest}. */
+export function toQuest(raw: unknown): Quest {
   const r = questRow.parse(raw)
   return {
     id: r.quest_id,

@@ -54,6 +54,15 @@ export class ProposalEngine {
     return this.store.list(guildId, page)
   }
 
+  /** A page of the Proposals whose Verdict failed, created at or after `since`. */
+  listFailedSince(
+    guildId: string,
+    since: string,
+    page: { after?: string; limit: number }
+  ): Promise<ProposalPage> {
+    return this.store.listFailedSince(guildId, since, page)
+  }
+
   /**
    * The Verdict bound to exactly this Proposal hash, or null when none exists. The Seal and the Core
    * Loop gate on it: no Verdict, or a failing one, means the hash may not be sealed.

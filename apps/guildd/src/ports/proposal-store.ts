@@ -58,6 +58,16 @@ export interface ProposalStore {
   get(guildId: string, id: string): Promise<Proposal | null>
   /** Proposals in id order strictly after `after`. */
   list(guildId: string, page: { after?: string; limit: number }): Promise<ProposalPage>
+  /**
+   * Proposals whose Verdict failed, created at or after `since` (an ISO instant), in id order
+   * strictly after `after`. Indexed by creation time, so a pass over the recent past never reads
+   * older Proposals.
+   */
+  listFailedSince(
+    guildId: string,
+    since: string,
+    page: { after?: string; limit: number }
+  ): Promise<ProposalPage>
   /** The Verdict bound to exactly this Proposal hash, or null; the Seal and Core Loop gate on it. */
   verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null>
   /** The most recently stored Proposal of the Quest (a revision round drafts a new one), or null. */

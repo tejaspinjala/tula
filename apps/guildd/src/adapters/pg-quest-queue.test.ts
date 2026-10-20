@@ -4,18 +4,21 @@ import { createDb } from '../db/client'
 import type { NewQuest } from '../ports/quest-queue'
 import { questQueueContract } from '../ports/quest-queue.contract'
 import { foundTestGuild } from '../testing/found-guild'
-import { testDbUrl } from '../testing/test-db'
+import { createIsolatedTestDb, testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgGateStore } from './pg-gate-store'
 import { PgQuestQueue } from './pg-quest-queue'
 import { PgTripwireStore } from './pg-tripwire-store'
 
-const db = createDb(testDbUrl('app'))
-const owner = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
+// Global bars and revokes reach every guild of a database, so this file gets its own.
+const isolated = await createIsolatedTestDb()
+const db = createDb(testDbUrl('app', isolated.name))
+const owner = postgres(testDbUrl('owner', isolated.name), { max: 1, onnotice: () => {} })
 afterAll(async () => {
   await db.close()
   await owner.end()
+  await isolated.drop()
 })
 
 const START = new Date('2030-01-01T00:00:00.000Z')

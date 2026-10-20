@@ -221,6 +221,165 @@ describe('MCP gateway', () => {
     })
   })
 
+  describe('read_brief', () => {
+    test('returns the deterministic Brief for the leased Quest, with no secrets', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: l } = await s.claim(quest)
+      const first = await callTool(s.transport, 'read_brief', { lease: l })
+      expect(first).toMatchObject({ status: 200, isError: false })
+      const brief = z.string().parse(first.data.brief)
+      expect(brief).toContain('Done when: A draft brief is filed in the Archive')
+      expect(brief).toContain(`Quest: Draft the brief (${quest.id})`)
+      expect(brief).not.toContain(lease.parse(l).token)
+      expect(await callTool(s.transport, 'read_brief', { lease: l })).toEqual(first)
+    })
+
+    test('lists the Hall notes by id and title only, never their body', async () => {
+      const s = await setup()
+      const note = await s.notes.add(
+        s.guild,
+        { kind: 'text', title: 'Tone guide', body: 'SECRET-BODY-TEXT', claim: 'assumption' },
+        'heralds'
+      )
+      const { lease: l } = await s.claim(await s.post())
+      const brief = z
+        .string()
+        .parse((await callTool(s.transport, 'read_brief', { lease: l })).data.brief)
+      expect(brief).toContain(`note ${note.id}: Tone guide`)
+      expect(brief).not.toContain('SECRET-BODY-TEXT')
+    })
+
+    test('a forged, foreign or lapsed lease is refused', async () => {
+      const s = await setup()
+      const q1 = await s.post()
+      const q2 = await s.post()
+      const { lease: l1 } = await s.claim(q1)
+      const { lease: l2 } = await s.claim(q2)
+      const forged = await callTool(s.transport, 'read_brief', {
+        lease: { ...lease.parse(l1), token: 'x' },
+      })
+      expect(forged).toMatchObject({ status: 401, rpcError: 'invalid_lease' })
+      const foreign = await callTool(s.transport, 'read_brief', {
+        lease: { ...lease.parse(l1), questId: lease.parse(l2).questId },
+      })
+      expect(foreign).toMatchObject({ status: 401, rpcError: 'invalid_lease' })
+      s.clock.advance(60 * 60 * 1000)
+      const lapsed = await callTool(s.transport, 'read_brief', { lease: l1 })
+      expect(lapsed).toMatchObject({ status: 401, rpcError: 'lease_expired' })
+    })
+
+    test('a superseded attempt is fenced out', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: first } = await s.claim(quest)
+      s.clock.advance(60 * 60 * 1000)
+      const { lease: second } = await s.claim(quest)
+      const stale = await callTool(s.transport, 'read_brief', { lease: first })
+      expect(stale).toMatchObject({ status: 401, rpcError: 'lease_expired' })
+      expect((await callTool(s.transport, 'read_brief', { lease: second })).status).toBe(200)
+    })
+
+    test('a barred guild is denied', async () => {
+      const gates = new MemoryGateStore()
+      const s = await setup({ gates })
+      const { lease: l } = await s.claim(await s.post())
+      await gates.bar({ guildId: s.guild, memberId: 'owner' }, 'guild')
+      const out = await callTool(s.transport, 'read_brief', { lease: l })
+      expect(out).toMatchObject({ status: 401, rpcError: 'gates_barred' })
+    })
+
+    const briefOf = async (s: Setup, l: unknown): Promise<string> =>
+      z.string().parse((await callTool(s.transport, 'read_brief', { lease: l })).data.brief)
+    const assume = (title: string) => ({
+      kind: 'text' as const,
+      title,
+      body: 'b',
+      claim: 'assumption' as const,
+    })
+
+    test("another Hall's, a Hall-less and another guild's notes are absent from the Brief", async () => {
+      const s = await setup()
+      const mine = await s.notes.add(s.guild, assume('Mine'), 'heralds')
+      const otherHall = await s.notes.add(s.guild, assume('Other Hall'), 'scribes')
+      const noHall = await s.notes.add(s.guild, assume('Guild Master'))
+      const otherGuild = crypto.randomUUID()
+      const foreign = await s.notes.add(otherGuild, assume('Other Guild'), 'heralds')
+      const { lease: l } = await s.claim(await s.post())
+      const brief = await briefOf(s, l)
+      expect(brief).toContain(`note ${mine.id}: Mine`)
+      for (const n of [otherHall, noHall, foreign]) {
+        expect(brief).not.toContain(n.id)
+      }
+    })
+
+    test("a lease from one guild cannot read another guild's Quest Brief", async () => {
+      const s = await setup()
+      const other = crypto.randomUUID()
+      await s.deps.config.seed(other)
+      const theirs = (
+        await s.deps.quests.post(other, {
+          jobKey: crypto.randomUUID(),
+          templateId: 'herald-brief',
+          hallId: 'heralds',
+          rank: 'journeyman',
+          dataClass: 'internal',
+          title: 'Their quest',
+          ownerId: 'heralds-member-2',
+          doneCondition: 'Their secret done-condition',
+          roundLimit: 2,
+        })
+      ).quest
+      const { lease: mine } = await s.claim(await s.post())
+      const out = await callTool(s.transport, 'read_brief', {
+        lease: { ...lease.parse(mine), questId: theirs.id },
+      })
+      expect(out).toMatchObject({ status: 401, rpcError: 'invalid_lease' })
+      expect(JSON.stringify(out)).not.toContain('Their secret')
+    })
+
+    test('lists at most 20 notes and stays within the token cap', async () => {
+      const s = await setup()
+      for (let i = 0; i < 25; i++) {
+        await s.notes.add(s.guild, assume(`T${i} ${'x'.repeat(900)}`), 'heralds')
+      }
+      const { lease: l } = await s.claim(await s.post())
+      const brief = await briefOf(s, l)
+      expect(
+        brief.split('\n').filter((line) => line.startsWith('note ')).length
+      ).toBeLessThanOrEqual(20)
+      expect(Math.ceil(brief.length / 4)).toBeLessThanOrEqual(2000)
+      expect(brief).toContain('more pointers omitted')
+    })
+
+    test('a Quest too large for the Brief cap is refused with a coded error, on read and on claim', async () => {
+      const s = await setup()
+      const tight = new McpGateway({ ...s.deps, briefTokenCap: 10 })
+      const via = (r: object) => tight.handle(r)
+      const quest = await s.post({ doneCondition: 'x'.repeat(200) })
+      const claimed = await callTool(via, 'claim_quest', {
+        assignment: await tight.assign(s.guild, quest),
+      })
+      expect(claimed).toMatchObject({ isError: true, data: { error: 'brief_too_large' } })
+      const handle = await tight.lease(s.guild, (await s.quests.get(s.guild, quest.id)) ?? quest)
+      const out = await callTool(via, 'read_brief', { lease: handle })
+      expect(out).toMatchObject({ isError: true, data: { error: 'brief_too_large' } })
+    })
+
+    test('a Campaign started before the tool existed never sees it', async () => {
+      const s = await setup()
+      const withoutIt = TOOL_CATALOG.filter((t) => t.name !== 'read_brief')
+      const old = new McpGateway({ ...s.deps, catalog: withoutIt })
+      const first = await s.post({ campaignId: 'old' })
+      const claimed = await callTool((r) => old.handle(r), 'claim_quest', {
+        assignment: await old.assign(s.guild, first),
+      })
+      // The catalogue gains read_brief; the Campaign's frozen list stays as it was.
+      const out = await callTool(s.transport, 'read_brief', { lease: claimed.data.lease })
+      expect(out.rpcError).toBe('unknown_tool')
+    })
+  })
+
   describe('complete_quest', () => {
     test('a Quest whose template requires a Seal ends awaiting_seal after complete_quest, never done', async () => {
       const s = await setup()

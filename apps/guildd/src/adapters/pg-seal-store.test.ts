@@ -188,3 +188,16 @@ test('several Seals expiring together emit their events in seal id order', async
   const ids = events.map((e) => String(e.payload.sealId))
   expect(ids).toEqual([...ids].sort())
 })
+
+// Index choice is left to the planner (it depends on statistics and on the
+// `order by seal_id limit` shape), so this checks the bounded window, not the plan.
+test('list with decidedSince returns only Seals decided inside the window', async () => {
+  const { guild, store } = await setup()
+  await owner`insert into seals (seal_id, guild_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at)
+    select gen_random_uuid(), ${guild}, gen_random_uuid(), 'h', 'post', 't', '', encode(sha256(convert_to('t', 'UTF8')), 'hex'), 'denied', now(), now() + interval '1 day', now() - (g || ' minutes')::interval
+    from generate_series(1, 3000) g`
+  const since = new Date(Date.now() - 5 * 60_000).toISOString()
+  const page = await store.list(guild, { limit: 10, status: 'denied', decidedSince: since })
+  expect(page.seals.length).toBeGreaterThanOrEqual(4)
+  expect(page.seals.length).toBeLessThanOrEqual(5)
+})

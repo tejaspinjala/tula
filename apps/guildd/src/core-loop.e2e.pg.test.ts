@@ -27,6 +27,7 @@ async function pgWorld(): Promise<E2eWorld> {
     mcp: a.mcp,
     gates: a.gates,
     ledger: a.modelLedger,
+    postCosts: a.postCosts,
     provider,
     sandboxes,
     newGuild: async (options = {}) => {

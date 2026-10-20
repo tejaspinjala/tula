@@ -95,6 +95,12 @@ export interface UsageRow {
   costMicros: number
 }
 
+/** One Hall's usage on one day. */
+export interface HallDayTotals extends Totals {
+  /** UTC day `YYYY-MM-DD`. */
+  day: string
+}
+
 /** A page of the cost table, ascending by key. */
 export interface UsagePage {
   rows: UsageRow[]
@@ -152,6 +158,15 @@ export interface ModelLedger {
   ): Promise<void>
   /** Totals for one guild-day. */
   dayTotals(guildId: string, day: string): Promise<Totals>
+  /**
+   * One Hall's totals for each day in `from`..`to` (inclusive, `YYYY-MM-DD`) on which it used
+   * anything, ascending by day. At most one row per day, so the result is bounded by the range.
+   */
+  hallDayTotals(
+    guildId: string,
+    hallId: string,
+    range: { from: string; to: string }
+  ): Promise<HallDayTotals[]>
   /** The cost table grouped by `by`, ascending by key, strictly after `after`, at most `limit`. */
   report(
     guildId: string,

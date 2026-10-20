@@ -40,7 +40,10 @@ const request = (guildId: string) =>
     evidence: 'verdict: pass',
   })
 
-/** A notifier that takes its time and reports how many app transactions are open while it does. */
+/** Names the pool the test owns, so background work of other tests on the shared database is not counted. */
+const POOL_NAME = 'seal-push-open-tx-test'
+
+/** A notifier that takes its time and reports how many of this test's pool's transactions are open while it does. */
 class SlowNotifier implements PushNotifier {
   readonly inner = new MemoryPushNotifier()
   openTransactions: number[] = []
@@ -48,7 +51,7 @@ class SlowNotifier implements PushNotifier {
   async send(subscription: PushSubscription, payload: PushPayload) {
     const [row] = await owner`
       select count(*)::int as n from pg_stat_activity
-      where datname = current_database() and usename = 'guildhall_app'
+      where datname = current_database() and application_name = ${POOL_NAME}
         and state like 'idle in transaction%'`
     this.openTransactions.push(z.object({ n: z.number() }).parse(row).n)
     await Bun.sleep(100)
@@ -58,7 +61,7 @@ class SlowNotifier implements PushNotifier {
 
 describe('Seal push relay on Postgres with a tiny pool', () => {
   test('guilds dispatching at once against a slow notifier all finish: no pool deadlock', async () => {
-    const small = createDb(testDbUrl('app'), { max: 2 })
+    const small = createDb(testDbUrl('app'), { max: 2, applicationName: POOL_NAME })
     try {
       const notifier = new SlowNotifier()
       const store = new PgPushStore(small)
@@ -86,7 +89,7 @@ describe('Seal push relay on Postgres with a tiny pool', () => {
   })
 
   test('no transaction is open while a push is being sent', async () => {
-    const small = createDb(testDbUrl('app'), { max: 4 })
+    const small = createDb(testDbUrl('app'), { max: 4, applicationName: POOL_NAME })
     try {
       const notifier = new SlowNotifier()
       const store = new PgPushStore(small)

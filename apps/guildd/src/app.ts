@@ -32,6 +32,7 @@ import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
 import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import type { PostCostReader } from './ports/post-cost-reader'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
 import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
@@ -109,6 +110,8 @@ export interface AppDeps {
   dispatcher: Dispatcher
   /** The Seal store, read by the dispatcher to reconcile Quests with their Seals. */
   sealStore: SealStore
+  /** Cost per accepted post, read as one aggregate. */
+  postCosts: PostCostReader
   /** The model ledger: per-run metering, the source of usage reports and cost per post. */
   modelLedger: ModelLedger
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
@@ -1003,14 +1006,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_page' }, 400)
     }
     return c.json(
-      await costPerPost(
-        { ledger: deps.modelLedger, quests: deps.quests, sealStore: deps.sealStore },
-        who.guild,
-        {
-          limit: query.data.limit,
-          ...(query.data.after === undefined ? {} : { after: query.data.after }),
-        }
-      )
+      await costPerPost({ postCosts: deps.postCosts }, who.guild, {
+        limit: query.data.limit,
+        ...(query.data.after === undefined ? {} : { after: query.data.after }),
+      })
     )
   })
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
@@ -131,15 +132,21 @@ describe('dispatch', () => {
   function world(config: GuildConfig = configWith()) {
     const s = setup(config)
     const sandboxes = new MemorySandboxRunner()
+    const sealStore = new MemorySealStore(s.clock)
     let barred = false
     const unused = async (): Promise<never> => {
       throw new Error('not used')
     }
     const deps = {
       ...s.deps,
-      sealStore: new MemorySealStore(s.clock),
+      sealStore,
+      awaiting: new MemoryAwaitingSealReader(s.quests, sealStore),
       tripwires: new MemoryTripwireStore(s.clock),
-      proposals: { latestForQuest: async () => null, verdictFor: async () => null },
+      proposals: {
+        latestForQuest: async () => null,
+        verdictFor: async () => null,
+        listFailedSince: async () => ({ proposals: [], next: null }),
+      },
       seals: { requestSeal: unused },
       gates: { isBarred: async () => barred },
       gateway: {
