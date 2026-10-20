@@ -1,10 +1,12 @@
 import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
+import { MemoryClassifier } from './adapters/memory-classifier'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
+import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -59,6 +61,10 @@ export async function compose(
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
     quests: overrides.quests ?? new PgQuestQueue(db, keys, clock),
+    // No cheap model is wired yet (and no model id lives in engine code): the deterministic
+    // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
+    classifier: overrides.classifier ?? new MemoryClassifier(),
+    routingLog: overrides.routingLog ?? new PgRoutingLog(db),
   }
   return { app: createApp(adapters), adapters }
 }
