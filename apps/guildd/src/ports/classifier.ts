@@ -24,9 +24,9 @@ export interface ClassifierHall {
 }
 
 /**
- * Port for routing step 1 on free-text goals (ADR-0006). Output is untrusted: routing only lets it
- * narrow (raise the data class, pick a known unlocked Hall and rank), never pick a provider or
- * lower a class. Implementations may throw; routing then uses the deterministic fallback.
+ * Port for routing step 1 on free-text goals (ADR-0006). Output is untrusted and advisory: routing only
+ * takes its Hall (a known unlocked one) and logs its claimed class; free text routes as `private`
+ * unless the Guild Master set a class, so a claim never lowers a class. It never picks a provider. Implementations may throw; routing then uses the deterministic fallback.
  */
 export interface Classifier {
   classify(input: { goal: string; halls: readonly ClassifierHall[] }): Promise<Classification>
