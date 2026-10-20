@@ -133,6 +133,29 @@ describe('Summon your first member', () => {
     expect(finished.quest?.state).toBe('done')
   })
 
+  test('after Bar the Gates and a lift, summoning starts a new worker on the same Quest', async () => {
+    const { g, member, auth } = await found('api_key')
+    expect((await summon(g, auth)).status).toBe(202)
+    const before = runner.specs.length
+    const actor = { guildId: g, memberId: member }
+    await harness.adapters.gates.bar(actor, 'guild')
+    await harness.adapters.gates.lift(actor, 'guild')
+    expect((await summon(g, auth)).status).toBe(202)
+    expect(runner.specs).toHaveLength(before + 1)
+    expect(await harness.adapters.sandboxes.list(g)).toHaveLength(1)
+    expect((await status(g, auth)).quest?.state).toBe('active')
+  })
+
+  test('a live lease whose run was revoked is not trusted: summoning starts a new worker', async () => {
+    const { g, auth } = await found('api_key')
+    expect((await summon(g, auth)).status).toBe(202)
+    const before = runner.specs.length
+    await harness.adapters.gateway.revokeGuildRuns(g)
+    await harness.adapters.sandboxes.kill({ guildId: g })
+    expect((await summon(g, auth)).status).toBe(202)
+    expect(runner.specs).toHaveLength(before + 1)
+  })
+
   test('summoning twice starts one worker', async () => {
     const { g, auth } = await found('api_key')
     expect((await summon(g, auth)).status).toBe(202)
