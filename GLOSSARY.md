@@ -182,3 +182,28 @@ A config version was proposed (payload: version, status `pending` or `applied`, 
 
 **config.version_confirmed**:
 A pending config version was confirmed and took force (payload: version).
+
+## Gates, work and vault events
+
+Event types appended to the chained event log by Bar the Gates and by the Quest, Hall and Vault stores (ids and small facts only, never content or secrets):
+
+**gates.barred** / **gates.lifted**:
+The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and the acting member id in the acting guild's own chain only). A global bar or lift is also told to every other guild's chain with the bar id and scope only, never who acted.
+
+**handoff.recorded**:
+A Quest attempt recorded its handoff (payload: quest id, attempt, handoff hash).
+
+**artifact.stored** / **artifact.attached**:
+An artifact was stored (payload: hash, class, size) / attached to a Quest (payload: quest id, hash).
+
+**proposal.created** / **verdict.recorded**:
+A Proposal was created (payload: proposal id, quest id, proposal hash) / its verdict was recorded (payload: proposal id, proposal hash, passed).
+
+**hall.paused** / **hall.resumed**:
+A Tripwire paused a Hall (payload: pause id, hall id, tripwire) / the pause was lifted (payload: pause id, hall id).
+
+**steward.cap_reached**:
+The Steward's daily cap was reached (payload: day, reason).
+
+**vault.secret_added**:
+A secret was added to the Vault (payload: its ref only, never the value).
