@@ -1,35 +1,74 @@
 import type { PushStore, PushSubscription, PushSubscriptionPage } from '../ports/push-store'
 
-/** Memory {@link PushStore}. */
+interface GuildPush {
+  subscriptions: Map<string, PushSubscription>
+  claims: Set<string>
+  cursor: number
+}
+
+/**
+ * Memory {@link PushStore}. Every operation checks and writes with no `await` between, so claims
+ * are atomic. State is per instance.
+ */
 export class MemoryPushStore implements PushStore {
-  async add(_guildId: string, _subscription: PushSubscription): Promise<void> {
-    throw new Error('not implemented')
+  private readonly guilds = new Map<string, GuildPush>()
+
+  private of(guildId: string): GuildPush {
+    let state = this.guilds.get(guildId)
+    if (!state) {
+      state = { subscriptions: new Map(), claims: new Set(), cursor: 0 }
+      this.guilds.set(guildId, state)
+    }
+    return state
   }
 
-  async remove(_guildId: string, _endpoint: string): Promise<boolean> {
-    throw new Error('not implemented')
+  async add(guildId: string, subscription: PushSubscription): Promise<void> {
+    this.of(guildId).subscriptions.set(subscription.endpoint, { ...subscription })
+  }
+
+  async remove(guildId: string, endpoint: string): Promise<boolean> {
+    const state = this.of(guildId)
+    for (const claim of state.claims) {
+      if (claim.endsWith(`|${endpoint}`)) {
+        state.claims.delete(claim)
+      }
+    }
+    return state.subscriptions.delete(endpoint)
   }
 
   async list(
-    _guildId: string,
-    _page: { after?: string; limit: number }
+    guildId: string,
+    page: { after?: string; limit: number }
   ): Promise<PushSubscriptionPage> {
-    throw new Error('not implemented')
+    const after = page.after
+    const sorted = [...this.of(guildId).subscriptions.values()]
+      .filter((s) => after === undefined || s.endpoint > after)
+      .sort((x, y) => (x.endpoint < y.endpoint ? -1 : 1))
+    const subscriptions = sorted.slice(0, page.limit).map((s) => ({ ...s }))
+    const last = subscriptions.at(-1)
+    return { subscriptions, next: sorted.length > page.limit && last ? last.endpoint : null }
   }
 
-  async claimDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<boolean> {
-    throw new Error('not implemented')
+  async claimDelivery(guildId: string, sealId: string, endpoint: string): Promise<boolean> {
+    const state = this.of(guildId)
+    const key = `${sealId}|${endpoint}`
+    if (!state.subscriptions.has(endpoint) || state.claims.has(key)) {
+      return false
+    }
+    state.claims.add(key)
+    return true
   }
 
-  async releaseDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
-    throw new Error('not implemented')
+  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+    this.of(guildId).claims.delete(`${sealId}|${endpoint}`)
   }
 
-  async cursor(_guildId: string): Promise<number> {
-    throw new Error('not implemented')
+  async cursor(guildId: string): Promise<number> {
+    return this.of(guildId).cursor
   }
 
-  async advanceCursor(_guildId: string, _seq: number): Promise<void> {
-    throw new Error('not implemented')
+  async advanceCursor(guildId: string, seq: number): Promise<void> {
+    const state = this.of(guildId)
+    state.cursor = Math.max(state.cursor, seq)
   }
 }
