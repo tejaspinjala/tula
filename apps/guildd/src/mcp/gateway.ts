@@ -9,6 +9,7 @@ import {
   spawnChildrenCap,
   spawnDepthCap,
 } from '../guild-config'
+import type { ActivityLog } from '../ports/activity-log'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
@@ -67,6 +68,8 @@ export interface McpGatewayDeps {
   missives: MissiveStore
   objectStore: ObjectStore
   handoffs: HandoffStore
+  /** Records each tool call as a `member.activity` event (ids and a closed name only). */
+  activity?: ActivityLog
   toolsets: ToolsetStore
   /**
    * Ends a delivery's run (revokes its model token, kills its sandbox) when its Quest parks on

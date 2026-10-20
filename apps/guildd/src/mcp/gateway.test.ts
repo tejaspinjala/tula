@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { MemoryActivityLog } from '../adapters/memory-activity-log'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
 import { MemoryGateStore } from '../adapters/memory-gate-store'
@@ -1562,5 +1563,80 @@ describe('the Brief teaches the Member what to write', () => {
     expect(brief).toContain('talks about doing the task instead of doing it')
     // The rejected draft itself is never echoed back into the Brief.
     expect(brief).not.toContain('ready to work on this Quest')
+  })
+})
+
+describe('member.activity', () => {
+  const ARGS: Record<string, (hash: string) => Record<string, unknown>> = {
+    read_brief: () => ({}),
+    read_archive: () => ({}),
+    write_archive: () => ({ title: 'T', body: 'SECRET-BODY', claim: 'fact' }),
+    get_artifact: (hash) => ({ hash }),
+    put_artifact: () => ({ contentBase64: Buffer.from('SECRET-ART').toString('base64') }),
+    submit_proposal: () => ({ text: 'SECRET-PROPOSAL', evidenceLinks: [] }),
+    spawn_subquest: () => ({
+      title: 'SECRET-TITLE',
+      brief: 'SECRET-BRIEF',
+      template: 'herald-brief',
+    }),
+    await_children: () => ({}),
+    child_results: () => ({}),
+    send_missive: () => ({ to: 'hall', text: 'SECRET-MISSIVE' }),
+    read_missives: () => ({}),
+  }
+  const MAPPED: Array<[string, string]> = [
+    ['read_brief', 'reading_brief'],
+    ['read_archive', 'reading_archive'],
+    ['write_archive', 'writing_archive'],
+    ['get_artifact', 'reading_archive'],
+    ['put_artifact', 'writing'],
+    ['submit_proposal', 'proposing'],
+    ['spawn_subquest', 'spawning'],
+    ['await_children', 'waiting'],
+    ['child_results', 'waiting'],
+    ['send_missive', 'messaging'],
+    ['read_missives', 'messaging'],
+  ]
+
+  async function withActivity() {
+    const activity = new MemoryActivityLog()
+    const s = await setup({ activity })
+    const { lease: l } = await s.claim(await s.post())
+    return { s, activity, l: lease.parse(l) }
+  }
+
+  for (const [tool, name] of MAPPED) {
+    test(`${tool} emits ${name} once, with ids only`, async () => {
+      const { s, activity, l } = await withActivity()
+      await callTool(s.transport, tool, { lease: l, ...ARGS[tool]?.('a'.repeat(64)) })
+      expect(activity.emittedEvents).toHaveLength(1)
+      expect(activity.emittedEvents[0]).toMatchObject({
+        guildId: s.guild,
+        questId: l.questId,
+        memberId: 'heralds-member-2',
+        hallId: 'heralds',
+        activity: name,
+      })
+      expect(JSON.stringify(activity.emittedEvents)).not.toContain('SECRET')
+    })
+  }
+
+  test('repeats inside the window emit one; after it, another', async () => {
+    const { s, activity, l } = await withActivity()
+    await callTool(s.transport, 'read_brief', { lease: l })
+    await callTool(s.transport, 'read_brief', { lease: l })
+    s.clock.advance(1000)
+    await callTool(s.transport, 'read_brief', { lease: l })
+    expect(activity.emittedEvents).toHaveLength(1)
+    s.clock.advance(60_000)
+    await callTool(s.transport, 'read_brief', { lease: l })
+    expect(activity.emittedEvents).toHaveLength(2)
+  })
+
+  test('claiming a Quest emits no activity', async () => {
+    const activity = new MemoryActivityLog()
+    const s = await setup({ activity })
+    await s.claim(await s.post())
+    expect(activity.emittedEvents).toHaveLength(0)
   })
 })
