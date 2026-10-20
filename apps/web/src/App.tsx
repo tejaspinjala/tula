@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArtifactViewer } from './ArtifactViewer'
 
 /** Ledger-view shell: a single page that reports whether guildd is healthy. */
 export function App() {
@@ -14,6 +15,7 @@ export function App() {
     <main className="mx-auto max-w-3xl p-8">
       <h1 className="text-2xl font-semibold">Guildhall ledger</h1>
       <p className="mt-4">guildd: {status}</p>
+      <ArtifactViewer />
     </main>
   )
 }
