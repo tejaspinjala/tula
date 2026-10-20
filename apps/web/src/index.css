@@ -802,3 +802,17 @@ ul.evidence-list {
   padding-left: var(--space-6);
   list-style: disc;
 }
+
+.post-quest {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 1fr;
+  align-items: end;
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 48rem) {
+  .post-quest {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  }
+}
