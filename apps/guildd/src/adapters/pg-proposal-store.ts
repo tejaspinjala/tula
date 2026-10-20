@@ -149,11 +149,23 @@ export class PgProposalStore implements ProposalStore {
   }
 
   async listFailedSince(
-    _guildId: string,
-    _since: string,
-    _page: { after?: string; limit: number }
+    guildId: string,
+    since: string,
+    page: { after?: string; limit: number }
   ): Promise<ProposalPage> {
-    throw new Error('not implemented')
+    const after = page.after ?? null
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select ${tx.unsafe(SELECT)} from proposals p
+        join verdicts v on v.guild_id = p.guild_id and v.proposal_hash = p.content_hash
+        where p.guild_id = ${guildId} and not v.passed and p.created_at >= ${since}::timestamptz
+          and (${after}::uuid is null or p.proposal_id > ${after}::uuid)
+        order by p.proposal_id limit ${page.limit + 1}`
+      const all = rows.map((r) => toProposal(row.parse(r)))
+      const proposals = all.slice(0, page.limit)
+      const last = proposals.at(-1)
+      return { proposals, next: all.length > page.limit && last ? last.id : null }
+    })
   }
 
   async verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null> {
