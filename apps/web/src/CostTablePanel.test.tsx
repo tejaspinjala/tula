@@ -21,7 +21,7 @@ beforeAll(() => {
           next: null,
         })
       }
-      if (url.includes('/costs')) {
+      if (url.includes('/gateway/usage')) {
         return Response.json({
           rows: [
             {

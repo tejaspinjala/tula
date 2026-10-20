@@ -3,6 +3,7 @@ import {
   type CostGroup,
   type CostPerPost,
   type CostRow,
+  costPerPostText,
   formatDollars,
   loadCostPerPost,
   loadCosts,
@@ -67,29 +68,31 @@ export function CostTablePanel({ session }: { session: Session | null }) {
         </label>
       )}
       {rows && (
-        <table className="mt-2 w-full text-left">
-          <caption className="sr-only">Spend by {by}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{GROUPS.find((g) => g.value === by)?.label}</th>
-              <th scope="col">Calls</th>
-              <th scope="col">Tokens in</th>
-              <th scope="col">Tokens out</th>
-              <th scope="col">Dollars</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.key}>
-                <th scope="row">{r.key}</th>
-                <td>{r.calls}</td>
-                <td>{r.inputTokens}</td>
-                <td>{r.outputTokens}</td>
-                <td>{formatDollars(r.costMicros)}</td>
+        <div className="table-scroll">
+          <table className="mt-2 w-full text-left">
+            <caption className="sr-only">Spend by {by}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{GROUPS.find((g) => g.value === by)?.label}</th>
+                <th scope="col">Calls</th>
+                <th scope="col">Tokens in</th>
+                <th scope="col">Tokens out</th>
+                <th scope="col">Dollars</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key}>
+                  <th scope="row">{r.key}</th>
+                  <td>{r.calls}</td>
+                  <td>{r.inputTokens}</td>
+                  <td>{r.outputTokens}</td>
+                  <td>{formatDollars(r.costMicros)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {posts && (
         <>
@@ -97,30 +100,32 @@ export function CostTablePanel({ session }: { session: Session | null }) {
           <p className="mt-2">
             {posts.overall.posts === 0
               ? 'No post has been accepted yet.'
-              : `${posts.overall.posts} accepted, ${formatDollars(posts.overall.costPerPostMicros)} each.`}
+              : `${posts.overall.posts} accepted, ${costPerPostText(posts.overall)}${posts.overall.costMicros === 0 ? '' : ' each'}.`}
           </p>
           {posts.campaigns.length > 0 && (
-            <table className="mt-2 w-full text-left">
-              <caption className="sr-only">Cost per accepted post by Campaign</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Campaign</th>
-                  <th scope="col">Posts</th>
-                  <th scope="col">Dollars</th>
-                  <th scope="col">Per post</th>
-                </tr>
-              </thead>
-              <tbody>
-                {posts.campaigns.map((c) => (
-                  <tr key={c.campaignId ?? 'none'}>
-                    <th scope="row">{c.campaignId ?? 'No Campaign'}</th>
-                    <td>{c.posts}</td>
-                    <td>{formatDollars(c.costMicros)}</td>
-                    <td>{formatDollars(c.costPerPostMicros)}</td>
+            <div className="table-scroll">
+              <table className="mt-2 w-full text-left">
+                <caption className="sr-only">Cost per accepted post by Campaign</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Campaign</th>
+                    <th scope="col">Posts</th>
+                    <th scope="col">Dollars</th>
+                    <th scope="col">Per post</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {posts.campaigns.map((c) => (
+                    <tr key={c.campaignId ?? 'none'}>
+                      <th scope="row">{c.campaignId ?? 'No Campaign'}</th>
+                      <td>{c.posts}</td>
+                      <td>{formatDollars(c.costMicros)}</td>
+                      <td>{costPerPostText(c)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}
