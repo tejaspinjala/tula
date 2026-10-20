@@ -3,8 +3,10 @@ import { SecretExistsError, type SecretStore } from '../ports/secret-store'
 import { newDataKey, open, seal } from '../vault-crypto'
 
 interface GuildVault {
-  wrappedKey: Uint8Array
+  wrappedKey: Promise<Uint8Array>
   secrets: Map<string, Uint8Array>
+  /** Refs taken or being sealed; claimed synchronously so concurrent adds cannot collide. */
+  claimed: Set<string>
 }
 
 /** Memory adapter for {@link SecretStore}: same envelope encryption, state in this process only. */
@@ -15,16 +17,27 @@ export class MemorySecretStore implements SecretStore {
   constructor(private readonly keys: KeyProvider) {}
 
   async add(guildId: string, ref: string, value: string): Promise<void> {
+    // No await between the existence check and the claim, so racing adds cannot both pass.
     let vault = this.vaults.get(guildId)
-    if (vault?.secrets.has(ref)) {
-      throw new SecretExistsError(ref)
-    }
     if (!vault) {
-      vault = { wrappedKey: await this.keys.wrap(guildId, newDataKey()), secrets: new Map() }
+      vault = {
+        wrappedKey: this.keys.wrap(guildId, newDataKey()),
+        secrets: new Map(),
+        claimed: new Set(),
+      }
       this.vaults.set(guildId, vault)
     }
-    const dataKey = await this.keys.unwrap(guildId, vault.wrappedKey)
-    vault.secrets.set(ref, await seal(dataKey, guildId, ref, value))
+    if (vault.claimed.has(ref)) {
+      throw new SecretExistsError(ref)
+    }
+    vault.claimed.add(ref)
+    try {
+      const dataKey = await this.keys.unwrap(guildId, await vault.wrappedKey)
+      vault.secrets.set(ref, await seal(dataKey, guildId, ref, value))
+    } catch (error) {
+      vault.claimed.delete(ref)
+      throw error
+    }
   }
 
   async check(guildId: string, refs: string[]) {
@@ -50,7 +63,7 @@ export class MemorySecretStore implements SecretStore {
     if (!vault || !sealed) {
       return null
     }
-    return open(await this.keys.unwrap(guildId, vault.wrappedKey), guildId, ref, sealed)
+    return open(await this.keys.unwrap(guildId, await vault.wrappedKey), guildId, ref, sealed)
   }
 
   /** Test window: the sealed bytes held for a secret. */

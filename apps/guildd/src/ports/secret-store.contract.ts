@@ -45,6 +45,27 @@ export function secretStoreContract(name: string, make: () => Promise<SecretStor
       expect(await store.resolve(guild, 'openai')).toBe('first')
     })
 
+    test('two first adds racing in a new guild both land', async () => {
+      const { store, newGuild } = await make()
+      const guild = await newGuild()
+      await Promise.all([store.add(guild, 'one', 'v1'), store.add(guild, 'two', 'v2')])
+      expect(await store.resolve(guild, 'one')).toBe('v1')
+      expect(await store.resolve(guild, 'two')).toBe('v2')
+    })
+
+    test('two adds racing on one ref give exactly one success and one SecretExistsError', async () => {
+      const { store, newGuild } = await make()
+      const guild = await newGuild()
+      const results = await Promise.allSettled([
+        store.add(guild, 'same', 'v1'),
+        store.add(guild, 'same', 'v2'),
+      ])
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const rejected = results.filter((r) => r.status === 'rejected')
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.reason).toBeInstanceOf(SecretExistsError)
+    })
+
     test('check reports resolved or missing for each ref', async () => {
       const { store, newGuild } = await make()
       const guild = await newGuild()
