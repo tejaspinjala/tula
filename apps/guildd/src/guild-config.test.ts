@@ -12,6 +12,7 @@ import {
   isLearningRepoAllowed,
   learningRepoAllowlist,
   missiveCap,
+  parseStoredConfig,
   questConcurrency,
   researchCap,
   sealPostWindowMs,
@@ -504,5 +505,32 @@ describe('Member look overrides', () => {
     expect(guildConfig.safeParse(withLook({ ...look, outfitStyle: 99 })).success).toBe(false)
     expect(guildConfig.safeParse(withLook({ ...look, cape: 1 })).success).toBe(false)
     expect(guildConfig.safeParse(withLook({ ...look, body: -1 })).success).toBe(false)
+  })
+})
+
+describe('strict on write, tolerant on read', () => {
+  const stray = { ...defaultConfig(), caps: { ...defaultConfig().caps, legacyCap: 1 }, extra: 1 }
+
+  test('the write schema rejects unknown keys at every level, naming each path', () => {
+    const out = guildConfig.safeParse(stray)
+    expect(out.success).toBe(false)
+    const keys = out.success
+      ? []
+      : out.error.issues.flatMap((i) =>
+          i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path, k].join('.')) : []
+        )
+    expect(keys.sort()).toEqual(['caps.legacyCap', 'extra'])
+  })
+
+  test('a stored config with unknown keys still parses, drops them and warns with their paths', () => {
+    const warnings: string[] = []
+    const out = parseStoredConfig(stray, (w) => warnings.push(w))
+    expect(out).toEqual(defaultConfig())
+    expect(warnings.join(' ')).toContain('caps.legacyCap')
+    expect(warnings.join(' ')).toContain('extra')
+  })
+
+  test('a stored config with a real error still fails', () => {
+    expect(() => parseStoredConfig({ ...defaultConfig(), sealPolicy: 'nope' })).toThrow()
   })
 })
