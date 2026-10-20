@@ -15,6 +15,7 @@ const questBody = z.object({
   roundLimit: z.number(),
   attempts: z.number(),
   lastError: z.string().nullable(),
+  campaignId: z.string().nullable().default(null),
 })
 const linkBody = z.object({ parentId: z.string(), childId: z.string() })
 const pageBody = z.object({
@@ -30,6 +31,24 @@ export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
 export function childrenOf(quests: readonly BoardQuest[], parentId: string): BoardQuest[] {
   return quests.filter((q) => q.parentId === parentId)
 }
+/** Stub. */
+export function campaignsOf(_quests: readonly BoardQuest[]): string[] {
+  return []
+}
+
+/** Stub. */
+export function inCampaign(
+  quests: readonly BoardQuest[],
+  _campaignId: string | null
+): BoardQuest[] {
+  return [...quests]
+}
+
+/** Stub. */
+export function claimerOf(_quest: BoardQuest): string | null {
+  return null
+}
+
 /** The Quest Board's columns, in lifecycle order. */
 export const BOARD_STATES = QUEST_STATES
 

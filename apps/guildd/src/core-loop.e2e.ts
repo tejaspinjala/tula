@@ -458,7 +458,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           roundLimit: 2,
         })
       /** The scripted Captain's run: it plans, posts three Quests to the Hall's board, then finishes. */
-      const captainPosts = async (w: E2eWorld, guild: string, captainQuestId: string) => {
+      const captainPosts = async (w: E2eWorld, captainQuestId: string) => {
         const handle = handleOf(w, captainQuestId)
         const posted: string[] = []
         const member = new ScriptedMember((r) => w.mcp.handle(r), {
@@ -486,7 +486,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         const { guildId } = await w.newGuild({ memberCap: 2 })
         const { quest: captain } = await startCampaign(w, guildId)
         await dispatchStarts(w, guildId, captain)
-        const board = await captainPosts(w, guildId, captain.id)
+        const board = await captainPosts(w, captain.id)
         expect(board).toHaveLength(3)
         expect((await w.quests.get(guildId, captain.id))?.state).toBe('done')
         // Two Members claim at once; the third waits queued, not failed.
