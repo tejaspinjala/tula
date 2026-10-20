@@ -191,6 +191,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+  app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -227,17 +228,17 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /**
-   * The caller of a WebSocket upgrade from a browser, which cannot set an Authorization header:
-   * a single-use `?ticket=` (see `POST /guilds/:id/events/ticket`), honoured only on an upgrade
-   * request and spent here. A session token in the URL is never accepted.
+   * A single-use `?ticket=` on a WebSocket upgrade request from a browser, which cannot set an
+   * Authorization header (see `POST /guilds/:id/events/ticket`). Not spent here: the stream route
+   * spends it after reserving a slot. A session token in the URL is never accepted.
    */
-  async function ticketGuild(c: Context): Promise<string | null> {
+  function presentedTicket(c: Context): { guild: string; ticket: string } | null {
     const ticket = c.req.query('ticket')
     const guild = uuid.safeParse(c.req.param('id'))
     if (!ticket || !guild.success || c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
       return null
     }
-    return (await deps.streamTickets.consume(guild.data, ticket)) ? guild.data : null
+    return { guild: guild.data, ticket }
   }
 
   /** Whether the guild exists (the guild row is visible only under its own tenant context). */
@@ -827,17 +828,24 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = (await callerGuild(c)) ?? (await ticketGuild(c))
+      const headerCaller = await callerGuild(c)
+      const presented = headerCaller ? null : presentedTicket(c)
+      const caller = headerCaller ?? presented?.guild ?? null
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }
       if (c.req.param('id') !== caller) {
         return c.json({ error: 'not_found' }, 404)
       }
-      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap.
+      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap, and
+      // before spending the ticket so a refused (429) attempt does not burn it.
       const slot = hub.reserve(caller)
       if (!slot) {
         return c.json({ error: 'too_many_streams' }, 429)
+      }
+      if (presented && !(await deps.streamTickets.consume(presented.guild, presented.ticket))) {
+        slot()
+        return c.json({ error: 'unauthenticated' }, 401)
       }
       streamSlots.set(c.req.raw, slot)
       try {

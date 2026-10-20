@@ -17,6 +17,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   founding: { client: NO_LIMIT },
   reauth: { client: NO_LIMIT },
+  'stream-ticket': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */

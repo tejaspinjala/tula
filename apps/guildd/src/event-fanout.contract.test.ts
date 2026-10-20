@@ -153,6 +153,23 @@ describe('event stream fan-out', () => {
     }
   })
 
+  test('a refused upgrade over the stream cap does not spend the ticket', async () => {
+    const s = countingApp({ maxSocketsPerGuild: 1 })
+    const id = await harness.foundGuild({ name: 'Burn', goal: 'g' })
+    const open = await wsOpen(`${s.base}/guilds/${id}/events`, id)
+    try {
+      const { ticket } = await harness.adapters.streamTickets.issue(id)
+      const refused = await s.app.request(`/guilds/${id}/events?ticket=${ticket}`, {
+        headers: { upgrade: 'websocket' },
+      })
+      expect(refused.status).toBe(429)
+      expect(await harness.adapters.streamTickets.consume(id, ticket)).toBe(true)
+    } finally {
+      open.close()
+      await s.close()
+    }
+  })
+
   test('simultaneous upgrades over the cap never admit more than the cap', async () => {
     const s = countingApp({ maxSocketsPerGuild: 3 })
     const id = await harness.foundGuild({ name: 'Race', goal: 'g' })

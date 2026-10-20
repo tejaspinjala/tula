@@ -7,6 +7,8 @@ export interface StreamTicketFixture {
   store: StreamTicketStore
   clock: MemoryClock
   newGuild: () => Promise<string>
+  /** How many tickets (live or expired) the store still holds for the guild. */
+  stored: (guildId: string) => Promise<number>
 }
 
 /** The StreamTicketStore contract, run against every adapter. */
@@ -30,6 +32,18 @@ export function streamTicketContract(name: string, make: () => Promise<StreamTic
       const stale = await store.issue(g)
       clock.advance(STREAM_TICKET_TTL_MS + 1)
       expect(await store.consume(g, stale.ticket)).toBe(false)
+    })
+
+    test('issuing prunes expired tickets and keeps live ones', async () => {
+      const { store, clock, stored, newGuild } = await make()
+      const g = await newGuild()
+      for (let i = 0; i < 5; i++) {
+        await store.issue(g)
+      }
+      clock.advance(STREAM_TICKET_TTL_MS + 1)
+      const live = await store.issue(g)
+      expect(await stored(g)).toBe(1)
+      expect(await store.consume(g, live.ticket)).toBe(true)
     })
 
     test('a ticket is bound to the guild it was issued to, and unknown tickets fail', async () => {

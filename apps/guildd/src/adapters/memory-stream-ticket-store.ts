@@ -22,9 +22,20 @@ export class MemoryStreamTicketStore implements StreamTicketStore {
 
   constructor(private readonly clock: Clock) {}
 
+  /** Tickets held for a guild, live or expired (for tests). */
+  count(guildId: string): number {
+    return [...this.tickets.keys()].filter((k) => k.startsWith(`${guildId}:`)).length
+  }
+
   async issue(guildId: string): Promise<StreamTicket> {
+    const now = this.clock.now().getTime()
+    for (const [key, expires] of this.tickets) {
+      if (expires <= now) {
+        this.tickets.delete(key)
+      }
+    }
     const ticket = newTicket()
-    const expires = this.clock.now().getTime() + STREAM_TICKET_TTL_MS
+    const expires = now + STREAM_TICKET_TTL_MS
     this.tickets.set(`${guildId}:${hashTicket(ticket)}`, expires)
     return { ticket, expiresAt: new Date(expires).toISOString() }
   }
