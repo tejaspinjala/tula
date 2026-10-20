@@ -13,6 +13,7 @@ import { PgGateStore } from './adapters/pg-gate-store'
 import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgMissiveStore } from './adapters/pg-missive-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgPostCostReader } from './adapters/pg-post-cost-reader'
@@ -87,6 +88,7 @@ export async function compose(
   const config = overrides.config ?? new PgConfigStore(db, keys)
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
+  const missives = overrides.missives ?? new PgMissiveStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
@@ -149,6 +151,7 @@ export async function compose(
       quests,
       config,
       notes,
+      missives,
       objectStore,
       handoffs: new PgHandoffStore(db, keys),
       toolsets: new PgToolsetStore(db),
@@ -203,6 +206,7 @@ export async function compose(
         seals: sealStore,
       }),
     notes,
+    missives,
     quests,
     mcp,
     tripwires,

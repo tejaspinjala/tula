@@ -11,6 +11,7 @@ import {
   hallMemberCap,
   isLearningRepoAllowed,
   learningRepoAllowlist,
+  missiveCap,
   questConcurrency,
   sealPostWindowMs,
   spawnChildrenCap,
@@ -100,6 +101,19 @@ describe('classifyChange', () => {
     )
     expect(
       guildConfig.safeParse({ ...base, caps: { ...base.caps, maxQuestsPerCampaign: 101 } }).success
+    ).toBe(false)
+  })
+  test('the Missive cap defaults to 20 per Quest; raising it is widening, lowering applies at once', () => {
+    expect(missiveCap(base)).toBe(20)
+    const raised = { ...base, caps: { ...base.caps, maxMissivesPerQuest: 50 } }
+    expect(missiveCap(raised)).toBe(50)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+    expect(classifyChange(base, { ...base, caps: { ...base.caps, maxMissivesPerQuest: 2 } })).toBe(
+      'tightening'
+    )
+    expect(
+      guildConfig.safeParse({ ...base, caps: { ...base.caps, maxMissivesPerQuest: 201 } }).success
     ).toBe(false)
   })
   test('a Hall member cap is unlimited when unset; raising it is widening, lowering applies at once', () => {

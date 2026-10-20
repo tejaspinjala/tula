@@ -59,7 +59,8 @@ The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests 
 _Avoid_: backlog
 
 **Missive**:
-A small typed message on the quest bus carrying ids and hashes, never large content.
+A short text message (up to 2000 characters) one Member of a Hall sends another Member of the same Hall, or the whole Hall (`send_missive`, `read_missives`). It is Hall-internal and capped per Quest (`maxMissivesPerQuest`, refused as `missive_cap`). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame, and the Guild Master reads a Hall's Missives in the ledger. Work products travel as Handoffs (ids and hashes), not Missives.
+_Avoid_: DM, chat
 _Avoid_: message, notification
 
 **Inquiry**:
@@ -220,6 +221,9 @@ A Member's Quest was leased (payload: quest id, hall id, attempt, member id, and
 
 **campaign.started** / **campaign.finished**:
 A team Campaign (one with a board Quest) got its first board Quest / the last in-flight Quest of a team Campaign settled, done or dead (payload: campaign id only). Campaigns with no board Quest, such as workflow instances, never emit them.
+
+**missive.sent**:
+A Member sent a Missive (payload: sender member id, addressee member id or `hall`, hall id, and `excerpt`, the first 80 characters of the text on one line; the only event that carries any text).
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).

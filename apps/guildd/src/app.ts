@@ -29,6 +29,7 @@ import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { MAX_MISSIVE_PAGE, type MissiveStore } from './ports/missive-store'
 import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
 import type { ModelProvider } from './ports/model-provider'
@@ -85,6 +86,8 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** Missives between the Members of a Hall, read by the Guild Master in the ledger. */
+  missives: MissiveStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
@@ -226,6 +229,14 @@ const notePage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
   q: z.string().max(500).optional(),
+})
+const missivePage = z.object({
+  after: z
+    .string()
+    .regex(/^[1-9][0-9]{0,15}$/)
+    .transform(Number)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
 })
 const sealPage = z.object({
   after: uuid.optional(),
@@ -859,6 +870,34 @@ export function createApp(deps: AppDeps): Hono {
       page.data.q === undefined
         ? await deps.notes.list(who.guild, paging)
         : await deps.notes.search(who.guild, page.data.q, paging)
+    )
+  })
+
+  // A Hall's Missives for the Guild Master, newest first. The text is the sender's, untrusted:
+  // the ledger shows it as text and never as markup.
+  app.get('/guilds/:id/halls/:hallId/missives', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const page = missivePage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    return c.json(
+      await deps.missives.list(who.guild, {
+        hallId: hallId.data,
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
     )
   })
 

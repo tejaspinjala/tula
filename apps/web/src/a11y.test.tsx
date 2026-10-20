@@ -11,6 +11,7 @@ import { CostTablePanel } from './CostTablePanel'
 import { FoundGuildPanel } from './FoundGuildPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
+import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import { webAuthnBrowser } from './passkeys'
@@ -136,6 +137,7 @@ const panels: Array<[string, ReactElement]> = [
   ['Tripwires', <TripwirePanel key="t" session={session} />],
   ['Treasury', <TreasuryPanel key="tr" session={session} />],
   ['Quest Board', <QuestBoardPanel key="q" session={session} />],
+  ['Hall missives', <MissivesPanel key="mi" session={session} />],
   ['Costs', <CostTablePanel key="c" session={session} />],
   ['Timeline', <TimelinePanel key="tl" session={session} />],
   ['Gates', <GatesPanel key="g" session={session} />],
