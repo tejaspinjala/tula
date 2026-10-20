@@ -42,6 +42,7 @@ function countingApp(
     objectStore: harness.adapters.objectStore,
     identity: harness.adapters.identity,
     secrets: harness.adapters.secrets,
+    config: harness.adapters.config,
     notes: harness.adapters.notes,
     keys,
     devGuildHeader: true,

@@ -228,6 +228,7 @@ describe('identity events in the audit chain', () => {
     expect(events.map((e) => e.type)).toEqual([
       'guild.founded',
       'identity.founding_token_issued',
+      'config.seeded',
       'identity.founding_token_spent',
       'identity.passkey_registered',
       'identity.signed_in',
