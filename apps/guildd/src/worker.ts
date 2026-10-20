@@ -31,7 +31,14 @@ const toolReply = z.object({
 
 /** Why a worker step failed; coded, never the gateway's text. */
 export class WorkerError extends Error {
-  constructor(readonly step: 'read_brief' | 'model_call' | 'put_artifact' | 'complete_quest') {
+  constructor(
+    readonly step:
+      | 'read_brief'
+      | 'model_call'
+      | 'put_artifact'
+      | 'submit_proposal'
+      | 'complete_quest'
+  ) {
     super(`worker_failed:${step}`)
     this.name = 'WorkerError'
   }

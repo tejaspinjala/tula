@@ -6,7 +6,7 @@ const LEASE = { questId: crypto.randomUUID(), attempt: 1, token: 'signed-lease' 
 const toolCall = z.object({ params: z.object({ name: z.string() }) })
 
 /** A fake gateway: records each call as `path` or `tools/call:<name>` and answers like the real ones. */
-function fakeGateway(refuse: string | null = null) {
+function fakeGateway(refuse: string | null = null, requiresSeal = false) {
   const calls: string[] = []
   const bodies: string[] = []
   const fetch: WorkerFetch = async (url, init) => {
@@ -24,7 +24,7 @@ function fakeGateway(refuse: string | null = null) {
     }
     const data =
       name === 'read_brief'
-        ? { brief: 'Quest: Q\nDone when: it is done\n' }
+        ? { brief: 'Quest: Q\nDone when: it is done\n', requiresSeal }
         : name === 'put_artifact'
           ? { hash: 'a'.repeat(64) }
           : { state: 'done' }
@@ -58,5 +58,35 @@ describe('worker', () => {
     const g = fakeGateway('read_brief')
     await expect(runWorker(input(g.fetch))).rejects.toEqual(new WorkerError('read_brief'))
     expect(g.calls).toEqual(['tools/call:read_brief'])
+  })
+
+  test('a Seal Quest files its draft with submit_proposal after the artifact and before completing', async () => {
+    const g = fakeGateway(null, true)
+    await runWorker(input(g.fetch))
+    expect(g.calls).toEqual([
+      'tools/call:read_brief',
+      '/gateway/complete',
+      'tools/call:put_artifact',
+      'tools/call:submit_proposal',
+      'tools/call:complete_quest',
+    ])
+    const filed = toolCall
+      .extend({
+        params: z.object({ name: z.string(), arguments: z.record(z.string(), z.unknown()) }),
+      })
+      .parse(JSON.parse(g.bodies[3] ?? ''))
+    expect(filed.params.arguments).toMatchObject({ lease: LEASE, text: 'ready', evidenceLinks: [] })
+  })
+
+  test('a refused submit_proposal stops the worker before the Quest is completed', async () => {
+    const g = fakeGateway('submit_proposal', true)
+    await expect(runWorker(input(g.fetch))).rejects.toEqual(new WorkerError('submit_proposal'))
+    expect(g.calls).not.toContain('tools/call:complete_quest')
+  })
+
+  test('a Quest without a Seal files no Proposal', async () => {
+    const g = fakeGateway()
+    await runWorker(input(g.fetch))
+    expect(g.calls).not.toContain('tools/call:submit_proposal')
   })
 })
