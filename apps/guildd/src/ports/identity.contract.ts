@@ -4,6 +4,7 @@ import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
 import {
   CHALLENGE_TTL_MS,
+  ENROL_TTL_MS,
   FOUNDING_TTL_MS,
   IdentityError,
   type IdentityProvider,
@@ -132,6 +133,179 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       for (const secret of secrets) {
         expect(serialised).not.toContain(secret)
       }
+    })
+
+    describe('enrolment of a passkey on a new device (one-time link)', () => {
+      async function enrolling() {
+        const s = await registered()
+        const fresh = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        return { ...s, fresh }
+      }
+
+      async function enrol(
+        s: Awaited<ReturnType<typeof enrolling>>,
+        token: string,
+        guildId = s.guildId
+      ) {
+        const begin = await s.identity.beginEnrolment(guildId, token)
+        return s.identity.finishEnrolment(
+          guildId,
+          begin.challengeId,
+          await s.fresh.register(begin.options)
+        )
+      }
+
+      test('a token enrols one more passkey, opens a session, and the new passkey then signs in', async () => {
+        const s = await enrolling()
+        const { token, expiresAt } = await s.identity.issueEnrolmentToken(s.guildId)
+        expect(expiresAt.getTime()).toBe(s.clock.now().getTime() + ENROL_TTL_MS)
+        const session = await enrol(s, token)
+        expect(session.guildId).toBe(s.guildId)
+        expect((await s.identity.resolveSession(session.token))?.guildId).toBe(s.guildId)
+        const begin = await s.identity.beginSignIn(s.guildId)
+        expect(
+          await failure(
+            s.identity.finishSignIn(
+              s.guildId,
+              begin.challengeId,
+              await s.fresh.assert(begin.options)
+            )
+          )
+        ).toBe('no_error')
+        // The first passkey still works too.
+        const again = await s.identity.beginSignIn(s.guildId)
+        expect(
+          await failure(
+            s.identity.finishSignIn(s.guildId, again.challengeId, await s.key.assert(again.options))
+          )
+        ).toBe('no_error')
+      })
+
+      test('the token is at least 128 random bits, bound to its guild, and distinct each time', async () => {
+        const s = await enrolling()
+        const a = await s.identity.issueEnrolmentToken(s.guildId)
+        const b = await s.identity.issueEnrolmentToken(s.guildId)
+        expect(a.token).not.toBe(b.token)
+        expect(a.token.startsWith(`${s.guildId}.`)).toBe(true)
+        const random = a.token.slice(s.guildId.length + 1)
+        expect(Buffer.from(random, 'base64url').length).toBeGreaterThanOrEqual(16)
+      })
+
+      test('minting a new token retires the earlier one', async () => {
+        const s = await enrolling()
+        const first = await s.identity.issueEnrolmentToken(s.guildId)
+        await s.identity.issueEnrolmentToken(s.guildId)
+        expect(await failure(s.identity.beginEnrolment(s.guildId, first.token))).toBe(
+          'registration_closed'
+        )
+      })
+
+      test('a replayed token is refused, even by a challenge begun before it was spent', async () => {
+        const s = await enrolling()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const early = await s.identity.beginEnrolment(s.guildId, token)
+        const earlyResponse = await s.fresh.register(early.options)
+        await enrol(s, token)
+        expect(await failure(s.identity.beginEnrolment(s.guildId, token))).toBe(
+          'registration_closed'
+        )
+        expect(
+          await failure(s.identity.finishEnrolment(s.guildId, early.challengeId, earlyResponse))
+        ).toBe('registration_closed')
+      })
+
+      test('an expired token, a wrong token and a token of another guild all fail the same way', async () => {
+        const s = await enrolling()
+        const other = await s.newGuild()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const foreign = await s.identity.issueEnrolmentToken(other)
+        expect(await failure(s.identity.beginEnrolment(s.guildId, 'guess'))).toBe(
+          'registration_closed'
+        )
+        expect(await failure(s.identity.beginEnrolment(s.guildId, foreign.token))).toBe(
+          'registration_closed'
+        )
+        expect(await failure(s.identity.beginEnrolment(other, token))).toBe('registration_closed')
+        s.clock.advance(ENROL_TTL_MS + 1)
+        expect(await failure(s.identity.beginEnrolment(s.guildId, token))).toBe(
+          'registration_closed'
+        )
+      })
+
+      test('a token that expires between begin and finish is refused and adds no passkey', async () => {
+        const s = await enrolling()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const begin = await s.identity.beginEnrolment(s.guildId, token)
+        const response = await s.fresh.register(begin.options)
+        s.clock.advance(ENROL_TTL_MS + 1)
+        expect(
+          await failure(s.identity.finishEnrolment(s.guildId, begin.challengeId, response))
+        ).toMatch(/registration_closed|invalid_challenge/)
+        const signIn = await s.identity.beginSignIn(s.guildId)
+        expect(
+          await failure(
+            s.identity.finishSignIn(
+              s.guildId,
+              signIn.challengeId,
+              await s.fresh.assert(signIn.options)
+            )
+          )
+        ).toBe('unknown_credential')
+      })
+
+      test('an enrolment challenge cannot be finished through the ordinary registration route', async () => {
+        const s = await enrolling()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const begin = await s.identity.beginEnrolment(s.guildId, token)
+        expect(
+          await failure(
+            s.identity.finishRegistration(
+              s.guildId,
+              begin.challengeId,
+              await s.fresh.register(begin.options)
+            )
+          )
+        ).toBe('invalid_challenge')
+      })
+
+      test('two simultaneous finishes with one token enrol exactly one passkey', async () => {
+        const s = await enrolling()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const second = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const attempts = await Promise.all(
+          [s.fresh, second].map(async (key) => {
+            const begin = await s.identity.beginEnrolment(s.guildId, token)
+            return { begin, response: await key.register(begin.options) }
+          })
+        )
+        const outcomes = await Promise.all(
+          attempts.map((a) =>
+            failure(s.identity.finishEnrolment(s.guildId, a.begin.challengeId, a.response))
+          )
+        )
+        expect(outcomes.filter((o) => o === 'no_error')).toHaveLength(1)
+      })
+
+      test('minting and redeeming append non-secret events', async () => {
+        const s = await enrolling()
+        const { token } = await s.identity.issueEnrolmentToken(s.guildId)
+        const session = await enrol(s, token)
+        const events = (await s.events(s.guildId)).filter((e) => e.type.startsWith('identity.'))
+        expect(events.map((e) => e.type).slice(-4)).toEqual([
+          'identity.enrolment_token_issued',
+          'identity.enrolment_token_spent',
+          'identity.passkey_registered',
+          'identity.signed_in',
+        ])
+        const serialised = JSON.stringify(events)
+        for (const secret of [
+          token,
+          session.token,
+          createHash('sha256').update(token).digest('base64url'),
+        ]) {
+          expect(serialised).not.toContain(secret)
+        }
+      })
     })
 
     test('registering then signing in yields a session bound to that guild', async () => {

@@ -22,7 +22,7 @@ const credentialRow = z.object({
 })
 const challengeRow = z.object({
   challenge_id: z.string(),
-  kind: z.enum(['register', 'signin', 'reauth', 'checkpoint']),
+  kind: z.enum(['register', 'signin', 'reauth', 'checkpoint', 'enrol']),
   challenge: z.string(),
   session_id: z.string().nullable(),
   founding_hash: z.string().nullable(),
@@ -147,6 +147,53 @@ export class PgIdentityStore implements IdentityStore {
         return false
       }
       const spent = await tx`delete from identity_founding
+        where guild_id = ${guildId} and token_hash = ${tokenHash} and expires_at > ${now} returning 1`
+      if (spent.length === 0) {
+        return false
+      }
+      await tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
+        values (${guildId}, ${c.id}, ${isoBase64URL.fromBuffer(c.publicKey)}, ${c.counter}, ${c.transports})`
+      for (const event of events) {
+        await this.append(tx, event)
+      }
+      return true
+    })
+  }
+
+  async issueEnrolment(
+    guildId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    event: IdentityEvent
+  ): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`insert into identity_enrolments (guild_id, token_hash, expires_at)
+        values (${guildId}, ${tokenHash}, ${expiresAt})
+        on conflict (guild_id) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`
+      await this.append(tx, event)
+    })
+  }
+
+  async hasEnrolment(guildId: string, tokenHash: string, now: Date): Promise<boolean> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) =>
+        tx`select 1 from identity_enrolments
+           where guild_id = ${guildId} and token_hash = ${tokenHash} and expires_at > ${now}`
+    )
+    return rows.length > 0
+  }
+
+  async enrolCredential(
+    guildId: string,
+    c: StoredCredential,
+    tokenHash: string,
+    now: Date,
+    events: IdentityEvent[]
+  ): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // The delete takes the row lock, so two finishes of one token cannot both spend it.
+      const spent = await tx`delete from identity_enrolments
         where guild_id = ${guildId} and token_hash = ${tokenHash} and expires_at > ${now} returning 1`
       if (spent.length === 0) {
         return false

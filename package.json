@@ -16,6 +16,7 @@
     "restore": "bun scripts/restore.ts",
     "db:migrate": "bun run --cwd apps/guildd db:migrate",
     "start:selfhost": "bun scripts/start-selfhost.ts",
+    "guild:enrol-link": "bun scripts/enrol-link.ts",
     "repo:setup": "bun scripts/repo-setup.ts",
     "test:db:prune": "bun scripts/drop-test-dbs.ts"
   },

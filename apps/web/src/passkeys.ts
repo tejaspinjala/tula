@@ -124,6 +124,74 @@ export async function signIn(
   )
 }
 
+/** The pattern of an enrolment token: `<guild id>.<random>`, as guildd mints it. */
+const ENROL_TOKEN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[A-Za-z0-9_-]{16,}$/i
+
+/** The enrolment token a link carries in its fragment (`#enrol=<token>`), or null. */
+export function enrolTokenFromHash(hash: string): string | null {
+  const found = /^#enrol=(.+)$/.exec(hash)?.[1]
+  return found && ENROL_TOKEN.test(found) ? found : null
+}
+
+/** The slice of `window` that reading and clearing the fragment needs. */
+export interface EnrolPlace {
+  location: { hash: string; pathname: string; search: string }
+  history: { replaceState(state: unknown, title: string, url: string): void }
+}
+
+/**
+ * Reads the enrolment token from the address bar's fragment and removes the fragment at once, so
+ * the token is not left in the address bar, history entries or a copied URL. Null when absent.
+ */
+export function takeEnrolToken(place: EnrolPlace): string | null {
+  const token = enrolTokenFromHash(place.location.hash)
+  if (token) {
+    place.history.replaceState(null, '', `${place.location.pathname}${place.location.search}`)
+  }
+  return token
+}
+
+/**
+ * Enrols this device: registers one discoverable passkey with the one-time `token` from a link
+ * minted on the host, and returns the guild-bound cookie session. The token goes in a request
+ * header, never a URL.
+ */
+export async function enrolPasskey(
+  token: string,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
+): Promise<Session> {
+  const guildId = ENROL_TOKEN.exec(token)?.[1]
+  if (!guildId) {
+    throw new PasskeyRequestError(401, 'registration_closed')
+  }
+  const base = `/guilds/${guildId}/enrol`
+  const begin = await send(
+    fetcher,
+    `${base}/begin`,
+    {},
+    creation,
+    undefined,
+    undefined,
+    undefined,
+    {
+      'x-enrol-token': token,
+    }
+  )
+  const response = await browser.create(begin.options)
+  return send(
+    fetcher,
+    `${base}/finish`,
+    { challengeId: begin.challengeId, response },
+    sessionBody,
+    undefined,
+    undefined,
+    undefined,
+    COOKIE_MODE
+  )
+}
+
 /** Re-authenticates the session with the passkey and returns the short-lived proof. */
 export async function reauthenticate(
   token: string,
@@ -274,39 +342,47 @@ export function passkeyFailure(error: unknown): PasskeyFailure {
   return 'unknown'
 }
 
-const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string }> = {
+const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string; enrol: string }> = {
   cancelled: {
     'sign-in': 'You set the passkey aside. Try again when you are ready.',
     founding: 'You set the passkey aside. Try again to finish founding your guild.',
+    enrol: 'You set the passkey aside. Try the link again when you are ready.',
   },
   no_credential: {
     'sign-in':
       'No passkey was offered for this address, or you set it aside at once. Open the Hall at the address you founded it from, or use an older passkey with a guild id.',
     founding:
       'Your device offered no way to make a passkey for this address, or you set it aside at once. Try the address you will use every day.',
+    enrol:
+      'Your device offered no way to make a passkey for this address. Open the link in the browser you will use every day.',
   },
   wrong_address: {
     'sign-in':
       'This address is not the one your passkey was made for. Open the Hall at its usual address and try again.',
     founding:
       'This address cannot hold a passkey. Open the Hall at its usual address and try again.',
+    enrol: 'This address cannot hold a passkey. Open the link exactly as the host printed it.',
   },
   refused: {
     'sign-in': 'The Hall gates stayed shut: that passkey was not accepted.',
     founding: 'The Hall would not take that. Check the founding details and try again.',
+    enrol:
+      "This link has been used, has run out, or was never the Hall's. Ask the host for a new one.",
   },
   busy: {
     'sign-in': 'Too many knocks at the gate. Wait a minute, then try again.',
     founding: 'Too many knocks at the gate. Wait a minute, then try again.',
+    enrol: 'Too many knocks at the gate. Wait a minute, then try again.',
   },
   unknown: {
     'sign-in': 'Something went wrong at the gate. Try again.',
     founding: 'Founding your guild failed. Try again.',
+    enrol: 'Something went wrong at the gate. Try the link again.',
   },
 }
 
 /** The in-world line for a failure at a step; every failure kind has its own wording. */
-export function passkeyLine(kind: PasskeyFailure, step: 'sign-in' | 'founding'): string {
+export function passkeyLine(kind: PasskeyFailure, step: 'sign-in' | 'founding' | 'enrol'): string {
   return LINES[kind][step]
 }
 

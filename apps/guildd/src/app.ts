@@ -470,6 +470,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
+  app.post('/guilds/:id/enrol/begin', limited('enrol-begin'))
+  app.post('/guilds/:id/enrol/finish', limited('enrol-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
@@ -651,6 +653,38 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // Enrolling a passkey on a new device with a one-time token minted on the host (never over
+  // HTTP). Every failure is one refusal: an unknown guild, a missing, wrong, expired, spent or
+  // other-guild token all answer 401 registration_closed.
+  app.post('/guilds/:id/enrol/begin', async (c) => {
+    const guild = uuid.safeParse(c.req.param('id'))
+    const token = c.req.header('x-enrol-token')
+    if (!guild.success || !token) {
+      throw new IdentityError('registration_closed')
+    }
+    return c.json(await deps.identity.beginEnrolment(guild.data, token))
+  })
+
+  app.post('/guilds/:id/enrol/finish', async (c) => {
+    if (wantsCookie(c) && !cookieModeAllowed(c)) {
+      return c.json({ error: 'csrf_refused' }, 403)
+    }
+    const guild = uuid.safeParse(c.req.param('id'))
+    const body = registerFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    if (!guild.success) {
+      throw new IdentityError('registration_closed')
+    }
+    const session = await deps.identity.finishEnrolment(
+      guild.data,
+      body.data.challengeId,
+      body.data.response
+    )
+    return sessionResponse(c, session, 201)
+  })
+
   // Unknown guilds get decoy options from the provider, so this answers the same for every id.
   app.post('/guilds/:id/sign-in/begin', async (c) => {
     return c.json(await deps.identity.beginSignIn(c.req.param('id')))
@@ -701,13 +735,17 @@ export function createApp(deps: AppDeps): Hono {
    * A browser asks for a cookie session (`x-session-mode: cookie`) and never receives the token
    * in the body; any other client gets the bearer token as before.
    */
-  function sessionResponse(c: Context, session: IdentitySession): Response {
+  function sessionResponse(
+    c: Context,
+    session: IdentitySession,
+    status: 200 | 201 = 200
+  ): Response {
     if (!wantsCookie(c)) {
-      return c.json(session)
+      return c.json(session, status)
     }
     const seconds = (session.expiresAt.getTime() - deps.clock.now().getTime()) / 1000
     c.header('Set-Cookie', sessionCookie(c, session.token, seconds))
-    return c.json({ guildId: session.guildId, expiresAt: session.expiresAt })
+    return c.json({ guildId: session.guildId, expiresAt: session.expiresAt }, status)
   }
 
   // Who the cookie (or bearer) session is; a reloaded page asks this before showing anything.
