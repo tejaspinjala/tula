@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { MemoryPushStore } from './adapters/memory-push-store'
 import { createSealPushRelay } from './seal-push'
@@ -7,13 +8,25 @@ import { createHarness } from './testing/harness'
 const harness = await createHarness()
 afterAll(() => harness.close())
 
+const founded = z.object({ id: z.string() })
+
+/** Founds a guild through the public route, which also seeds its config. */
+async function foundGuild(name: string): Promise<string> {
+  const res = await harness.request('/guilds', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, goal: 'g' }),
+  })
+  return founded.parse(await res.json()).id
+}
+
 const DEVICE = { endpoint: 'https://push.example/phone', p256dh: 'k', auth: 'a' }
 
 async function setup() {
   const store = new MemoryPushStore()
   const notifier = new MemoryPushNotifier()
   const relay = createSealPushRelay({ db: harness.adapters.db, store, notifier })
-  const guild = await harness.foundGuild({ name: 'Push', goal: 'g' })
+  const guild = await foundGuild('Push')
   const request = (text: string, guildId = guild) =>
     harness.adapters.seals.requestSeal(guildId, {
       questId: crypto.randomUUID(),
@@ -41,7 +54,7 @@ describe('Seal push relay', () => {
 
   test('no push is sent for another guild: a device only hears about its own guild', async () => {
     const { store, notifier, relay, guild, request } = await setup()
-    const other = await harness.foundGuild({ name: 'Other', goal: 'g' })
+    const other = await foundGuild('Other')
     await store.add(guild, DEVICE)
     await request('other guild seal', other)
     await relay.dispatch(guild)
