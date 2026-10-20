@@ -26,12 +26,13 @@ export function backoffDelay(policy: OutboundPolicy, attempt: number): number {
 
 /**
  * Runs an outbound call with a timeout per attempt and jittered exponential retries. `call`
- * receives an AbortSignal that fires at the timeout. Throws {@link OutboundTimeout} when the last
- * attempt timed out, else the last attempt's error.
+ * receives an AbortSignal that fires at the timeout. An error `retryable` rejects is thrown at once, without
+ * retrying. Throws {@link OutboundTimeout} when the last attempt timed out, else the last attempt's error.
  */
 export async function withOutbound<T>(
   policy: OutboundPolicy,
-  call: (signal: AbortSignal) => Promise<T>
+  call: (signal: AbortSignal) => Promise<T>,
+  retryable: (error: unknown) => boolean = () => true
 ): Promise<T> {
   let last: unknown
   for (let attempt = 0; attempt <= policy.retries; attempt += 1) {
@@ -50,6 +51,9 @@ export async function withOutbound<T>(
       return await Promise.race([call(controller.signal), timeout])
     } catch (error) {
       last = error
+      if (!retryable(error)) {
+        throw error
+      }
     } finally {
       clearTimeout(timer)
     }

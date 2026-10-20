@@ -956,6 +956,7 @@ export class McpGateway {
       results: outcome.results.map((r) => ({
         title: r.title,
         url: r.url,
+        ...(r.note === undefined ? {} : { note: r.note }),
         text: `<${tag} url="${r.url}">\n${r.extract}\n</${tag}>`,
       })),
     })

@@ -2,8 +2,7 @@ import { researchCap } from './guild-config'
 import { OutboundTimeout, withOutbound } from './outbound'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
-import { hashBytes } from './ports/object-store'
-import type { PageFetcher } from './ports/page-fetcher'
+import { type PageFetcher, PageRefused } from './ports/page-fetcher'
 import type { Quest } from './ports/quest-queue'
 import type { ResearchStore } from './ports/research-store'
 import type { SearchProvider } from './ports/search-provider'
@@ -29,6 +28,8 @@ export interface ResearchResult {
   title: string
   url: string
   extract: string
+  /** Why the page could not be read (the extract is then the search snippet); a closed, short reason. */
+  note?: string
 }
 
 /** The outcome of a research call. */
@@ -76,7 +77,7 @@ function httpsUrl(raw: string): string | null {
  * the private-routing rule (a private-class Quest never sends a query to a provider that is not
  * private-eligible), the per-Quest call cap (an atomic slot in the {@link ResearchStore}), and the
  * Treasury charge. Only then does it search and fetch, with a timeout and jittered retries on every
- * outbound call. A failure after the charge releases it and frees the slot. No model is called, and
+ * outbound call. A failure after the charge gives the charge back but keeps the slot (a failed call counts toward the cap). No model is called, and
  * nothing fetched is executed: the results are text for the gateway to return as untrusted data.
  */
 export class Research {
@@ -106,9 +107,7 @@ export class Research {
     const slot = await store.reserve(guildId, {
       hallId: quest.hallId,
       questId: quest.id,
-      attempt: quest.attempts,
       memberId: member,
-      queryHash: hashBytes(new TextEncoder().encode(query)),
       maxPerQuest: researchCap(config),
       at: this.deps.clock.now(),
     })
@@ -142,7 +141,8 @@ export class Research {
       if (spendId !== null) {
         await treasury.releaseSpend(guildId, spendId, member)
       }
-      await store.release(guildId, slot.call.id)
+      // The slot stays: a failed call counts toward the cap, so a Member looping on a down
+      // provider reaches `research_cap` and cannot hammer it. Only the charge is given back.
       return {
         ok: false,
         error: error instanceof OutboundTimeout ? 'research_timeout' : 'research_failed',
@@ -160,14 +160,23 @@ export class Research {
     })
     return Promise.all(
       usable.slice(0, MAX_RESEARCH_RESULTS).map(async ({ hit, url }) => {
-        const page = await withOutbound(this.policy, (signal) =>
-          this.deps.fetcher.fetch(url, { signal })
-        ).catch(() => '')
+        let page = ''
+        let note: string | undefined
+        try {
+          page = await withOutbound(
+            this.policy,
+            (signal) => this.deps.fetcher.fetch(url, { signal }),
+            (error) => !(error instanceof PageRefused)
+          )
+        } catch (error) {
+          note = error instanceof PageRefused ? `page_skipped: ${error.code}` : 'page_unavailable'
+        }
         const text = collapse(page) || collapse(hit.snippet)
         return {
           title: collapse(hit.title).slice(0, MAX_TITLE_CHARS),
           url,
           extract: text.slice(0, MAX_EXTRACT_CHARS),
+          ...(note === undefined ? {} : { note }),
         }
       })
     )

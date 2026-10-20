@@ -7,15 +7,11 @@ export interface ResearchCall {
   memberId: string
 }
 
-/** What a Quest's research call records: ids and a hash of the query, never the query text. */
+/** What a Quest's research call records: ids only, never the query text. */
 export interface NewResearchCall {
   hallId: string
   questId: string
-  /** The attempt the call was made in. */
-  attempt: number
   memberId: string
-  /** Hex SHA-256 of the query: lets a ledger show repeats without storing what was asked. */
-  queryHash: string
   /** The most calls the Quest may hold (all attempts); past it the call is refused. */
   maxPerQuest: number
   /** The instant the call happened. */
@@ -32,7 +28,7 @@ export type ReserveResult = { ok: true; call: ResearchCall } | { ok: false; erro
 export interface ResearchStore {
   /** Takes a slot for a call, or refuses with `research_cap` when the Quest already holds its cap. */
   reserve(guildId: string, input: NewResearchCall): Promise<ReserveResult>
-  /** Frees a slot whose call did not happen (refused charge, provider failure). Idempotent. */
+  /** Frees a slot whose call never started (the charge was declined). Idempotent. A failed call keeps its slot. */
   release(guildId: string, callId: string): Promise<void>
   /** The slots a Quest holds. */
   count(guildId: string, questId: string): Promise<number>

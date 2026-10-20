@@ -32,9 +32,8 @@ export class PgResearchStore implements ResearchStore {
         return { ok: false, error: 'research_cap' }
       }
       const [created] = await tx`
-        insert into research_calls (guild_id, hall_id, quest_id, attempt, member_id, query_hash, made_at)
-        values (${guildId}, ${input.hallId}, ${input.questId}, ${input.attempt}, ${input.memberId},
-          ${input.queryHash}, ${input.at})
+        insert into research_calls (guild_id, hall_id, quest_id, member_id, made_at)
+        values (${guildId}, ${input.hallId}, ${input.questId}, ${input.memberId}, ${input.at})
         returning call_id, hall_id, quest_id, member_id`
       const r = row.parse(created)
       const call: ResearchCall = {

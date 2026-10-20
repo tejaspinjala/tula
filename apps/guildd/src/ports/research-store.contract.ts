@@ -13,9 +13,7 @@ function call(over: Partial<NewResearchCall> = {}): NewResearchCall {
   return {
     hallId: 'h-forge',
     questId: crypto.randomUUID(),
-    attempt: 1,
     memberId: 'm-ada',
-    queryHash: 'a'.repeat(64),
     maxPerQuest: 3,
     at: T0,
     ...over,
