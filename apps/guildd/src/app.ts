@@ -382,6 +382,7 @@ export function createApp(deps: AppDeps): Hono {
   // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/summon', limited('summon'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
