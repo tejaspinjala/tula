@@ -58,7 +58,9 @@ describe('validateWorkflow', () => {
   test('references: Hall, template, Hall/template match, schedule', () => {
     const g = clone()
     const draft = g.nodes.find((n) => n.id === 'draft')
-    if (draft?.type !== 'agent') throw new Error('template changed')
+    if (draft?.type !== 'agent') {
+      throw new Error('template changed')
+    }
     draft.hallId = 'nowhere'
     expect(codes(g)).toContain('unknown_hall:draft')
     draft.hallId = 'health'
@@ -79,7 +81,9 @@ describe('validateWorkflow', () => {
   test('references: a brief may only name an upstream agent node', () => {
     const g = clone()
     const draft = g.nodes.find((n) => n.id === 'draft')
-    if (draft?.type !== 'agent') throw new Error('template changed')
+    if (draft?.type !== 'agent') {
+      throw new Error('template changed')
+    }
     draft.briefTemplate = 'Use {{nodes.ghost.output}}'
     expect(codes(g)).toContain('bad_reference:draft')
     draft.briefTemplate = 'Use {{nodes.draft.output}}'
@@ -119,7 +123,9 @@ describe('validateWorkflow', () => {
   test('the gate rule: bindings must name the right node kinds and the same chain', () => {
     const wrong = clone()
     const seal = wrong.nodes.find((n) => n.id === 'seal')
-    if (seal?.type !== 'approval') throw new Error('template changed')
+    if (seal?.type !== 'approval') {
+      throw new Error('template changed')
+    }
     seal.of = 'draft'
     expect(codes(wrong)).toContain('bad_binding:seal')
   })
@@ -127,7 +133,9 @@ describe('validateWorkflow', () => {
   test('the gate rule: the drafting Quest template must require a Seal', () => {
     const g = clone()
     const draft = g.nodes.find((n) => n.id === 'draft')
-    if (draft?.type !== 'agent') throw new Error('template changed')
+    if (draft?.type !== 'agent') {
+      throw new Error('template changed')
+    }
     draft.templateId = 'herald-brief'
     expect(codes(g)).toContain('unsealed_template:draft')
   })
@@ -135,7 +143,9 @@ describe('validateWorkflow', () => {
   test('budget: the sum of maxUsd stays within the daily spend cap', () => {
     const g = clone()
     const draft = g.nodes.find((n) => n.id === 'draft')
-    if (draft?.type !== 'agent') throw new Error('template changed')
+    if (draft?.type !== 'agent') {
+      throw new Error('template changed')
+    }
     draft.maxUsd = 10
     expect(codes(g, config({ caps: { dailyTokens: 1, dailySpendCents: 1_000 } }))).toEqual([])
     draft.maxUsd = 10.01
