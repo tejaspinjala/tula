@@ -17,6 +17,20 @@ import { TreasuryCore, type TreasuryTx } from '../treasury-core'
 /** Advisory-lock namespace for Treasury writes (the model gateway uses 26). */
 const LOCK_NAMESPACE = 35
 
+/**
+ * Net cents spent on a UTC day. A refund (settle or release) counts against the day its spend
+ * was RESERVED on, so a refund after UTC midnight can never open headroom in the new day's cap.
+ * Parameters: `$1` guild id, `$2` day.
+ */
+export const SPENT_ON_SQL = `
+  select coalesce(-sum(l.amount_cents), 0) as spent
+  from treasury_ledger l
+  left join treasury_ledger r
+    on r.guild_id = l.guild_id and r.spend_id = l.spend_id and r.kind = 'spend_reserve'
+  where l.guild_id = $1 and l.bucket = 'operating'
+    and l.kind in ('spend_reserve', 'spend_settle', 'spend_release')
+    and (case when l.kind = 'spend_reserve' then l.day else r.day end) = $2::date`
+
 const iso = z.coerce.date().transform((d) => d.toISOString())
 
 const entryRow = z.object({
@@ -147,14 +161,7 @@ export class PgTreasuryStore extends TreasuryCore implements TreasuryStore {
       // A refund (settle or release) counts against the day its spend was RESERVED on, so a
       // refund after UTC midnight can never open headroom in the new day's cap.
       spentOn: async (day) => {
-        const [row] = await tx`
-          select coalesce(-sum(l.amount_cents), 0) as spent
-          from treasury_ledger l
-          left join treasury_ledger r
-            on r.guild_id = l.guild_id and r.spend_id = l.spend_id and r.kind = 'spend_reserve'
-          where l.guild_id = ${guildId} and l.bucket = 'operating'
-            and l.kind in ('spend_reserve', 'spend_settle', 'spend_release')
-            and (case when l.kind = 'spend_reserve' then l.day else r.day end) = ${day}::date`
+        const [row] = await tx.unsafe(SPENT_ON_SQL, [guildId, day])
         return z.object({ spent: z.coerce.number() }).parse(row).spent
       },
       entriesByKey: async (key) =>
