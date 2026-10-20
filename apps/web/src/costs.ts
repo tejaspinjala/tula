@@ -125,5 +125,5 @@ export function costPerPostText(cost: PostCost): string {
 
 /** A Campaign as a table row names it: a short label (the id is a UUID), or "No Campaign". */
 export function campaignLabel(campaignId: string | null): string {
-  return campaignId ?? 'x'
+  return campaignId === null ? 'No Campaign' : `Campaign ${campaignId.slice(0, 8)}`
 }
