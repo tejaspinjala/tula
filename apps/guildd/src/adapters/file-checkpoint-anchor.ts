@@ -23,8 +23,13 @@ export class FileCheckpointAnchor implements CheckpointAnchor {
   async publish(guildId: string, checkpoint: AnchoredCheckpoint): Promise<void> {
     const file = this.fileFor(guildId)
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
-    const handle = await open(file, 'a', 0o600)
+    const handle = await open(file, 'a+', 0o600)
     try {
+      // A crash can leave an unterminated fragment; cut it off so the new line starts clean.
+      const existing = await handle.readFile()
+      if (existing.length > 0 && existing[existing.length - 1] !== 0x0a) {
+        await handle.truncate(existing.lastIndexOf(0x0a) + 1)
+      }
       await handle.write(`${JSON.stringify(checkpoint)}\n`)
       await handle.sync()
     } finally {

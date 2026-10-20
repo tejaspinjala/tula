@@ -440,6 +440,20 @@ describe('the daily signature', () => {
   })
 })
 
+describe('the daily signature on a harness clock far from database time', () => {
+  test('a guild with no checkpoint is overdue 25 hours later, on the default clock', async () => {
+    const h = await createHarness({ devGuildHeader: false })
+    try {
+      const gm = await guildMaster(h)
+      h.adapters.clock.advance(25 * 60 * 60 * 1000)
+      await gm.signIn()
+      expect(await gm.verdict()).toMatchObject({ lastCheckpointAt: null, overdue: true })
+    } finally {
+      await h.close()
+    }
+  })
+})
+
 describe('bounded, resumable verification', () => {
   async function resume(gm: Awaited<ReturnType<typeof guildMaster>>, limit: number) {
     let verdict = await gm.verdict(`?limit=${limit}`)

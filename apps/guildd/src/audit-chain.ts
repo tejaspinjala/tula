@@ -25,6 +25,8 @@ export const MAX_VERIFY_ENTRIES = 5000
 const VERIFY_STATEMENT_TIMEOUT_MS = 15_000
 /** A checkpoint (or a guild without one) older than this is overdue: 24 hours. */
 const CHECKPOINT_DUE_MS = 24 * 60 * 60 * 1000
+/** How far ahead of the injected Clock a founding may be before it stops counting as recent. */
+const CLOCK_SKEW_MS = 5 * 60 * 1000
 
 /**
  * Result of {@link verifyChain}. A `partial` verdict found no tampering up to `verifiedThrough`
@@ -313,9 +315,16 @@ async function signatureStatus(
       overdue: now - stored.createdAt.getTime() > CHECKPOINT_DUE_MS,
     }
   }
-  const [guild] = await tx`select created_at from guilds limit 1`
-  const founded = guild ? new Date(guild.created_at).getTime() : now
-  return { lastCheckpointAt: null, overdue: now - founded > CHECKPOINT_DUE_MS }
+  // The founding time is the guild.founded event's database time (no event in the chain is
+  // stamped from the injected Clock). A founding the Clock has not reached yet cannot prove the
+  // guild is recent, so beyond a small skew allowance it counts as overdue, like a missing row.
+  const [founding] =
+    await tx`select occurred_at from events where type = 'guild.founded' order by seq limit 1`
+  if (!founding) {
+    return { lastCheckpointAt: null, overdue: true }
+  }
+  const age = now - new Date(founding.occurred_at).getTime()
+  return { lastCheckpointAt: null, overdue: age > CHECKPOINT_DUE_MS || age < -CLOCK_SKEW_MS }
 }
 
 /**
@@ -439,7 +448,9 @@ export async function verifyFrom(
  * unless `full` or a `cursor` says otherwise, replays at most `limit` entries, and then returns a
  * partial verdict with a signed cursor to resume from. The latest checkpoint anchored outside
  * Postgres must still be in the chain, which is how truncation of the newest entries is caught,
- * and the stored checkpoint's passkey assertion is re-verified. Intact verdicts say when the last
+ * and the stored checkpoint's passkey assertion is re-verified (only the latest checkpoint's:
+ * earlier ones are covered by the chain; if credential removal is ever added, it will need a
+ * re-sign path so the latest assertion stays verifiable). Intact verdicts say when the last
  * checkpoint was signed and whether the daily signature is overdue. The key is resolved once per
  * call and the transaction gets a statement timeout.
  */

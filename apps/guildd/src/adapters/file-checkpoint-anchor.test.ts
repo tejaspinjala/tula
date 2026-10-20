@@ -32,4 +32,14 @@ describe('FileCheckpointAnchor on disk', () => {
     await appendFile(join(dir, `${guild}.jsonl`), 'not json\n')
     await expect(anchor.latest(guild)).rejects.toThrow()
   })
+
+  test('publishing after a torn trailing fragment keeps the anchor readable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchor-'))
+    const anchor = new FileCheckpointAnchor(dir)
+    await anchor.publish(guild, good)
+    await appendFile(join(dir, `${guild}.jsonl`), '{"seq":9,"mac":"cc')
+    const next = { seq: 12, mac: 'c'.repeat(64), signature: 'd'.repeat(64) }
+    await anchor.publish(guild, next)
+    expect(await anchor.latest(guild)).toEqual(next)
+  })
 })
