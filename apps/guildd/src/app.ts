@@ -62,8 +62,11 @@ import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import {
   clearedSessionCookie,
+  cookieModeAllowed,
   sessionCookie,
   sessionCookieAuth,
+  sessionHeaders,
+  sessionTokenOf,
   wantsCookie,
 } from './session-cookie'
 import type { Summon } from './summon'
@@ -525,7 +528,7 @@ export function createApp(deps: AppDeps): Hono {
    * names the guild; otherwise it is the `x-guild-id` header, honoured only when DEV_GUILD_HEADER is on; otherwise no caller.
    */
   async function callerGuild(c: Context): Promise<string | null> {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     if (token) {
       return (await deps.identity.resolveSession(token))?.guildId ?? null
     }
@@ -572,10 +575,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!guild) {
       return c.json({ error: 'not_found' }, 404)
     }
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const foundingToken = c.req.header('x-founding-token')
     if (await deps.identity.hasCredentials(guild)) {
-      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      const check = await checkSensitive(deps.identity, sessionHeaders(c))
       if (!check.ok) {
         return c.json({ error: check.error }, check.status)
       }
@@ -600,7 +603,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    const sessionToken = bearerToken(c.req.header('authorization'))
+    const sessionToken = sessionTokenOf(c)
     return c.json(
       await deps.identity.finishRegistration(
         guild,
@@ -618,6 +621,9 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/sign-in/finish', async (c) => {
+    if (wantsCookie(c) && !cookieModeAllowed(c)) {
+      return c.json({ error: 'csrf_refused' }, 403)
+    }
     const guild = await ceremonyGuild(c)
     const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
@@ -642,6 +648,9 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/sign-in/finish', async (c) => {
+    if (wantsCookie(c) && !cookieModeAllowed(c)) {
+      return c.json({ error: 'csrf_refused' }, 403)
+    }
     const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
@@ -661,13 +670,13 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(session)
     }
     const seconds = (session.expiresAt.getTime() - deps.clock.now().getTime()) / 1000
-    c.header('Set-Cookie', sessionCookie(c, deps.trustProxy ?? false, session.token, seconds))
+    c.header('Set-Cookie', sessionCookie(c, session.token, seconds))
     return c.json({ guildId: session.guildId, expiresAt: session.expiresAt })
   }
 
   // Who the cookie (or bearer) session is; a reloaded page asks this before showing anything.
   app.get('/session', async (c) => {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     return session
       ? c.json({ guildId: session.guildId })
@@ -676,16 +685,16 @@ export function createApp(deps: AppDeps): Hono {
 
   // Sign-out: revokes the session server-side and clears the cookie. Idempotent.
   app.post('/session/logout', async (c) => {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     if (token) {
       await deps.identity.revokeSession(token)
     }
-    c.header('Set-Cookie', clearedSessionCookie(c, deps.trustProxy ?? false))
+    c.header('Set-Cookie', clearedSessionCookie(c))
     return c.body(null, 204)
   })
 
   app.post('/session/reauth/begin', async (c) => {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     if (!token) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
@@ -693,7 +702,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/session/reauth/finish', async (c) => {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const body = assertFinishBody.safeParse(await c.req.json().catch(() => null))
     if (!token) {
       return c.json({ error: 'unauthenticated' }, 401)
@@ -730,7 +739,7 @@ export function createApp(deps: AppDeps): Hono {
   // The Vault. Adding a secret is a sensitive action (fresh passkey re-authentication, spent by
   // the check); nothing here ever returns, logs or errors with a secret value.
   app.post('/guilds/:id/vault/secrets', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -1072,7 +1081,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/halls/:hallId/resume', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -1185,7 +1194,7 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   async function liftRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -1209,7 +1218,7 @@ export function createApp(deps: AppDeps): Hono {
   async function operatorSession(
     c: Context
   ): Promise<{ guild: string; member: string } | { res: Response }> {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
       return { res: c.json({ error: 'unauthenticated' }, 401) }
@@ -1293,7 +1302,7 @@ export function createApp(deps: AppDeps): Hono {
   async function sessionGuildFor(
     c: Context
   ): Promise<{ guild: string; member: string; role: string } | { res: Response }> {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
       return { res: c.json({ error: 'unauthenticated' }, 401) }
@@ -1446,7 +1455,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/config/versions/:version/confirm', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -1511,7 +1520,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_body' }, 400)
     }
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!token || !session) {
       return c.json({ error: 'unauthenticated' }, 401)
@@ -1547,7 +1556,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_body' }, 400)
     }
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!token || !session) {
       return c.json({ error: 'unauthenticated' }, 401)
@@ -1854,7 +1863,7 @@ export function createApp(deps: AppDeps): Hono {
     ['deny', 'denied'],
   ] as const) {
     app.post(`/guilds/:id/seals/:sealId/${verb}`, async (c) => {
-      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      const check = await checkSensitive(deps.identity, sessionHeaders(c))
       if (!check.ok) {
         return c.json({ error: check.error }, check.status)
       }
@@ -1900,7 +1909,7 @@ export function createApp(deps: AppDeps): Hono {
     // the store under its row lock, so a reservation lapsing mid-request cannot skip re-auth.
     let reauthenticated = false
     if (c.req.header(REAUTH_HEADER)) {
-      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      const check = await checkSensitive(deps.identity, sessionHeaders(c))
       if (!check.ok) {
         return c.json({ error: check.error }, check.status)
       }
@@ -1920,7 +1929,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // The Guild Master frees a stale reservation after confirming nothing was published.
   app.post('/guilds/:id/seals/:sealId/release-stale', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -1950,7 +1959,7 @@ export function createApp(deps: AppDeps): Hono {
   async function treasuryWriter(
     c: Context
   ): Promise<{ guild: string; memberId: string } | { res: Response }> {
-    const token = bearerToken(c.req.header('authorization'))
+    const token = sessionTokenOf(c)
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
       return { res: c.json({ error: 'unauthenticated' }, 401) }
@@ -2056,7 +2065,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/treasury/spends/:spendId/approve', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
@@ -2129,7 +2138,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // The reserve is released only by the Guild Master, with a fresh re-authentication.
   app.post('/guilds/:id/treasury/reserve/release', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }

@@ -22,40 +22,37 @@ export function sessionCookieValue(header: string | null | undefined): string | 
   return null
 }
 
-/** Whether the request reached guildd over https (directly, or via a trusted proxy's header). */
-function isHttps(c: Context, trustProxy: boolean): boolean {
-  const forwarded = trustProxy ? c.req.header('x-forwarded-proto')?.split(',')[0]?.trim() : null
-  return forwarded === 'https' || new URL(c.req.url).protocol === 'https:'
-}
+const PROXY_HEADERS = ['x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-for', 'forwarded']
 
 /**
- * `Secure` is kept everywhere except plain http on a loopback host (the Guild Master's own
- * machine), where browsers would otherwise drop the cookie.
+ * `Secure` is kept everywhere except a bare plain-http request to a loopback host (the Guild
+ * Master's own machine), where browsers would otherwise drop the cookie. Any proxy header keeps
+ * it on, whether or not `TRUST_PROXY` is set: a proxied request is not a local one.
  */
-function isSecure(c: Context, trustProxy: boolean): boolean {
-  return isHttps(c, trustProxy) || !LOOPBACK_HOSTS.has(new URL(c.req.url).hostname)
+function isSecure(c: Context): boolean {
+  const url = new URL(c.req.url)
+  return (
+    url.protocol === 'https:' ||
+    !LOOPBACK_HOSTS.has(url.hostname) ||
+    PROXY_HEADERS.some((name) => c.req.header(name) !== undefined)
+  )
 }
 
 /** Builds the `Set-Cookie` value that carries `token` until `expiresAt`. */
-export function sessionCookie(
-  c: Context,
-  trustProxy: boolean,
-  token: string,
-  maxAgeSeconds: number
-): string {
+export function sessionCookie(c: Context, token: string, maxAgeSeconds: number): string {
   return [
     `${SESSION_COOKIE}=${token}`,
     'Path=/',
     `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
     'HttpOnly',
     'SameSite=Strict',
-    ...(isSecure(c, trustProxy) ? ['Secure'] : []),
+    ...(isSecure(c) ? ['Secure'] : []),
   ].join('; ')
 }
 
 /** The `Set-Cookie` value that removes the session cookie. */
-export function clearedSessionCookie(c: Context, trustProxy: boolean): string {
-  return sessionCookie(c, trustProxy, '', 0)
+export function clearedSessionCookie(c: Context): string {
+  return sessionCookie(c, '', 0)
 }
 
 /**
@@ -80,9 +77,30 @@ function sameOrigin(c: Context, trustProxy: boolean): boolean {
   }
 }
 
+const cookieTokens = new WeakMap<Request, string>()
+
 /**
- * Turns a session cookie into the bearer header every route already understands, so the rest of
- * guildd sees one kind of session. A bearer header wins and is never CSRF-checked (a script on
+ * The session token of a request: its bearer token, else the (CSRF-checked) session cookie.
+ * The request itself is never replaced, because Bun answers `requestIP` only for the original.
+ */
+export function sessionTokenOf(c: Context): string | null {
+  return bearerToken(c.req.header('authorization')) ?? cookieTokens.get(c.req.raw) ?? null
+}
+
+/** The request's headers with the session token (bearer or cookie) as `Authorization`, for `checkSensitive`. */
+export function sessionHeaders(c: Context): { get(name: string): string | null } {
+  const token = sessionTokenOf(c)
+  return {
+    get: (name) =>
+      name.toLowerCase() === 'authorization' && token
+        ? `Bearer ${token}`
+        : c.req.raw.headers.get(name),
+  }
+}
+
+/**
+ * Resolves a session cookie into {@link sessionTokenOf}, so the rest of guildd sees one kind of
+ * session. Sessions have a fixed 12 h expiry; there is no idle timeout. A bearer header wins and is never CSRF-checked (a script on
  * another site cannot attach it); a cookie-authenticated state-changing request must be
  * same-origin, or it is refused with 403 `csrf_refused`. WebSocket upgrades authenticate by
  * single-use ticket and are left untouched.
@@ -100,9 +118,7 @@ export function sessionCookieAuth(trustProxy: boolean): MiddlewareHandler {
     if (!SAFE_METHODS.has(c.req.method) && !sameOrigin(c, trustProxy)) {
       return c.json({ error: 'csrf_refused' }, 403)
     }
-    const headers = new Headers(c.req.raw.headers)
-    headers.set('authorization', `Bearer ${token}`)
-    c.req.raw = new Request(c.req.raw, { headers })
+    cookieTokens.set(c.req.raw, token)
     return next()
   }
 }
@@ -110,4 +126,9 @@ export function sessionCookieAuth(trustProxy: boolean): MiddlewareHandler {
 /** True when the sign-in asked for a cookie session (a browser) rather than a body token. */
 export function wantsCookie(c: Context): boolean {
   return c.req.header(SESSION_MODE_HEADER) === 'cookie'
+}
+
+/** A cookie session may only be requested by a same-origin page, never a cross-site one. */
+export function cookieModeAllowed(c: Context): boolean {
+  return c.req.header('sec-fetch-site') !== 'cross-site'
 }
