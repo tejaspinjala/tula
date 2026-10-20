@@ -36,5 +36,5 @@ test('the payload schema accepts ids and a known activity, and refuses extra tex
 test('the reducer accepts a member.activity event and changes nothing yet', () => {
   const base = deriveScene({ roster, quests: [], events: [], upTo: null })
   const withEvent = deriveScene({ roster, quests: [], events: [activity], upTo: null })
-  expect(withEvent).toEqual(base)
+  expect(withEvent).toEqual({ ...base, appliedSeq: 1 })
 })
