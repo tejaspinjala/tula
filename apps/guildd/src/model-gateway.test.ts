@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
@@ -91,6 +92,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
     provider,
     clock,
     tripwires,
+    gates: new MemoryGateStore(),
     quests: { get: (g, id) => quests.get(g, id) },
     tokenTtlMs: 60_000,
   })
@@ -441,6 +443,7 @@ describe('estimates and settle failures', () => {
       provider,
       clock,
       tripwires: new MemoryTripwireStore(clock),
+      gates: new MemoryGateStore(),
       quests,
     })
     const quest = await leaseQuest(quests, 'run-1')

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
+import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
@@ -57,6 +58,7 @@ export function App() {
         <LearningPanel session={session} />
         <ProposalPanel session={session} />
         <SealPanel session={session} />
+        <GatesPanel session={session} />
         <TripwirePanel session={session} />
         <TreasuryPanel session={session} />
         <QuestBoardPanel session={session} />

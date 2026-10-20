@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createECDH } from 'node:crypto'
 import { Glob } from 'bun'
-import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
+import { loadEnv, loadPlatformOperators, loadVapidEnv, loadWebauthnEnv } from './env'
 
 const vapidPair = createECDH('prime256v1')
 vapidPair.generateKeys()
@@ -127,5 +127,24 @@ describe('loadEnv', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('PLATFORM_OPERATORS', () => {
+  const a = '11111111-1111-4111-8111-111111111111'
+  const b = '22222222-2222-4222-8222-222222222222'
+  test('is a comma-separated list of member uuids; unset or empty is an empty list', () => {
+    expect(loadPlatformOperators({ PLATFORM_OPERATORS: `${a}, ${b}` })).toEqual([a, b])
+    expect(loadPlatformOperators({ PLATFORM_OPERATORS: '' })).toEqual([])
+    expect(loadPlatformOperators({})).toEqual([])
+  })
+  test('ids are lowercased and de-duplicated', () => {
+    expect(loadPlatformOperators({ PLATFORM_OPERATORS: `${a.toUpperCase()},${a},${b}` })).toEqual([
+      a,
+      b,
+    ])
+  })
+  test('fails at boot on anything that is not a uuid', () => {
+    expect(() => loadPlatformOperators({ PLATFORM_OPERATORS: `${a},not-a-uuid` })).toThrow()
   })
 })

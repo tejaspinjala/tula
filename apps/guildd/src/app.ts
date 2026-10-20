@@ -12,6 +12,7 @@ import {
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
+import type { Gates } from './gates'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { LearningEngine } from './learning-engine'
@@ -34,6 +35,7 @@ import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
+import type { SandboxRunner } from './ports/sandbox-runner'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
@@ -90,6 +92,12 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
+  platformOperators: readonly string[]
+  /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
+  gates: Gates
+  /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
+  sandboxes: SandboxRunner
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
@@ -886,6 +894,73 @@ export function createApp(deps: AppDeps): Hono {
       ? c.json({ hallId: hallId.data, paused: false })
       : c.json({ error: 'not_paused' }, 404)
   })
+
+  // Bar the Gates, the kill switch. Barring is immediate (a session plus the Guild Master role):
+  // it only narrows what runs. Lifting widens it again, so it needs a fresh passkey
+  // re-authentication. `/guilds/:id/gates/*` acts on one guild; `/gates/*` on every guild, with
+  // the event chained in the acting Guild Master's own guild.
+  app.get('/guilds/:id/gates', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(await deps.gates.status(who.guild))
+  })
+
+  /** Whether the member is a platform operator; ids compare case-insensitively. */
+  function isOperator(memberId: string): boolean {
+    const id = memberId.toLowerCase()
+    return deps.platformOperators.some((o) => o.toLowerCase() === id)
+  }
+
+  async function barRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
+    const who = scope === 'guild' ? await guildMasterSessionFor(c) : await operatorSession(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const outcome = await deps.gates.bar({ guildId: who.guild, memberId: who.member }, scope)
+    return c.json({ ...outcome, scope }, outcome.created ? 201 : 200)
+  }
+
+  async function liftRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (scope === 'global' && !isOperator(check.principal.memberId)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (scope === 'guild' && c.req.param('id') !== check.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const lifted = await deps.gates.lift(
+      { guildId: check.guildId, memberId: check.principal.memberId },
+      scope
+    )
+    return lifted ? c.json({ scope, barred: false }) : c.json({ error: 'not_barred' }, 404)
+  }
+
+  /** A session whose principal is a Guild Master and a platform operator (env `PLATFORM_OPERATORS`); for the global bar. */
+  async function operatorSession(
+    c: Context
+  ): Promise<{ guild: string; member: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    return isGuildMaster(session) && isOperator(session.memberId)
+      ? { guild: session.guildId, member: session.memberId }
+      : { res: c.json({ error: 'forbidden' }, 403) }
+  }
+
+  app.post('/guilds/:id/gates/bar', (c) => barRoute(c, 'guild'))
+  app.post('/guilds/:id/gates/lift', (c) => liftRoute(c, 'guild'))
+  app.post('/gates/bar', (c) => barRoute(c, 'global'))
+  app.post('/gates/lift', (c) => liftRoute(c, 'global'))
 
   // Web push for the Guild Master's installed PWA. A device subscribes with the browser's
   // PushSubscription; the push for a Seal request carries ids only (see `seal-push.ts`).

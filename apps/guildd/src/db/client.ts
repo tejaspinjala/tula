@@ -63,6 +63,16 @@ export interface Db {
    * Guild ids in the `push_guilds` registry (not tenant data, see migration 0041: opaque guild ids
    * only; `PgPushStore.add` writes the row in the subscription's own transaction), after `after`, in id order, at most `limit`. */
   pushGuilds(after: string | undefined, limit: number): Promise<string[]>
+  /**
+   * Guild ids (opaque, no tenant data) after `after`, in id order, at most `limit`, through the
+   * security-definer `list_guild_ids` of migration 0043. Only a global bar needs it.
+   */
+  guildIds(after: string | undefined, limit: number): Promise<string[]>
+  /**
+   * Revokes every guild's live run tokens for good in one statement, through the security-definer
+   * `revoke_all_run_tokens` of migration 0046; returns how many runs changed.
+   */
+  revokeAllRunTokens(): Promise<number>
   /** Closes the pools. */
   close(): Promise<void>
 }
@@ -127,6 +137,14 @@ export function createDb(
         where (${after ?? null}::uuid is null or guild_id > ${after ?? null}::uuid)
         order by guild_id limit ${limit}`
       return rows.map((r) => z.string().parse(r.guild_id))
+    },
+    async guildIds(after, limit) {
+      const rows = await sql`select list_guild_ids(${after ?? null}::uuid, ${limit}) as guild_id`
+      return rows.map((r) => z.string().parse(r.guild_id))
+    },
+    async revokeAllRunTokens() {
+      const [row] = await sql`select revoke_all_run_tokens() as revoked`
+      return z.object({ revoked: z.number() }).parse(row).revoked
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),

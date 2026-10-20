@@ -1,5 +1,6 @@
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryHandoffStore } from './adapters/memory-handoff-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
@@ -7,9 +8,11 @@ import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryNoteStore } from './adapters/memory-note-store'
 import { MemoryObjectStore } from './adapters/memory-object-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
+import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
+import { Gates } from './gates'
 import { gatewayGuardsContract } from './gateway-guards.contract'
 import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
@@ -22,7 +25,16 @@ gatewayGuardsContract('memory', async () => {
   const keys = new MemoryKeyProvider()
   const config = new MemoryConfigStore(clock)
   const secrets = new MemorySecretStore(keys)
-  const quests = new MemoryQuestQueue(clock, () => 0.5)
+  const gateStore = new MemoryGateStore()
+  const quests = new MemoryQuestQueue(
+    clock,
+    () => 0.5,
+    () => {},
+    () => false,
+    (guildId) => gateStore.barredNow(guildId)
+  )
+  const sandboxes = new MemorySandboxRunner()
+  const guilds: string[] = []
   const tripwires = new MemoryTripwireStore(clock)
   const provider = new MemoryModelProvider()
   const ledger = new MemoryModelLedger()
@@ -34,6 +46,7 @@ gatewayGuardsContract('memory', async () => {
     clock,
     quests,
     tripwires,
+    gates: gateStore,
   }
   const gateway = new ModelGateway(gatewayDeps)
   const mcpDeps = {
@@ -46,10 +59,23 @@ gatewayGuardsContract('memory', async () => {
     keys,
     clock,
     tripwires,
+    gates: gateStore,
   }
   const mcp = new McpGateway(mcpDeps)
+  const gates = new Gates({
+    store: gateStore,
+    runs: gateway,
+    sandboxes,
+    guildIds: async (after, limit) =>
+      [...guilds]
+        .sort()
+        .filter((g) => after === undefined || g > after)
+        .slice(0, limit),
+  })
   return {
     gateway,
+    gates,
+    sandboxes,
     mcp,
     tripwires,
     quests,
@@ -59,6 +85,7 @@ gatewayGuardsContract('memory', async () => {
     clock,
     newGuild: async () => {
       const g = crypto.randomUUID()
+      guilds.push(g)
       await config.seed(g)
       const next = guildConfig.parse({
         ...defaultConfig(),

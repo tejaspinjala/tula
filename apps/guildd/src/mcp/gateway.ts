@@ -3,6 +3,7 @@ import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
 import { questConcurrency } from '../guild-config'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
+import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { NoteError, type NoteStore } from '../ports/note-store'
@@ -38,6 +39,8 @@ export interface McpGatewayDeps {
   toolsets: ToolsetStore
   keys: KeyProvider
   clock: Clock
+  /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
+  gates: Pick<GateStore, 'isBarred'>
   /** A paused Hall leases none of its Quests. */
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** The tools on offer; defaults to {@link TOOL_CATALOG}. A role's list is frozen per Campaign from it. */
@@ -263,11 +266,19 @@ export class McpGateway {
     }
   }
 
+  /** Bar the Gates: read on every call, right after the token names its guild, before any other work. */
+  private async requireOpen(guild: string): Promise<void> {
+    if (await this.deps.gates.isBarred(guild)) {
+      throw new Denied('gates_barred')
+    }
+  }
+
   private async fromAssignment(token: string): Promise<Caller> {
     const claims = await verifyToken(this.deps.keys, token)
     if (claims?.k !== 'assign' || claims.exp <= this.deps.clock.now().getTime()) {
       throw new Denied('invalid_assignment')
     }
+    await this.requireOpen(claims.g)
     const quest = await this.deps.quests.get(claims.g, claims.q)
     if (!quest || quest.ownerId !== claims.m) {
       throw new Denied('invalid_assignment')
@@ -286,6 +297,7 @@ export class McpGateway {
     if (claims?.k !== 'lease' || claims.q !== handle.questId || claims.a !== handle.attempt) {
       throw new Denied('invalid_lease')
     }
+    await this.requireOpen(claims.g)
     const quest = await this.deps.quests.get(claims.g, claims.q)
     if (!quest || quest.ownerId !== claims.m) {
       throw new Denied('invalid_lease')

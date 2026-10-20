@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
+import { MemoryGateStore } from '../adapters/memory-gate-store'
 import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
 import { MemoryKeyProvider } from '../adapters/memory-key-provider'
 import { MemoryNoteStore } from '../adapters/memory-note-store'
@@ -37,6 +38,7 @@ async function setup(overrides: Partial<McpGatewayDeps> = {}) {
     keys,
     clock,
     tripwires: new MemoryTripwireStore(clock),
+    gates: new MemoryGateStore(),
     ...overrides,
   }
   const gateway = new McpGateway(deps)
