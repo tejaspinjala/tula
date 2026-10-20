@@ -50,7 +50,7 @@ function summonWith(
     quests: a.quests,
     tripwires: a.tripwires,
     gates: { isBarred: async (g) => (await a.gates.status(g)).guild },
-    gateway: { openRun: async () => open() },
+    gateway: { openRun: async () => open(), runRevoked: async () => false },
     mcp: a.mcp,
     sandboxes,
     clock: a.clock,

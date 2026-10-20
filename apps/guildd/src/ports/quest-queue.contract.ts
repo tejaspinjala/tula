@@ -257,6 +257,30 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await events(g)).at(-1)).toBe('quest.dead')
     })
 
+    test('releasing leases returns active Quests to queued at once, attempts unchanged, and is idempotent', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      await queue.post(g, quest())
+      await queue.post(other, quest())
+      const held = await queue.claim(g, LEASE)
+      const theirs = await queue.claim(other, LEASE)
+      if (!held || !theirs) {
+        throw new Error('expected leases')
+      }
+      expect(await queue.releaseLeases(g, 'sandbox_unavailable')).toBe(1)
+      expect(await queue.get(g, held.id)).toMatchObject({
+        state: 'queued',
+        attempts: 1,
+        leaseExpiresAt: null,
+        lastError: 'sandbox_unavailable',
+      })
+      expect(await queue.releaseLeases(g, 'sandbox_unavailable')).toBe(0)
+      expect((await queue.get(other, theirs.id))?.state).toBe('active')
+      const again = await queue.claim(g, LEASE)
+      expect(again).toMatchObject({ id: held.id, attempts: 2 })
+    })
+
     test('a blocker must exist in the same guild', async () => {
       const { queue, newGuild } = await make()
       const [a, b] = [await newGuild(), await newGuild()]

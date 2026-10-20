@@ -195,6 +195,7 @@ export async function compose(
         store: gateStore,
         runs: gateway,
         sandboxes,
+        quests,
         guildIds: (after, limit) => db.guildIds(after, limit),
       }),
   }

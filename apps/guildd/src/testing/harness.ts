@@ -3,6 +3,7 @@ import { MemoryCheckpointAnchor } from '../adapters/memory-checkpoint-anchor'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryKeyProvider } from '../adapters/memory-key-provider'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
+import { MemorySandboxRunner } from '../adapters/memory-sandbox-runner'
 import { type AppDeps, websocket } from '../app'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
@@ -23,9 +24,10 @@ export const UNLIMITED_RATE_LIMITS = {
   'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
   summon: { client: NO_LIMIT, guild: NO_LIMIT },
+  'summon-status': { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
-  'gateway-call': { client: NO_LIMIT },
-  mcp: { client: NO_LIMIT },
+  'gateway-call': { client: NO_LIMIT, guild: NO_LIMIT },
+  mcp: { client: NO_LIMIT, guild: NO_LIMIT },
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'push-subscribe': { client: NO_LIMIT, guild: NO_LIMIT },
   'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
@@ -102,6 +104,8 @@ export async function createHarness(options: HarnessOptions = {}) {
     clock,
     db,
     ...options.app,
+    // Never let SANDBOX_RUNNER in the environment select Docker under test.
+    sandboxes: options.app?.sandboxes ?? new MemorySandboxRunner(),
     objectStore,
     keys,
     anchor,

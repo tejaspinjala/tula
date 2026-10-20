@@ -255,6 +255,11 @@ export function loadSandboxEnv(
       SANDBOX_GATEWAY_URL: z.url(),
     })
     .parse(source)
+  // The gateway origin carries run tokens, so in production it must be https. The egress proxy
+  // URL may stay http: it is only reachable inside the internal sandbox network.
+  if (common.NODE_ENV === 'production' && !docker.SANDBOX_GATEWAY_URL.startsWith('https://')) {
+    throw new Error('SANDBOX_GATEWAY_URL must be https in production')
+  }
   return {
     kind: 'docker',
     image: docker.SANDBOX_IMAGE,

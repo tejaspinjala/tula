@@ -66,6 +66,7 @@ gatewayGuardsContract('memory', async () => {
     store: gateStore,
     runs: gateway,
     sandboxes,
+    quests,
     guildIds: async (after, limit) =>
       [...guilds]
         .sort()

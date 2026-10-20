@@ -369,6 +369,27 @@ export function createApp(deps: AppDeps): Hono {
   const limitsOf = { ...DEFAULT_RATE_LIMITS, ...deps.rateLimits }
   const limited = (route: keyof RateLimits) =>
     rateLimit(deps.rateLimiter, route, limitsOf[route], deps.trustProxy ?? false, callerGuild)
+  /**
+   * Charges the per-guild bucket of a token-bearing route to the guild its already verified token
+   * names (all sandboxes share the proxy's address, so the client bucket cannot tell them apart).
+   * Returns the 429 when the bucket is spent.
+   */
+  const chargeTokenGuild = async (
+    c: Context,
+    route: 'gateway-call' | 'mcp',
+    guild: string | null
+  ): Promise<Response | null> => {
+    const rule = limitsOf[route].guild
+    if (!guild || !rule) {
+      return null
+    }
+    const decision = await deps.rateLimiter.hit(`${route}:guild:${guild}`, rule)
+    if (decision.allowed) {
+      return null
+    }
+    c.header('Retry-After', String(decision.retryAfterSeconds))
+    return c.json({ error: 'rate_limited' }, 429)
+  }
   app.post('/guilds', limited('founding'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
@@ -383,6 +404,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/summon', limited('summon'))
+  app.get('/guilds/:id/summon', limited('summon-status'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
@@ -394,7 +416,12 @@ export function createApp(deps: AppDeps): Hono {
   // The MCP gateway is stateless and authorises each call by the signed lease handle in its
   // arguments; the guild is derived from that token, never taken from the path, a header or the body.
   app.post('/mcp', async (c) => {
-    const reply = await deps.mcp.handle(await c.req.json().catch(() => null))
+    const raw: unknown = await c.req.json().catch(() => null)
+    const spent = await chargeTokenGuild(c, 'mcp', await deps.mcp.verifiedGuild(raw))
+    if (spent) {
+      return spent
+    }
+    const reply = await deps.mcp.handle(raw)
     if (reply.body === null) {
       return c.body(null, 202)
     }
@@ -805,6 +832,10 @@ export function createApp(deps: AppDeps): Hono {
     const call = gatewayCall.safeParse(await c.req.json().catch(() => null))
     if (!call.success) {
       return c.json({ error: 'invalid_request' }, 400)
+    }
+    const spent = await chargeTokenGuild(c, 'gateway-call', await deps.gateway.verifiedGuild(token))
+    if (spent) {
+      return spent
     }
     try {
       return c.json(await deps.gateway.complete(token, call.data))

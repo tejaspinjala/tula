@@ -9,6 +9,9 @@ import type { SandboxRunner } from './ports/sandbox-runner'
 import type { TripwireStore } from './ports/tripwire-store'
 import { type PostQuestError, postQuest } from './quests'
 
+/** The Quest template the Summon test Quest is posted from; its done-condition needs no Seal. */
+export const SUMMON_TEMPLATE_ID = 'herald-brief'
+
 /** The job key of the one test Quest of a guild's "Summon your first member" check. */
 export const SUMMON_JOB_KEY = 'summon:first-member'
 
@@ -47,7 +50,7 @@ export interface SummonDeps {
   quests: QuestQueue
   tripwires: TripwireStore
   gates: Pick<GateStore, 'isBarred'>
-  gateway: Pick<ModelGateway, 'openRun'>
+  gateway: Pick<ModelGateway, 'openRun' | 'runRevoked'>
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
   clock: Clock
@@ -98,7 +101,7 @@ export class Summon {
       { config: this.deps.config, queue: this.deps.quests, tripwires: this.deps.tripwires },
       guildId,
       {
-        templateId: 'herald-announcement',
+        templateId: SUMMON_TEMPLATE_ID,
         jobKey: SUMMON_JOB_KEY,
         title: 'Summon your first member: test Quest',
       }
@@ -106,8 +109,15 @@ export class Summon {
     if (!posted.ok) {
       return { ok: false, error: posted.error }
     }
-    if (posted.quest.state === 'done' || hasLiveLease(posted.quest, this.deps.clock.now())) {
+    if (posted.quest.state === 'done') {
       return { ok: true, status: await this.status(guildId) }
+    }
+    if (hasLiveLease(posted.quest, this.deps.clock.now())) {
+      // A lease whose run was revoked (a bar, a Hall pause) has no worker behind it: free it and start again.
+      if (!(await this.deps.gateway.runRevoked(guildId, posted.quest.id, posted.quest.attempts))) {
+        return { ok: true, status: await this.status(guildId) }
+      }
+      await this.deps.quests.releaseLeases(guildId, 'routing_blocked')
     }
     let claimed: Awaited<ReturnType<QuestQueue['claim']>>
     try {
