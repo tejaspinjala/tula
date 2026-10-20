@@ -46,7 +46,7 @@ export class WorkerError extends Error {
 
 /**
  * Reads the Quest's Brief with its lease (`read_brief`), then runs the test Quest of "Summon your
- * first member" as a Member would: one model call through the model gateway, the answer filed as an artifact and the Quest completed with a Handoff, all
+ * first member" as a Member would: one model call through the model gateway, the answer filed as an artifact (and, on a Quest that needs a Seal, as a Proposal through `submit_proposal`) and the Quest completed with a Handoff, all
  * through the MCP gateway. Holds no provider key. Throws a {@link WorkerError} when a step is refused.
  */
 export async function runWorker(input: WorkerInput): Promise<void> {
@@ -63,7 +63,7 @@ export async function runWorker(input: WorkerInput): Promise<void> {
   const tool = async (
     name: string,
     args: object,
-    step: 'read_brief' | 'put_artifact' | 'complete_quest'
+    step: 'read_brief' | 'put_artifact' | 'submit_proposal' | 'complete_quest'
   ) => {
     rpcId += 1
     const res = await post(
@@ -78,8 +78,8 @@ export async function runWorker(input: WorkerInput): Promise<void> {
     return reply.result?.structuredContent ?? {}
   }
 
-  const { brief } = z
-    .object({ brief: z.string() })
+  const { brief, requiresSeal } = z
+    .object({ brief: z.string(), requiresSeal: z.boolean().default(false) })
     .parse(await tool('read_brief', { lease }, 'read_brief'))
 
   const model = await post(
@@ -103,6 +103,10 @@ export async function runWorker(input: WorkerInput): Promise<void> {
     'put_artifact'
   )
   const hash = z.string().parse(put.hash)
+  if (requiresSeal) {
+    // The final draft becomes a Proposal (and meets its Verdict) before the Quest asks for a Seal.
+    await tool('submit_proposal', { lease, text, evidenceLinks: [] }, 'submit_proposal')
+  }
   await tool(
     'complete_quest',
     {
