@@ -92,6 +92,9 @@ export function failReason(value: string): FailReason {
   return FAIL_REASONS.find((r) => r === value) ?? 'unknown'
 }
 
+/** How a Seal ended for the Quest that asked: consumed or posted, or denied or expired. */
+export type SealOutcome = 'posted' | 'rejected'
+
 /** Why a queue operation was refused. */
 export type QuestErrorCode =
   | 'not_found'
@@ -164,6 +167,14 @@ export interface QuestQueue {
   renew(guildId: string, id: string, attempt: number, leaseMs: number): Promise<Quest>
   /** Holds the Quest for a Seal. `round_limit` once the rounds are spent. Idempotent. */
   submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest>
+  /**
+   * Settles a Quest held for a Seal, keyed by quest id (no lease needed): `posted` (the Seal was
+   * consumed or posted) finishes it; `rejected` (denied or expired) sends it back to `queued` for
+   * a revision round, or to `dead` once its rounds are spent (`round >= roundLimit`). Idempotent:
+   * a Quest no longer `awaiting_seal` is returned unchanged. A Quest in any state but
+   * `awaiting_seal`, `done`, `queued` or `dead` is `invalid_state`.
+   */
+  settleSeal(guildId: string, id: string, outcome: SealOutcome): Promise<Quest>
   /** Marks the Quest done. Idempotent: finishing a done Quest changes nothing. */
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */

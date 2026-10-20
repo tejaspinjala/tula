@@ -25,6 +25,7 @@ import {
   questState,
   renewTransition,
   retryDelayMs,
+  type SealOutcome,
   submitTransition,
   type Transition,
 } from '../ports/quest-queue'
@@ -243,6 +244,10 @@ export class PgQuestQueue implements QuestQueue {
 
   async submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest> {
     return this.mutate(guildId, id, (q) => submitTransition(q, attempt))
+  }
+
+  async settleSeal(_guildId: string, _id: string, _outcome: SealOutcome): Promise<Quest> {
+    throw new Error('not implemented')
   }
 
   async complete(guildId: string, id: string, attempt: number): Promise<Quest> {
