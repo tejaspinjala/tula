@@ -15,6 +15,7 @@ import { ProposalPanel } from './ProposalPanel'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { SummonPanel } from './SummonPanel'
 import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
@@ -130,6 +131,7 @@ const panels: Array<[string, ReactElement]> = [
   ['Costs', <CostTablePanel key="c" session={session} />],
   ['Timeline', <TimelinePanel key="tl" session={session} />],
   ['Gates', <GatesPanel key="g" session={session} />],
+  ['Summon', <SummonPanel key="su" session={session} />],
   ['Learning', <LearningPanel key="l" session={session} />],
 ]
 

@@ -145,6 +145,25 @@ export class McpGateway {
     })
   }
 
+  /**
+   * Mints the lease handle for a Quest the dispatcher has already claimed (the worker never
+   * claims it itself): the same signed lease `claim_quest` hands out, for the attempt the Quest
+   * is on.
+   */
+  async lease(guildId: string, quest: Quest): Promise<LeaseHandle> {
+    return {
+      questId: quest.id,
+      attempt: quest.attempts,
+      token: await mintToken(this.deps.keys, {
+        k: 'lease',
+        g: guildId,
+        q: quest.id,
+        a: quest.attempts,
+        m: quest.ownerId,
+      }),
+    }
+  }
+
   /** Handles one JSON-RPC request body. */
   async handle(raw: unknown): Promise<McpReply> {
     const request = envelope.safeParse(raw)

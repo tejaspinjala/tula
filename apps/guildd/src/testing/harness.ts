@@ -22,6 +22,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'checkpoint-begin': { client: NO_LIMIT, guild: NO_LIMIT },
   'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
+  summon: { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
   'gateway-call': { client: NO_LIMIT },
   mcp: { client: NO_LIMIT },
@@ -61,6 +62,7 @@ export interface HarnessOptions {
       | 'platformOperators'
       | 'pushAllowedHosts'
       | 'gateway'
+      | 'sandboxes'
       | 'modelProvider'
       | 'objectStore'
       | 'keys'
@@ -136,6 +138,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       gateway: composed.gateway,
       gates: composed.gates,
       sandboxes: composed.sandboxes,
+      summon: composed.summon,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,

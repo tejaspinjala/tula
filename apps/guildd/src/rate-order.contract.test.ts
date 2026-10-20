@@ -150,6 +150,7 @@ describe('every rate route is classified', () => {
       'checkpoint-begin',
       'checkpoint-finish',
       'quest-post',
+      'summon',
       'seal-posted',
       'proposal-post',
       'push-subscribe',

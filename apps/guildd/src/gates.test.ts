@@ -134,3 +134,34 @@ describe('a guild bar', () => {
     expect(w.events.get(b ?? '')).toBeUndefined()
   })
 })
+
+describe('a sandbox kill that fails', () => {
+  test('the bar still commits and the run tokens are still revoked, and the failure is reported', async () => {
+    const store = new MemoryGateStore()
+    let revoked = 0
+    const gates = new Gates({
+      store,
+      runs: {
+        revokeGuildRuns: async () => {
+          revoked += 1
+          return 4
+        },
+        revokeAllRuns: async () => 0,
+      },
+      sandboxes: {
+        kill: async () => {
+          throw new Error('docker unreachable')
+        },
+      },
+      guildIds: async () => [],
+    })
+    const guildId = crypto.randomUUID()
+    const outcome = await gates.bar({ guildId, memberId: OPERATOR }, 'guild')
+    expect(outcome.created).toBe(true)
+    expect(outcome.revokedRuns).toBe(4)
+    expect(outcome.killedSandboxes).toBe(0)
+    expect(outcome.killFailed).toBe(true)
+    expect(revoked).toBe(1)
+    expect(await store.isBarred(guildId)).toBe(true)
+  })
+})

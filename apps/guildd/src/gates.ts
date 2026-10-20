@@ -14,6 +14,8 @@ export interface BarOutcome {
   revokedRuns: number
   /** Sandboxes killed. */
   killedSandboxes: number
+  /** True when the sandbox kill itself failed; the bar and the revoked tokens stand, and a retry kills again. */
+  killFailed: boolean
 }
 
 /** Ports {@link Gates} is built from. */
@@ -46,17 +48,27 @@ export class Gates {
   async bar(actor: GateActor, scope: GateScope): Promise<BarOutcome> {
     const { barId, created } = await this.deps.store.bar(actor, scope)
     // The kill starts first: a running sandbox is the slowest thing to stop.
-    const killing = this.deps.sandboxes.kill(
-      scope === 'global' ? 'all' : { guildId: actor.guildId }
-    )
+    // A kill that fails must not stop the revokes and announcements: the bar is already committed.
+    const killing = this.deps.sandboxes
+      .kill(scope === 'global' ? 'all' : { guildId: actor.guildId })
+      .then(
+        (killed) => ({ killed, failed: false }),
+        () => ({ killed: 0, failed: true })
+      )
     const revoking =
       scope === 'global'
         ? this.deps.runs.revokeAllRuns()
         : this.deps.runs.revokeGuildRuns(actor.guildId)
     const announcing =
       scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
-    const [killedSandboxes, revokedRuns] = await Promise.all([killing, revoking, announcing])
-    return { barId, created, revokedRuns, killedSandboxes }
+    const [kill, revokedRuns] = await Promise.all([killing, revoking, announcing])
+    return {
+      barId,
+      created,
+      revokedRuns,
+      killedSandboxes: kill.killed,
+      killFailed: kill.failed,
+    }
   }
 
   /** Tells every guild's chain about a global bar or lift, a page at a time, a few guilds at once. */
