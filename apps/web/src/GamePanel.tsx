@@ -2,12 +2,14 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { CharacterPanel } from './CharacterPanel'
 import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
+import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
+import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
@@ -41,6 +43,8 @@ export function GamePanel({
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
   const [customizing, setCustomizing] = useState(false)
+  const [missiveTexts, setMissiveTexts] = useState<Record<string, string>>({})
+  const asked = useRef(new Set<string>())
   const frame = useRef<HTMLDivElement | null>(null)
   const handle = useRef<GameHandle | null>(null)
   const lastSeq = useRef(0)
@@ -156,6 +160,23 @@ export function GamePanel({
     }
   }, [session])
 
+  // Events carry Missive ids only: the real text is read through the session-guarded Hall route.
+  useEffect(() => {
+    if (!session) {
+      return
+    }
+    for (const hallId of hallsToFetch(events, missiveTexts)) {
+      const key = `${hallId}:${events.length}`
+      if (asked.current.has(key)) {
+        continue
+      }
+      asked.current.add(key)
+      loadMissives(session, fetch, hallId, { limit: 50 })
+        .then((page) => setMissiveTexts((known) => mergeTexts(known, page.missives)))
+        .catch(() => undefined)
+    }
+  }, [session, events, missiveTexts])
+
   const at = position === null ? events.length : Math.min(position, events.length)
   const scene = useMemo(
     () =>
@@ -165,9 +186,10 @@ export function GamePanel({
             quests,
             events,
             upTo: at >= events.length ? null : (events[at - 1]?.seq ?? 0),
+            missiveTexts,
           })
         : null,
-    [roster, quests, events, at]
+    [roster, quests, events, at, missiveTexts]
   )
 
   // Boot Phaser on demand (a dynamic import keeps it out of the main bundle).

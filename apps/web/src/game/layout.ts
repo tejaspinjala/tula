@@ -124,6 +124,35 @@ export function seatsIn(
   return seats
 }
 
+/** The tile of a room's Quest Board: the top row below the label, near the far corner. */
+export function questBoardIn(layout: HallLayout, room: TileRect): { x: number; y: number } {
+  const y = room.y + 1
+  for (let x = room.x + room.w - 3; x > room.x + 1; x--) {
+    if (layout.walkable(x, y)) {
+      return { x, y }
+    }
+  }
+  return { x: room.x + room.w - 3, y }
+}
+
+/** Distinct walkable tiles where apprentices stand: the row under the work row, from the right. */
+export function apprenticeSeats(
+  layout: HallLayout,
+  room: TileRect,
+  count: number
+): { x: number; y: number }[] {
+  const board = questBoardIn(layout, room)
+  const seats: { x: number; y: number }[] = []
+  for (const y of [room.y + 3, room.y + 5]) {
+    for (let x = room.x + room.w - 2; x > room.x && seats.length < count; x--) {
+      if (layout.walkable(x, y) && !(x === board.x && y === board.y)) {
+        seats.push({ x, y })
+      }
+    }
+  }
+  return seats
+}
+
 /**
  * The map's walkable test minus the doorways of rooms that are locked or empty: a closed door
  * blocks entry. `rooms` is in slot order; a doorway past its end belongs to an empty room.
