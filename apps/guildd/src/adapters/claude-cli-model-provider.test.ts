@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { ModelProviderError, ProviderSecret } from '../ports/model-provider'
 import { ClaudeCliModelProvider } from './claude-cli-model-provider'
@@ -60,6 +63,30 @@ describe('ClaudeCliModelProvider concurrency cap', () => {
     const first = provider.complete(secret, call('slow'))
     expect(await codeOf(provider.complete(secret, call('slow')))).toBe('timeout')
     await first
+  })
+})
+
+describe('ClaudeCliModelProvider cleanup', () => {
+  test('on an error path the child is dead before complete rejects', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cli-test-'))
+    const pidFile = join(dir, 'pid')
+    try {
+      const provider = new ClaudeCliModelProvider({ bin: FAKE, maxStdoutBytes: 1000 })
+      expect(await codeOf(provider.complete(secret, call(`pidhang:${pidFile}`)))).toBe(
+        'invalid_response'
+      )
+      const pid = Number(await Bun.file(pidFile).text())
+      expect(() => process.kill(pid, 0)).toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a grandchild holding stdout open cannot stall the call past the timeout', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE, timeoutMs: 500 })
+    const started = Date.now()
+    expect(await codeOf(provider.complete(secret, call('grandchild')))).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(3000)
   })
 })
 

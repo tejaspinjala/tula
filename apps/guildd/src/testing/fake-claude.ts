@@ -36,6 +36,14 @@ if (mode === 'argv') {
   process.stdout.write('this is not json')
 } else if (mode === 'exit3') {
   process.exit(3)
+} else if (mode.startsWith('pidhang:')) {
+  await Bun.write(mode.slice('pidhang:'.length), String(process.pid))
+  process.stdout.write('x'.repeat(2_000_000))
+  setInterval(() => {}, 1000)
+} else if (mode === 'grandchild') {
+  // A grandchild inherits stdout and outlives this process, holding the pipe open.
+  Bun.spawn(['sleep', '30'], { stdout: 'inherit', stderr: 'ignore', stdin: 'ignore' })
+  process.exit(0)
 } else if (mode === 'hang') {
   setInterval(() => {}, 1000)
 } else if (mode === 'big') {
