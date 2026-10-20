@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { formatDollars, loadCosts } from './costs'
+import { formatDollars, loadCostPerPost, loadCosts } from './costs'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -29,6 +29,31 @@ test('the cost table follows page cursors for the chosen grouping', async () => 
   }
   const rows = await loadCosts(session, 'quest', fetcher, 2)
   expect(rows.map((r) => r.key)).toEqual(['a', 'b', 'c'])
+  expect(urls[0]?.endsWith('|Bearer t1')).toBe(true)
+})
+
+test('cost per accepted post follows page cursors and keeps the overall figure', async () => {
+  const urls: string[] = []
+  const overall = { posts: 3, costMicros: 4600, costPerPostMicros: 1533 }
+  const pages: Record<string, unknown> = {
+    [`/api/guilds/${guild}/cost-per-post?limit=1`]: {
+      overall,
+      campaigns: [{ campaignId: null, posts: 1, costMicros: 600, costPerPostMicros: 600 }],
+      next: 'x',
+    },
+    [`/api/guilds/${guild}/cost-per-post?limit=1&after=x`]: {
+      overall,
+      campaigns: [{ campaignId: 'spring', posts: 2, costMicros: 4000, costPerPostMicros: 2000 }],
+      next: null,
+    },
+  }
+  const fetcher = async (url: string, init?: RequestInit) => {
+    urls.push(`${url}|${new Headers(init?.headers).get('authorization')}`)
+    return Response.json(pages[url] ?? {}, { status: pages[url] ? 200 : 404 })
+  }
+  const result = await loadCostPerPost(session, fetcher, 1)
+  expect(result.overall).toEqual(overall)
+  expect(result.campaigns.map((c) => c.campaignId)).toEqual([null, 'spring'])
   expect(urls[0]?.endsWith('|Bearer t1')).toBe(true)
 })
 

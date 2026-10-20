@@ -1,3 +1,5 @@
+import { guildContentPolicy } from './guild-config'
+import type { ConfigStore } from './ports/config-store'
 import type {
   NewProposal,
   Proposal,
@@ -15,21 +17,36 @@ import { allPassed, type ContentPolicy, DEFAULT_POLICY, runChecks } from './verd
 export class ProposalEngine {
   private readonly store: ProposalStore
   private readonly policy: ContentPolicy
+  private readonly config: Pick<ConfigStore, 'current'> | undefined
 
-  constructor(deps: { store: ProposalStore; policy?: ContentPolicy }) {
+  /** With `config`, each guild's own content policy applies; without it, `policy` (else the default). */
+  constructor(deps: {
+    store: ProposalStore
+    config?: Pick<ConfigStore, 'current'>
+    policy?: ContentPolicy
+  }) {
     this.store = deps.store
+    this.config = deps.config
     this.policy = deps.policy ?? DEFAULT_POLICY
   }
 
   /** Stores the Proposal with its Verdict. Idempotent per content hash. */
-  propose(guildId: string, input: NewProposal): Promise<Proposal> {
-    const findings = runChecks(input.content, this.policy)
+  async propose(guildId: string, input: NewProposal): Promise<Proposal> {
+    const policy = this.config
+      ? guildContentPolicy((await this.config.current(guildId)).config)
+      : this.policy
+    const findings = runChecks(input.content, policy)
     return this.store.propose(guildId, input, { passed: allPassed(findings), findings })
   }
 
   /** One Proposal, or null. */
   get(guildId: string, id: string): Promise<Proposal | null> {
     return this.store.get(guildId, id)
+  }
+
+  /** The most recent Proposal of a Quest, or null. */
+  latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
+    return this.store.latestForQuest(guildId, questId)
   }
 
   /** A page of Proposals. */

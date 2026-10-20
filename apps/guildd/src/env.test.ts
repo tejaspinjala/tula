@@ -30,6 +30,13 @@ describe('loadEnv', () => {
     expect(env.OBJECT_STORE_CREATE_BUCKET).toBe(false)
   })
 
+  test('DISPATCH_INTERVAL_MS is off by default and takes a positive integer of milliseconds', () => {
+    expect(loadEnv(base).DISPATCH_INTERVAL_MS).toBeUndefined()
+    expect(loadEnv({ ...base, DISPATCH_INTERVAL_MS: '5000' }).DISPATCH_INTERVAL_MS).toBe(5000)
+    expect(() => loadEnv({ ...base, DISPATCH_INTERVAL_MS: '0' })).toThrow()
+    expect(() => loadEnv({ ...base, DISPATCH_INTERVAL_MS: 'soon' })).toThrow()
+  })
+
   test('TRUST_PROXY defaults to false and rejects values that are not true or false', () => {
     expect(loadEnv(base).TRUST_PROXY).toBe(false)
     expect(loadEnv({ ...base, TRUST_PROXY: 'true' }).TRUST_PROXY).toBe(true)

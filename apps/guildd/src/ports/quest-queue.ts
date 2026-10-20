@@ -81,6 +81,13 @@ export const FAIL_REASONS = [
   'routing_blocked',
   'worker_crash',
   'sandbox_unavailable',
+  'seal_rejected',
+  'no_revision',
+  'requester_reserved',
+  'blocker_dead',
+  'hall_locked',
+  'hall_not_found',
+  'private_provider_unavailable',
   'unknown',
 ] as const
 
@@ -91,6 +98,18 @@ export type FailReason = (typeof FAIL_REASONS)[number]
 export function failReason(value: string): FailReason {
   return FAIL_REASONS.find((r) => r === value) ?? 'unknown'
 }
+
+/** Options of {@link QuestQueue.settleSeal}: the coded reason a rejection records (default `seal_rejected`). */
+export interface SealSettleOptions {
+  reason?: FailReason
+  /** Settle only if the Quest is still on this Seal round; otherwise refused `invalid_state`. */
+  round?: number
+  /** A rejection that dead-letters at once, whatever rounds remain. */
+  terminal?: boolean
+}
+
+/** How a Seal ended for the Quest that asked: consumed or posted, or denied or expired. */
+export type SealOutcome = 'posted' | 'rejected'
 
 /** Why a queue operation was refused. */
 export type QuestErrorCode =
@@ -164,6 +183,19 @@ export interface QuestQueue {
   renew(guildId: string, id: string, attempt: number, leaseMs: number): Promise<Quest>
   /** Holds the Quest for a Seal. `round_limit` once the rounds are spent. Idempotent. */
   submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest>
+  /**
+   * Settles a Quest held for a Seal, keyed by quest id (no lease needed): `posted` (the Seal was
+   * consumed or posted) finishes it; `rejected` (denied or expired) sends it back to `queued` for
+   * a revision round, or to `dead` once its rounds are spent (`round >= roundLimit`). Idempotent:
+   * a Quest no longer `awaiting_seal` is returned unchanged. A Quest in any state but
+   * `awaiting_seal`, `done`, `queued` or `dead` is `invalid_state`.
+   */
+  settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest>
   /** Marks the Quest done. Idempotent: finishing a done Quest changes nothing. */
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
@@ -174,6 +206,23 @@ export interface QuestQueue {
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
   releaseLeases(guildId: string, reason: FailReason): Promise<number>
+  /**
+   * {@link releaseLeases} for every guild at once, in one statement, so a global bar's cost does
+   * not grow with the number of guilds. Idempotent; returns how many Quests it released.
+   */
+  releaseAllLeases(reason: FailReason): Promise<number>
+  /**
+   * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
+   * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
+   * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.
+   * Idempotent: a repeat for the same delivery changes nothing.
+   */
+  releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /**
+   * Dead-letters a claimed Quest with a coded reason (see {@link FAIL_REASONS}), cascading to its
+   * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
+   */
+  kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */
@@ -317,6 +366,99 @@ export function failTransition(
     },
     event: 'quest.retry_scheduled',
   }
+}
+
+/** Gives a claimed Quest back to `queued` until `notBefore`; a repeat for the same delivery is a no-op. */
+export function releaseClaimTransition(quest: Quest, attempt: number, notBefore: Date): Transition {
+  if (quest.state === 'queued' && quest.attempts === attempt && attempt > 0) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: 'routing_blocked',
+      notBefore: notBefore.toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/** Dead-letters a claimed Quest with a coded reason; a repeat for the same delivery is a no-op. */
+export function killTransition(quest: Quest, attempt: number, reason: string): Transition {
+  if (quest.state === 'dead' && quest.attempts === attempt) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: failReason(reason) },
+    event: 'quest.dead',
+  }
+}
+
+/**
+ * Settles a Quest held for a Seal. `posted` finishes it; `rejected` queues a revision round, or
+ * dead-letters it when `round >= roundLimit`. Anything not `awaiting_seal` is returned unchanged
+ * when it already left that state by this route (done, queued, dead), else `invalid_state`.
+ */
+export function sealSettleTransition(
+  quest: Quest,
+  outcome: SealOutcome,
+  now: Date,
+  opts: SealSettleOptions = {}
+): Transition {
+  const reason = opts.reason ?? 'seal_rejected'
+  if (quest.state !== 'awaiting_seal') {
+    if (quest.state === 'active') {
+      throw new QuestError('invalid_state')
+    }
+    return { quest, event: null }
+  }
+  if (opts.round !== undefined && quest.round !== opts.round) {
+    throw new QuestError('invalid_state')
+  }
+  if (outcome === 'posted') {
+    return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
+  }
+  if (opts.terminal || quest.round >= quest.roundLimit) {
+    return {
+      quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: reason },
+      event: 'quest.dead',
+    }
+  }
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: reason,
+      notBefore: now.toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/**
+ * The Quests a dead Quest takes with it: every in-flight Quest (queued, active or awaiting a Seal)
+ * that is blocked by it directly or through another such Quest, each dead-lettered with the coded
+ * reason `blocker_dead`, in posting order. Without this they would wait on a blocker that can
+ * never be done. Pure and shared by both adapters; a dependent already finished is untouched.
+ */
+export function cascadeDeadTransitions(quests: readonly Quest[], deadId: string): Transition[] {
+  const gone = new Set([deadId])
+  const out: Transition[] = []
+  for (const q of [...quests].sort((a, b) => a.seq - b.seq)) {
+    if (IN_FLIGHT.includes(q.state) && !gone.has(q.id) && q.blockedBy.some((id) => gone.has(id))) {
+      gone.add(q.id)
+      out.push({
+        quest: { ...q, state: 'dead', leaseExpiresAt: null, lastError: 'blocker_dead' },
+        event: 'quest.dead',
+      })
+    }
+  }
+  return out
 }
 
 const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']

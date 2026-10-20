@@ -73,6 +73,12 @@ export interface Db {
    * `revoke_all_run_tokens` of migration 0046; returns how many runs changed.
    */
   revokeAllRunTokens(): Promise<number>
+  /**
+   * Returns every guild's active Quests to the queue in one statement (lease cleared, deliverable
+   * at once, `reason` as the last error), through the security-definer `release_all_leases` of
+   * migration 0050; returns how many Quests changed.
+   */
+  releaseAllLeases(reason: string): Promise<number>
   /** Closes the pools. */
   close(): Promise<void>
 }
@@ -145,6 +151,10 @@ export function createDb(
     async revokeAllRunTokens() {
       const [row] = await sql`select revoke_all_run_tokens() as revoked`
       return z.object({ revoked: z.number() }).parse(row).revoked
+    },
+    async releaseAllLeases(reason) {
+      const [row] = await sql`select release_all_leases(${reason}) as released`
+      return z.object({ released: z.number() }).parse(row).released
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),

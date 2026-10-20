@@ -29,9 +29,11 @@ export interface GatesDeps {
   }
   sandboxes: Pick<SandboxRunner, 'kill'>
   /** Frees the leases of a barred guild's active Quests, so a lift can start them again. */
-  quests: Pick<QuestQueue, 'releaseLeases'>
+  quests: Pick<QuestQueue, 'releaseLeases' | 'releaseAllLeases'>
   /** Guild ids in id order after `after`, at most `limit`; a global bar tells each guild's chain. */
   guildIds: (after: string | undefined, limit: number) => Promise<string[]>
+  /** Told when the announcements that follow a global bar fail; they stay re-runnable. Defaults to a structured line on stderr. */
+  onAnnounceError?: (error: unknown) => void
 }
 
 /**
@@ -41,11 +43,48 @@ export interface GatesDeps {
  * read the {@link GateStore} themselves on every call, so the bar is enforced from the moment it
  * commits, before any revoke or announcement finishes: the stop steps only make the shut gates
  * permanent (tokens never come back) and complete the audit trail. A global bar revokes every
- * token in one statement and announces to at most {@link ANNOUNCE_CONCURRENCY} guilds at a time,
- * well under the connection pool. No model is consulted.
+ * token and releases every lease in one statement each, so its response time does not grow with
+ * the number of guilds. Telling the guild chains is O(guilds), so it runs after the response, in
+ * the background (a lift's announcements too): one promise at a time (a repeat while it runs reuses
+ * it, so there is no queue), at most {@link ANNOUNCE_CONCURRENCY} guilds at once in pages of {@link GUILD_PAGE}.
+ * A failure is reported to `onAnnounceError` and never lost: announcements are idempotent per
+ * guild and bar, and a repeated bar or any lift finishes them. {@link settled} resolves when the
+ * background run ends (tests and graceful shutdown). No model is consulted.
  */
 export class Gates {
+  /** The one in-flight background announcement of a global bar, if any. */
+  private announcing: { key: string; done: Promise<void> } | null = null
+
+  /** Set by {@link stop}: background announcements end at their next page boundary. */
+  private stopped = false
+
   constructor(private readonly deps: GatesDeps) {}
+
+  /**
+   * Ends the background announcement at its next batch and waits for it, for a graceful shutdown.
+   * What it left untold stays untold: a repeated bar or any lift finishes it.
+   */
+  async stop(): Promise<void> {
+    this.stopped = true
+    await this.settled()
+  }
+
+  /** Re-runs the announcements of a global bar that is up (boot after a crash); idempotent. */
+  async resumeAnnouncements(): Promise<void> {
+    const [first] = await this.deps.guildIds(undefined, 1)
+    if (first === undefined) {
+      return
+    }
+    const barId = await this.deps.store.globalBarId(first)
+    if (barId !== null) {
+      this.announceInBackground(barId, false)
+    }
+  }
+
+  /** Resolves once the background announcement of a global bar, if one is running, has ended (never rejects). */
+  async settled(): Promise<void> {
+    await this.announcing?.done
+  }
 
   /** Bars one guild or all; immediate, idempotent, and always (re)runs the stop steps. */
   async bar(actor: GateActor, scope: GateScope): Promise<BarOutcome> {
@@ -62,11 +101,15 @@ export class Gates {
       scope === 'global'
         ? this.deps.runs.revokeAllRuns()
         : this.deps.runs.revokeGuildRuns(actor.guildId)
-    const announcing =
-      scope === 'global' ? this.announceAll({ type: 'gates.barred', barId }) : Promise.resolve()
     // The killed workers' leases would otherwise linger until they lapse and block a restart after a lift.
-    const releasing = this.releaseLeases(scope === 'global' ? null : actor.guildId)
-    const [kill, revokedRuns] = await Promise.all([killing, revoking, announcing, releasing])
+    const releasing =
+      scope === 'global'
+        ? this.deps.quests.releaseAllLeases('sandbox_unavailable')
+        : this.deps.quests.releaseLeases(actor.guildId, 'sandbox_unavailable')
+    const [kill, revokedRuns] = await Promise.all([killing, revoking, releasing])
+    if (scope === 'global') {
+      this.announceInBackground(barId, false)
+    }
     return {
       barId,
       created,
@@ -76,28 +119,43 @@ export class Gates {
     }
   }
 
-  /** Releases the active Quests' leases of one guild, or of every guild a page at a time. */
-  private async releaseLeases(guildId: string | null): Promise<void> {
-    if (guildId !== null) {
-      await this.deps.quests.releaseLeases(guildId, 'sandbox_unavailable')
+  /**
+   * Starts telling every guild's chain about a global bar (and, once lifted, the lift) after the
+   * response; never rejects. A repeat of what is already the latest run reuses it, and a run waits
+   * for the one before it, so a guild's chain never gets the lift ahead of the bar. At most one run
+   * is active; the chain is as long as the operator's alternating bars and lifts, never the guild count.
+   */
+  private announceInBackground(barId: string, lifted: boolean): void {
+    const key = `${barId}:${lifted}`
+    if (this.announcing?.key === key) {
       return
     }
-    let after: string | undefined
-    for (;;) {
-      const page = await this.deps.guildIds(after, GUILD_PAGE)
-      for (let i = 0; i < page.length; i += ANNOUNCE_CONCURRENCY) {
-        await Promise.all(
-          page
-            .slice(i, i + ANNOUNCE_CONCURRENCY)
-            .map((g) => this.deps.quests.releaseLeases(g, 'sandbox_unavailable'))
-        )
-      }
-      const last = page.at(-1)
-      if (!last || page.length < GUILD_PAGE) {
-        return
-      }
-      after = last
+    // A run started after a stop() has finished starts afresh; one still ending keeps its stop.
+    if (this.announcing === null) {
+      this.stopped = false
     }
+    const report =
+      this.deps.onAnnounceError ??
+      (() => {
+        // Ids only: no error text can carry content to the log.
+        process.stderr.write(`${JSON.stringify({ event: 'gates.announce_failed', barId })}\n`)
+      })
+    const previous = this.announcing?.done ?? Promise.resolve()
+    const done: Promise<void> = previous
+      .then(async () => {
+        // Also finishes a bar announcement that failed earlier (idempotent per guild and bar).
+        await this.announceAll({ type: 'gates.barred', barId })
+        if (lifted) {
+          await this.announceAll({ type: 'gates.lifted', barId })
+        }
+      })
+      .catch(report)
+      .finally(() => {
+        if (this.announcing?.done === done) {
+          this.announcing = null
+        }
+      })
+    this.announcing = { key, done }
   }
 
   /** Tells every guild's chain about a global bar or lift, a page at a time, a few guilds at once. */
@@ -106,6 +164,9 @@ export class Gates {
     for (;;) {
       const page = await this.deps.guildIds(after, GUILD_PAGE)
       for (let i = 0; i < page.length; i += ANNOUNCE_CONCURRENCY) {
+        if (this.stopped) {
+          return
+        }
         await Promise.all(
           page
             .slice(i, i + ANNOUNCE_CONCURRENCY)
@@ -132,13 +193,13 @@ export class Gates {
       if (scope === 'global') {
         const pending = await this.deps.store.latestGlobalLift(actor.guildId)
         if (pending !== null) {
-          await this.announceAll({ type: 'gates.lifted', barId: pending })
+          this.announceInBackground(pending, true)
         }
       }
       return false
     }
     if (scope === 'global') {
-      await this.announceAll({ type: 'gates.lifted', barId })
+      this.announceInBackground(barId, true)
     }
     return true
   }

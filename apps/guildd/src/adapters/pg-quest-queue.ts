@@ -5,6 +5,7 @@ import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import {
   type ClaimOptions,
+  cascadeDeadTransitions,
   claimTransition,
   completeTransition,
   dataClass,
@@ -13,6 +14,7 @@ import {
   failReason,
   failTransition,
   isExhausted,
+  killTransition,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -23,8 +25,12 @@ import {
   type QuestQueue,
   questRank,
   questState,
+  releaseClaimTransition,
   renewTransition,
   retryDelayMs,
+  type SealOutcome,
+  type SealSettleOptions,
+  sealSettleTransition,
   submitTransition,
   type Transition,
 } from '../ports/quest-queue'
@@ -111,6 +117,20 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   private async save(tx: TenantTx, guildId: string, t: Transition): Promise<Quest> {
+    await this.write(tx, guildId, t)
+    if (t.event === 'quest.dead') {
+      const rows = await tx`
+        select * from quests
+        where guild_id = ${guildId} and state in ('queued', 'active', 'awaiting_seal')
+        for update`
+      for (const dependent of cascadeDeadTransitions(rows.map(toQuest), t.quest.id)) {
+        await this.write(tx, guildId, dependent)
+      }
+    }
+    return t.quest
+  }
+
+  private async write(tx: TenantTx, guildId: string, t: Transition): Promise<void> {
     const q = t.quest
     await tx`
       update quests set state = ${q.state}, round = ${q.round}, attempts = ${q.attempts},
@@ -118,7 +138,6 @@ export class PgQuestQueue implements QuestQueue {
         not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
-    return q
   }
 
   private async load(tx: TenantTx, guildId: string, id: string): Promise<Quest> {
@@ -245,6 +264,15 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) => submitTransition(q, attempt))
   }
 
+  async settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest> {
+    return this.mutate(guildId, id, (q) => sealSettleTransition(q, outcome, this.clock.now(), opts))
+  }
+
   async complete(guildId: string, id: string, attempt: number): Promise<Quest> {
     return this.mutate(guildId, id, (q) => completeTransition(q, attempt))
   }
@@ -265,6 +293,23 @@ export class PgQuestQueue implements QuestQueue {
         returning quest_id`
       return rows.length
     })
+  }
+
+  releaseAllLeases(reason: FailReason): Promise<number> {
+    return this.db.releaseAllLeases(reason)
+  }
+
+  async releaseClaim(
+    guildId: string,
+    id: string,
+    attempt: number,
+    notBefore: Date
+  ): Promise<Quest> {
+    return this.mutate(guildId, id, (q) => releaseClaimTransition(q, attempt, notBefore))
+  }
+
+  async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
+    return this.mutate(guildId, id, (q) => killTransition(q, attempt, reason))
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

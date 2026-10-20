@@ -222,6 +222,29 @@ describe('MCP gateway', () => {
   })
 
   describe('complete_quest', () => {
+    test('a Quest whose template requires a Seal ends awaiting_seal after complete_quest, never done', async () => {
+      const s = await setup()
+      const quest = await s.post({
+        templateId: 'herald-announcement',
+        rank: 'apprentice',
+        dataClass: 'public',
+        ownerId: 'heralds-member-1',
+        doneCondition: 'An announcement draft is ready for a Seal',
+        roundLimit: 3,
+      })
+      const { lease: l } = await s.claim(quest)
+      const hash = await put(s)(lease.parse(l), 'Hello world')
+      const out = await callTool(s.transport, 'complete_quest', {
+        lease: l,
+        handoff: {
+          ...handoffFor(hash),
+          doneCondition: 'An announcement draft is ready for a Seal',
+        },
+      })
+      expect(out.data.state).toBe('awaiting_seal')
+      expect((await s.quests.get(s.guild, quest.id))?.state).toBe('awaiting_seal')
+    })
+
     test('an invalid Handoff is rejected with the paths and reasons', async () => {
       const s = await setup()
       const { lease: l } = await s.claim(await s.post())

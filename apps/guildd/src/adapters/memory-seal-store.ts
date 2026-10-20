@@ -64,14 +64,20 @@ export class MemorySealStore implements SealStore {
   // same-tick calls cannot interleave.
   async request(guildId: string, input: NewSeal): Promise<Seal> {
     const actionHash = await hashProposal(input.text)
+    const round = input.round ?? 1
     for (const { seal } of this.seals(guildId).values()) {
-      if (seal.questId === input.questId && seal.actionHash === actionHash) {
+      if (
+        seal.questId === input.questId &&
+        seal.round === round &&
+        seal.actionHash === actionHash
+      ) {
         return this.read(seal)
       }
     }
     const now = this.clock.now()
     const seal: Seal = {
       ...input,
+      round,
       actionHash,
       id: crypto.randomUUID(),
       status: 'requested',
@@ -86,6 +92,14 @@ export class MemorySealStore implements SealStore {
     }
     this.seals(guildId).set(seal.id, { seal, tokenHash: null })
     return { ...seal }
+  }
+
+  async forQuest(guildId: string, questId: string): Promise<Seal | null> {
+    const latest = [...this.seals(guildId).values()]
+      .map((s) => s.seal)
+      .filter((s) => s.questId === questId)
+      .sort((a, b) => b.round - a.round || (a.requestedAt < b.requestedAt ? 1 : -1))[0]
+    return latest ? this.read(latest) : null
   }
 
   async get(guildId: string, id: string): Promise<Seal | null> {
@@ -270,14 +284,24 @@ export class MemorySealStore implements SealStore {
     }
   }
 
-  async expireDue(guildId: string): Promise<number> {
+  async expireDue(guildId: string, opts?: { approvedWindowMs?: number }): Promise<number> {
+    const now = this.clock.now().getTime()
+    const window = opts?.approvedWindowMs
     let count = 0
     for (const stored of this.seals(guildId).values()) {
-      if (count < EXPIRE_BATCH && this.read(stored.seal).status === 'expired') {
-        if (stored.seal.status === 'requested') {
-          this.write(guildId, stored, { status: 'expired' }, null)
-          count++
-        }
+      if (count >= EXPIRE_BATCH) {
+        break
+      }
+      const { seal } = stored
+      const lapsedRequest = seal.status === 'requested' && this.read(seal).status === 'expired'
+      const lapsedApproval =
+        window !== undefined &&
+        (seal.status === 'approved' || seal.status === 'released') &&
+        seal.decidedAt !== null &&
+        Date.parse(seal.decidedAt) + window <= now
+      if (lapsedRequest || lapsedApproval) {
+        this.write(guildId, stored, { status: 'expired' }, null)
+        count++
       }
     }
     return count

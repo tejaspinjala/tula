@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { canonicalJson } from './audit-chain'
+import { type ContentPolicy, DEFAULT_POLICY } from './verdict'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const displayName = z.string().trim().min(1).max(100)
@@ -77,7 +78,17 @@ export const caps = z.object({
   dailySpendCents: z.number().int().min(0).max(100_000_000),
   /** Quests that may hold a live lease at once; {@link DEFAULT_CONCURRENT_QUESTS} when absent. */
   concurrentQuests: z.number().int().min(1).max(1000).optional(),
+  /** Hours an approved Seal may wait to be posted before it expires; {@link DEFAULT_SEAL_POST_WINDOW_HOURS} when absent. Raising it widens risk. */
+  sealPostWindowHours: z.number().int().min(1).max(8760).optional(),
 })
+
+/** The post window of a config that does not set one (72 hours). */
+export const DEFAULT_SEAL_POST_WINDOW_HOURS = 72
+
+/** The guild's post window for approved Seals, in milliseconds. */
+export function sealPostWindowMs(config: GuildConfig): number {
+  return (config.caps.sealPostWindowHours ?? DEFAULT_SEAL_POST_WINDOW_HOURS) * 3_600_000
+}
 
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
@@ -85,6 +96,18 @@ export const DEFAULT_CONCURRENT_QUESTS = 4
 /** The guild's effective Tripwire thresholds. */
 export function guildTripwires(config: GuildConfig): TripwireThresholds {
   return config.tripwires ?? DEFAULT_TRIPWIRES
+}
+
+/** The content policy a Verdict applies; absent in older configs, then {@link DEFAULT_POLICY}. */
+export const contentPolicy = z.object({
+  maxLength: z.number().int().min(1).max(20_000),
+  bannedTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+  requiredTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+})
+
+/** The guild's effective content policy for Verdicts. */
+export function guildContentPolicy(config: GuildConfig): ContentPolicy {
+  return config.contentPolicy ?? DEFAULT_POLICY
 }
 
 /** The guild's effective Treasury envelope limits. */
@@ -175,6 +198,8 @@ export const guildConfig = z
     treasury: treasuryLimits.optional(),
     /** Absent in configs older than learning suggestions; then no repo is read. Adding one widens risk. */
     learningRepos: z.array(repoName).max(MAX_ITEMS).optional(),
+    /** Absent in configs older than Core Loop; {@link DEFAULT_POLICY} then applies. Loosening it widens risk. */
+    contentPolicy: contentPolicy.optional(),
   })
   .superRefine((config, ctx) => {
     const known = new Set(config.providers.map((p) => p.id))
@@ -315,6 +340,19 @@ function treasuryNoWider(prev: TreasuryLimits, next: TreasuryLimits): boolean {
   )
 }
 
+function policyNoWider(prev: ContentPolicy, next: ContentPolicy): boolean {
+  const covers = (more: readonly string[], fewer: readonly string[]) => {
+    const have = new Set(more.map((t) => t.toLowerCase()))
+    return fewer.every((t) => have.has(t.toLowerCase()))
+  }
+  return (
+    next.maxLength <= prev.maxLength &&
+    covers(next.bannedTerms, prev.bannedTerms) &&
+    covers(next.requiredTerms, prev.requiredTerms) &&
+    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms'])
+  )
+}
+
 /** True only when `next` is provably no riskier than `prev`, field by field; anything else fails closed. */
 function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
@@ -330,13 +368,20 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     next.caps.dailyTokens <= prev.caps.dailyTokens &&
     next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
     questConcurrency(next) <= questConcurrency(prev) &&
-    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents', 'concurrentQuests']) &&
+    sealPostWindowMs(next) <= sealPostWindowMs(prev) &&
+    othersSame(prev.caps, next.caps, [
+      'dailyTokens',
+      'dailySpendCents',
+      'concurrentQuests',
+      'sealPostWindowHours',
+    ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
     learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&
     tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&
     treasuryNoWider(guildTreasury(prev), guildTreasury(next)) &&
+    policyNoWider(guildContentPolicy(prev), guildContentPolicy(next)) &&
     removedHallsOk &&
     next.halls.every((h) => {
       const before = prevHalls.get(h.id)
@@ -353,6 +398,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'tripwires',
       'treasury',
       'learningRepos',
+      'contentPolicy',
     ])
   )
 }
@@ -391,6 +437,7 @@ export function classifyChange(prev: GuildConfig, next: GuildConfig): ChangeKind
       tripwires: guildTripwires(c),
       treasury: guildTreasury(c),
       learningRepos: learningRepoAllowlist(c),
+      contentPolicy: guildContentPolicy(c),
     })
   return same(effective(prev), effective(next)) ? 'neutral' : 'tightening'
 }

@@ -128,7 +128,7 @@ describe('Bar the Gates', () => {
       store: new MemoryGateStore(),
       runs: { revokeGuildRuns: async () => 0, revokeAllRuns: async () => 0 },
       sandboxes: runner,
-      quests: { releaseLeases: async () => 0 },
+      quests: { releaseLeases: async () => 0, releaseAllLeases: async () => 0 },
       guildIds: async () => [guildId],
     })
     expect(await runner.list(guildId)).toHaveLength(1)

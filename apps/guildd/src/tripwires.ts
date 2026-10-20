@@ -70,7 +70,7 @@ export type TripwireRun =
  */
 export async function runTripwires(
   deps: {
-    config: ConfigStore
+    config: Pick<ConfigStore, 'current'>
     tripwires: TripwireStore
     /** Revokes the paused Hall's live run tokens. */
     runs: Pick<ModelLedger, 'revokeHallRuns'>

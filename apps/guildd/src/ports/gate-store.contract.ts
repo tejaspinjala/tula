@@ -53,6 +53,20 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       expect(await store.isBarred(b)).toBe(false)
     })
 
+    test('globalBarId reports the global bar while it is up, and null otherwise', async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      expect(await store.globalBarId(b)).toBeNull()
+      const { barId } = await store.bar({ guildId: a, memberId: GM }, 'global')
+      try {
+        expect(await store.globalBarId(b)).toBe(barId)
+      } finally {
+        await store.lift({ guildId: a, memberId: GM }, 'global')
+      }
+      expect(await store.globalBarId(b)).toBeNull()
+    })
+
     test('a bar is made once, even same-tick, and is one chained event with ids only', async () => {
       const { store, newGuild, events } = await make()
       const g = await newGuild()

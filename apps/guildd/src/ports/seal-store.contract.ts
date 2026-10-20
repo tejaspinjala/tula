@@ -63,6 +63,35 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect(again.id).toBe(seal.id)
     })
 
+    test('a revision after a denial is a new round and a new Seal row, found as the Quest’s latest', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      expect(seal.round).toBe(1)
+      await store.decide(g, seal.id, { verdict: 'denied', expectedHash: hash })
+      const retry = await store.request(g, {
+        questId: seal.questId,
+        requestedBy: seal.requestedBy,
+        kind: seal.kind,
+        text: seal.text,
+        evidence: seal.evidence,
+        round: 2,
+      })
+      expect(retry.id).not.toBe(seal.id)
+      expect(retry).toMatchObject({ round: 2, status: 'requested' })
+      const same = await store.request(g, {
+        questId: seal.questId,
+        requestedBy: seal.requestedBy,
+        kind: seal.kind,
+        text: seal.text,
+        evidence: seal.evidence,
+        round: 2,
+      })
+      expect(same.id).toBe(retry.id)
+      expect((await store.forQuest(g, seal.questId))?.id).toBe(retry.id)
+      expect(await store.forQuest(g, crypto.randomUUID())).toBeNull()
+    })
+
     test('approving binds to the hash: a different hash decides nothing', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
@@ -144,6 +173,20 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       clock.advance(SEAL_TTL_MS)
       expect(await store.expireDue(g)).toBe(2)
       expect(await store.expireDue(g)).toBe(0)
+    })
+
+    test('expireDue with a window expires an approved Seal never posted, and only once the window passes', async () => {
+      const { store, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
+      const window = 3_600_000
+      expect(await store.expireDue(g)).toBe(0)
+      clock.advance(window - 1)
+      expect(await store.expireDue(g, { approvedWindowMs: window })).toBe(0)
+      clock.advance(1)
+      expect(await store.expireDue(g, { approvedWindowMs: window })).toBe(1)
+      expect((await store.get(g, seal.id))?.status).toBe('expired')
     })
 
     test('the store binds the hash of the text itself: a Seal reports sha256(text)', async () => {

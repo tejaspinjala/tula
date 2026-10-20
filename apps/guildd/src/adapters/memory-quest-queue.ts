@@ -1,6 +1,7 @@
 import type { Clock } from '../ports/clock'
 import {
   type ClaimOptions,
+  cascadeDeadTransitions,
   claimTransition,
   completeTransition,
   expireTransition,
@@ -8,6 +9,7 @@ import {
   failTransition,
   hasLiveLease,
   isExhausted,
+  killTransition,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -17,8 +19,12 @@ import {
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
+  releaseClaimTransition,
   renewTransition,
   retryDelayMs,
+  type SealOutcome,
+  type SealSettleOptions,
+  sealSettleTransition,
   submitTransition,
   type Transition,
 } from '../ports/quest-queue'
@@ -67,6 +73,19 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   private apply(guildId: string, t: Transition): Quest {
+    this.record(guildId, t)
+    if (t.event === 'quest.dead') {
+      for (const dependent of cascadeDeadTransitions(
+        [...this.guild(guildId).byId.values()],
+        t.quest.id
+      )) {
+        this.record(guildId, dependent)
+      }
+    }
+    return t.quest
+  }
+
+  private record(guildId: string, t: Transition): void {
     this.guild(guildId).byId.set(t.quest.id, t.quest)
     if (t.event) {
       this.onEvent(guildId, t.event, {
@@ -75,7 +94,6 @@ export class MemoryQuestQueue implements QuestQueue {
         attempt: t.quest.attempts,
       })
     }
-    return t.quest
   }
 
   async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
@@ -151,6 +169,18 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, submitTransition(this.mustFind(guildId, id), attempt))
   }
 
+  async settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest> {
+    return this.apply(
+      guildId,
+      sealSettleTransition(this.mustFind(guildId, id), outcome, this.clock.now(), opts)
+    )
+  }
+
   async complete(guildId: string, id: string, attempt: number): Promise<Quest> {
     return this.apply(guildId, completeTransition(this.mustFind(guildId, id), attempt))
   }
@@ -177,6 +207,30 @@ export class MemoryQuestQueue implements QuestQueue {
       }
     }
     return released
+  }
+
+  async releaseAllLeases(reason: FailReason): Promise<number> {
+    let released = 0
+    for (const guildId of [...this.guilds.keys()]) {
+      released += await this.releaseLeases(guildId, reason)
+    }
+    return released
+  }
+
+  async releaseClaim(
+    guildId: string,
+    id: string,
+    attempt: number,
+    notBefore: Date
+  ): Promise<Quest> {
+    return this.apply(
+      guildId,
+      releaseClaimTransition(this.mustFind(guildId, id), attempt, notBefore)
+    )
+  }
+
+  async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
+    return this.apply(guildId, killTransition(this.mustFind(guildId, id), attempt, reason))
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

@@ -17,6 +17,8 @@ export type RateRoute =
   | 'quest-post'
   | 'summon'
   | 'summon-status'
+  | 'dispatch'
+  | 'cost-per-post'
   | 'seal-posted'
   | 'gateway-call'
   | 'mcp'
@@ -67,6 +69,10 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   summon: writeLimits(10, 30),
   // The Summon panel polls its status; a read is cheap but still bounded per client and guild.
   'summon-status': writeLimits(60, 240),
+  // A dispatch pass claims a Quest and starts a worker (a container, a run): as tight as Summon.
+  dispatch: writeLimits(10, 30),
+  // A read that scans the ledger's per-Quest rows and their Seals: bounded per client and guild.
+  'cost-per-post': writeLimits(30, 120),
   'seal-posted': writeLimits(30, 120),
   // Run-token calls to the model gateway: each spends money. Every sandbox reaches guildd
   // through the one proxy address, so the client bucket is loose; the guild the verified run
@@ -206,6 +212,8 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'quest-post': 'session',
   summon: 'session',
   'summon-status': 'session',
+  dispatch: 'session',
+  'cost-per-post': 'session',
   'seal-posted': 'session',
   'gateway-call': 'unauthenticated',
   mcp: 'unauthenticated',

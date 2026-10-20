@@ -38,6 +38,8 @@ export interface SealRequest {
   /** The exact Proposal text; the Seal is bound to its hash. */
   text: string
   evidence: string
+  /** The Quest's Seal round (default 1); a revision after a denial is a new round and a new Seal. */
+  round?: number
 }
 
 /**
@@ -100,6 +102,29 @@ export class SealEngine {
   /** Reserves an approved Seal for publishing `text`; returns the holder's one-time token. */
   reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {
     return this.store.reserve(guildId, id, text)
+  }
+
+  /**
+   * Publishes an approved Seal's exact `text`: reserves it, runs `effect`, then consumes it, all
+   * in this one call, so the reservation token lives only in a local variable and is never stored
+   * or returned. If `effect` throws, the Seal stays reserved: the external action may have
+   * happened, so only the Guild Master (re-auth) can resolve it, by releasing the stale
+   * reservation or marking it posted. A crash between reserve and consume does the same. The
+   * production post path is `POST /seals/:id/posted` by the Guild Master; this is the worker-side
+   * primitive for #57 and later.
+   */
+  async publish(
+    guildId: string,
+    id: string,
+    text: string,
+    effect: () => Promise<void>
+  ): Promise<SealResult> {
+    const held = await this.store.reserve(guildId, id, text)
+    if (!held.ok) {
+      return held
+    }
+    await effect()
+    return this.store.consume(guildId, id, { text, token: held.token })
   }
 
   /** Consumes the reservation held by `token` for exactly `text`; a Seal is single-use. */

@@ -25,6 +25,8 @@ export const UNLIMITED_RATE_LIMITS = {
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
   summon: { client: NO_LIMIT, guild: NO_LIMIT },
   'summon-status': { client: NO_LIMIT, guild: NO_LIMIT },
+  dispatch: { client: NO_LIMIT, guild: NO_LIMIT },
+  'cost-per-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
   'gateway-call': { client: NO_LIMIT, guild: NO_LIMIT },
   mcp: { client: NO_LIMIT, guild: NO_LIMIT },
@@ -143,6 +145,9 @@ export async function createHarness(options: HarnessOptions = {}) {
       gates: composed.gates,
       sandboxes: composed.sandboxes,
       summon: composed.summon,
+      dispatcher: composed.dispatcher,
+      sealStore: composed.sealStore,
+      modelLedger: composed.modelLedger,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,
@@ -167,6 +172,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       for (const server of servers) {
         await server.stop(true)
       }
+      // A global bar's announcements run after its response; end them before the pool closes.
+      await composed.gates.stop()
       await db.close()
       await owner.end()
     },

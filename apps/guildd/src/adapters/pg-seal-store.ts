@@ -23,6 +23,7 @@ const date = z.date().transform((d) => d.toISOString())
 const row = z.object({
   seal_id: z.string(),
   quest_id: z.string(),
+  round: z.number().int(),
   requested_by: z.string(),
   kind: z.string(),
   text: z.string(),
@@ -42,7 +43,7 @@ type Row = z.infer<typeof row>
 
 const EXPIRE_BATCH = 100
 const COLUMNS =
-  'seal_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, reserved_until, consumed_at'
+  'seal_id, quest_id, round, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, reserved_until, consumed_at'
 
 function toSeal(r: Row, now: Date): Seal {
   let status: SealStatus = r.status
@@ -63,6 +64,7 @@ function toSeal(r: Row, now: Date): Seal {
     kind: r.kind,
     text: r.text,
     evidence: r.evidence,
+    round: r.round,
     actionHash: r.action_hash,
     status,
     stale,
@@ -94,13 +96,14 @@ export class PgSealStore implements SealStore {
     const now = this.clock.now()
     const expires = new Date(now.getTime() + SEAL_TTL_MS)
     const actionHash = await hashProposal(input.text)
+    const round = input.round ?? 1
     return this.db.withGuild(guildId, async (tx) => {
       const [inserted] = await tx`
-        insert into seals (guild_id, quest_id, requested_by, kind, text, evidence, action_hash,
-          requested_at, expires_at)
-        values (${guildId}, ${input.questId}, ${input.requestedBy}, ${input.kind}, ${input.text},
+        insert into seals (guild_id, quest_id, round, requested_by, kind, text, evidence,
+          action_hash, requested_at, expires_at)
+        values (${guildId}, ${input.questId}, ${round}, ${input.requestedBy}, ${input.kind}, ${input.text},
           ${input.evidence}, ${actionHash}, ${now}, ${expires})
-        on conflict (guild_id, quest_id, action_hash) do nothing
+        on conflict (guild_id, quest_id, round, action_hash) do nothing
         returning ${tx.unsafe(COLUMNS)}`
       if (inserted) {
         const seal = toSeal(row.parse(inserted), now)
@@ -110,8 +113,19 @@ export class PgSealStore implements SealStore {
       const [existing] = await tx`
         select ${tx.unsafe(COLUMNS)} from seals
         where guild_id = ${guildId} and quest_id = ${input.questId}
-          and action_hash = ${actionHash}`
+          and round = ${round} and action_hash = ${actionHash}`
       return toSeal(row.parse(existing), now)
+    })
+  }
+
+  async forQuest(guildId: string, questId: string): Promise<Seal | null> {
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      const [found] = await tx`
+        select ${tx.unsafe(COLUMNS)} from seals
+        where guild_id = ${guildId} and quest_id = ${questId}
+        order by round desc, requested_at desc limit 1`
+      return found ? toSeal(row.parse(found), now) : null
     })
   }
 
@@ -342,15 +356,21 @@ export class PgSealStore implements SealStore {
     })
   }
 
-  async expireDue(guildId: string): Promise<number> {
+  async expireDue(guildId: string, opts?: { approvedWindowMs?: number }): Promise<number> {
     const now = this.clock.now()
+    // An approved Seal decided at or before this instant was never posted; with no window it is the epoch, which none is.
+    const approvedBefore = new Date(
+      opts?.approvedWindowMs === undefined ? 0 : now.getTime() - opts.approvedWindowMs
+    )
     return this.db.withGuild(guildId, async (tx) => {
       // Bounded: at most EXPIRE_BATCH per call, so a read never does unbounded writes.
       const rows = await tx`
         update seals set status = 'expired'
         where guild_id = ${guildId} and seal_id in (
           select seal_id from seals
-          where guild_id = ${guildId} and status = 'requested' and expires_at <= ${now}
+          where guild_id = ${guildId} and (
+            (status = 'requested' and expires_at <= ${now})
+            or (status in ('approved', 'released') and decided_at <= ${approvedBefore}))
           order by seal_id limit ${EXPIRE_BATCH})
         returning ${tx.unsafe(COLUMNS)}`
       // UPDATE ... RETURNING has no defined order; sort so events land in a stable sequence.

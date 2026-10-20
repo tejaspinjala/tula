@@ -44,6 +44,8 @@ export interface GateStore {
   announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean>
   /** Whether the guild is barred now, by its own bar or the global one. */
   isBarred(guildId: string): Promise<boolean>
+  /** The id of the global bar if one is up, else null; `guildId` is any existing guild (the read runs in its tenant context). */
+  globalBarId(guildId: string): Promise<string | null>
   /** Which bars are up for the guild. */
   status(guildId: string): Promise<GateStatus>
 }

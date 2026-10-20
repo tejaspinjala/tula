@@ -1,6 +1,7 @@
+import { startRun } from './dispatch'
 import { questConcurrency } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
-import { GatewayError, type ModelGateway } from './model-gateway'
+import type { ModelGateway } from './model-gateway'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
@@ -135,72 +136,10 @@ export class Summon {
     if (claimed === null) {
       return { ok: false, error: 'run_not_started' }
     }
-    const release = (reason: string) =>
-      this.deps.quests.fail(guildId, claimed.id, claimed.attempts, reason)
-    let run: Awaited<ReturnType<Summon['openRun']>>
-    try {
-      run = await this.openRun(guildId, claimed.id, claimed.attempts, claimed.hallId, profileId)
-    } catch (error) {
-      // Never leave the Quest holding a live lease no worker will use.
-      await release('provider_error')
-      throw error
-    }
-    if (!('token' in run)) {
-      await release('routing_blocked')
-      return { ok: false, error: run.error }
-    }
-    try {
-      await this.deps.sandboxes.start(guildId, {
-        questId: claimed.id,
-        runToken: run.token,
-        leaseHandle: JSON.stringify(await this.deps.mcp.lease(guildId, claimed)),
-        doneCondition: claimed.doneCondition,
-      })
-    } catch {
-      await release('sandbox_unavailable')
-      return { ok: false, error: 'sandbox_unavailable' }
-    }
-    // A bar that landed while the container started could not see it yet: stop it here.
-    if (await this.deps.gates.isBarred(guildId)) {
-      try {
-        await this.deps.sandboxes.kill({ guildId })
-      } catch {
-        // The kill was not confirmed: end the Quest as failed rather than leave it leased.
-        await release('sandbox_unavailable')
-        return { ok: false, error: 'sandbox_unavailable' }
-      }
-      await release('routing_blocked')
-      return { ok: false, error: 'gates_barred' }
+    const started = await startRun(this.deps, guildId, claimed, profileId)
+    if (!started.ok) {
+      return { ok: false, error: started.error }
     }
     return { ok: true, status: await this.status(guildId) }
-  }
-
-  private async openRun(
-    guildId: string,
-    questId: string,
-    attempt: number,
-    hallId: string,
-    profileId: string
-  ): Promise<{ token: string } | { error: SummonError }> {
-    try {
-      const run = await this.deps.gateway.openRun(guildId, { questId, attempt, hallId, profileId })
-      if (run.status === 'started') {
-        return { token: run.token }
-      }
-      return {
-        error:
-          run.status === 'refused' && run.reason === 'gates_barred'
-            ? 'gates_barred'
-            : 'run_not_started',
-      }
-    } catch (error) {
-      if (
-        error instanceof GatewayError &&
-        error.code === 'subscription_unsupported_until_spike_15'
-      ) {
-        return { error: 'subscription_unsupported_until_spike_15' }
-      }
-      throw error
-    }
   }
 }

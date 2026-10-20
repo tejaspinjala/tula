@@ -78,6 +78,18 @@ test('the database refuses to change a decided Seal, even as owner', async () =>
   expect((await store.get(guild, seal.id))?.status).toBe('denied')
 })
 
+test('the database refuses to change the round of a Seal', async () => {
+  const { guild, store, seal } = await setup()
+  const message = await owner
+    .unsafe(`update seals set round = 2 where guild_id = '${guild}' and seal_id = '${seal.id}'`)
+    .then(
+      () => 'ok',
+      (e: Error) => e.message
+    )
+  expect(message).toContain('immutable')
+  expect((await store.get(guild, seal.id))?.status).toBe('requested')
+})
+
 test('a decision cannot be rewritten after approval either', async () => {
   const { guild, store, seal, hash } = await setup()
   await store.decide(guild, seal.id, { verdict: 'approved', expectedHash: hash })
