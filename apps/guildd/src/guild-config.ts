@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { canonicalJson } from './audit-chain'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const displayName = z.string().trim().min(1).max(100)
@@ -130,41 +131,117 @@ export function defaultConfig(): GuildConfig {
 /** How a change moves risk: `widening` needs confirmation, `tightening` and `neutral` apply at once. */
 export type ChangeKind = 'widening' | 'tightening' | 'neutral'
 
+const RANKS = memberRank.options
+
+const same = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b)
+
+const entriesOf = (o: object): Map<string, unknown> => new Map(Object.entries(o))
+
+/** Whether every key outside `handled` is identical in both objects (unknown keys never change silently). */
+function othersSame(a: object, b: object, handled: readonly string[]): boolean {
+  const left = entriesOf(a)
+  const right = entriesOf(b)
+  const keys = new Set([...left.keys(), ...right.keys()])
+  return [...keys].every((k) => handled.includes(k) || same(left.get(k), right.get(k)))
+}
+
+/** Every item of `next` is present, identical, in `prev` (items may be removed, never added or edited). */
+function subsetOf<T extends { id: string }>(prev: readonly T[], next: readonly T[]): boolean {
+  const before = new Map(prev.map((p) => [p.id, p]))
+  return next.every((n) => {
+    const p = before.get(n.id)
+    return p !== undefined && same(p, n)
+  })
+}
+
+type Agent = { id: string; name: string }
+type Member = GuildConfig['halls'][number]['members'][number]
+
+function memberNoWider(prev: Member, next: Member): boolean {
+  return (
+    RANKS.indexOf(next.rank) <= RANKS.indexOf(prev.rank) && othersSame(prev, next, ['name', 'rank'])
+  )
+}
+
+function hallNoWider(prev: Hall, next: Hall): boolean {
+  const members = new Map(prev.members.map((m) => [m.id, m]))
+  return (
+    next.kind === prev.kind &&
+    (next.locked || !prev.locked) &&
+    (!next.privateEligible || prev.privateEligible) &&
+    (next.captain === null ||
+      (prev.captain?.id === next.captain.id && othersSame(prev.captain, next.captain, ['name']))) &&
+    next.members.every((m) => {
+      const before = members.get(m.id)
+      return before !== undefined && memberNoWider(before, m)
+    }) &&
+    othersSame(prev, next, ['name', 'kind', 'locked', 'privateEligible', 'captain', 'members'])
+  )
+}
+
+/** True only when `next` is provably no riskier than `prev`, field by field; anything else fails closed. */
+function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
+  const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
+  const stewardOk = (a: Agent, b: Agent) => a.id === b.id && othersSame(a, b, ['name'])
+  const prevHalls = new Map(prev.halls.map((h) => [h.id, h]))
+  const nextIds = new Set(next.halls.map((h) => h.id))
+  const removedHallsOk = prev.halls.every(
+    (h) => nextIds.has(h.id) || (!h.locked && h.kind !== 'private')
+  )
+  return (
+    stewardOk(prev.steward, next.steward) &&
+    level(next.sealPolicy) <= level(prev.sealPolicy) &&
+    next.caps.dailyTokens <= prev.caps.dailyTokens &&
+    next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
+    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents']) &&
+    subsetOf(prev.providers, next.providers) &&
+    subsetOf(prev.routingProfiles, next.routingProfiles) &&
+    subsetOf(prev.schedules, next.schedules) &&
+    removedHallsOk &&
+    next.halls.every((h) => {
+      const before = prevHalls.get(h.id)
+      return before !== undefined && hallNoWider(before, h)
+    }) &&
+    othersSame(prev, next, [
+      'steward',
+      'halls',
+      'sealPolicy',
+      'caps',
+      'providers',
+      'routingProfiles',
+      'schedules',
+    ])
+  )
+}
+
+/** Drops display names at every depth, leaving only what can carry risk. */
+function withoutNames(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutNames)
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([k]) => k !== 'name')
+        .map(([k, v]) => [k, withoutNames(v)])
+    )
+  }
+  return value
+}
+
 /**
- * Deterministic comparison of two configs. Any single risk-widening difference makes the whole
- * change `widening`: higher caps, a looser Seal Policy, private eligibility switched on, a Hall
- * unlocked, or a provider added. Never a model decision.
+ * Deterministic comparison of two configs, failing closed: only a provable field-by-field subset
+ * of risk (caps down, Seal Policy stricter, private eligibility off, Halls locked, Members,
+ * Captains, providers, profiles, schedules and unlocked work Halls removed, rank down) is
+ * `tightening` or `neutral`. Everything else, including any field this classifier does not know,
+ * is `widening`; so is removing a locked or private Hall (decision: widening, not rejected).
+ * Never a model decision.
  */
 export function classifyChange(prev: GuildConfig, next: GuildConfig): ChangeKind {
-  const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
-  const prevHalls = new Map(prev.halls.map((h) => [h.id, h]))
-  const prevProviders = new Set(prev.providers.map((p) => p.id))
-  const widening =
-    level(next.sealPolicy) > level(prev.sealPolicy) ||
-    next.caps.dailyTokens > prev.caps.dailyTokens ||
-    next.caps.dailySpendCents > prev.caps.dailySpendCents ||
-    next.providers.some((p) => !prevProviders.has(p.id)) ||
-    next.halls.some((h) => {
-      const before = prevHalls.get(h.id)
-      return (
-        (h.privateEligible && !before?.privateEligible) || (before?.locked === true && !h.locked)
-      )
-    })
-  if (widening) {
+  if (!provablyNoWider(prev, next)) {
     return 'widening'
   }
-  const nextHalls = new Map(next.halls.map((h) => [h.id, h]))
-  const nextProviders = new Set(next.providers.map((p) => p.id))
-  const tightening =
-    level(next.sealPolicy) < level(prev.sealPolicy) ||
-    next.caps.dailyTokens < prev.caps.dailyTokens ||
-    next.caps.dailySpendCents < prev.caps.dailySpendCents ||
-    prev.providers.some((p) => !nextProviders.has(p.id)) ||
-    prev.halls.some((h) => {
-      const after = nextHalls.get(h.id)
-      return (h.privateEligible && !after?.privateEligible) || (!h.locked && after?.locked === true)
-    })
-  return tightening ? 'tightening' : 'neutral'
+  return same(withoutNames(prev), withoutNames(next)) ? 'neutral' : 'tightening'
 }
 
 /** Whether a Hall takes Quests: locked Halls reject them. */
