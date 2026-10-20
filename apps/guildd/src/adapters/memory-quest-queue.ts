@@ -201,6 +201,19 @@ export class MemoryQuestQueue implements QuestQueue {
     return released
   }
 
+  async releaseClaim(
+    _guildId: string,
+    _id: string,
+    _attempt: number,
+    _notBefore: Date
+  ): Promise<Quest> {
+    throw new Error('not implemented')
+  }
+
+  async kill(_guildId: string, _id: string, _attempt: number, _reason: string): Promise<Quest> {
+    throw new Error('not implemented')
+  }
+
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
     const g = this.guild(guildId)
     const id = g.byKey.get(jobKey)

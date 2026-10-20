@@ -187,6 +187,18 @@ export interface QuestQueue {
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
   releaseLeases(guildId: string, reason: FailReason): Promise<number>
+  /**
+   * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
+   * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
+   * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.
+   * Idempotent: a repeat for the same delivery changes nothing.
+   */
+  releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /**
+   * Dead-letters a claimed Quest with a coded reason (see {@link FAIL_REASONS}), cascading to its
+   * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
+   */
+  kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */
