@@ -91,6 +91,8 @@ const hallPayload = z.object({ hallId: z.string() })
 const questPayload = z.object({ questId: z.string() })
 const spawnPayload = z.object({ parentId: z.string(), childId: z.string() })
 const campaignPayload = z.object({ campaignId: z.string() })
+/** Stub: the `member.activity` payload schema. */
+export const memberActivityPayload = z.looseObject({})
 const missivePayload = z.object({ missiveId: z.string(), from: z.string() })
 const spendPayload = z.object({ kind: z.string(), amountCents: z.number() })
 
