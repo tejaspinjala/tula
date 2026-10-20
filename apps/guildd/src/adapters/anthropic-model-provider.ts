@@ -86,7 +86,7 @@ export class AnthropicModelProvider implements ModelProvider {
   async complete(
     credential: ProviderSecret,
     request: ModelRequest,
-    _signal?: AbortSignal
+    signal?: AbortSignal
   ): Promise<ModelResponse> {
     const parsed = modelRequest.safeParse(request)
     if (!parsed.success) {
@@ -98,10 +98,13 @@ export class AnthropicModelProvider implements ModelProvider {
       messages: parsed.data.messages,
       ...(parsed.data.system === undefined ? {} : { system: parsed.data.system }),
     })
+    if (signal?.aborted) {
+      throw new ModelProviderError('aborted')
+    }
     let last: ModelProviderError = new ModelProviderError('unavailable')
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
-        return await this.attempt(credential, body)
+        return await this.attempt(credential, body, signal)
       } catch (e) {
         if (!(e instanceof ModelProviderError)) {
           throw new ModelProviderError('unavailable')
@@ -117,7 +120,11 @@ export class AnthropicModelProvider implements ModelProvider {
     throw last
   }
 
-  private async attempt(credential: ProviderSecret, body: string): Promise<ModelResponse> {
+  private async attempt(
+    credential: ProviderSecret,
+    body: string,
+    caller?: AbortSignal
+  ): Promise<ModelResponse> {
     let res: Response
     try {
       res = await this.fetcher(`${this.baseUrl}/v1/messages`, {
@@ -128,9 +135,14 @@ export class AnthropicModelProvider implements ModelProvider {
           'anthropic-version': '2023-06-01',
         },
         body,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: caller
+          ? AbortSignal.any([caller, AbortSignal.timeout(this.timeoutMs)])
+          : AbortSignal.timeout(this.timeoutMs),
       })
     } catch (e) {
+      if (caller?.aborted) {
+        throw new ModelProviderError('aborted')
+      }
       const aborted = e instanceof DOMException && ['TimeoutError', 'AbortError'].includes(e.name)
       throw new ModelProviderError(aborted ? 'timeout' : 'unavailable')
     }
