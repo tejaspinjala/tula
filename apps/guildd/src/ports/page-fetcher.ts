@@ -10,3 +10,14 @@ export interface PageFetcher {
    */
   fetch(url: string, request: { signal: AbortSignal }): Promise<string>
 }
+
+/**
+ * A deterministic refusal: the URL is not allowed (not https, a private host), or the page answered
+ * 4xx or is not text. Retrying cannot change it, so callers do not retry; its `code` is a short
+ * closed reason that is safe to show a Member.
+ */
+export class PageRefused extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}

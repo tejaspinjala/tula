@@ -101,6 +101,15 @@ export interface HttpPageFetcherOptions {
   fetchImpl?: FetchLike
   /** Largest body read, in bytes; defaults to {@link DEFAULT_MAX_PAGE_BYTES}. */
   maxBytes?: number
+  /** Most characters of text extracted from a page. */
+  maxTextChars?: number
+  /** Replaces the HTTPS connection in tests. */
+  transport?: (request: {
+    url: string
+    address: string
+    family: 4 | 6
+    signal: AbortSignal
+  }) => Promise<Response>
 }
 
 /**
