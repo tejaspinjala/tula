@@ -1,3 +1,5 @@
+import { PINNED_BUN_IMAGE } from '../src/sandbox-spec'
+
 /** The result of one `docker` call from a test. */
 export interface Ran {
   code: number
@@ -27,6 +29,8 @@ export class TestNetworks {
   readonly sandbox = `gh-test-sbx-${this.tag}`
   readonly egress = `gh-test-egress-${this.tag}`
   readonly label = `guildhall.test=${this.tag}`
+  /** Images built for this run; removed by {@link cleanup}. */
+  readonly images: string[] = []
 
   /** Creates the internal sandbox network (no route out) and the egress network. */
   async create(): Promise<void> {
@@ -48,5 +52,97 @@ export class TestNetworks {
       await docker(['rm', '-f', '-v', ...ids.stdout.split('\n')])
     }
     await docker(['network', 'rm', this.sandbox, this.egress])
+    for (const image of this.images) {
+      await docker(['image', 'rm', image])
+    }
   }
+}
+
+/** Runs `docker` and throws on a non-zero exit, returning trimmed stdout. */
+export async function dockerOk(args: string[], stdin?: string): Promise<string> {
+  const ran = await docker(args, stdin)
+  if (ran.code !== 0) {
+    throw new Error(`docker ${args[0]} failed: ${ran.stderr}`)
+  }
+  return ran.stdout
+}
+
+/** Waits until the container's log shows `line`, up to `timeoutMs`. */
+async function waitForLog(name: string, line: string, timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const logs = await docker(['logs', name])
+    if (`${logs.stdout}\n${logs.stderr}`.includes(line)) {
+      return
+    }
+    await Bun.sleep(150)
+  }
+  throw new Error(`${name} never logged "${line}"`)
+}
+
+/** A running egress proxy and a stand-in gateway behind it. */
+export interface EgressStack {
+  /** Where sandboxes find the proxy (a name on the internal sandbox network). */
+  proxyUrl: string
+  /** The one allowed host; reachable only through the proxy. */
+  gatewayUrl: string
+}
+
+/**
+ * Builds the egress proxy image from the repo's Dockerfile and starts it on both networks, with a
+ * stand-in gateway reachable only on the egress network. All of it is labelled for cleanup.
+ */
+export async function startEgressStack(nets: TestNetworks): Promise<EgressStack> {
+  const image = `guildhall-egress-proxy:test-${nets.tag}`
+  const root = new URL('../../../', import.meta.url).pathname
+  await dockerOk([
+    'build',
+    '--quiet',
+    '--label',
+    nets.label,
+    '-f',
+    `${root}docker/egress-proxy.Dockerfile`,
+    '-t',
+    image,
+    root,
+  ])
+  nets.images.push(image)
+  const gateway = `gateway-${nets.tag}`
+  const proxy = `egress-${nets.tag}`
+  await dockerOk([
+    'run',
+    '--detach',
+    '--name',
+    gateway,
+    '--label',
+    nets.label,
+    '--network',
+    nets.egress,
+    '--read-only',
+    '--user',
+    '65532:65532',
+    '--cap-drop',
+    'ALL',
+    PINNED_BUN_IMAGE,
+    'bun',
+    '-e',
+    "Bun.serve({ port: 8080, fetch: () => new Response('gateway-ok') }); console.log('serving')",
+  ])
+  await dockerOk([
+    'run',
+    '--detach',
+    '--name',
+    proxy,
+    '--label',
+    nets.label,
+    '--network',
+    nets.egress,
+    '--env',
+    `EGRESS_ALLOWED_HOSTS=${gateway}`,
+    image,
+  ])
+  await dockerOk(['network', 'connect', nets.sandbox, proxy])
+  await waitForLog(gateway, 'serving')
+  await waitForLog(proxy, 'egress-proxy listening')
+  return { proxyUrl: `http://${proxy}:3128`, gatewayUrl: `http://${gateway}:8080/` }
 }

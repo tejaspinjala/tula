@@ -11,7 +11,7 @@
     "prepare": "husky || true",
     "typecheck": "tsc --noEmit && bun run --filter '*' typecheck",
     "verify": "biome check . && bun run typecheck && bun test",
-    "test:integration": "bun test ./apps/guildd/integration/migrate.integration.ts ./apps/guildd/integration/object-store.integration.ts ./apps/guildd/integration/sandbox.integration.ts ./scripts/backup-restore.integration.ts ./scripts/backup-services.integration.ts",
+    "test:integration": "bun test ./apps/guildd/integration/migrate.integration.ts ./apps/guildd/integration/object-store.integration.ts ./apps/guildd/integration/sandbox.integration.ts ./apps/guildd/integration/egress.integration.ts ./scripts/backup-restore.integration.ts ./scripts/backup-services.integration.ts",
     "backup": "bun scripts/backup.ts",
     "restore": "bun scripts/restore.ts",
     "db:migrate": "bun run --cwd apps/guildd db:migrate",
