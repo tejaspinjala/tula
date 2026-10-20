@@ -59,7 +59,7 @@ export function Tooltip({ name, category, stats = [], children }: TooltipProps) 
     const box = node.getBoundingClientRect()
     const view = document.documentElement.clientWidth
     const shift = box.left < 0 ? -box.left : box.right > view && view > 0 ? view - box.right : 0
-    node.style.setProperty('--shift', String(Math.round(shift)))
+    node.style.setProperty('--shift', `${Math.round(shift)}px`)
   }, [open])
 
   return (

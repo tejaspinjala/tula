@@ -37,6 +37,7 @@
   --px-danger-400: #e86a4f;
   --px-warn-500: #f0c419;
   --px-berry-500: #8e4a8a;
+  --px-edge: calc(var(--px) * 2);
   --px-focus: var(--px-gold-500);
   --px-on-gold: var(--px-ink);
   --px-on-wood: #f6e7c1;
