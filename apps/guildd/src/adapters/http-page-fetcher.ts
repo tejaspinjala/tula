@@ -221,51 +221,55 @@ export type PageTransport = (request: PageTransportRequest) => Promise<Response>
 const NO_BODY = new Set([101, 204, 205, 304])
 
 /** The real transport: `node:https` with a `lookup` that can only answer the validated address. */
-const httpsTransport: PageTransport = (req) =>
-  new Promise<Response>((resolve, reject) => {
-    const url = new URL(req.url)
-    const host = url.hostname.replace(/^\[|\]$/g, '')
-    const call = httpsRequest(
-      {
-        hostname: host,
-        port: url.port === '' ? 443 : Number(url.port),
-        path: `${url.pathname}${url.search}`,
-        method: 'GET',
-        headers: { accept: 'text/html,text/plain;q=0.9', 'accept-encoding': 'identity' },
-        servername: isIP(host) === 0 ? host : '',
-        lookup: (_name, _options, callback) => callback(null, req.address, req.family),
-        signal: req.signal,
-      },
-      (res) => {
-        const iterator = res[Symbol.asyncIterator]()
-        const headers = new Headers()
-        for (const [name, value] of Object.entries(res.headers)) {
-          if (typeof value === 'string') {
-            headers.set(name, value)
+export function createHttpsTransport(_options: { ca?: string } = {}): PageTransport {
+  return (req) =>
+    new Promise<Response>((resolve, reject) => {
+      const url = new URL(req.url)
+      const host = url.hostname.replace(/^\[|\]$/g, '')
+      const call = httpsRequest(
+        {
+          hostname: host,
+          port: url.port === '' ? 443 : Number(url.port),
+          path: `${url.pathname}${url.search}`,
+          method: 'GET',
+          headers: { accept: 'text/html,text/plain;q=0.9', 'accept-encoding': 'identity' },
+          servername: isIP(host) === 0 ? host : '',
+          lookup: (_name, _options, callback) => callback(null, req.address, req.family),
+          signal: req.signal,
+        },
+        (res) => {
+          const iterator = res[Symbol.asyncIterator]()
+          const headers = new Headers()
+          for (const [name, value] of Object.entries(res.headers)) {
+            if (typeof value === 'string') {
+              headers.set(name, value)
+            }
           }
+          const status = res.statusCode ?? 0
+          const body = NO_BODY.has(status)
+            ? null
+            : new ReadableStream<Uint8Array>({
+                async pull(controller) {
+                  const next = await iterator.next()
+                  if (next.done) {
+                    controller.close()
+                  } else {
+                    controller.enqueue(new Uint8Array(Buffer.from(next.value)))
+                  }
+                },
+                cancel() {
+                  res.destroy()
+                },
+              })
+          resolve(new Response(body, { status, headers }))
         }
-        const status = res.statusCode ?? 0
-        const body = NO_BODY.has(status)
-          ? null
-          : new ReadableStream<Uint8Array>({
-              async pull(controller) {
-                const next = await iterator.next()
-                if (next.done) {
-                  controller.close()
-                } else {
-                  controller.enqueue(new Uint8Array(Buffer.from(next.value)))
-                }
-              },
-              cancel() {
-                res.destroy()
-              },
-            })
-        resolve(new Response(body, { status, headers }))
-      }
-    )
-    call.on('error', reject)
-    call.end()
-  })
+      )
+      call.on('error', reject)
+      call.end()
+    })
+}
+
+const httpsTransport = createHttpsTransport()
 
 /** Settings of an {@link HttpPageFetcher}. */
 export interface HttpPageFetcherOptions {
