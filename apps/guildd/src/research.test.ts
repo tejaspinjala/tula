@@ -97,6 +97,63 @@ describe('Research.sweep', () => {
     expect(await research.sweep(guild)).toBe(0)
   })
 
+  test('a spend approved between the sweep read and its deny is re-read and released, not closed as settled', async () => {
+    const { clock, config, treasury, treasuryStore, store, research } = build()
+    const guild = crypto.randomUUID()
+    await config.seed(guild)
+    const questId = crypto.randomUUID()
+    const slot = await store.reserve(guild, {
+      hallId: 'h-forge',
+      questId,
+      memberId: 'm-ada',
+      maxPerQuest: 3,
+      at: clock.now(),
+    })
+    if (!slot.ok) {
+      throw new Error('expected a slot')
+    }
+    const waiting = await treasury.requestSpend(guild, {
+      key: `research:${slot.call.id}`,
+      amountCents: 900,
+      purpose: 'research',
+      requestedBy: 'm-ada',
+    })
+    if (!waiting.ok || waiting.spend.status !== 'pending_approval') {
+      throw new Error('expected a spend waiting for approval')
+    }
+    // The Guild Master approves after the first read: that attempt's deny finds a reserved spend.
+    let raced = false
+    const racing = {
+      requestSpend: treasury.requestSpend.bind(treasury),
+      settleSpend: treasury.settleSpend.bind(treasury),
+      releaseSpend: treasury.releaseSpend.bind(treasury),
+      denySpend: treasury.denySpend.bind(treasury),
+      releaseSpendByKey: async (g: string, key: string, actor: string) => {
+        if (!raced) {
+          raced = true
+          await treasury.approveSpend(g, waiting.spend.id, 'm-gm')
+          return { ok: false as const, reason: 'wrong_state' as const }
+        }
+        return treasury.releaseSpendByKey(g, key, actor)
+      },
+    }
+    const sweeper = new Research({
+      search: new MemorySearchProvider({ results: HITS }),
+      fetcher: new MemoryPageFetcher({}),
+      store,
+      treasury: racing,
+      config,
+      clock,
+      costCents: COST,
+      sleep: async () => {},
+      random: () => 0.5,
+    })
+    clock.advance(TEN_MINUTES)
+    expect(await sweeper.sweep(guild)).toBe(1)
+    expect((await treasuryStore.getSpend(guild, waiting.spend.id))?.status).toBe('released')
+    expect(await store.count(guild, questId)).toBe(0)
+  })
+
   test('a slot with no spend at all is freed', async () => {
     const { clock, config, store, research } = build()
     const guild = crypto.randomUUID()
