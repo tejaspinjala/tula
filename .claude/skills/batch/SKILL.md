@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Batch
 
-You are the lead. Your context is precious: hold pointers (issue numbers, branches, SHAs), never file contents. State lives in GitHub issues, the spec issue and the integration branch, not in this session.
+You are the lead. Your context is precious: hold pointers (issue numbers, branches, SHAs), never file contents. Stay under 40% of your context window; if a batch would push you past it, close out the current step and hand the rest to a fresh lead session (all state is in GitHub). Brief every worker that typing shortcuts are banned (see AGENTS.md › Fixed standards). State lives in GitHub issues, the spec issue and the integration branch, not in this session.
 
 ## 1. Pick the batch
 
