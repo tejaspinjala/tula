@@ -76,6 +76,7 @@ export function hardenedRunArgs(spec: HardenedSpec): string[] {
     ...Object.entries(spec.labels).flatMap(([k, v]) => ['--label', `${k}=${v}`]),
     '--env-file',
     '/dev/stdin',
+    '--',
     spec.image,
     ...spec.command,
   ]

@@ -237,8 +237,16 @@ export function loadSandboxEnv(
     .object({
       SANDBOX_IMAGE: z
         .string()
-        .regex(/(^|@)sha256:[0-9a-f]{64}$/, 'SANDBOX_IMAGE must be pinned by digest'),
-      SANDBOX_NETWORK: z.string().min(1),
+        .regex(
+          /^([a-z0-9][^\s@]*@)?sha256:[0-9a-f]{64}$/,
+          'SANDBOX_IMAGE must be pinned by digest and not start with a dash'
+        ),
+      SANDBOX_NETWORK: z
+        .string()
+        .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, 'SANDBOX_NETWORK must be a plain network name')
+        .refine((n) => !['host', 'bridge', 'none'].includes(n), {
+          message: 'SANDBOX_NETWORK must be the dedicated internal network',
+        }),
       SANDBOX_SCOPE: z.string().min(1).default('default'),
       EGRESS_PROXY_URL: z.url(),
       SANDBOX_GATEWAY_URL: z.url(),
