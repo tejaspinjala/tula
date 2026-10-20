@@ -39,9 +39,9 @@ const reauth = {
 
 test('the gates status is read with the session token', async () => {
   const { seen, fetcher } = fakes({
-    [`/api/guilds/${guild}/gates`]: { body: { guild: true, global: false } },
+    [`/api/guilds/${guild}/gates`]: { body: { guild: true, global: false, operator: true } },
   })
-  expect(await loadGates(session, fetcher)).toEqual({ guild: true, global: false })
+  expect(await loadGates(session, fetcher)).toEqual({ guild: true, global: false, operator: true })
   expect(seen[0]?.headers.get('authorization')).toBe('Bearer t1')
 })
 
