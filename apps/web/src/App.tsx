@@ -26,10 +26,16 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   const [session, setSession] = useState<Session | null>(null)
   const [restored, setRestored] = useState(false)
   // A one-time enrolment link carries its token in the fragment; it is read once and cleared.
-  const [enrolToken] = useState(() => enrolTokenFromHash(window.location.hash))
+  const [enrolToken, setEnrolToken] = useState(() => enrolTokenFromHash(window.location.hash))
   useEffect(() => {
     takeEnrolToken(window)
   }, [])
+  // The link is single use: once any session opens, the title never offers it again.
+  useEffect(() => {
+    if (session) {
+      setEnrolToken(null)
+    }
+  }, [session])
 
   const [founding, setFounding] = useState<FoundingState>('closed')
   const [guild, setGuild] = useState<{ id: string; name: string } | null>(null)

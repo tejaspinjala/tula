@@ -7,19 +7,32 @@
 import { resolve } from 'node:path'
 import { selfhostPlan } from './start-selfhost'
 
+/**
+ * The environment the link command runs in: guildd's own (from `start:selfhost`'s plan) minus
+ * `WEB_DIST`, because minting a link serves no web app and must not need a built one.
+ */
+export function enrolEnvironment(
+  source: Record<string, string | undefined>,
+  root: string
+): Record<string, string | undefined> {
+  const { WEB_DIST: _webDist, ...env } = selfhostPlan(source, root).guildd
+  return env
+}
+
 async function main() {
   const root = resolve(import.meta.dir, '..')
-  const plan = selfhostPlan(process.env, root)
   const proc = Bun.spawn(['bun', 'apps/guildd/src/enrol-link-cli.ts', ...process.argv.slice(2)], {
     cwd: root,
-    env: plan.guildd,
+    env: enrolEnvironment(process.env, root),
     stdout: 'inherit',
     stderr: 'inherit',
   })
   process.exit(await proc.exited)
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : 'guild:enrol-link failed'}\n`)
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : 'guild:enrol-link failed'}\n`)
+    process.exit(1)
+  })
+}

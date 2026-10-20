@@ -42,6 +42,13 @@ beforeAll(() => {
           ? Response.json({ error: 'rate_limited' }, { status: 429 })
           : Response.json({ open: foundingIsOpen })
       }
+      if (url.endsWith('/enrol/begin')) {
+        return Response.json({ challengeId: 'c1', options })
+      }
+      if (url.endsWith('/enrol/finish')) {
+        cookieLive = true
+        return Response.json({ guildId: guild }, { status: 201 })
+      }
       if (url.endsWith('/sign-in/begin')) {
         return Response.json({ challengeId: 'c1', options })
       }
@@ -467,4 +474,23 @@ test('Sign out revokes the session on guildd, and a reload stays signed out', as
   const again = await mount({ keepSession: true })
   expect(option(again.host, 'Continue')).toBeTruthy()
   await act(async () => again.root.unmount())
+})
+
+test('an enrolment link is cleared from the address bar, enrols, and is gone after sign-out', async () => {
+  const token = `${guild}.c2VjcmV0LXNlY3JldC1zZWNyZXQ`
+  foundingIsOpen = false
+  visit(`/#enrol=${token}`)
+  const { host, root } = await mount()
+  expect(window.location.hash).toBe('')
+  expect(window.location.href).not.toContain(token)
+  await click(button(host, 'Join the guild on this device'))
+  expect(urls).toContain(`/api/guilds/${guild}/enrol/finish`)
+  expect(host.querySelector('h1')?.textContent).toContain('Ember Guild')
+  await key('b')
+  await click(row(host, 'Sign out'))
+  expect(option(host, 'Continue')).toBeTruthy()
+  expect([...host.querySelectorAll('button')].some((b) => b.textContent?.includes('Join'))).toBe(
+    false
+  )
+  await act(async () => root.unmount())
 })
