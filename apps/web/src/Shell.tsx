@@ -19,6 +19,7 @@ import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
+import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 function ViewBody({
   view,
@@ -65,6 +66,8 @@ function ViewBody({
       )
     case 'guild':
       return <BuilderPanel session={session} />
+    case 'workflows':
+      return <WorkflowPanel session={session} />
     case 'gates':
       return (
         <>
