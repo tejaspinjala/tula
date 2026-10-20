@@ -9,6 +9,7 @@ import type { KeyProvider } from '../ports/key-provider'
 import { NoteError, type NoteStore } from '../ports/note-store'
 import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
+import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
 import type { ProposalEngine } from '../proposals'
@@ -21,6 +22,7 @@ import {
   getArtifactArgs,
   type LeaseHandle,
   leaseHandle,
+  MAX_PROPOSALS_PER_QUEST,
   MAX_TOOL_ARTIFACT_BYTES,
   MCP_PROTOCOL_VERSION,
   putArtifactArgs,
@@ -522,6 +524,21 @@ export class McpGateway {
       a.evidenceLinks.length === 0
         ? a.text
         : `${a.text}\n\nSources:\n${a.evidenceLinks.map((l) => `- ${l}`).join('\n')}`
+    // Newest first. A hash already held must be the latest (else the worker would believe it filed
+    // an older draft while another is judged and sealed); a new one must fit under the cap.
+    const held = await this.deps.proposals.listForQuest(
+      caller.guild,
+      caller.quest.id,
+      MAX_PROPOSALS_PER_QUEST
+    )
+    const hash = await hashProposal(content)
+    if (held.some((p) => p.hash === hash)) {
+      if (held[0]?.hash !== hash) {
+        return refuse('proposal_superseded')
+      }
+    } else if (held.length >= MAX_PROPOSALS_PER_QUEST) {
+      return refuse('proposal_cap')
+    }
     const proposal = await this.deps.proposals.propose(caller.guild, {
       questId: caller.quest.id,
       author: caller.member,

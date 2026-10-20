@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { unsafeLink } from '../verdict'
 
 /** The MCP spec revision the gateway speaks (stateless: no session, every call stands alone). */
 export const MCP_PROTOCOL_VERSION = '2026-07-28'
@@ -62,6 +63,7 @@ export const submitProposalArgs = z.strictObject({
         .string()
         .max(2000)
         .regex(/^https:\/\/[^\s]+$/)
+        .refine((link) => !unsafeLink(link))
     )
     .max(MAX_EVIDENCE_LINKS),
 })
