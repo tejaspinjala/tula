@@ -24,6 +24,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
   summon: { client: NO_LIMIT, guild: NO_LIMIT },
+  'summon-status': { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
   'gateway-call': { client: NO_LIMIT, guild: NO_LIMIT },
   mcp: { client: NO_LIMIT, guild: NO_LIMIT },
