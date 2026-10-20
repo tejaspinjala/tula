@@ -120,7 +120,9 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_guild' }, 400)
     }
     const id = await deps.db.foundGuildChained(body.data, deps.keys)
-    return c.json({ id }, 201)
+    // Returned once; only its hash is kept. Needed to register the guild's first passkey.
+    const founding = await deps.identity.issueFoundingToken(id)
+    return c.json({ id, foundingToken: founding.token }, 201)
   })
 
   /**
@@ -162,6 +164,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'not_found' }, 404)
     }
     const token = bearerToken(c.req.header('authorization'))
+    const foundingToken = c.req.header('x-founding-token')
     if (await deps.identity.hasCredentials(guild)) {
       const check = await checkSensitive(deps.identity, c.req.raw.headers)
       if (!check.ok) {
@@ -171,7 +174,12 @@ export function createApp(deps: AppDeps): Hono {
         return c.json({ error: 'not_found' }, 404)
       }
     }
-    return c.json(await deps.identity.beginRegistration(guild, token ?? undefined))
+    return c.json(
+      await deps.identity.beginRegistration(guild, {
+        ...(token ? { sessionToken: token } : {}),
+        ...(foundingToken ? { foundingToken } : {}),
+      })
+    )
   })
 
   app.post('/guilds/:id/passkeys/finish', async (c) => {
@@ -183,8 +191,14 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
+    const sessionToken = bearerToken(c.req.header('authorization'))
     return c.json(
-      await deps.identity.finishRegistration(guild, body.data.challengeId, body.data.response),
+      await deps.identity.finishRegistration(
+        guild,
+        body.data.challengeId,
+        body.data.response,
+        sessionToken ? { sessionToken } : {}
+      ),
       201
     )
   })

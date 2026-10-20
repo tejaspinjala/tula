@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import {
   type AuthenticationResponseJSON,
   generateAuthenticationOptions,
@@ -11,6 +12,7 @@ import { z } from 'zod'
 import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
+  FOUNDING_TTL_MS,
   IdentityError,
   type IdentityProvider,
   type IdentitySession,
@@ -18,7 +20,12 @@ import {
   type ReauthProof,
   SESSION_TTL_MS,
 } from '../ports/identity'
-import type { IdentityStore, StoredChallenge, StoredCredential } from './identity-store'
+import type {
+  IdentityStore,
+  StoredChallenge,
+  StoredCredential,
+  StoredSession,
+} from './identity-store'
 
 /** Relying-party settings and collaborators for the embedded WebAuthn core. */
 export interface WebAuthnIdentityConfig {
@@ -56,14 +63,33 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return (await this.store.listCredentials(guildId)).length > 0
   }
 
-  async beginRegistration(guildId: string, sessionToken?: string) {
-    if (await this.hasCredentials(guildId)) {
-      const session = sessionToken ? await this.resolveSession(sessionToken) : null
-      if (session?.guildId !== guildId) {
+  async issueFoundingToken(guildId: string) {
+    const token = randomToken()
+    const expiresAt = new Date(this.config.clock.now().getTime() + FOUNDING_TTL_MS)
+    await this.store.issueFounding(guildId, await hashOf(token), expiresAt)
+    return { token, expiresAt }
+  }
+
+  async beginRegistration(
+    guildId: string,
+    auth: { sessionToken?: string; foundingToken?: string } = {}
+  ) {
+    const existing = await this.store.listCredentials(guildId)
+    let sessionId: string | null = null
+    let foundingHash: string | null = null
+    if (existing.length > 0) {
+      const live = auth.sessionToken ? await this.liveSession(auth.sessionToken) : null
+      if (live?.guildId !== guildId) {
+        throw new IdentityError('registration_closed')
+      }
+      sessionId = live.session.id
+    } else {
+      foundingHash = auth.foundingToken ? await hashOf(auth.foundingToken) : null
+      const now = this.config.clock.now()
+      if (!foundingHash || !(await this.store.hasFounding(guildId, foundingHash, now))) {
         throw new IdentityError('registration_closed')
       }
     }
-    const existing = await this.store.listCredentials(guildId)
     const options = await generateRegistrationOptions({
       rpID: this.config.rpId,
       rpName: this.config.rpName,
@@ -74,16 +100,29 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
       authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
     })
-    const challengeId = await this.saveChallenge(guildId, 'register', options.challenge, null)
+    const challengeId = await this.saveChallenge(
+      guildId,
+      'register',
+      options.challenge,
+      sessionId,
+      foundingHash
+    )
     return { challengeId, options }
   }
 
   async finishRegistration(
     guildId: string,
     challengeId: string,
-    response: RegistrationResponseJSON
+    response: RegistrationResponseJSON,
+    auth: { sessionToken?: string } = {}
   ) {
     const challenge = await this.takeChallenge(guildId, challengeId, 'register')
+    if (!challenge.foundingHash) {
+      const live = auth.sessionToken ? await this.liveSession(auth.sessionToken) : null
+      if (live?.guildId !== guildId || live.session.id !== challenge.sessionId) {
+        throw new IdentityError('registration_closed')
+      }
+    }
     const verified = await verifyRegistrationResponse({
       response,
       expectedChallenge: challenge.challenge,
@@ -95,12 +134,25 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       throw new IdentityError('verification_failed')
     }
     const { credential } = verified.registrationInfo
-    await this.store.saveCredential(guildId, {
+    const stored: StoredCredential = {
       id: credential.id,
       publicKey: new Uint8Array(credential.publicKey),
       counter: credential.counter,
       transports: credential.transports ?? [],
-    })
+    }
+    if (challenge.foundingHash) {
+      const founded = await this.store.foundCredential(
+        guildId,
+        stored,
+        challenge.foundingHash,
+        this.config.clock.now()
+      )
+      if (!founded) {
+        throw new IdentityError('registration_closed')
+      }
+    } else {
+      await this.store.saveCredential(guildId, stored)
+    }
     return { credentialId: credential.id }
   }
 
@@ -171,11 +223,25 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
 
   async checkReauth(sessionToken: string, proof: string): Promise<boolean> {
     const live = await this.liveSession(sessionToken)
-    const { reauthHash, reauthExpiresAt } = live?.session ?? {}
+    return live ? this.proofMatches(live.session, proof) : false
+  }
+
+  async consumeReauth(sessionToken: string, proof: string): Promise<boolean> {
+    const live = await this.liveSession(sessionToken)
+    if (!live?.session.reauthHash || !(await this.proofMatches(live.session, proof))) {
+      return false
+    }
+    return this.store.clearReauth(live.guildId, live.session.id, live.session.reauthHash)
+  }
+
+  private async proofMatches(session: StoredSession, proof: string): Promise<boolean> {
+    const { reauthHash, reauthExpiresAt } = session
     if (!reauthHash || !reauthExpiresAt || reauthExpiresAt <= this.config.clock.now()) {
       return false
     }
-    return reauthHash === (await hashOf(proof))
+    const expected = Buffer.from(reauthHash)
+    const given = Buffer.from(await hashOf(proof))
+    return expected.length === given.length && timingSafeEqual(expected, given)
   }
 
   private async liveSession(token: string) {
@@ -203,16 +269,23 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     guildId: string,
     kind: StoredChallenge['kind'],
     challenge: string,
-    sessionId: string | null
+    sessionId: string | null,
+    foundingHash: string | null = null
   ): Promise<string> {
     const id = crypto.randomUUID()
-    await this.store.saveChallenge(guildId, {
-      id,
-      kind,
-      challenge,
-      sessionId,
-      expiresAt: new Date(this.config.clock.now().getTime() + CHALLENGE_TTL_MS),
-    })
+    const now = this.config.clock.now()
+    await this.store.saveChallenge(
+      guildId,
+      {
+        id,
+        kind,
+        challenge,
+        sessionId,
+        foundingHash,
+        expiresAt: new Date(now.getTime() + CHALLENGE_TTL_MS),
+      },
+      now
+    )
     return id
   }
 

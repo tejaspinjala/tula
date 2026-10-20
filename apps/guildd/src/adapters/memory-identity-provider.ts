@@ -1,3 +1,4 @@
+import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import type {
   IdentityStore,
   StoredChallenge,
@@ -11,6 +12,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly credentials = new Map<string, StoredCredential[]>()
   private readonly challenges = new Map<string, StoredChallenge>()
   private readonly sessions = new Map<string, StoredSession>()
+  private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
 
   async listCredentials(guildId: string) {
     return [...(this.credentials.get(guildId) ?? [])]
@@ -32,8 +34,61 @@ export class MemoryIdentityStore implements IdentityStore {
     )
   }
 
-  async saveChallenge(guildId: string, challenge: StoredChallenge) {
-    this.challenges.set(`${guildId}/${challenge.id}`, challenge)
+  async saveChallenge(guildId: string, challenge: StoredChallenge, now: Date) {
+    const prefix = `${guildId}/`
+    for (const [key, held] of this.challenges) {
+      if (key.startsWith(prefix) && held.expiresAt <= now) {
+        this.challenges.delete(key)
+      }
+    }
+    this.challenges.set(`${prefix}${challenge.id}`, challenge)
+    const mine = [...this.challenges].filter(([key]) => key.startsWith(prefix))
+    // Map iteration is insertion order, so a stable sort by expiry keeps ties oldest-first.
+    mine.sort((a, b) => a[1].expiresAt.getTime() - b[1].expiresAt.getTime())
+    for (const [key] of mine.slice(0, Math.max(0, mine.length - MAX_OUTSTANDING_CHALLENGES))) {
+      this.challenges.delete(key)
+    }
+  }
+
+  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date) {
+    this.founding.set(guildId, { tokenHash, expiresAt })
+  }
+
+  async hasFounding(guildId: string, tokenHash: string, now: Date) {
+    const held = this.founding.get(guildId)
+    return held !== undefined && held.tokenHash === tokenHash && held.expiresAt > now
+  }
+
+  // No await between the checks and the writes, so this is atomic within the process.
+  async foundCredential(
+    guildId: string,
+    credential: StoredCredential,
+    tokenHash: string,
+    now: Date
+  ) {
+    if (
+      (this.credentials.get(guildId) ?? []).length > 0 ||
+      !(await this.hasFounding(guildId, tokenHash, now))
+    ) {
+      return false
+    }
+    this.founding.delete(guildId)
+    this.credentials.set(guildId, [credential])
+    return true
+  }
+
+  async clearReauth(guildId: string, sessionId: string, hash: string) {
+    for (const [key, session] of this.sessions) {
+      if (
+        key.startsWith(`${guildId}/`) &&
+        session.id === sessionId &&
+        session.reauthHash === hash
+      ) {
+        this.sessions.set(key, { ...session, reauthHash: null, reauthExpiresAt: null })
+        return true
+      }
+    }
+    return false
   }
 
   async takeChallenge(guildId: string, id: string) {

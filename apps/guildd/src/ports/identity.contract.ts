@@ -3,8 +3,10 @@ import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
 import {
   CHALLENGE_TTL_MS,
+  FOUNDING_TTL_MS,
   IdentityError,
   type IdentityProvider,
+  MAX_OUTSTANDING_CHALLENGES,
   REAUTH_TTL_MS,
   SESSION_TTL_MS,
 } from './identity'
@@ -42,7 +44,8 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       const subject = await make()
       const guildId = await subject.newGuild()
       const key = await SoftwareAuthenticator.create(subject.rpId, subject.origin)
-      const begin = await subject.identity.beginRegistration(guildId)
+      const { token } = await subject.identity.issueFoundingToken(guildId)
+      const begin = await subject.identity.beginRegistration(guildId, { foundingToken: token })
       await subject.identity.finishRegistration(
         guildId,
         begin.challengeId,
@@ -170,21 +173,179 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
 
       // Once B has its own passkey, A's session cannot add another to B.
       const keyB = await SoftwareAuthenticator.create(a.rpId, a.origin)
-      const reg = await a.identity.beginRegistration(guildB)
+      const founding = await a.identity.issueFoundingToken(guildB)
+      const reg = await a.identity.beginRegistration(guildB, { foundingToken: founding.token })
       await a.identity.finishRegistration(guildB, reg.challengeId, await keyB.register(reg.options))
-      expect(await failure(a.identity.beginRegistration(guildB, sessionA.token))).toBe(
-        'registration_closed'
-      )
+      expect(
+        await failure(a.identity.beginRegistration(guildB, { sessionToken: sessionA.token }))
+      ).toBe('registration_closed')
     })
 
     test('a further passkey needs a session of the same guild', async () => {
       const s = await registered()
-      expect(await failure(s.identity.beginRegistration(s.guildId))).toBe('registration_closed')
-      expect(await failure(s.identity.beginRegistration(s.guildId, 'nope'))).toBe(
+      expect(await failure(s.identity.beginRegistration(s.guildId, {}))).toBe('registration_closed')
+      expect(await failure(s.identity.beginRegistration(s.guildId, { sessionToken: 'nope' }))).toBe(
         'registration_closed'
       )
       const session = await signIn(s)
-      expect(await failure(s.identity.beginRegistration(s.guildId, session.token))).toBe('no_error')
+      expect(
+        await failure(s.identity.beginRegistration(s.guildId, { sessionToken: session.token }))
+      ).toBe('no_error')
+    })
+
+    test('a guild with no passkey needs its founding token, which is single use and expires', async () => {
+      const s = await make()
+      const guildId = await s.newGuild()
+      expect(await failure(s.identity.beginRegistration(guildId))).toBe('registration_closed')
+      expect(await failure(s.identity.beginRegistration(guildId, { foundingToken: 'guess' }))).toBe(
+        'registration_closed'
+      )
+
+      const expired = await s.identity.issueFoundingToken(guildId)
+      s.clock.advance(FOUNDING_TTL_MS + 1)
+      expect(
+        await failure(s.identity.beginRegistration(guildId, { foundingToken: expired.token }))
+      ).toBe('registration_closed')
+
+      const fresh = await s.identity.issueFoundingToken(guildId)
+      const key = await SoftwareAuthenticator.create(s.rpId, s.origin)
+      const begin = await s.identity.beginRegistration(guildId, { foundingToken: fresh.token })
+      await s.identity.finishRegistration(
+        guildId,
+        begin.challengeId,
+        await key.register(begin.options)
+      )
+      expect(
+        await failure(s.identity.beginRegistration(guildId, { foundingToken: fresh.token }))
+      ).toBe('registration_closed')
+    })
+
+    test('a stale founding challenge cannot add a passkey after the guild registered one', async () => {
+      const s = await make()
+      const guildId = await s.newGuild()
+      const { token } = await s.identity.issueFoundingToken(guildId)
+      const keyA = await SoftwareAuthenticator.create(s.rpId, s.origin)
+      const keyB = await SoftwareAuthenticator.create(s.rpId, s.origin)
+      const beginA = await s.identity.beginRegistration(guildId, { foundingToken: token })
+      const beginB = await s.identity.beginRegistration(guildId, { foundingToken: token })
+      await s.identity.finishRegistration(
+        guildId,
+        beginA.challengeId,
+        await keyA.register(beginA.options)
+      )
+      expect(
+        await failure(
+          s.identity.finishRegistration(
+            guildId,
+            beginB.challengeId,
+            await keyB.register(beginB.options)
+          )
+        )
+      ).toBe('registration_closed')
+      const signIn = await s.identity.beginSignIn(guildId)
+      expect(
+        await failure(
+          s.identity.finishSignIn(guildId, signIn.challengeId, await keyB.assert(signIn.options))
+        )
+      ).toBe('unknown_credential')
+    })
+
+    test('two simultaneous founding finishes register exactly one passkey', async () => {
+      const s = await make()
+      const guildId = await s.newGuild()
+      const { token } = await s.identity.issueFoundingToken(guildId)
+      const keys = [
+        await SoftwareAuthenticator.create(s.rpId, s.origin),
+        await SoftwareAuthenticator.create(s.rpId, s.origin),
+      ]
+      const attempts = await Promise.all(
+        keys.map(async (key) => {
+          const begin = await s.identity.beginRegistration(guildId, { foundingToken: token })
+          return { key, begin, response: await key.register(begin.options) }
+        })
+      )
+      const outcomes = await Promise.all(
+        attempts.map((a) =>
+          failure(s.identity.finishRegistration(guildId, a.begin.challengeId, a.response))
+        )
+      )
+      expect(outcomes.filter((o) => o === 'no_error')).toHaveLength(1)
+      let signedIn = 0
+      for (const { key } of attempts) {
+        const begin = await s.identity.beginSignIn(guildId)
+        if (
+          (await failure(
+            s.identity.finishSignIn(guildId, begin.challengeId, await key.assert(begin.options))
+          )) === 'no_error'
+        ) {
+          signedIn++
+        }
+      }
+      expect(signedIn).toBe(1)
+    })
+
+    test('a session registration challenge cannot be finished without the same session', async () => {
+      const s = await registered()
+      const session = await signIn(s)
+      const other = await signIn(s)
+      const key2 = await SoftwareAuthenticator.create(s.rpId, s.origin)
+      const begin = await s.identity.beginRegistration(s.guildId, { sessionToken: session.token })
+      const response = await key2.register(begin.options)
+      expect(
+        await failure(s.identity.finishRegistration(s.guildId, begin.challengeId, response))
+      ).toBe('registration_closed')
+      const again = await s.identity.beginRegistration(s.guildId, { sessionToken: session.token })
+      expect(
+        await failure(
+          s.identity.finishRegistration(
+            s.guildId,
+            again.challengeId,
+            await key2.register(again.options),
+            {
+              sessionToken: other.token,
+            }
+          )
+        )
+      ).toBe('registration_closed')
+      const third = await s.identity.beginRegistration(s.guildId, { sessionToken: session.token })
+      await s.identity.finishRegistration(
+        s.guildId,
+        third.challengeId,
+        await key2.register(third.options),
+        {
+          sessionToken: session.token,
+        }
+      )
+    })
+
+    test('a consumed re-authentication proof works exactly once', async () => {
+      const s = await registered()
+      const session = await signIn(s)
+      const begin = await s.identity.beginReauth(session.token)
+      const { proof } = await s.identity.finishReauth(
+        session.token,
+        begin.challengeId,
+        await s.key.assert(begin.options)
+      )
+      expect(await s.identity.consumeReauth(session.token, 'wrong')).toBe(false)
+      expect(await s.identity.consumeReauth(session.token, proof)).toBe(true)
+      expect(await s.identity.consumeReauth(session.token, proof)).toBe(false)
+      expect(await s.identity.checkReauth(session.token, proof)).toBe(false)
+    })
+
+    test('outstanding challenges are capped per guild, evicting the oldest', async () => {
+      const s = await registered()
+      const first = await s.identity.beginSignIn(s.guildId)
+      const firstResponse = await s.key.assert(first.options)
+      for (let i = 0; i < MAX_OUTSTANDING_CHALLENGES; i++) {
+        s.clock.advance(1)
+        await s.identity.beginSignIn(s.guildId)
+      }
+      expect(
+        await failure(s.identity.finishSignIn(s.guildId, first.challengeId, firstResponse))
+      ).toBe('invalid_challenge')
+      const last = await s.identity.beginSignIn(s.guildId)
+      await s.identity.finishSignIn(s.guildId, last.challengeId, await s.key.assert(last.options))
     })
   })
 }

@@ -13,6 +13,7 @@ const json = { 'content-type': 'application/json' }
 
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
 const session = z.object({ token: z.string(), guildId: z.string() })
+const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
 const proofBody = z.object({ proof: z.string() })
 
 async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
@@ -24,9 +25,20 @@ async function post(path: string, body: unknown, headers: Record<string, string>
 }
 
 async function foundWithPasskey() {
-  const guildId = await harness.adapters.db.foundGuild({ name: 'Ember', goal: 'Ship' })
+  const founded = foundedBody.parse(
+    await (await post('/guilds', { name: 'Ember', goal: 'Ship' })).json()
+  )
+  const guildId = founded.id
   const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const begin = ceremony.parse(await (await post(`/guilds/${guildId}/passkeys/begin`, {})).json())
+  const begin = ceremony.parse(
+    await (
+      await post(
+        `/guilds/${guildId}/passkeys/begin`,
+        {},
+        { 'x-founding-token': founded.foundingToken }
+      )
+    ).json()
+  )
   const finish = await post(`/guilds/${guildId}/passkeys/finish`, {
     challengeId: begin.challengeId,
     response: await key.register(begin.options),
@@ -90,6 +102,16 @@ describe('passkey sign-in over HTTP', () => {
     })
   })
 
+  test('the first passkey needs the founding token returned when the guild was founded', async () => {
+    const founded = foundedBody.parse(
+      await (await post('/guilds', { name: 'Ember', goal: 'Ship' })).json()
+    )
+    const path = `/guilds/${founded.id}/passkeys/begin`
+    expect((await post(path, {})).status).toBe(401)
+    expect((await post(path, {}, { 'x-founding-token': 'wrong' })).status).toBe(401)
+    expect((await post(path, {}, { 'x-founding-token': founded.foundingToken })).status).toBe(200)
+  })
+
   test('an unknown bearer token is unauthenticated', async () => {
     const { guildId } = await foundWithPasskey()
     const res = await harness.request(`/guilds/${guildId}`, {
@@ -122,5 +144,15 @@ describe('sensitive actions', () => {
 
     harness.adapters.clock.advance(REAUTH_TTL_MS + 1)
     expect((await addPasskey(token, guildId, proof)).status).toBe(403)
+  })
+
+  test('a re-authentication proof is spent by the sensitive action it authorised', async () => {
+    const { guildId, key } = await foundWithPasskey()
+    const { token } = await signIn(guildId, key)
+    const proof = await reauth(token, key)
+    expect((await addPasskey(token, guildId, proof)).status).toBe(200)
+    const again = await addPasskey(token, guildId, proof)
+    expect(again.status).toBe(403)
+    expect(await again.json()).toEqual({ error: 'reauth_required' })
   })
 })

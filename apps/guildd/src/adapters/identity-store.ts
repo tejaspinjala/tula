@@ -15,6 +15,8 @@ export interface StoredChallenge {
   challenge: string
   /** The session a re-authentication challenge belongs to. */
   sessionId: string | null
+  /** Hash of the founding token that started a founding registration; null for other kinds. */
+  foundingHash: string | null
   expiresAt: Date
 }
 
@@ -38,8 +40,28 @@ export interface IdentityStore {
   saveCredential(guildId: string, credential: StoredCredential): Promise<void>
   /** Records the authenticator's latest signature counter. */
   updateCounter(guildId: string, credentialId: string, counter: number): Promise<void>
-  /** Stores a challenge. */
-  saveChallenge(guildId: string, challenge: StoredChallenge): Promise<void>
+  /**
+   * Stores a challenge, first deleting the guild's challenges that expired at `now` and then
+   * evicting the oldest beyond `MAX_OUTSTANDING_CHALLENGES` (ports/identity).
+   */
+  saveChallenge(guildId: string, challenge: StoredChallenge, now: Date): Promise<void>
+  /** Stores or replaces the guild's founding token hash. */
+  issueFounding(guildId: string, tokenHash: string, expiresAt: Date): Promise<void>
+  /** Whether `tokenHash` is the guild's unexpired founding token (not consumed). */
+  hasFounding(guildId: string, tokenHash: string, now: Date): Promise<boolean>
+  /**
+   * Atomically registers the guild's first passkey: only if the guild still has none and the
+   * unexpired founding token `tokenHash` exists, which is spent in the same step.
+   * @returns false (changing nothing) when either condition fails.
+   */
+  foundCredential(
+    guildId: string,
+    credential: StoredCredential,
+    tokenHash: string,
+    now: Date
+  ): Promise<boolean>
+  /** Clears the session's re-authentication proof if it is still `hash`; false when it was not. */
+  clearReauth(guildId: string, sessionId: string, hash: string): Promise<boolean>
   /** Returns and deletes the challenge in one step, so it can be used once. */
   takeChallenge(guildId: string, id: string): Promise<StoredChallenge | null>
   /** Stores a session. */

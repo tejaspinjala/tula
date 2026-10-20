@@ -1,6 +1,7 @@
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
 import type { Db } from '../db/client'
+import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import type {
   IdentityStore,
   StoredChallenge,
@@ -19,6 +20,7 @@ const challengeRow = z.object({
   kind: z.enum(['register', 'signin', 'reauth']),
   challenge: z.string(),
   session_id: z.string().nullable(),
+  founding_hash: z.string().nullable(),
   expires_at: z.date(),
 })
 const sessionRow = z.object({
@@ -70,13 +72,71 @@ export class PgIdentityStore implements IdentityStore {
     )
   }
 
-  async saveChallenge(guildId: string, c: StoredChallenge): Promise<void> {
+  async saveChallenge(guildId: string, c: StoredChallenge, now: Date): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`delete from identity_challenges where guild_id = ${guildId} and expires_at <= ${now}`
+      await tx`insert into identity_challenges
+          (guild_id, challenge_id, kind, challenge, session_id, founding_hash, expires_at)
+        values (${guildId}, ${c.id}, ${c.kind}, ${c.challenge}, ${c.sessionId}, ${c.foundingHash}, ${c.expiresAt})`
+      await tx`delete from identity_challenges where guild_id = ${guildId} and challenge_id in (
+          select challenge_id from identity_challenges where guild_id = ${guildId}
+          order by expires_at desc, challenge_id offset ${MAX_OUTSTANDING_CHALLENGES})`
+    })
+  }
+
+  async issueFounding(guildId: string, tokenHash: string, expiresAt: Date): Promise<void> {
     await this.db.withGuild(
       guildId,
       (tx) =>
-        tx`insert into identity_challenges (guild_id, challenge_id, kind, challenge, session_id, expires_at)
-           values (${guildId}, ${c.id}, ${c.kind}, ${c.challenge}, ${c.sessionId}, ${c.expiresAt})`
+        tx`insert into identity_founding (guild_id, token_hash, expires_at)
+           values (${guildId}, ${tokenHash}, ${expiresAt})
+           on conflict (guild_id) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`
     )
+  }
+
+  async hasFounding(guildId: string, tokenHash: string, now: Date): Promise<boolean> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) =>
+        tx`select 1 from identity_founding
+           where guild_id = ${guildId} and token_hash = ${tokenHash} and expires_at > ${now}`
+    )
+    return rows.length > 0
+  }
+
+  async foundCredential(
+    guildId: string,
+    c: StoredCredential,
+    tokenHash: string,
+    now: Date
+  ): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // The guild row lock serialises concurrent founding finishes: the loser sees the winner's passkey.
+      await tx`select 1 from guilds where guild_id = ${guildId} for update`
+      const held = await tx`select 1 from identity_credentials where guild_id = ${guildId} limit 1`
+      if (held.length > 0) {
+        return false
+      }
+      const spent = await tx`delete from identity_founding
+        where guild_id = ${guildId} and token_hash = ${tokenHash} and expires_at > ${now} returning 1`
+      if (spent.length === 0) {
+        return false
+      }
+      await tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
+        values (${guildId}, ${c.id}, ${isoBase64URL.fromBuffer(c.publicKey)}, ${c.counter}, ${c.transports})`
+      return true
+    })
+  }
+
+  async clearReauth(guildId: string, sessionId: string, hash: string): Promise<boolean> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) =>
+        tx`update identity_sessions set reauth_hash = null, reauth_expires_at = null
+           where guild_id = ${guildId} and session_id = ${sessionId} and reauth_hash = ${hash}
+           returning 1`
+    )
+    return rows.length > 0
   }
 
   async takeChallenge(guildId: string, id: string): Promise<StoredChallenge | null> {
@@ -84,7 +144,7 @@ export class PgIdentityStore implements IdentityStore {
       guildId,
       (tx) =>
         tx`delete from identity_challenges where guild_id = ${guildId} and challenge_id = ${id}
-           returning challenge_id, kind, challenge, session_id, expires_at`
+           returning challenge_id, kind, challenge, session_id, founding_hash, expires_at`
     )
     if (!rows[0]) {
       return null
@@ -95,6 +155,7 @@ export class PgIdentityStore implements IdentityStore {
       kind: row.kind,
       challenge: row.challenge,
       sessionId: row.session_id,
+      foundingHash: row.founding_hash,
       expiresAt: row.expires_at,
     }
   }

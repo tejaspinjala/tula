@@ -28,6 +28,11 @@ export const REAUTH_TTL_MS = 5 * 60 * 1000
 /** How long a ceremony challenge may wait for its response (5 minutes). */
 export const CHALLENGE_TTL_MS = 5 * 60 * 1000
 
+/** How long a founding token stays valid (15 minutes). */
+export const FOUNDING_TTL_MS = 15 * 60 * 1000
+/** Outstanding ceremony challenges kept per guild; the oldest are evicted beyond this. */
+export const MAX_OUTSTANDING_CHALLENGES = 20
+
 /** A signed-in session, bound to exactly one guild. */
 export interface IdentitySession {
   /** Opaque bearer token; the only time it is returned. */
@@ -51,18 +56,28 @@ export interface IdentityProvider {
   /** True once the guild has at least one registered passkey. */
   hasCredentials(guildId: string): Promise<boolean>
   /**
-   * Starts registering a passkey. The first passkey of a guild is open (founding); later ones need
-   * a session of that guild, else throws `registration_closed`.
+   * Issues the guild's single-use founding token (replacing any earlier one). It is returned once;
+   * only its hash is kept. The first passkey of a guild cannot be registered without it.
+   */
+  issueFoundingToken(guildId: string): Promise<{ token: string; expiresAt: Date }>
+  /**
+   * Starts registering a passkey. A guild with no passkey needs its `foundingToken`; a guild that
+   * has one needs a `sessionToken` of that guild. Anything else throws `registration_closed`.
    */
   beginRegistration(
     guildId: string,
-    sessionToken?: string
+    auth?: { sessionToken?: string; foundingToken?: string }
   ): Promise<{ challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }>
-  /** Verifies the attestation and stores the passkey; the challenge is consumed either way. */
+  /**
+   * Verifies the attestation and stores the passkey; the challenge is consumed either way. A
+   * founding challenge succeeds only while the guild still has no passkey (and consumes the
+   * founding token in the same step); a session challenge needs the same session again.
+   */
   finishRegistration(
     guildId: string,
     challengeId: string,
-    response: RegistrationResponseJSON
+    response: RegistrationResponseJSON,
+    auth?: { sessionToken?: string }
   ): Promise<{ credentialId: string }>
   /** Starts a passkey sign-in for the guild. */
   beginSignIn(
@@ -86,6 +101,8 @@ export interface IdentityProvider {
   ): Promise<ReauthProof>
   /** The guild a live session is bound to, or null when unknown or expired. */
   resolveSession(sessionToken: string): Promise<{ guildId: string } | null>
-  /** True only for the current, unexpired proof issued to this live session. */
+  /** True only for the current, unexpired proof issued to this live session; does not consume it. */
   checkReauth(sessionToken: string, proof: string): Promise<boolean>
+  /** Like `checkReauth`, but a true answer also spends the proof: it works exactly once. */
+  consumeReauth(sessionToken: string, proof: string): Promise<boolean>
 }

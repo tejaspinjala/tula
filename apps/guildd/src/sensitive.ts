@@ -17,7 +17,8 @@ export function bearerToken(header: string | null | undefined): string | null {
 
 /**
  * The reusable gate for any action marked sensitive (the Vault, key changes, ...): the caller
- * needs a live session AND an unexpired re-authentication proof issued to that session.
+ * needs a live session AND an unexpired re-authentication proof issued to that session. The proof
+ * is spent by a successful check, so each sensitive action needs its own fresh re-authentication.
  * On success it names the session's guild; the caller must still act only on that guild.
  */
 export async function checkSensitive(
@@ -30,7 +31,7 @@ export async function checkSensitive(
     return { ok: false, status: 401, error: 'unauthenticated' }
   }
   const proof = headers.get(REAUTH_HEADER)
-  if (!proof || !(await identity.checkReauth(token, proof))) {
+  if (!proof || !(await identity.consumeReauth(token, proof))) {
     return { ok: false, status: 403, error: 'reauth_required' }
   }
   return { ok: true, guildId: session.guildId }
