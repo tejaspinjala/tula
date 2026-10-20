@@ -595,6 +595,13 @@ thead th {
   display: none;
 }
 
+/* A tab never shrinks to nothing, so with the More menu open the tab bar wraps onto its own row
+   under the extra rows instead of squeezing in beside the last one. */
+.shell-nav .nav-tab,
+.shell-nav .nav-more {
+  min-width: var(--touch);
+}
+
 /* The More menu: the views past the fourth open as full-width rows above the tab bar. */
 .shell-nav[data-more="open"] .nav-extra {
   display: flex;
