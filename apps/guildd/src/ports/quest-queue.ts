@@ -191,6 +191,11 @@ export interface QuestQueue {
    */
   releaseLeases(guildId: string, reason: FailReason): Promise<number>
   /**
+   * {@link releaseLeases} for every guild at once, in one statement, so a global bar's cost does
+   * not grow with the number of guilds. Idempotent; returns how many Quests it released.
+   */
+  releaseAllLeases(reason: FailReason): Promise<number>
+  /**
    * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
    * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
    * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.

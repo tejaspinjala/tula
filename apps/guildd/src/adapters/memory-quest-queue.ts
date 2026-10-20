@@ -203,6 +203,14 @@ export class MemoryQuestQueue implements QuestQueue {
     return released
   }
 
+  async releaseAllLeases(reason: FailReason): Promise<number> {
+    let released = 0
+    for (const guildId of [...this.guilds.keys()]) {
+      released += await this.releaseLeases(guildId, reason)
+    }
+    return released
+  }
+
   async releaseClaim(
     guildId: string,
     id: string,
