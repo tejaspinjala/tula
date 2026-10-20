@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { WHOLE_HALL } from './ports/missive-store'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
+import { openSession } from './testing/open-session'
 
 const harness = await createHarness({ devGuildHeader: true })
 const strict = await createHarness({ devGuildHeader: false })
@@ -21,11 +22,13 @@ const pageBody = z.object({
 async function found(): Promise<string> {
   const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
   await harness.adapters.config.seed(g)
+  tokens.set(g, await openSession(harness.adapters.identity, g))
   return g
 }
 
 const base = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/missives`
-const headers = (g: string) => ({ 'x-guild-id': g })
+const tokens = new Map<string, string>()
+const headers = (g: string) => ({ authorization: `Bearer ${tokens.get(g) ?? 'none'}` })
 
 async function sendSome(g: string, texts: string[], hallId = 'heralds') {
   const questId = crypto.randomUUID()
@@ -87,9 +90,37 @@ describe('Hall missives route', () => {
     expect(res.status).toBe(401)
   })
 
+  test('a session whose principal is not the Guild Master gets 403; the Guild Master still reads', async () => {
+    const g = await found()
+    const token = tokens.get(g) ?? 'none'
+    const identity = harness.adapters.identity
+    // Test-only: the same identity, except every session resolves to a non-Guild-Master member.
+    const demoted = new Proxy(identity, {
+      get(target, prop) {
+        if (prop === 'resolveSession') {
+          return async (t: string) => {
+            const principal = await target.resolveSession(t)
+            return principal && { ...principal, role: 'agent' }
+          }
+        }
+        const value = Reflect.get(target, prop)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const limited = await createHarness({ devGuildHeader: false, app: { identity: demoted } })
+    try {
+      const auth = { authorization: `Bearer ${token}` }
+      expect((await limited.request(base(g), { headers: auth })).status).toBe(403)
+      expect((await harness.request(base(g), { headers: auth })).status).toBe(200)
+    } finally {
+      await limited.close()
+    }
+  })
+
   test('cross-guild probe: another guild looks like a missing one', async () => {
+    const caller = await found()
     await expectGuildIsolation(harness, {
-      build: (caller, target) => [base(target), { headers: headers(caller) }],
+      build: (_caller, target) => [base(target), { headers: headers(caller) }],
       snapshot: (g) => harness.adapters.missives.list(g, { hallId: 'heralds', limit: 100 }),
     })
   })
