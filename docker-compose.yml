@@ -19,7 +19,7 @@ services:
     # Official minio/minio images are no longer published; Chainguard builds MinIO from source.
     # Its free tier only tags :latest; the tag plus digest is pinned so Dependabot can track and
     # bump it (a bare digest is not a trackable reference).
-    image: cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6
+    image: cgr.dev/chainguard/minio:latest@sha256:cff197fef764642223ef9f4444c903d51aee9b544a7be8bc007fef6b7b00d136
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: guildhall
@@ -81,7 +81,7 @@ services:
 
   backup-objects:
     profiles: [backup]
-    image: cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6
+    image: cgr.dev/chainguard/minio:latest@sha256:cff197fef764642223ef9f4444c903d51aee9b544a7be8bc007fef6b7b00d136
     depends_on:
       backup-init:
         condition: service_completed_successfully
