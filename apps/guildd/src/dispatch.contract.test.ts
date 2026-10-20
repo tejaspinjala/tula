@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { defaultConfig, guildConfig } from './guild-config'
+import { defaultConfig, guildConfig, type TripwireThresholds } from './guild-config'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
 
@@ -16,11 +16,12 @@ const outcome = z.object({
 })
 
 /** A founded guild with one api-key provider, a session and one queued Quest. */
-async function found() {
+async function found(tripwires?: TripwireThresholds) {
   const g = await harness.foundGuild({ name: 'Dispatch', goal: 'g' })
   await harness.adapters.config.seed(g)
   const next = guildConfig.parse({
     ...defaultConfig(),
+    ...(tripwires ? { tripwires } : {}),
     providers: [{ id: 'cloud', auth: 'api_key' }],
     routingProfiles: [
       { id: 'cloud-mid', provider: 'cloud', tier: 'mid', model: 'configured-model' },
@@ -78,5 +79,46 @@ describe('POST /guilds/:id/dispatch', () => {
   test('needs a session', async () => {
     const { g } = await found()
     expect((await dispatch(g, {})).status).toBe(401)
+  })
+
+  test('a burst of Seal denials pauses the Hall and the next dispatch claims nothing for it', async () => {
+    const { g, auth } = await found({
+      tokenBurnMultiple: 3,
+      gateDenialsPerHour: 2,
+      loopRepeats: 5,
+    })
+    const { quests, sealStore } = harness.adapters
+    const newQuest = (jobKey: string) => ({
+      jobKey,
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman' as const,
+      dataClass: 'internal' as const,
+      title: jobKey,
+      ownerId: 'heralds-member-2',
+      doneCondition: 'A draft brief is filed',
+      roundLimit: 3,
+    })
+    // `found` queued one Quest; two more are claimed, held for a Seal, and denied.
+    for (const jobKey of ['denied-1', 'denied-2']) {
+      const { quest } = await quests.post(g, newQuest(jobKey))
+      const claimed = await quests.claim(g, { leaseMs: 60_000, maxActive: 5, questId: quest.id })
+      await quests.submitForSeal(g, quest.id, claimed?.attempts ?? 0)
+      const seal = await sealStore.request(g, {
+        questId: quest.id,
+        requestedBy: 'heralds-member-2',
+        kind: 'post',
+        text: jobKey,
+        evidence: 'verdict: pass',
+        round: 1,
+      })
+      await sealStore.decide(g, seal.id, { verdict: 'denied', expectedHash: seal.actionHash })
+    }
+    const res = await dispatch(g, auth)
+    expect(res.status).toBe(200)
+    expect(outcome.parse(await res.json()).status).toBe('idle')
+    expect(await harness.adapters.tripwires.isPaused(g, 'heralds')).toBe(true)
+    expect(await harness.adapters.sandboxes.list(g)).toEqual([])
+    expect(outcome.parse(await (await dispatch(g, auth)).json()).status).toBe('idle')
   })
 })
