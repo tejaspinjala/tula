@@ -155,10 +155,12 @@ async function launch(
   }
   if (deadline.passed) {
     // The deadline's revoke found no row, so a run that settled late holds a live token: end it now.
+    // Best effort only; cleanUp, which runs once this launch settles, is the backstop that
+    // guarantees the final revoke and reports its failure.
     try {
       await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
     } catch {
-      // cleanUp revokes again once the launch settles.
+      // Reported by cleanUp's own revoke.
     }
     return { kind: 'sandbox_failed' }
   }
@@ -203,6 +205,10 @@ export async function startRun(
   const cleanUp = async () => {
     try {
       await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
+    } catch (error) {
+      report(error)
+    }
+    try {
       await deps.sandboxes.kill({ guildId, questId: claimed.id, sandboxId })
     } catch (error) {
       report(error)
