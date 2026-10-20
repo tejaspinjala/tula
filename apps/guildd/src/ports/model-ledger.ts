@@ -22,6 +22,9 @@ export function isUsageDate(value: string): boolean {
 /** A run's lifecycle: waiting for cap room, holding a live token, or revoked. */
 export type RunState = 'queued' | 'active' | 'revoked'
 
+/** Why a run was revoked: its Hall paused (reissuable on resume) or an explicit, final revoke. */
+export type RevokeReason = 'hall_paused' | 'manual'
+
 /** A run as the ledger holds it. The token itself is never stored, only its hash. */
 export interface RunRecord {
   runId: string
@@ -32,6 +35,8 @@ export interface RunRecord {
   providerId: string
   profileId: string
   state: RunState
+  /** Why a revoked run was revoked; null unless revoked (or revoked before reasons existed). */
+  revokeReason: RevokeReason | null
   /** When the live token stops working; null while queued. */
   expiresAt: string | null
 }
@@ -105,15 +110,18 @@ export interface UsagePage {
 export interface ModelLedger {
   /** Opens a run; a repeated `runId` is a no-op that reports `exists`. */
   openRun(guildId: string, run: NewRun): Promise<'created' | 'exists'>
-  /** Moves a queued run to active with a fresh token; false if it was not queued. */
+  /**
+   * Moves a queued run, or one revoked by a Hall pause, to active with a fresh token; false for
+   * an active run, a manually revoked run, or an unknown one.
+   */
   activate(guildId: string, runId: string, tokenHash: string, expiresAt: string): Promise<boolean>
   /** The run holding the token with this hash, or null. */
   findByTokenHash(guildId: string, tokenHash: string): Promise<RunRecord | null>
   /** One run, or null. */
   getRun(guildId: string, runId: string): Promise<RunRecord | null>
-  /** Revokes the run's token so its next call is refused; false if the run is unknown. */
+  /** Revokes the run's token for good (`manual`); false if the run is unknown. */
   revoke(guildId: string, runId: string): Promise<boolean>
-  /** Revokes every queued or active run of the Hall; returns how many were revoked. */
+  /** Revokes every queued or active run of the Hall (`hall_paused`); returns how many. */
   revokeHallRuns(guildId: string, hallId: string): Promise<number>
   /** Queued runs, oldest first, at most `limit`. */
   listQueued(guildId: string, limit: number): Promise<RunRecord[]>

@@ -80,6 +80,7 @@ export class MemorySealStore implements SealStore {
       expiresAt: new Date(now.getTime() + SEAL_TTL_MS).toISOString(),
       decidedAt: null,
       decisionNote: null,
+      decidedBy: null,
       reservedUntil: null,
       consumedAt: null,
     }
@@ -112,7 +113,12 @@ export class MemorySealStore implements SealStore {
   async decide(
     guildId: string,
     id: string,
-    decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
+    decision: {
+      verdict: 'approved' | 'denied'
+      expectedHash: string
+      note?: string
+      decidedBy?: string
+    }
   ): Promise<SealResult> {
     const stored = this.seals(guildId).get(id)
     if (!stored) {
@@ -138,6 +144,7 @@ export class MemorySealStore implements SealStore {
           status: decision.verdict,
           decidedAt: this.clock.now().toISOString(),
           decisionNote: decision.note ?? null,
+          decidedBy: decision.decidedBy ?? null,
         },
         null
       ),

@@ -54,6 +54,8 @@ export interface Seal extends NewSeal {
   expiresAt: string
   decidedAt: string | null
   decisionNote: string | null
+  /** Member id of the principal who approved or denied; null until decided. */
+  decidedBy: string | null
   reservedUntil: string | null
   consumedAt: string | null
 }
@@ -103,7 +105,13 @@ export interface SealStore {
   decide(
     guildId: string,
     id: string,
-    decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
+    decision: {
+      verdict: 'approved' | 'denied'
+      expectedHash: string
+      note?: string
+      /** The deciding principal's member id; recorded in the audit event. */
+      decidedBy?: string
+    }
   ): Promise<SealResult>
   /**
    * Reserves an approved (or released) Seal for publishing `text`, which must hash to the sealed

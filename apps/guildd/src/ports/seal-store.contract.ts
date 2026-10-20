@@ -77,6 +77,21 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect(done).toMatchObject({ ok: true, seal: { status: 'approved' } })
     })
 
+    test('a decision records who decided, readable back', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      expect(seal.decidedBy).toBeNull()
+      const who = crypto.randomUUID()
+      const done = await store.decide(g, seal.id, {
+        verdict: 'denied',
+        expectedHash: hash,
+        decidedBy: who,
+      })
+      expect(done).toMatchObject({ ok: true, seal: { decidedBy: who } })
+      expect((await store.get(g, seal.id))?.decidedBy).toBe(who)
+    })
+
     test('a decision is final: it cannot be decided again or flipped', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

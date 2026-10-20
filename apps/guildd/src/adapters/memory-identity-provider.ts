@@ -5,6 +5,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredMember,
   StoredSession,
 } from './identity-store'
 import { type WebAuthnIdentityConfig, WebAuthnIdentityProvider } from './webauthn-identity-provider'
@@ -16,6 +17,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly events = new Map<string, IdentityEvent[]>()
+  private readonly masters = new Map<string, StoredMember>()
 
   /** The audit events appended for the guild so far, in order. */
   eventsOf(guildId: string): IdentityEvent[] {
@@ -73,6 +75,7 @@ export class MemoryIdentityStore implements IdentityStore {
     event: IdentityEvent,
     _tx?: TenantTx
   ) {
+    this.found(guildId)
     this.founding.set(guildId, { tokenHash, expiresAt })
     this.record(guildId, event)
   }
@@ -124,6 +127,26 @@ export class MemoryIdentityStore implements IdentityStore {
     const challenge = this.challenges.get(key) ?? null
     this.challenges.delete(key)
     return challenge
+  }
+
+  /** Founds the guild in memory: mints its Guild Master once; founding again changes nothing. */
+  found(guildId: string): void {
+    if (!this.masters.has(guildId)) {
+      this.masters.set(guildId, { memberId: crypto.randomUUID(), role: 'guild_master' })
+    }
+  }
+
+  async guildMaster(guildId: string): Promise<StoredMember> {
+    const master = this.masters.get(guildId)
+    if (!master) {
+      throw new Error('guild has no Guild Master')
+    }
+    return master
+  }
+
+  async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
+    const master = this.masters.get(guildId)
+    return master && master.memberId.toLowerCase() === memberId.toLowerCase() ? master : null
   }
 
   async saveSession(guildId: string, session: StoredSession, event: IdentityEvent) {
