@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import hallMap from './hall.tiled.json'
+
 /** A rectangle in tiles. */
 export interface TileRect {
   x: number
@@ -26,29 +29,97 @@ export interface HallLayout {
   walkable: (x: number, y: number) => boolean
 }
 
-const NONE: TileRect = { x: 0, y: 0, w: 0, h: 0 }
+const property = z.object({ name: z.string(), value: z.number() })
+const mapObject = z.object({
+  name: z.string(),
+  type: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  properties: z.array(property).optional(),
+})
+const layer = z.union([
+  z.object({ type: z.literal('tilelayer'), name: z.string(), data: z.array(z.number()) }),
+  z.object({ type: z.literal('objectgroup'), name: z.string(), objects: z.array(mapObject) }),
+])
+const tiledMap = z.object({
+  width: z.number(),
+  height: z.number(),
+  tilewidth: z.number(),
+  layers: z.array(layer),
+})
+
+/** The `collision` layer of the Tiled map: any tile on it blocks walking. */
+const COLLISION_LAYER = 'collision'
 
 /** Reads the Tiled hall map (walls, furniture, rooms, doorways, desks, gate). */
 export function hallLayout(): HallLayout {
+  const map = tiledMap.parse(hallMap)
+  const size = map.tilewidth
+  let collision: number[] = []
+  const objects: z.infer<typeof mapObject>[] = []
+  for (const l of map.layers) {
+    if (l.type === 'tilelayer' && l.name === COLLISION_LAYER) {
+      collision = l.data
+    } else if (l.type === 'objectgroup') {
+      objects.push(...l.objects)
+    }
+  }
+  const rect = (o: z.infer<typeof mapObject>): TileRect => ({
+    x: o.x / size,
+    y: o.y / size,
+    w: o.width / size,
+    h: o.height / size,
+  })
+  const slotOf = (o: z.infer<typeof mapObject>): RoomSlot => ({
+    ...rect(o),
+    slot: o.properties?.find((p) => p.name === 'slot')?.value ?? 0,
+  })
+  const ofType = (type: string) => objects.filter((o) => o.type === type)
+  const one = (type: string): TileRect => {
+    const found = ofType(type)[0]
+    if (!found) {
+      throw new Error(`hall map has no ${type}`)
+    }
+    return rect(found)
+  }
+  const bySlot = (a: RoomSlot, b: RoomSlot) => a.slot - b.slot
   return {
-    width: 0,
-    height: 0,
-    tileSize: 16,
-    rooms: [],
-    doorways: [],
-    stewardDesk: NONE,
-    sealDesk: NONE,
-    gate: NONE,
-    coins: NONE,
-    walkable: () => false,
+    width: map.width,
+    height: map.height,
+    tileSize: size,
+    rooms: ofType('room').map(slotOf).sort(bySlot),
+    doorways: ofType('doorway').map(slotOf).sort(bySlot),
+    stewardDesk: one('steward-desk'),
+    sealDesk: one('seal-desk'),
+    gate: one('gate'),
+    coins: one('coins'),
+    walkable: (x, y) =>
+      Number.isInteger(x) &&
+      Number.isInteger(y) &&
+      x >= 0 &&
+      y >= 0 &&
+      x < map.width &&
+      y < map.height &&
+      (collision[y * map.width + x] ?? 0) === 0,
   }
 }
 
 /** Distinct walkable tiles inside a room, one per Member, so they can later be walked to. */
 export function seatsIn(
-  _layout: HallLayout,
-  _room: TileRect,
-  _count: number
+  layout: HallLayout,
+  room: TileRect,
+  count: number
 ): { x: number; y: number }[] {
-  return []
+  const seats: { x: number; y: number }[] = []
+  // Skip the room's top row (furniture) and its doorway row so seats never block the door.
+  for (let y = room.y + 2; y < room.y + room.h - 1 && seats.length < count; y++) {
+    for (let x = room.x + 1; x < room.x + room.w - 1 && seats.length < count; x += 2) {
+      if (layout.walkable(x, y)) {
+        seats.push({ x, y })
+      }
+    }
+  }
+  return seats
 }
