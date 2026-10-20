@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { CHATTER, type PlanInput, planFor } from './behavior'
+import { type Anim, CHATTER, type PlanInput, planFor } from './behavior'
 import { ACTIVITIES, type Activity, deriveScene, type SceneMember } from './scene'
 import { mapData, type PlaceName, placeNamed } from './world'
 
@@ -34,7 +34,7 @@ const stand = (name: PlaceName) => {
   return { map: place.map, x: place.stand.x, y: place.stand.y }
 }
 
-const BY_ACTIVITY: [Activity, PlaceName | 'desk', string][] = [
+const BY_ACTIVITY: [Activity, PlaceName | 'desk', Anim][] = [
   ['reading_brief', 'archive-shelves', 'read'],
   ['reading_archive', 'archive-shelves', 'read'],
   ['writing_archive', 'archive-shelves', 'write'],
