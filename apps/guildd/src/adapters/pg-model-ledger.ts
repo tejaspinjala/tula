@@ -200,7 +200,7 @@ export class PgModelLedger implements ModelLedger {
         update model_usage set input_tokens = ${actual.inputTokens},
           output_tokens = ${actual.outputTokens}, cost_micros = ${actual.costMicros},
           state = 'settled'
-        where guild_id = ${guildId} and call_key = ${callKey}`
+        where guild_id = ${guildId} and call_key = ${callKey} and state = 'pending'`
     )
   }
 
