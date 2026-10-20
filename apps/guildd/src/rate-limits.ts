@@ -128,7 +128,8 @@ function socketAddress(c: Context): string | undefined {
 /**
  * Middleware that counts the request against the client bucket and then, only if that allowed it,
  * the guild bucket (when the route has a valid `:id` guild); answers 429 with `Retry-After` once
- * either is exhausted. Callers with no known address share `limits.unknown` (stricter).
+ * either is exhausted. On `session` routes ({@link RATE_ROUTE_AUTH}) the guild bucket is charged
+ * only when `sessionGuild` returns the path's guild. Callers with no known address share `limits.unknown` (stricter).
  * The client address comes from {@link clientAddress}: the socket peer, or the last
  * `X-Forwarded-For` hop only when `trustProxy` (env `TRUST_PROXY`) is set.
  */
@@ -136,7 +137,8 @@ export function rateLimit(
   limiter: RateLimiter,
   route: RateRoute,
   limits: RouteLimits,
-  trustProxy: boolean
+  trustProxy: boolean,
+  sessionGuild: (c: Context) => Promise<string | null> = async () => null
 ): MiddlewareHandler {
   return async (c, next) => {
     const client = clientAddress({
@@ -156,7 +158,11 @@ export function rateLimit(
       return refuse(byClient.retryAfterSeconds)
     }
     const guild = z.uuid().safeParse(c.req.param('id'))
-    if (limits.guild && guild.success) {
+    // Session routes charge the guild bucket only once the session resolves to this very guild.
+    const chargeable =
+      guild.success &&
+      (RATE_ROUTE_AUTH[route] === 'unauthenticated' || (await sessionGuild(c)) === guild.data)
+    if (limits.guild && guild.success && chargeable) {
       const byGuild = await limiter.hit(`${route}:guild:${guild.data}`, limits.guild)
       if (!byGuild.allowed) {
         return refuse(byGuild.retryAfterSeconds)
@@ -169,7 +175,12 @@ export function rateLimit(
 /** Whether a limited route is reached with a session or without one; see {@link RATE_ROUTE_AUTH}. */
 export type RateAuth = 'session' | 'unauthenticated'
 
-/** Stub (red): every route unclassified-as-unauthenticated. */
+/**
+ * How each limited route is reached. `unauthenticated` routes charge the per-guild bucket before
+ * auth (a caller has no session yet). `session` routes charge it only after the caller's session
+ * resolves to the guild in the path, so another guild's session, or none, cannot spend it.
+ * Routes with no guild bucket (gateway, MCP) are token-bearing and counted per client only.
+ */
 export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'signin-begin': 'unauthenticated',
   'signin-finish': 'unauthenticated',
@@ -177,15 +188,15 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'passkeys-finish': 'unauthenticated',
   founding: 'unauthenticated',
   reauth: 'unauthenticated',
-  'stream-ticket': 'unauthenticated',
-  'checkpoint-begin': 'unauthenticated',
-  'checkpoint-finish': 'unauthenticated',
-  'quest-post': 'unauthenticated',
-  'seal-posted': 'unauthenticated',
+  'stream-ticket': 'session',
+  'checkpoint-begin': 'session',
+  'checkpoint-finish': 'session',
+  'quest-post': 'session',
+  'seal-posted': 'session',
   'gateway-call': 'unauthenticated',
   mcp: 'unauthenticated',
-  'proposal-post': 'unauthenticated',
-  'push-subscribe': 'unauthenticated',
-  'learning-scan': 'unauthenticated',
-  'events-history': 'unauthenticated',
+  'proposal-post': 'session',
+  'push-subscribe': 'session',
+  'learning-scan': 'session',
+  'events-history': 'session',
 }
