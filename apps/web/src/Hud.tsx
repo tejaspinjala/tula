@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Session } from './passkeys'
 import { listSeals } from './seals'
-import { loadTreasuryOverview, type TreasuryView } from './treasury'
+import { formatCents, loadTreasuryOverview, type TreasuryView } from './treasury'
 import { Frame, Meter, PixelButton } from './ui/pixel'
 
 /** How often the HUD reads its numbers again while the Guild Master walks. */
@@ -48,10 +48,8 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
     }
   }, [session, refresh])
 
-  const cap = treasury ? Math.round(treasury.limits.dailyCapCents / 100) : 0
-  const left = treasury
-    ? Math.round((treasury.limits.dailyCapCents - treasury.spentTodayCents) / 100)
-    : 0
+  const cap = treasury ? treasury.limits.dailyCapCents : 0
+  const left = treasury ? treasury.limits.dailyCapCents - treasury.spentTodayCents : 0
   const sealLabel =
     waiting === null ? 'Seals' : `Seals ${waiting.count}${waiting.more ? '+' : ''} waiting`
 
@@ -61,7 +59,9 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
         <div className="hud-row">
           <h1 className="hud-plate">{guildName || 'Guildhall'}</h1>
           {treasury && <p className="hud-day">Day {treasury.day}</p>}
-          {treasury && <Meter label="Treasury left today" value={left} max={cap} />}
+          {treasury && (
+            <Meter label="Treasury left today" value={left} max={cap} format={formatCents} />
+          )}
           <PixelButton aria-label={sealLabel} onClick={onOpenSeals} className="hud-seals">
             Seals{waiting ? ` ${waiting.count}${waiting.more ? '+' : ''}` : ''}
           </PixelButton>
