@@ -319,3 +319,40 @@ test('the active tab is scrolled into view (F2)', async () => {
   expect(scrolled).toContain('Quest Board')
   await act(async () => root.unmount())
 })
+
+test('Sign out resets the document title to Guildhall (shot 51)', async () => {
+  const { host, root } = await signedIn('/seals')
+  expect(document.title).toBe('Seals | Guildhall')
+  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  expect(document.title).toBe('Guildhall')
+  await act(async () => root.unmount())
+})
+
+test('an unknown path redirects to / and keeps the query string, so ?seal= survives', async () => {
+  const { host, root } = await signedIn('/no-such-view?seal=abc')
+  expect(window.location.pathname).toBe('/')
+  expect(window.location.search).toBe('?seal=abc')
+  expect(host.querySelector('#seals-title')).not.toBeNull()
+  await act(async () => root.unmount())
+})
+
+test('the phone More menu closes on Escape, on a tap outside, and from its own toggle (shot 50)', async () => {
+  const { host, root } = await signedIn('/')
+  const nav = () => host.querySelector('nav') as HTMLElement
+  const expanded = () => nav().querySelector('.nav-more button')?.getAttribute('aria-expanded')
+  await click(button(nav(), 'More'))
+  expect(expanded()).toBe('true')
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(expanded()).toBe('false')
+  await click(button(nav(), 'More'))
+  await act(async () => {
+    document.getElementById('main')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+  })
+  expect(expanded()).toBe('false')
+  await click(button(nav(), 'More'))
+  await click(button(nav(), 'Close'))
+  expect(expanded()).toBe('false')
+  await act(async () => root.unmount())
+})
