@@ -4,6 +4,7 @@ import {
   defaultConfig,
   type GuildConfig,
   guildConfig,
+  guildTreasury,
   hallAcceptsQuests,
   questConcurrency,
 } from './guild-config'
@@ -243,5 +244,48 @@ describe('routing profile model and price', () => {
     )
     expect(classifyChange(before, after)).toBe('widening')
     expect(JSON.stringify(defaultConfig())).not.toContain('model')
+  })
+})
+
+describe('Treasury limits in the config', () => {
+  const base = defaultConfig()
+  const bare = guildConfig.parse(
+    Object.fromEntries(Object.entries(base).filter(([k]) => k !== 'treasury'))
+  )
+  const withTreasury = (over: Partial<ReturnType<typeof guildTreasury>>): GuildConfig => ({
+    ...base,
+    treasury: { ...guildTreasury(base), ...over },
+  })
+
+  test('a guild without limits gets the paper defaults: $10/day, $5 Treasurer, 30% reserve, 40% reinvest', () => {
+    expect(guildTreasury(bare)).toEqual({
+      dailyCapCents: 1000,
+      treasurerLimitCents: 500,
+      reservePercent: 30,
+      reinvestPercent: 40,
+    })
+    expect(guildConfig.safeParse(base).success).toBe(true)
+  })
+
+  test('raising the daily cap or the Treasurer limit is widening', () => {
+    expect(classifyChange(base, withTreasury({ dailyCapCents: 1001 }))).toBe('widening')
+    expect(classifyChange(base, withTreasury({ treasurerLimitCents: 501 }))).toBe('widening')
+  })
+
+  test('lowering the reserve share or the reinvest share is widening, raising it is tightening', () => {
+    expect(classifyChange(base, withTreasury({ reservePercent: 29 }))).toBe('widening')
+    expect(classifyChange(base, withTreasury({ reinvestPercent: 39 }))).toBe('widening')
+    expect(classifyChange(base, withTreasury({ reservePercent: 31 }))).toBe('tightening')
+  })
+
+  test('lowering a limit is tightening, and an unchanged or implicit default is neutral', () => {
+    expect(classifyChange(base, withTreasury({ dailyCapCents: 0 }))).toBe('tightening')
+    expect(classifyChange(base, withTreasury({ treasurerLimitCents: 100 }))).toBe('tightening')
+    expect(classifyChange(base, bare)).toBe('neutral')
+  })
+
+  test('an unknown Treasury field fails closed as widening', () => {
+    const sneaky = { ...base, treasury: { ...guildTreasury(base), spendAnything: true } }
+    expect(classifyChange(base, sneaky as GuildConfig)).toBe('widening')
   })
 })
