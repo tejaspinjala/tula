@@ -143,7 +143,11 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
           log.push(`${tag}:end`)
         })
       await Promise.all([run(g, '1'), run(g, '2')])
-      expect(log).toEqual(['1:start', '1:end', '2:start', '2:end'])
+      // Either caller may win the lock, but their critical sections must not interleave.
+      expect([
+        ['1:start', '1:end', '2:start', '2:end'],
+        ['2:start', '2:end', '1:start', '1:end'],
+      ]).toContainEqual(log)
       log.length = 0
       await Promise.all([run(g, 'x'), run(other, 'y')])
       expect(log.slice(0, 2).sort()).toEqual(['x:start', 'y:start'])
