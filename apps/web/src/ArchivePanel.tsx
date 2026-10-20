@@ -44,7 +44,7 @@ export function ArchivePanel({ session }: { session: Session | null }) {
   return (
     <section aria-labelledby="archive-heading" className="card">
       <h2 id="archive-heading" className="card-title">
-        Archive
+        Notes
       </h2>
       {session ? (
         <div className="mt-4 flex flex-col gap-2">

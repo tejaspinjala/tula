@@ -153,14 +153,20 @@ export async function signInWithPasskey(
   return send(fetcher, '/sign-in/finish', { challengeId: begin.challengeId, response }, sessionBody)
 }
 
-/** Whether guildd is open to founding a guild (`GET /founding`); a failed call reads as closed. */
-export async function foundingOpen(fetcher: Fetcher): Promise<boolean> {
+/** Whether founding is `open`, `closed`, or `busy` (guildd answered 429: try again shortly). */
+export type FoundingState = 'open' | 'closed' | 'busy'
+
+/** Reads `GET /founding`; a failed call reads as closed, a 429 as busy. */
+export async function foundingOpen(fetcher: Fetcher): Promise<FoundingState> {
   try {
     const res = await fetcher('/api/founding')
+    if (res.status === 429) {
+      return 'busy'
+    }
     const parsed = z.object({ open: z.boolean() }).safeParse(await res.json().catch(() => null))
-    return res.ok && parsed.success && parsed.data.open
+    return res.ok && parsed.success && parsed.data.open ? 'open' : 'closed'
   } catch {
-    return false
+    return 'closed'
   }
 }
 

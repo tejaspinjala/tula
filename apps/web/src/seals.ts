@@ -134,3 +134,22 @@ export function sealIdFromSearch(search: string): string | null {
 export function getSeal(session: Session, id: string, fetcher: Fetcher): Promise<InboxSeal> {
   return call(session, fetcher, `/${id}`, sealBody)
 }
+
+/** A Seal's evidence split into its lead (the words before the first colon) and its checks. */
+export function parseEvidence(evidence: string): { lead: string | null; items: string[] } {
+  const colon = evidence.indexOf(':')
+  const lead = colon > 0 ? evidence.slice(0, colon).trim() : null
+  const body = colon > 0 ? evidence.slice(colon + 1) : evidence
+  return {
+    lead,
+    items: body
+      .split(';')
+      .map((item) => item.trim())
+      .filter((item) => item !== ''),
+  }
+}
+
+/** The word the inbox shows for a Seal status: `consumed` reads `posted`. */
+export function sealStatusLabel(status: string): string {
+  return status === 'consumed' ? 'posted' : status
+}

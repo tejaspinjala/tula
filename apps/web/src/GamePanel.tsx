@@ -210,7 +210,7 @@ export function GamePanel({
   return (
     <section aria-labelledby="game-heading" className="card">
       <h2 id="game-heading" className="card-title">
-        Guild Hall
+        The hall, live
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the guild hall.</p>}
       {session && (

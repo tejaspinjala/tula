@@ -180,13 +180,20 @@ export abstract class TreasuryCore {
     })
   }
 
+  /**
+   * Read-only: a Treasury that has never been written shows the funding it will get (the $100 split)
+   * without posting it; the first write funds it. Opening the Treasury never appends an event.
+   */
   async snapshot(guildId: string, limits: TreasuryLimits): Promise<TreasurySnapshot> {
-    return this.unit(guildId, async (tx, at) => {
-      await this.ensureFunded(guildId, tx, at, limits)
-      const day = at.toISOString().slice(0, 10)
+    const day = this.clock.now().toISOString().slice(0, 10)
+    return this.run(guildId, 'read', async (tx) => {
+      const funded = (await tx.lastEntry()) !== null
+      const reserve = Math.floor((STARTING_FUNDS_CENTS * limits.reservePercent) / 100)
       return {
         mode: 'paper',
-        balances: await tx.balances(),
+        balances: funded
+          ? await tx.balances()
+          : { operating: STARTING_FUNDS_CENTS - reserve, reserve, profit: 0 },
         spentTodayCents: await tx.spentOn(day),
         day,
       }
