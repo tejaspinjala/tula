@@ -9,6 +9,7 @@ import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { Clock } from './ports/clock'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import {
   MAX_SECRET_PAGE,
@@ -30,6 +31,8 @@ export interface AppDeps {
   keys: KeyProvider
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
+  /** The Archive: notes with version history, backlinks and full-text search. */
+  notes: NoteStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
@@ -62,6 +65,11 @@ const checkSecretsBody = z.object({ refs: z.array(secretRef).min(1).max(MAX_SECR
 const secretPage = z.object({
   after: secretRef.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SECRET_PAGE).default(50),
+})
+const notePage = z.object({
+  after: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
+  q: z.string().max(500).optional(),
 })
 const artifactClass = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const artifactHash = z.string().regex(/^[0-9a-f]{64}$/)
@@ -366,6 +374,99 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return c.json({ results: await deps.secrets.check(caller, body.data.refs) })
+  })
+
+  // The Archive. Note writes are events (appended by the NoteStore in the write's transaction).
+  // A guild that is not the caller's is indistinguishable from one that does not exist.
+  async function archiveCaller(c: Context): Promise<{ guild: string } | Response> {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    return { guild: caller }
+  }
+
+  function noteFailure(c: Context, error: unknown): Response {
+    if (error instanceof NoteError) {
+      return error.code === 'not_found'
+        ? c.json({ error: 'not_found' }, 404)
+        : c.json({ error: error.code }, 422)
+    }
+    throw error
+  }
+
+  app.post('/guilds/:id/archive/notes', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const body = newNote.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    try {
+      return c.json(await deps.notes.add(who.guild, body.data), 201)
+    } catch (error) {
+      return noteFailure(c, error)
+    }
+  })
+
+  app.patch('/guilds/:id/archive/notes/:noteId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const noteId = uuid.safeParse(c.req.param('noteId'))
+    const body = noteFields.partial().safeParse(await c.req.json().catch(() => null))
+    if (!noteId.success || !body.success) {
+      return c.json(
+        { error: noteId.success ? 'invalid_request' : 'not_found' },
+        noteId.success ? 400 : 404
+      )
+    }
+    try {
+      return c.json(await deps.notes.edit(who.guild, noteId.data, body.data))
+    } catch (error) {
+      return noteFailure(c, error)
+    }
+  })
+
+  app.get('/guilds/:id/archive/notes/:noteId', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const noteId = uuid.safeParse(c.req.param('noteId'))
+    const detail = noteId.success ? await deps.notes.get(who.guild, noteId.data) : null
+    return detail ? c.json(detail) : c.json({ error: 'not_found' }, 404)
+  })
+
+  // Lists notes, or full-text searches them with `?q=`.
+  app.get('/guilds/:id/archive/notes', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = notePage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      q: c.req.query('q'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const paging = {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+    }
+    return c.json(
+      page.data.q === undefined
+        ? await deps.notes.list(who.guild, paging)
+        : await deps.notes.search(who.guild, page.data.q, paging)
+    )
   })
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
