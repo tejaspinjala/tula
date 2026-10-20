@@ -58,3 +58,19 @@ test('the key directory is created owner-only', async () => {
   await FileKeyProvider.open(join(dir, 'master.key'))
   expect((await stat(dir)).mode & 0o777).toBe(0o700)
 })
+
+test('with create disabled a missing key file throws and none is created', async () => {
+  const dir = await freshDir()
+  const path = join(dir, 'nested', 'master.key')
+  await expect(FileKeyProvider.open(path, { create: false })).rejects.toThrow()
+  expect(await readdir(dir)).toEqual([])
+})
+
+test('with create disabled an existing key file still opens', async () => {
+  const path = join(await freshDir(), 'master.key')
+  const first = await FileKeyProvider.open(path)
+  const again = await FileKeyProvider.open(path, { create: false })
+  const id = crypto.randomUUID()
+  const data = new Uint8Array([7])
+  expect(await again.mac(id, 'audit', data)).toBe(await first.mac(id, 'audit', data))
+})

@@ -24,9 +24,27 @@ export class FileKeyProvider extends DerivedKeyProvider {
    * atomically (written to a private temp file, then hard-linked into place), so a concurrent or
    * crashed open never sees a half-written key. It never overwrites an existing file: a corrupt
    * one throws, so keys are not silently rotated away, and so does one that group or others can
-   * access.
+   * access. With `create: false` (production) a missing file throws and nothing is created, so a
+   * lost key never silently becomes a new one that orphans the audit chain and the vault.
    */
-  static async open(path: string): Promise<FileKeyProvider> {
+  static async open(path: string, options: { create?: boolean } = {}): Promise<FileKeyProvider> {
+    if (options.create ?? true) {
+      await FileKeyProvider.create(path)
+    }
+    const handle = await open(path, 'r')
+    try {
+      if (((await handle.stat()).mode & 0o077) !== 0) {
+        throw new Error(`key file ${path} must be accessible by its owner only (mode 0600)`)
+      }
+      const hex = keyFile.parse(await handle.readFile('utf8'))
+      return new FileKeyProvider(Uint8Array.fromHex(hex))
+    } finally {
+      await handle.close()
+    }
+  }
+
+  /** Atomically creates the key file with a fresh master unless one already exists. */
+  private static async create(path: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 })
     const temp = `${path}.${crypto.randomUUID()}.tmp`
     const fresh = await open(temp, 'wx', 0o600)
@@ -43,16 +61,6 @@ export class FileKeyProvider extends DerivedKeyProvider {
       }
     } finally {
       await unlink(temp)
-    }
-    const handle = await open(path, 'r')
-    try {
-      if (((await handle.stat()).mode & 0o077) !== 0) {
-        throw new Error(`key file ${path} must be accessible by its owner only (mode 0600)`)
-      }
-      const hex = keyFile.parse(await handle.readFile('utf8'))
-      return new FileKeyProvider(Uint8Array.fromHex(hex))
-    } finally {
-      await handle.close()
     }
   }
 }

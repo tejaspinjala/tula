@@ -31,7 +31,7 @@ export function App() {
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
         <p>guildd: {status}</p>
         <PasskeyPanel session={session} onSession={setSession} />
-        <ArtifactViewer />
+        <ArtifactViewer session={session} />
         <VaultPanel session={session} />
       </main>
     </>
