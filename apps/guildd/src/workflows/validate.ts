@@ -6,6 +6,7 @@ import {
   spawnDepthCap,
 } from '../guild-config'
 import { QUEST_TEMPLATES, type QuestTemplate } from '../quests'
+import { MAX_DONE_CONDITION, subagentsDoneCondition } from './fanout'
 import { type WorkflowError, type WorkflowGraph, type WorkflowNode, workflowGraph } from './graph'
 
 const BRIEF_REF = /\{\{\s*nodes\.([a-z][a-z0-9_-]{0,63})\.output\s*\}\}/g
@@ -236,6 +237,9 @@ export function validateWorkflow(
           `${n.briefs.length} briefs exceed the cap of ${spawnChildrenCap(config)} Sub-Quests per Quest`,
           n.id
         )
+      }
+      if (subagentsDoneCondition(n).length > MAX_DONE_CONDITION) {
+        add('briefs_too_long', 'the briefs do not fit the coordinating Quest', n.id)
       }
       if (spawnDepthCap(config) < 1) {
         add('depth_cap', 'the guild allows no Sub-Quest depth, so nothing can be spawned', n.id)
