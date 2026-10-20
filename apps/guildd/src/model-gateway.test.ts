@@ -380,6 +380,19 @@ describe('reservations and idempotency', () => {
     expect(await open()).toEqual({ status: 'exists' })
   })
 
+  test('a manually revoked run is never reissued, even after a pause/resume cycle', async () => {
+    const { gateway, tripwires, open, runIdOf } = await setup()
+    const first = await started(open())
+    expect(await gateway.revokeRun(GUILD, await runIdOf('run-1'))).toBe(true)
+    expect(await open()).toEqual({ status: 'refused', reason: 'token_revoked' })
+    const pause = { hallId: 'heralds', tripwire: 'manual', observed: 0, threshold: 0 } as const
+    await tripwires.pause(GUILD, pause)
+    expect(await gateway.revokeHallRuns(GUILD, 'heralds')).toBe(0)
+    await tripwires.resume(GUILD, 'heralds')
+    expect(await open()).toEqual({ status: 'refused', reason: 'token_revoked' })
+    expect(await codeOf(gateway.complete(first.token, message))).toBe('token_revoked')
+  })
+
   test('a malformed call is invalid_request', async () => {
     const { gateway, open } = await setup()
     const run = await started(open())

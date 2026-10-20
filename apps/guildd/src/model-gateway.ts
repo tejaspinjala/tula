@@ -48,8 +48,8 @@ export type OpenRunResult =
   | { status: 'started'; token: string; expiresAt: string }
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
-  /** The Hall is paused (Tripwire or Guild Master): no token is issued. */
-  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' }
+  /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
+  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
