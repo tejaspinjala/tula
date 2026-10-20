@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryGitHubEnvoy } from './adapters/memory-github-envoy'
 import { MemoryNoteStore } from './adapters/memory-note-store'
 import { MemorySuggestionStore } from './adapters/memory-suggestion-store'
@@ -43,15 +44,17 @@ async function setup(repos: string[], envoyOverride?: GitHubEnvoy) {
   )
   const store = new MemorySuggestionStore(clock)
   const notes = new MemoryNoteStore()
+  const gates = new MemoryGateStore()
   const engine = new LearningEngine({
     store,
     envoy: envoyOverride ?? inner,
     config,
     notes,
+    gates,
     clock,
     scanDeadlineMs: 30_000,
   })
-  return { engine, store, notes, reads, clock }
+  return { engine, store, notes, reads, clock, gates }
 }
 
 describe('LearningEngine', () => {
@@ -199,5 +202,13 @@ describe('LearningEngine', () => {
         { repo: 'o/c', code: 'deadline' },
       ],
     })
+  })
+
+  test('a barred guild is refused before any repo is read, and stays barred', async () => {
+    const { engine, gates, reads } = await setup(['o/r'])
+    await gates.bar({ guildId: GUILD, memberId: crypto.randomUUID() }, 'guild')
+    await expect(engine.scan(GUILD)).rejects.toThrow('gates_barred')
+    expect(reads).toEqual([])
+    expect(await gates.isBarred(GUILD)).toBe(true)
   })
 })

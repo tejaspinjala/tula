@@ -15,7 +15,7 @@ import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
-import type { LearningEngine } from './learning-engine'
+import { GatesBarredError, type LearningEngine } from './learning-engine'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
@@ -1902,7 +1902,21 @@ export function createApp(deps: AppDeps): Hono {
     if ('res' in who) {
       return who.res
     }
-    return treasuryRoute(c, async () => c.json(await deps.learning.scan(who.guild)))
+    // Barred guilds are refused before anything is resolved or read (the engine checks too).
+    const gates = await deps.gates.status(who.guild)
+    if (gates.guild || gates.global) {
+      return c.json({ error: 'gates_barred' }, 409)
+    }
+    return treasuryRoute(c, async () => {
+      try {
+        return c.json(await deps.learning.scan(who.guild))
+      } catch (error) {
+        if (error instanceof GatesBarredError) {
+          return c.json({ error: 'gates_barred' }, 409)
+        }
+        throw error
+      }
+    })
   })
 
   for (const verb of ['accept', 'dismiss'] as const) {

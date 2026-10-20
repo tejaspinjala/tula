@@ -167,6 +167,7 @@ export async function compose(
           }),
         config,
         notes,
+        gates: gateStore,
         clock,
       }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),

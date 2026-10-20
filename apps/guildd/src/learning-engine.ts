@@ -2,6 +2,7 @@ import { learningRepoAllowlist } from './guild-config'
 import { extractSuggestions } from './learning'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import type { GateStore } from './ports/gate-store'
 import { EnvoyError, type EnvoyErrorCode, type GitHubEnvoy } from './ports/github-envoy'
 import type { Note, NoteStore } from './ports/note-store'
 import type {
@@ -13,6 +14,14 @@ import type {
 
 /** A scan stops reading further repos after this long. */
 const DEFAULT_SCAN_DEADLINE_MS = 30_000
+
+/** A scan was refused because the guild (or every guild) is barred; nothing was read. */
+export class GatesBarredError extends Error {
+  constructor() {
+    super('gates_barred')
+    this.name = 'GatesBarredError'
+  }
+}
 
 /** What one scan did: repos tried, new suggestions stored, and repos that failed (by code only). */
 export interface ScanResult {
@@ -38,6 +47,7 @@ export class LearningEngine {
   private readonly envoy: GitHubEnvoy
   private readonly config: ConfigStore
   private readonly notes: NoteStore
+  private readonly gates: GateStore
   private readonly clock: Clock
   private readonly deadlineMs: number
 
@@ -46,6 +56,8 @@ export class LearningEngine {
     envoy: GitHubEnvoy
     config: ConfigStore
     notes: NoteStore
+    /** Bar the Gates: a barred guild is not scanned. */
+    gates: GateStore
     /** Measures a scan against its deadline. */
     clock?: Clock
     /** Most milliseconds a scan may run before it stops reading further repos; defaults to 30000. */
@@ -55,6 +67,7 @@ export class LearningEngine {
     this.envoy = deps.envoy
     this.config = deps.config
     this.notes = deps.notes
+    this.gates = deps.gates
     this.clock = deps.clock ?? { now: () => new Date() }
     this.deadlineMs = deps.scanDeadlineMs ?? DEFAULT_SCAN_DEADLINE_MS
   }
@@ -62,8 +75,12 @@ export class LearningEngine {
   /**
    * Reads each allowlisted repo and stores the suggestions not seen before. A repo that fails is
    * reported and skipped; the rest are still read. Idempotent: running it twice adds nothing new.
+   * Refuses with {@link GatesBarredError}, before any read, while the guild is barred.
    */
   async scan(guildId: string): Promise<ScanResult> {
+    if (await this.gates.isBarred(guildId)) {
+      throw new GatesBarredError()
+    }
     const { config } = await this.config.current(guildId)
     const repos = learningRepoAllowlist(config)
     const result: ScanResult = { repos: repos.length, added: 0, failed: [] }
