@@ -41,6 +41,8 @@
   --px-focus: var(--px-gold-500);
   --px-on-gold: var(--px-ink);
   --px-on-wood: #f6e7c1;
+  --px-on-hover: #2b1d14;
+  --px-line: var(--px-wood-700);
   --px-on-danger: var(--px-dialog);
   --px-on-grass: var(--px-dialog);
   --px-on-warn: var(--px-ink);
@@ -72,6 +74,8 @@
   --px-text-muted: #c9a96b;
   --px-on-danger: #2b1d14;
   --px-on-grass: #2b1d14;
+  --px-line: var(--px-wood-300);
+  --px-dialog-frame: #8fa3c8;
 }
 
 :root[data-theme="day"] {

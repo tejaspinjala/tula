@@ -83,6 +83,7 @@
 
 .px-btn:hover:not(:disabled) {
   background: var(--px-wood-100);
+  color: var(--px-on-hover);
 }
 
 .px-btn:active:not(:disabled) {
@@ -116,7 +117,7 @@
 
 .px-btn[data-danger="true"]:hover:not(:disabled) {
   background: var(--px-danger-400);
-  color: var(--px-ink);
+  color: var(--px-on-hover);
 }
 
 .px-btn-icon,
@@ -146,8 +147,9 @@
 .px-dialogue:focus-visible,
 .px-menu-item:focus-visible,
 .px-slot:focus-visible {
-  outline: calc(var(--px) * 2) solid var(--px-focus);
+  outline: calc(var(--px) * 2) solid var(--px-ink);
   outline-offset: calc(var(--px) * 2);
+  box-shadow: 0 0 0 calc(var(--px) * 2) var(--px-focus);
 }
 
 /* Dialogue box. */
