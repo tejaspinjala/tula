@@ -40,7 +40,9 @@ export class MemoryQuestQueue implements QuestQueue {
     private readonly clock: Clock,
     private readonly random: () => number = Math.random,
     /** Receives each transition's event type and ids-only payload, as the Postgres adapter appends them. */
-    private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {}
+    private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {},
+    /** Whether a Hall is paused by a Tripwire; claims skip its Quests. Synchronous to keep claim atomic. */
+    private readonly isHallPaused: (guildId: string, hallId: string) => boolean = () => false
   ) {}
 
   private guild(guildId: string): GuildQuests {
@@ -128,7 +130,9 @@ export class MemoryQuestQueue implements QuestQueue {
         this.apply(guildId, expireTransition(q))
       }
     }
-    const picked = pickClaimable([...this.guild(guildId).byId.values()], now, options)
+    const picked = pickClaimable([...this.guild(guildId).byId.values()], now, options, (hallId) =>
+      this.isHallPaused(guildId, hallId)
+    )
     return picked ? this.apply(guildId, claimTransition(picked, now, options.leaseMs)) : null
   }
 

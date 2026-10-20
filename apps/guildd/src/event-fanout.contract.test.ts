@@ -43,6 +43,7 @@ function countingApp(
     anchor: harness.adapters.anchor,
     identity: harness.adapters.identity,
     seals: harness.adapters.seals,
+    tripwires: harness.adapters.tripwires,
     rateLimiter: harness.adapters.rateLimiter,
     rateLimits: UNLIMITED_RATE_LIMITS,
     secrets: harness.adapters.secrets,

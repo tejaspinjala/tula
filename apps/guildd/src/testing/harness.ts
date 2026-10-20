@@ -41,6 +41,7 @@ export interface HarnessOptions {
       | 'notes'
       | 'seals'
       | 'quests'
+      | 'tripwires'
       | 'streamTickets'
       | 'objectStore'
       | 'keys'
@@ -104,6 +105,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       notes: composed.notes,
       seals: composed.seals,
       quests: composed.quests,
+      tripwires: composed.tripwires,
       streamTickets: composed.streamTickets,
       classifier: composed.classifier,
       routingLog: composed.routingLog,

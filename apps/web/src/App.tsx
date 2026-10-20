@@ -6,6 +6,7 @@ import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
 
 /** Ledger-view shell: keyboard-navigable, with a skip link, landmarks and passkey sign-in. */
@@ -44,6 +45,7 @@ export function App() {
         <RosterPanel session={session} />
         <ArchivePanel session={session} />
         <SealPanel session={session} />
+        <TripwirePanel session={session} />
         <QuestBoardPanel session={session} />
       </main>
     </>

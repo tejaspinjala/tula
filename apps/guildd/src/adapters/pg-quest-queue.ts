@@ -209,6 +209,9 @@ export class PgQuestQueue implements QuestQueue {
         where q.guild_id = ${guildId}
           and (q.state = 'queued' or (q.state = 'active' and q.lease_expires_at <= ${now}))
           and q.not_before <= ${now}
+          and not exists (
+            select 1 from hall_pauses hp
+            where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
           and (${only}::uuid is null or q.quest_id = ${only}::uuid)
           and (
             select count(*) from quests b
