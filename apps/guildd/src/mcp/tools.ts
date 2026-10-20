@@ -48,6 +48,21 @@ export const putArtifactArgs = z.strictObject({
     .min(1)
     .max(Math.ceil((MAX_TOOL_ARTIFACT_BYTES * 4) / 3) + 4),
 })
+/** Most evidence links one Proposal carries. */
+export const MAX_EVIDENCE_LINKS = 10
+/** Arguments of `submit_proposal`: the draft text and the https links that back it. */
+export const submitProposalArgs = z.strictObject({
+  lease: leaseHandle,
+  text: z.string().min(1).max(20000),
+  evidenceLinks: z
+    .array(
+      z
+        .string()
+        .max(2000)
+        .regex(/^https:\/\/[^\s]+$/)
+    )
+    .max(MAX_EVIDENCE_LINKS),
+})
 /** Arguments of `complete_quest`; the Handoff is checked separately, for an actionable error. */
 export const completeQuestArgs = z.strictObject({ lease: leaseHandle, handoff: z.unknown() })
 
@@ -101,6 +116,13 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     roles: ALL_ROLES,
     description: 'Store an artifact for this Quest; returns its hash.',
     args: putArtifactArgs,
+  },
+  {
+    name: 'submit_proposal',
+    roles: ALL_ROLES,
+    description:
+      'File the final draft as a Proposal for the leased Quest; returns its hash and the Verdict. Call it before complete_quest on a Quest that needs a Seal.',
+    args: submitProposalArgs,
   },
   {
     name: 'complete_quest',
