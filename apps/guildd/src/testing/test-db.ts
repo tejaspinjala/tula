@@ -131,12 +131,12 @@ export interface IsolatedTestDb {
 
 /**
  * Creates and migrates a database named after this worktree's test database and the calling test
- * file (`Bun.main`), so a global Bar the Gates, `release_all_leases` or `revoke_all_run_tokens`
+ * file (`Bun.main`, or `key`), so a global Bar the Gates, `release_all_leases` or `revoke_all_run_tokens`
  * there can never touch the guilds of another test file. Any copy left by an interrupted run is
  * dropped first.
  */
-export async function createIsolatedTestDb(): Promise<IsolatedTestDb> {
-  const hash = new Bun.CryptoHasher('sha256').update(Bun.main).digest('hex').slice(0, 8)
+export async function createIsolatedTestDb(key: string = Bun.main): Promise<IsolatedTestDb> {
+  const hash = new Bun.CryptoHasher('sha256').update(key).digest('hex').slice(0, 8)
   const name = `${testDbName()}_g${hash}`
   const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
   const drop = async () => {
