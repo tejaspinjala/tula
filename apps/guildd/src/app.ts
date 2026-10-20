@@ -850,7 +850,7 @@ export function createApp(deps: AppDeps): Hono {
     }
     // Catch the log up first so Seals requested before this device existed are never pushed to it.
     await deps.pushRelay.dispatch(who.guild)
-    await deps.pushStore.add(who.guild, {
+    await deps.pushStore.add(who.guild, who.member, {
       endpoint: body.data.endpoint,
       p256dh: body.data.keys.p256dh,
       auth: body.data.keys.auth,
@@ -885,7 +885,9 @@ export function createApp(deps: AppDeps): Hono {
   // writes config, and agents have no session, so no agent-facing route can change it. A widening
   // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
   /** The calling session's guild when it is `:id`, else a ready response. */
-  async function sessionGuildFor(c: Context): Promise<{ guild: string } | { res: Response }> {
+  async function sessionGuildFor(
+    c: Context
+  ): Promise<{ guild: string; member: string } | { res: Response }> {
     const token = bearerToken(c.req.header('authorization'))
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
@@ -894,7 +896,7 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== session.guildId) {
       return { res: c.json({ error: 'not_found' }, 404) }
     }
-    return { guild: session.guildId }
+    return { guild: session.guildId, member: session.memberId }
   }
 
   function configFailure(c: Context, error: unknown): Response {

@@ -1,7 +1,12 @@
-import type { PushStore, PushSubscription, PushSubscriptionPage } from '../ports/push-store'
+import type {
+  PushStore,
+  PushSubscription,
+  PushSubscriptionPage,
+  StoredPushSubscription,
+} from '../ports/push-store'
 
 interface GuildPush {
-  subscriptions: Map<string, PushSubscription>
+  subscriptions: Map<string, StoredPushSubscription>
   claims: Set<string>
   cursor: number
 }
@@ -22,8 +27,8 @@ export class MemoryPushStore implements PushStore {
     return state
   }
 
-  async add(guildId: string, subscription: PushSubscription): Promise<void> {
-    this.of(guildId).subscriptions.set(subscription.endpoint, { ...subscription })
+  async add(guildId: string, memberId: string, subscription: PushSubscription): Promise<void> {
+    this.of(guildId).subscriptions.set(subscription.endpoint, { ...subscription, memberId })
   }
 
   async remove(guildId: string, endpoint: string): Promise<boolean> {

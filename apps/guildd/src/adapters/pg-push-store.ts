@@ -2,7 +2,12 @@ import { z } from 'zod'
 import type { Db } from '../db/client'
 import type { PushStore, PushSubscription, PushSubscriptionPage } from '../ports/push-store'
 
-const subscriptionRow = z.object({ endpoint: z.string(), p256dh: z.string(), auth: z.string() })
+const subscriptionRow = z.object({
+  endpoint: z.string(),
+  p256dh: z.string(),
+  auth: z.string(),
+  member_id: z.string(),
+})
 const cursorRow = z.object({ last_seq: z.coerce.number() })
 
 /**
@@ -12,13 +17,14 @@ const cursorRow = z.object({ last_seq: z.coerce.number() })
 export class PgPushStore implements PushStore {
   constructor(private readonly db: Db) {}
 
-  async add(guildId: string, s: PushSubscription): Promise<void> {
+  async add(guildId: string, memberId: string, s: PushSubscription): Promise<void> {
     await this.db.withGuild(
       guildId,
       (tx) => tx`
-        insert into push_subscriptions (guild_id, endpoint, p256dh, auth)
-        values (${guildId}, ${s.endpoint}, ${s.p256dh}, ${s.auth})
-        on conflict (guild_id, endpoint) do update set p256dh = excluded.p256dh, auth = excluded.auth`
+        insert into push_subscriptions (guild_id, endpoint, member_id, p256dh, auth)
+        values (${guildId}, ${s.endpoint}, ${memberId}, ${s.p256dh}, ${s.auth})
+        on conflict (guild_id, endpoint) do update
+          set member_id = excluded.member_id, p256dh = excluded.p256dh, auth = excluded.auth`
     )
   }
 
@@ -40,12 +46,15 @@ export class PgPushStore implements PushStore {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select endpoint, p256dh, auth from push_subscriptions
+        select endpoint, member_id, p256dh, auth from push_subscriptions
         where guild_id = ${guildId}
           and (${after}::text is null or endpoint collate "C" > ${after}::text collate "C")
         order by endpoint collate "C" limit ${page.limit + 1}`
     )
-    const all = rows.map((r) => subscriptionRow.parse(r))
+    const all = rows.map((r) => {
+      const { member_id: memberId, ...device } = subscriptionRow.parse(r)
+      return { ...device, memberId }
+    })
     const subscriptions = all.slice(0, page.limit)
     const last = subscriptions.at(-1)
     return { subscriptions, next: all.length > page.limit && last ? last.endpoint : null }

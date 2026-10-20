@@ -5,9 +5,14 @@ export interface PushSubscription {
   auth: string
 }
 
+/** A subscription with the member (the Guild Master) who owns the device. */
+export interface StoredPushSubscription extends PushSubscription {
+  memberId: string
+}
+
 /** A page of subscriptions in endpoint order; `next` is the cursor for the following page, null at the end. */
 export interface PushSubscriptionPage {
-  subscriptions: PushSubscription[]
+  subscriptions: StoredPushSubscription[]
   next: string | null
 }
 
@@ -17,8 +22,8 @@ export interface PushSubscriptionPage {
  * scanned for Seal requests. State lives in the adapter, never in process memory of the app.
  */
 export interface PushStore {
-  /** Stores a subscription; the same endpoint again replaces its keys. */
-  add(guildId: string, subscription: PushSubscription): Promise<void>
+  /** Stores a subscription owned by `memberId`; the same endpoint again replaces its keys. */
+  add(guildId: string, memberId: string, subscription: PushSubscription): Promise<void>
   /** Removes a subscription (and its delivery claims); true when it existed. */
   remove(guildId: string, endpoint: string): Promise<boolean>
   /** A page of the guild's subscriptions after the `after` endpoint cursor. */

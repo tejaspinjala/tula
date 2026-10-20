@@ -7,6 +7,7 @@ export interface PushStoreFixture {
   newGuild: () => Promise<string>
 }
 
+const MEMBER = '44444444-4444-4444-8444-444444444444'
 const sub = (endpoint: string) => ({ endpoint, p256dh: 'p256dh-key', auth: 'auth-secret' })
 
 /** The PushStore contract, run against every adapter. */
@@ -15,10 +16,12 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
     test('a subscription is listed, replaced on the same endpoint, and removed', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      await store.add(g, sub('https://push.example/a'))
-      await store.add(g, { ...sub('https://push.example/a'), auth: 'rotated' })
+      await store.add(g, MEMBER, sub('https://push.example/a'))
+      await store.add(g, MEMBER, { ...sub('https://push.example/a'), auth: 'rotated' })
       const page = await store.list(g, { limit: 10 })
-      expect(page.subscriptions).toEqual([{ ...sub('https://push.example/a'), auth: 'rotated' }])
+      expect(page.subscriptions).toEqual([
+        { ...sub('https://push.example/a'), auth: 'rotated', memberId: MEMBER },
+      ])
       expect(await store.remove(g, 'https://push.example/a')).toBe(true)
       expect(await store.remove(g, 'https://push.example/a')).toBe(false)
       expect((await store.list(g, { limit: 10 })).subscriptions).toEqual([])
@@ -28,7 +31,7 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       const { store, newGuild } = await make()
       const g = await newGuild()
       for (const e of ['c', 'a', 'b']) {
-        await store.add(g, sub(`https://push.example/${e}`))
+        await store.add(g, MEMBER, sub(`https://push.example/${e}`))
       }
       const first = await store.list(g, { limit: 2 })
       expect(first.subscriptions.map((s) => s.endpoint)).toEqual([
@@ -45,7 +48,7 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       const { store, newGuild } = await make()
       const g = await newGuild()
       const seal = crypto.randomUUID()
-      await store.add(g, sub('https://push.example/a'))
+      await store.add(g, MEMBER, sub('https://push.example/a'))
       const claims = await Promise.all(
         Array.from({ length: 8 }, () => store.claimDelivery(g, seal, 'https://push.example/a'))
       )
@@ -66,7 +69,7 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       const { store, newGuild } = await make()
       const [a, b] = [await newGuild(), await newGuild()]
       const seal = crypto.randomUUID()
-      await store.add(a, sub('https://push.example/a'))
+      await store.add(a, MEMBER, sub('https://push.example/a'))
       expect((await store.list(b, { limit: 10 })).subscriptions).toEqual([])
       expect(await store.claimDelivery(b, seal, 'https://push.example/a')).toBe(false)
       expect(await store.remove(b, 'https://push.example/a')).toBe(false)

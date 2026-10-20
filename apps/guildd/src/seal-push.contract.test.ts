@@ -20,6 +20,7 @@ async function foundGuild(name: string): Promise<string> {
   return founded.parse(await res.json()).id
 }
 
+const MEMBER = '44444444-4444-4444-8444-444444444444'
 const DEVICE = { endpoint: 'https://push.example/phone', p256dh: 'k', auth: 'a' }
 
 async function setup() {
@@ -41,7 +42,7 @@ async function setup() {
 describe('Seal push relay', () => {
   test('a Seal request pushes each subscribed device exactly once, with ids only', async () => {
     const { store, notifier, relay, guild, request } = await setup()
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     const seal = await request('Secret launch copy: do not leak')
     await relay.dispatch(guild)
     await relay.dispatch(guild)
@@ -55,7 +56,7 @@ describe('Seal push relay', () => {
   test('no push is sent for another guild: a device only hears about its own guild', async () => {
     const { store, notifier, relay, guild, request } = await setup()
     const other = await foundGuild('Other')
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     await request('other guild seal', other)
     await relay.dispatch(guild)
     await relay.dispatch(other)
@@ -66,7 +67,7 @@ describe('Seal push relay', () => {
     const { store, notifier, relay, guild, request } = await setup()
     await request('old seal')
     await relay.dispatch(guild)
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     await relay.dispatch(guild)
     expect(notifier.sends).toEqual([])
     const fresh = await request('new seal')
@@ -76,7 +77,7 @@ describe('Seal push relay', () => {
 
   test('a subscription the push service has dropped is removed', async () => {
     const { store, notifier, relay, guild, request } = await setup()
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     notifier.markGone(DEVICE.endpoint)
     await request('seal')
     await relay.dispatch(guild)
@@ -85,7 +86,7 @@ describe('Seal push relay', () => {
 
   test('a failed send is retried by the next dispatch and is not lost or doubled', async () => {
     const { store, notifier, relay, guild, request } = await setup()
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     const seal = await request('seal')
     notifier.failNext(1)
     await expect(relay.dispatch(guild)).rejects.toThrow()
@@ -96,7 +97,7 @@ describe('Seal push relay', () => {
 
   test('a live relay dispatches when the log grows', async () => {
     const { store, notifier, relay, guild, request } = await setup()
-    await store.add(guild, DEVICE)
+    await store.add(guild, MEMBER, DEVICE)
     const errors: unknown[] = []
     const running = await relay.start((e) => errors.push(e))
     try {

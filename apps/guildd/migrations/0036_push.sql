@@ -6,6 +6,7 @@
 create table push_subscriptions (
   guild_id uuid not null references guilds (guild_id),
   endpoint text not null,
+  member_id uuid not null,
   p256dh text not null,
   auth text not null,
   created_at timestamptz not null default now(),
@@ -47,7 +48,7 @@ create policy push_cursors_tenant on push_cursors
   with check (guild_id = nullif(current_setting('app.guild_id', true), '')::uuid);
 
 grant select, insert, delete on push_subscriptions to guildhall_app;
-grant update (p256dh, auth) on push_subscriptions to guildhall_app;
+grant update (member_id, p256dh, auth) on push_subscriptions to guildhall_app;
 grant select, insert, delete on push_deliveries to guildhall_app;
 grant select, insert on push_cursors to guildhall_app;
 grant update (last_seq) on push_cursors to guildhall_app;
