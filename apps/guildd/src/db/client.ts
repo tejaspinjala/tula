@@ -68,6 +68,11 @@ export interface Db {
    * security-definer `list_guild_ids` of migration 0043. Only a global bar needs it.
    */
   guildIds(after: string | undefined, limit: number): Promise<string[]>
+  /**
+   * Revokes every guild's live run tokens for good in one statement, through the security-definer
+   * `revoke_all_run_tokens` of migration 0046; returns how many runs changed.
+   */
+  revokeAllRunTokens(): Promise<number>
   /** Closes the pools. */
   close(): Promise<void>
 }
@@ -136,6 +141,10 @@ export function createDb(
     async guildIds(after, limit) {
       const rows = await sql`select list_guild_ids(${after ?? null}::uuid, ${limit}) as guild_id`
       return rows.map((r) => z.string().parse(r.guild_id))
+    },
+    async revokeAllRunTokens() {
+      const [row] = await sql`select revoke_all_run_tokens() as revoked`
+      return z.object({ revoked: z.number() }).parse(row).revoked
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),

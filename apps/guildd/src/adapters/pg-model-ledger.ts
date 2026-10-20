@@ -142,7 +142,7 @@ export class PgModelLedger implements ModelLedger {
   }
 
   async revokeAllRuns(): Promise<number> {
-    return 0
+    return this.db.revokeAllRunTokens()
   }
 
   async revokeGuildRuns(guildId: string): Promise<number> {

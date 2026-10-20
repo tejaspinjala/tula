@@ -131,7 +131,11 @@ export class MemoryModelLedger implements ModelLedger {
   }
 
   async revokeAllRuns(): Promise<number> {
-    return 0
+    let revoked = 0
+    for (const guildId of this.guilds.keys()) {
+      revoked += await this.revokeGuildRuns(guildId)
+    }
+    return revoked
   }
 
   async revokeGuildRuns(guildId: string): Promise<number> {
