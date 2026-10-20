@@ -22,7 +22,9 @@ async function setup(repos: string[], envoyOverride?: GitHubEnvoy) {
   const config = new MemoryConfigStore(clock)
   await config.seed(GUILD)
   const proposed = await config.propose(GUILD, { ...defaultConfig(), learningRepos: repos })
-  await config.confirm(GUILD, proposed.version)
+  if (proposed.status === 'pending') {
+    await config.confirm(GUILD, proposed.version)
+  }
   const reads: string[] = []
   const inner = MemoryGitHubEnvoy.fromFixtures(
     {
@@ -38,7 +40,7 @@ async function setup(repos: string[], envoyOverride?: GitHubEnvoy) {
     }
   )
   const store = new MemorySuggestionStore(clock)
-  const notes = new MemoryNoteStore(clock)
+  const notes = new MemoryNoteStore()
   const engine = new LearningEngine({ store, envoy: envoyOverride ?? inner, config, notes })
   return { engine, store, notes, reads }
 }
