@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test'
+import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
@@ -90,7 +91,9 @@ async function setup(
   const quests = new MemoryQuestQueue(clock, () => 0.5)
   const tripwires = new MemoryTripwireStore(clock)
   const gates = new MemoryGateStore()
+  const activity = new MemoryActivityLog()
   const gateway = new ModelGateway({
+    activity,
     ledger,
     secrets,
     config: { current: async () => ({ version: 1, config: cfg }) },
@@ -125,7 +128,19 @@ async function setup(
   }
   /** The ledger run id of the run called `name`. */
   const runIdOf = async (name: string) => runIdFor((await questFor(name)).id, 1)
-  return { clock, ledger, provider, secrets, gateway, tripwires, gates, open, questFor, runIdOf }
+  return {
+    clock,
+    ledger,
+    provider,
+    secrets,
+    gateway,
+    tripwires,
+    gates,
+    activity,
+    open,
+    questFor,
+    runIdOf,
+  }
 }
 
 async function started(r: Promise<Awaited<ReturnType<ModelGateway['openRun']>>>) {
@@ -147,6 +162,33 @@ async function codeOf(p: Promise<unknown>): Promise<GatewayErrorCode | 'no error
   }
   return 'no error'
 }
+
+describe('member activity', () => {
+  test('a model turn emits thinking once for the run, with ids only, and a repeat coalesces', async () => {
+    const { provider, gateway, open, activity, questFor } = await setup()
+    provider.script({ ok: true, text: 'a', usage: { inputTokens: 1, outputTokens: 1 } })
+    provider.script({ ok: true, text: 'b', usage: { inputTokens: 1, outputTokens: 1 } })
+    const run = await started(open())
+    await gateway.complete(run.token, message)
+    await gateway.complete(run.token, message)
+    const quest = await questFor('run-1')
+    expect(activity.emittedEvents).toHaveLength(1)
+    expect(activity.emittedEvents[0]).toMatchObject({
+      guildId: GUILD,
+      questId: quest.id,
+      memberId: 'heralds-member-2',
+      hallId: 'heralds',
+      activity: 'thinking',
+    })
+    expect(JSON.stringify(activity.emittedEvents)).not.toContain('SECRET')
+  })
+
+  test('a refused call emits no activity', async () => {
+    const { gateway, activity } = await setup()
+    await codeOf(gateway.complete(`ghr.${GUILD}.${'0'.repeat(64)}`, message))
+    expect(activity.emittedEvents).toHaveLength(0)
+  })
+})
 
 describe('per-run token', () => {
   test('a run calls with its own token; the model id and real key are injected, never returned', async () => {

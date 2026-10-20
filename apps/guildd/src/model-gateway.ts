@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { GuildConfig } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
+import type { ActivityLog } from './ports/activity-log'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
@@ -98,6 +99,8 @@ export interface GatewayDeps {
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** Bar the Gates: read first on every open and call; a barred guild is refused before any work. */
   gates: Pick<GateStore, 'isBarred'>
+  /** Records a model turn as a `member.activity` event (`thinking`); absent, none is emitted. */
+  activity?: ActivityLog
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
   /** How often a call in flight re-reads the bar (durable, so no process state); defaults to 250 ms. */
