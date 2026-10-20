@@ -16,7 +16,8 @@ export class MemorySandboxRunner implements SandboxRunner {
       if (
         target === 'all' ||
         (sandbox.guildId === target.guildId &&
-          (target.questId === undefined || sandbox.questId === target.questId))
+          (target.questId === undefined || sandbox.questId === target.questId) &&
+          (target.sandboxId === undefined || sandbox.sandboxId === target.sandboxId))
       ) {
         this.running.delete(id)
         killed += 1

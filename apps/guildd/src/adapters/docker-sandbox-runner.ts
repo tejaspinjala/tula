@@ -192,6 +192,9 @@ export class DockerSandboxRunner implements SandboxRunner {
         ...(target !== 'all' && target.questId !== undefined
           ? ['--filter', `label=${QUEST_LABEL}=${target.questId}`]
           : []),
+        ...(target !== 'all' && target.sandboxId !== undefined
+          ? ['--filter', `label=${SANDBOX_LABEL}=${target.sandboxId}`]
+          : []),
       ],
       { timeoutMs: this.timeoutMs }
     )

@@ -108,7 +108,12 @@ export interface StartRunDeps {
   gateway: Pick<ModelGateway, 'openRun'>
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
+  /** How long the sandbox may take to start before the Quest is released (default 30s). */
+  sandboxStartTimeoutMs?: number
 }
+
+/** How long a sandbox start may take before {@link startRun} gives the Quest back. */
+const SANDBOX_START_TIMEOUT_MS = 30_000
 
 /** Why {@link startRun} did not leave a worker running. */
 export type StartRunError =
@@ -143,14 +148,15 @@ export async function startRun(
     return { ok: false, error: run.error }
   }
   try {
-    await deps.sandboxes.start(guildId, {
+    const spec = {
       questId: claimed.id,
       runToken: run.token,
       leaseHandle: JSON.stringify(await deps.mcp.lease(guildId, claimed)),
       doneCondition: claimed.doneCondition,
-    })
-  } catch {
-    await release('sandbox_unavailable')
+    }
+    await startWithin(deps, guildId, spec)
+  } catch (error) {
+    await release(error instanceof SandboxStartTimeout ? 'timeout' : 'sandbox_unavailable')
     return { ok: false, error: 'sandbox_unavailable' }
   }
   // A bar that landed while the container started could not see it yet: stop it here.
@@ -166,6 +172,47 @@ export async function startRun(
     return { ok: false, error: 'gates_barred' }
   }
   return { ok: true }
+}
+
+/** The sandbox did not start within its bound; the Quest has been (or is being) given back. */
+class SandboxStartTimeout extends Error {
+  constructor() {
+    super('sandbox_start_timeout')
+  }
+}
+
+/**
+ * Starts the sandbox, bounded by the start timeout. On timeout the caller releases the Quest, and a
+ * container that comes up afterwards is stopped by its own id (never the Quest's, which a retry may
+ * already have a new container for) and its result discarded: a start never outlives its lease.
+ */
+async function startWithin(
+  deps: StartRunDeps,
+  guildId: string,
+  spec: Parameters<SandboxRunner['start']>[1]
+): Promise<void> {
+  const starting = deps.sandboxes.start(guildId, spec)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(
+      () => resolve('timeout'),
+      deps.sandboxStartTimeoutMs ?? SANDBOX_START_TIMEOUT_MS
+    )
+  })
+  try {
+    if ((await Promise.race([starting, expired])) === 'timeout') {
+      starting.then(
+        (late) =>
+          deps.sandboxes
+            .kill({ guildId, questId: spec.questId, sandboxId: late.sandboxId })
+            .catch(() => undefined),
+        () => undefined
+      )
+      throw new SandboxStartTimeout()
+    }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function openRun(
