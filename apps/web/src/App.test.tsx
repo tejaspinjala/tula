@@ -144,6 +144,9 @@ test('New guild is on the title menu only while founding is open, and opens the 
   expect(headings(host)).not.toContain('Found your guild')
   await click(option(host, 'New guild'))
   expect(headings(host)).toContain('Found your guild')
+  // Keyboard only: the Guild name field has focus, so typing starts at once.
+  expect(document.activeElement?.id).toBe(host.querySelector('input')?.id)
+  expect(document.activeElement?.tagName).toBe('INPUT')
   await act(async () => root.unmount())
 })
 
