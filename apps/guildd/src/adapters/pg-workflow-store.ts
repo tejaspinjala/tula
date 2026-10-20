@@ -108,7 +108,30 @@ export class PgWorkflowStore implements WorkflowStore {
     workflowId: string,
     input: NewWorkflowVersion
   ): Promise<WorkflowVersion | null> {
-    return this.saveVersion(guildId, workflowId, input)
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${workflowId}`}, 0))`
+      const [row] = await tx`
+        insert into workflow_versions
+          (guild_id, workflow_id, version, name, graph, classification, status, created_at)
+        select ${guildId}, ${workflowId}, 1, ${input.name},
+          ${JSON.stringify(input.graph)}::text::jsonb, ${input.classification}, ${input.status},
+          ${now}
+        where not exists (
+          select 1 from workflow_versions where guild_id = ${guildId} and workflow_id = ${workflowId})
+        returning ${tx.unsafe(VERSION_COLUMNS)}`
+      if (!row) {
+        return null
+      }
+      const saved = toVersion(versionRow.parse(row))
+      await appendEvent(tx, this.keys, 'workflow.version_saved', {
+        workflowId,
+        version: saved.version,
+        status: saved.status,
+        kind: saved.classification,
+      })
+      return saved
+    })
   }
 
   async getVersion(

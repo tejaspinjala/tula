@@ -56,6 +56,9 @@ export class MemoryWorkflowStore implements WorkflowStore {
     workflowId: string,
     input: NewWorkflowVersion
   ): Promise<WorkflowVersion | null> {
+    if (this.state(guildId).workflows.has(workflowId)) {
+      return null
+    }
     return this.saveVersion(guildId, workflowId, input)
   }
 

@@ -2,6 +2,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 import { MAX_WORKFLOW_PAGE } from '../ports/workflow-store'
 import { checkSensitive } from '../sensitive'
+import { isGuildMaster } from '../treasury'
 import type { RunError, WorkflowEngine } from './engine'
 import { workflowId } from './graph'
 
@@ -148,6 +149,9 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
     const check = await checkSensitive(deps.identity, c.req.raw.headers)
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
+    }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
     }
     const id = wid(c)
     const version = versionNumber.safeParse(c.req.param('version'))

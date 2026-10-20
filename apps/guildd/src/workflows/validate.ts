@@ -117,6 +117,18 @@ export function validateWorkflow(
       add('unreachable_node', `node ${id} cannot be reached from a trigger`, id)
     }
   }
+  // An agent after a gate would start before the Verdict and Seal settle (blockedBy covers agents
+  // only), so this subset refuses it.
+  const gates = [...byId.values()].filter((n) => n.type === 'verify' || n.type === 'approval')
+  const afterGate = reach(
+    gates.flatMap((g) => out.get(g.id) ?? []),
+    out
+  )
+  for (const n of byId.values()) {
+    if (n.type === 'agent' && afterGate.has(n.id)) {
+      add('agent_after_gate', `agent ${n.id} runs after a verify or approval gate`, n.id)
+    }
+  }
   if (hasCycle([...known], out)) {
     add('cycle', 'the graph contains a cycle')
   }

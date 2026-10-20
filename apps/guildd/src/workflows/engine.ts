@@ -157,7 +157,7 @@ export class WorkflowEngine {
       return { status: 'invalid', errors }
     }
     const graph = workflowGraph.parse(input.graph)
-    const previous = await this.deps.store.getVersion(guildId, workflowId)
+    const previous = await this.deps.store.latestActive(guildId, workflowId)
     const classification = classifyWorkflowChange(previous?.graph ?? null, graph)
     const status = classification === 'internal' ? 'active' : 'pending'
     const version = await this.deps.store.saveVersion(guildId, workflowId, {
@@ -217,10 +217,7 @@ export class WorkflowEngine {
 
   /** Saves the seeded templates as active versions, once per guild. */
   async seedTemplates(guildId: string): Promise<void> {
-    if (await this.deps.store.getVersion(guildId, LEARNING_TO_LINKEDIN_ID)) {
-      return
-    }
-    await this.deps.store.saveVersion(guildId, LEARNING_TO_LINKEDIN_ID, {
+    await this.deps.store.seedVersion(guildId, LEARNING_TO_LINKEDIN_ID, {
       name: 'Learning to LinkedIn post',
       graph: LEARNING_TO_LINKEDIN,
       classification: 'internal',
@@ -284,7 +281,7 @@ export class WorkflowEngine {
         }
       )
       if (!result.ok) {
-        return { ok: false, error: result.error, nodeId: node.id }
+        return { ok: false, error: result.error, nodeId: node.id, runKey: instance.runKey }
       }
       posted.set(node.id, result.quest.id)
     }

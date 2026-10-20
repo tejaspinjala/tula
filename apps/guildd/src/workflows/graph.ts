@@ -25,7 +25,11 @@ const agent = z.object({
   /** Brief text; `{{nodes.<id>.output}}` references the output of an upstream agent node. */
   briefTemplate: z.string().trim().min(1).max(4000),
   doneCondition: z.string().trim().min(1).max(2000),
-  /** The most this step may spend, in dollars; summed across the graph against the guild caps. */
+  /**
+   * The most this step may spend, in dollars. Advisory: it is summed across the graph against the
+   * guild's daily spend cap at save time, but not enforced per Quest (the queue has no per-Quest
+   * budget); the daily caps and Treasury still bound real spend.
+   */
   maxUsd: z.number().min(0).max(100_000),
 })
 const verify = z.object({
