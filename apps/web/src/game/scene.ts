@@ -124,8 +124,8 @@ export type MemberActivity = z.infer<typeof memberActivityPayload>
 const missivePayload = z.object({ missiveId: z.string(), from: z.string() })
 const spendPayload = z.object({ kind: z.string(), amountCents: z.number() })
 
-/** Treasury entry kinds that are money leaving the guild. */
-const SPEND_KINDS = new Set(['spend_settle'])
+/** Treasury entry kinds that move operating spend: a reserve is negative, a settle refund or release positive. */
+const SPEND_KINDS = new Set(['spend_reserve', 'spend_settle', 'spend_release'])
 
 /** The Hall id a Quest event names (`hallId`, or the Quest Board's `hall`), or undefined. */
 function hallOf(payload: unknown): string | undefined {
@@ -218,7 +218,7 @@ export function deriveScene(input: SceneInput): SceneState {
     } else if (event.type === 'treasury.entry') {
       const p = spendPayload.safeParse(event.payload)
       if (p.success && SPEND_KINDS.has(p.data.kind)) {
-        coinsCents += Math.abs(p.data.amountCents)
+        coinsCents = Math.max(0, coinsCents - p.data.amountCents)
       }
     }
   }
