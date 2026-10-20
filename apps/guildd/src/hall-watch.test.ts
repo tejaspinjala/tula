@@ -8,6 +8,7 @@ import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig } from './guild-config'
 import { watchHalls } from './hall-watch'
 import type { NewQuest } from './ports/quest-queue'
+import { hashProposal } from './ports/seal-store'
 
 const NOW = new Date('2030-01-08T12:00:00.000Z')
 const HUGE = { tokens: 1_000_000_000, costMicros: 1_000_000_000 }
@@ -75,7 +76,22 @@ function world() {
         ...over,
       })
     ).quest
-  return { deps, guild, spend, quest, clock, sealStore, proposals }
+  /** A Seal asked for a new Quest of `hallId` and denied now. */
+  const deny = async (hallId: string, text: string) => {
+    const q = await quest(hallId)
+    const seal = await sealStore.request(guild, {
+      questId: q.id,
+      requestedBy: 'heralds-member-2',
+      kind: 'post',
+      text,
+      evidence: 'e',
+    })
+    await sealStore.decide(guild, seal.id, {
+      verdict: 'denied',
+      expectedHash: await hashProposal(text),
+    })
+  }
+  return { deps, guild, spend, quest, clock, sealStore, proposals, deny }
 }
 
 describe('watchHalls', () => {
@@ -88,5 +104,29 @@ describe('watchHalls', () => {
     await w.spend('heralds', '2030-01-08', 1000)
     await w.spend('smiths', '2030-01-08', 100)
     expect(await watchHalls(w.deps, w.guild)).toEqual(['heralds'])
+  })
+
+  test('gate denials are read from the last hour only, however many old ones exist', async () => {
+    const w = world()
+    for (let i = 0; i < 25; i++) {
+      await w.deny('smiths', `old ${i}`)
+    }
+    w.clock.advance(3 * 60 * 60 * 1000)
+    for (let i = 0; i < 10; i++) {
+      await w.deny('heralds', `recent ${i}`)
+    }
+    let rowsRead = 0
+    const deps = {
+      ...w.deps,
+      sealStore: {
+        list: async (...args: Parameters<typeof w.sealStore.list>) => {
+          const page = await w.sealStore.list(...args)
+          rowsRead += page.seals.length
+          return page
+        },
+      },
+    }
+    expect(await watchHalls(deps, w.guild)).toEqual(['heralds'])
+    expect(rowsRead).toBe(10)
   })
 })
