@@ -70,6 +70,10 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** VAPID keys and contact for web push. */
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
