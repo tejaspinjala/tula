@@ -12,6 +12,7 @@ import {
   isLearningRepoAllowed,
   learningRepoAllowlist,
   missiveCap,
+  researchCap,
   questConcurrency,
   sealPostWindowMs,
   spawnChildrenCap,
@@ -114,6 +115,19 @@ describe('classifyChange', () => {
     )
     expect(
       guildConfig.safeParse({ ...base, caps: { ...base.caps, maxMissivesPerQuest: 201 } }).success
+    ).toBe(false)
+  })
+  test('research is off by default; enabling it or raising its cap is widening, lowering applies at once', () => {
+    expect(researchCap(base)).toBe(0)
+    const enabled = { ...base, caps: { ...base.caps, maxResearchPerQuest: 5 } }
+    expect(researchCap(enabled)).toBe(5)
+    expect(classifyChange(base, enabled)).toBe('widening')
+    expect(
+      classifyChange(enabled, { ...base, caps: { ...base.caps, maxResearchPerQuest: 9 } })
+    ).toBe('widening')
+    expect(classifyChange(enabled, base)).toBe('tightening')
+    expect(
+      guildConfig.safeParse({ ...base, caps: { ...base.caps, maxResearchPerQuest: 101 } }).success
     ).toBe(false)
   })
   test('the id `hall` is reserved for Missives: no Member or Captain may take it', () => {
