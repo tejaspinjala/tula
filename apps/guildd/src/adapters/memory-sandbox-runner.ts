@@ -13,7 +13,11 @@ export class MemorySandboxRunner implements SandboxRunner {
   async kill(target: KillTarget): Promise<number> {
     let killed = 0
     for (const [id, sandbox] of this.running) {
-      if (target === 'all' || sandbox.guildId === target.guildId) {
+      if (
+        target === 'all' ||
+        (sandbox.guildId === target.guildId &&
+          (target.questId === undefined || sandbox.questId === target.questId))
+      ) {
         this.running.delete(id)
         killed += 1
       }

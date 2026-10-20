@@ -11,6 +11,8 @@ import {
   learningRepoAllowlist,
   questConcurrency,
   sealPostWindowMs,
+  spawnChildrenCap,
+  spawnDepthCap,
 } from './guild-config'
 
 describe('seeded guild config', () => {
@@ -68,6 +70,22 @@ describe('classifyChange', () => {
     expect(questConcurrency(raised)).toBe(9)
     expect(classifyChange(base, raised)).toBe('widening')
     expect(classifyChange(raised, base)).toBe('tightening')
+  })
+  test('the spawn caps default to 3 children and depth 2; raising either is widening, lowering applies at once', () => {
+    expect(spawnChildrenCap(base)).toBe(3)
+    expect(spawnDepthCap(base)).toBe(2)
+    for (const key of ['maxChildrenPerQuest', 'maxSpawnDepth'] as const) {
+      const raised = { ...base, caps: { ...base.caps, [key]: 5 } }
+      const lowered = { ...base, caps: { ...base.caps, [key]: 1 } }
+      expect(classifyChange(base, raised)).toBe('widening')
+      expect(classifyChange(raised, base)).toBe('tightening')
+      expect(classifyChange(base, lowered)).toBe('tightening')
+      expect(guildConfig.safeParse(raised).success).toBe(true)
+      expect(guildConfig.safeParse({ ...base, caps: { ...base.caps, [key]: 1000 } }).success).toBe(
+        false
+      )
+    }
+    expect(spawnChildrenCap({ ...base, caps: { ...base.caps, maxChildrenPerQuest: 5 } })).toBe(5)
   })
   test('the Seal post window defaults to 72 hours, and raising it is widening', () => {
     expect(sealPostWindowMs(base)).toBe(72 * 3_600_000)

@@ -80,6 +80,10 @@ export const caps = z.object({
   concurrentQuests: z.number().int().min(1).max(1000).optional(),
   /** Hours an approved Seal may wait to be posted before it expires; {@link DEFAULT_SEAL_POST_WINDOW_HOURS} when absent. Raising it widens risk. */
   sealPostWindowHours: z.number().int().min(1).max(8760).optional(),
+  /** Sub-Quests one Quest may spawn; {@link DEFAULT_MAX_CHILDREN_PER_QUEST} when absent. Raising it widens risk. */
+  maxChildrenPerQuest: z.number().int().min(0).max(20).optional(),
+  /** How deep sub-Quests may nest; {@link DEFAULT_MAX_SPAWN_DEPTH} when absent. Raising it widens risk. */
+  maxSpawnDepth: z.number().int().min(0).max(5).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -88,6 +92,22 @@ export const DEFAULT_SEAL_POST_WINDOW_HOURS = 72
 /** The guild's post window for approved Seals, in milliseconds. */
 export function sealPostWindowMs(config: GuildConfig): number {
   return (config.caps.sealPostWindowHours ?? DEFAULT_SEAL_POST_WINDOW_HOURS) * 3_600_000
+}
+
+/** Sub-Quests one Quest may spawn when the config sets no cap. */
+export const DEFAULT_MAX_CHILDREN_PER_QUEST = 3
+
+/** Nesting depth of sub-Quests (a Quest posted by a Guild Master is depth 0) when the config sets no cap. */
+export const DEFAULT_MAX_SPAWN_DEPTH = 2
+
+/** The guild's cap on sub-Quests one Quest may spawn. */
+export function spawnChildrenCap(config: GuildConfig): number {
+  return config.caps.maxChildrenPerQuest ?? DEFAULT_MAX_CHILDREN_PER_QUEST
+}
+
+/** The guild's cap on how deep sub-Quests may nest. */
+export function spawnDepthCap(config: GuildConfig): number {
+  return config.caps.maxSpawnDepth ?? DEFAULT_MAX_SPAWN_DEPTH
 }
 
 /** The Quest concurrency cap of a config that does not set one. */
@@ -369,11 +389,15 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
     questConcurrency(next) <= questConcurrency(prev) &&
     sealPostWindowMs(next) <= sealPostWindowMs(prev) &&
+    spawnChildrenCap(next) <= spawnChildrenCap(prev) &&
+    spawnDepthCap(next) <= spawnDepthCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
       'concurrentQuests',
       'sealPostWindowHours',
+      'maxChildrenPerQuest',
+      'maxSpawnDepth',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
