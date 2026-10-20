@@ -280,6 +280,111 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       await dispatchStarts(w, guildId, quest)
     })
 
+    describe('subagents', () => {
+      const parentBrief = 'Summarise two topics'
+      const startsQuest = async (w: E2eWorld, guild: string, questId: string) =>
+        expect(await w.dispatcher.dispatch(guild)).toMatchObject({ status: 'started', questId })
+      const handleOf = (w: E2eWorld, questId: string) =>
+        lease.parse(JSON.parse(w.sandboxes.latest(questId).leaseHandle ?? 'null'))
+      const postParent = (w: E2eWorld, guild: string) =>
+        post(w, guild, {
+          templateId: 'herald-brief',
+          rank: 'journeyman',
+          dataClass: 'internal',
+          ownerId: 'heralds-member-2',
+          doneCondition: parentBrief,
+          jobKey: 'parent',
+        })
+      /** The parent's worker on its first delivery: spawn two Sub-Quests and wait for them. */
+      const parentSpawns = async (w: E2eWorld, parentId: string) => {
+        const handle = handleOf(w, parentId)
+        const call = (name: string, args: object) =>
+          callTool((request) => w.mcp.handle(request), name, { lease: handle, ...args })
+        const spawned = []
+        for (const topic of ['A', 'B']) {
+          spawned.push(
+            await call('spawn_subquest', {
+              title: `Topic ${topic}`,
+              brief: `Research topic ${topic}`,
+              template: 'herald-brief',
+            })
+          )
+        }
+        return { spawned, waiting: await call('await_children', {}) }
+      }
+
+      test('a parent spawns two Sub-Quests, gives up its slot, resumes and finishes with their results', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        const parent = await postParent(w, guildId)
+        await dispatchStarts(w, guildId, parent)
+        const { spawned, waiting } = await parentSpawns(w, parent.id)
+        expect(spawned.map((s) => s.isError)).toEqual([false, false])
+        expect(waiting.data.waiting).toBe(true)
+        expect(await w.quests.get(guildId, parent.id)).toMatchObject({
+          state: 'queued',
+          leaseExpiresAt: null,
+        })
+        const kids = spawned.map((s) => z.string().parse(s.data.childId))
+        // The parent holds no worker slot: the children are dispatched, one per pass, to normal workers.
+        for (const [i, kid] of kids.entries()) {
+          await startsQuest(w, guildId, kid)
+          const run = await memberWorks(w, guildId, kid, `Findings ${i}`)
+          expect(run.completion.data.state).toBe('done')
+        }
+        await startsQuest(w, guildId, parent.id)
+        expect(await w.quests.get(guildId, parent.id)).toMatchObject({
+          state: 'active',
+          attempts: 2,
+        })
+        const handle = handleOf(w, parent.id)
+        const results = await callTool((r) => w.mcp.handle(r), 'child_results', { lease: handle })
+        const children = z
+          .array(z.object({ status: z.string(), result: z.object({ summary: z.string() }) }))
+          .parse(results.data.children)
+        expect(children.map((c) => c.status)).toEqual(['done', 'done'])
+        const run = await new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Summarised both topics',
+          output: () => children.map((c) => c.result.summary).join('; '),
+        }).runLeased(handle)
+        expect(run.completion.data.state).toBe('done')
+        expect(await stateOf(w, guildId, parent.id)).toBe('done')
+        expect(await w.quests.linkOf(guildId, kids[0] ?? '')).toMatchObject({
+          parentId: parent.id,
+          depth: 1,
+        })
+      })
+
+      test('barring the Gates mid-tree stops every Sub-Quest and revokes their leases', async () => {
+        const w = await make()
+        const { guildId, masterId } = await w.newGuild()
+        const parent = await postParent(w, guildId)
+        await dispatchStarts(w, guildId, parent)
+        const { spawned } = await parentSpawns(w, parent.id)
+        const kids = spawned.map((s) => z.string().parse(s.data.childId))
+        for (const kid of kids) {
+          await startsQuest(w, guildId, kid)
+        }
+        expect((await w.sandboxes.list(guildId)).length).toBeGreaterThan(0)
+        await w.gates.bar({ guildId, memberId: masterId }, 'guild')
+        expect(await w.sandboxes.list(guildId)).toEqual([])
+        for (const kid of kids) {
+          expect(await w.quests.get(guildId, kid)).toMatchObject({
+            state: 'queued',
+            leaseExpiresAt: null,
+          })
+        }
+        expect(await w.dispatcher.dispatch(guildId)).toEqual({ status: 'barred' })
+        const denied = await callTool((r) => w.mcp.handle(r), 'spawn_subquest', {
+          lease: handleOf(w, kids[0] ?? ''),
+          title: 'x',
+          brief: 'y',
+          template: 'herald-brief',
+        })
+        expect(denied.rpcError).toBe('gates_barred')
+      })
+    })
+
     test('a transient routing block requeues with a notBefore and spends no attempt', async () => {
       const w = await make()
       const { guildId } = await w.newGuild({ caps: { dailyTokens: 0, dailySpendCents: 0 } })
