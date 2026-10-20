@@ -15,7 +15,7 @@ export interface AwaitingSealReaderFixture {
 
 /** A Quest held for a Seal (round 1). */
 async function hold(f: AwaitingSealReaderFixture, guild: string, title: string) {
-  const { quest } = await f.quests.post(guild, {
+  await f.quests.post(guild, {
     jobKey: crypto.randomUUID(),
     templateId: 'herald-announcement',
     hallId: 'heralds',
