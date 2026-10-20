@@ -43,6 +43,12 @@ export interface TreasuryTx {
   entriesAfter(afterSeq: number, limit: number): Promise<LedgerEntry[]>
   /** The spend request filed under an idempotency key, or null. */
   spendByKey(key: string): Promise<Spend | null>
+  /** One spend request by id, or null. */
+  spendById(id: string): Promise<Spend | null>
+  /** Spend requests after `afterSeq`, oldest first. */
+  spendsAfter(afterSeq: number, limit: number): Promise<Spend[]>
+  /** Replaces a spend request's mutable state (status, settled cents, approver, escalation). */
+  updateSpend(spend: Spend): Promise<void>
   /** Inserts a spend request, assigning its per-guild `seq`. */
   insertSpend(spend: Omit<Spend, 'seq'>): Promise<Spend>
   /** Records an event carrying ids and amounts only. */
@@ -249,6 +255,170 @@ export abstract class TreasuryCore {
         amountCents: spend.amountCents,
       })
       return { ok: true, spend, created: true }
+    })
+  }
+
+  /** Moves a spend request to a new state in the same unit as the entry that backs it. */
+  private async moveSpend(
+    tx: TreasuryTx,
+    spend: Spend,
+    change: Partial<Pick<Spend, 'status' | 'settledCents' | 'approvedBy' | 'escalation'>>
+  ): Promise<Spend> {
+    const next: Spend = { ...spend, ...change }
+    await tx.updateSpend(next)
+    await tx.emit('treasury.spend', {
+      spendId: next.id,
+      status: next.status,
+      amountCents: next.settledCents ?? next.amountCents,
+    })
+    return next
+  }
+
+  /** Runs `fn` on the spend `spendId` as one write unit, or refuses when there is none. */
+  private async withSpend(
+    guildId: string,
+    spendId: string,
+    fn: (tx: TreasuryTx, spend: Spend) => Promise<SpendResult>
+  ): Promise<SpendResult> {
+    return this.run(guildId, 'write', async (tx) => {
+      const spend = await tx.spendById(spendId)
+      return spend ? fn(tx, spend) : { ok: false, reason: 'not_found' }
+    })
+  }
+
+  approveSpend(guildId: string, spendId: string): Promise<SpendResult> {
+    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+      if (spend.status !== 'pending_approval') {
+        return { ok: false, reason: 'wrong_state' }
+      }
+      // Funds are checked again now: the envelope may have been spent while the request waited.
+      if (spend.amountCents > (await tx.balances()).operating) {
+        return { ok: false, reason: 'insufficient_funds' }
+      }
+      await this.post(tx, {
+        kind: 'spend_reserve',
+        bucket: 'operating',
+        amountCents: -spend.amountCents,
+        spendId: spend.id,
+      })
+      const next = await this.moveSpend(tx, spend, {
+        status: 'reserved',
+        approvedBy: 'guild_master',
+        escalation: null,
+      })
+      return { ok: true, spend: next, created: false }
+    })
+  }
+
+  denySpend(guildId: string, spendId: string): Promise<SpendResult> {
+    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+      if (spend.status !== 'pending_approval') {
+        return { ok: false, reason: 'wrong_state' }
+      }
+      return {
+        ok: true,
+        spend: await this.moveSpend(tx, spend, { status: 'denied' }),
+        created: false,
+      }
+    })
+  }
+
+  settleSpend(guildId: string, spendId: string, actualCents: number): Promise<SpendResult> {
+    if (!Number.isSafeInteger(actualCents) || actualCents < 0) {
+      return Promise.resolve({ ok: false, reason: 'invalid_amount' })
+    }
+    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+      if (spend.status === 'settled' && spend.settledCents === actualCents) {
+        return { ok: true, spend, created: false }
+      }
+      if (spend.status !== 'reserved') {
+        return { ok: false, reason: 'wrong_state' }
+      }
+      if (actualCents > spend.amountCents) {
+        return { ok: false, reason: 'exceeds_reserved' }
+      }
+      const refund = spend.amountCents - actualCents
+      if (refund > 0) {
+        await this.post(tx, {
+          kind: 'spend_settle',
+          bucket: 'operating',
+          amountCents: refund,
+          spendId: spend.id,
+        })
+      }
+      const next = await this.moveSpend(tx, spend, { status: 'settled', settledCents: actualCents })
+      return { ok: true, spend: next, created: false }
+    })
+  }
+
+  releaseSpend(guildId: string, spendId: string): Promise<SpendResult> {
+    return this.withSpend(guildId, spendId, async (tx, spend): Promise<SpendResult> => {
+      if (spend.status === 'released') {
+        return { ok: true, spend, created: false }
+      }
+      if (spend.status !== 'reserved') {
+        return { ok: false, reason: 'wrong_state' }
+      }
+      await this.post(tx, {
+        kind: 'spend_release',
+        bucket: 'operating',
+        amountCents: spend.amountCents,
+        spendId: spend.id,
+      })
+      return {
+        ok: true,
+        spend: await this.moveSpend(tx, spend, { status: 'released' }),
+        created: false,
+      }
+    })
+  }
+
+  async getSpend(guildId: string, spendId: string): Promise<Spend | null> {
+    return this.run(guildId, 'read', (tx) => tx.spendById(spendId))
+  }
+
+  async listSpends(
+    guildId: string,
+    page: { after?: number; limit: number }
+  ): Promise<TreasuryPage<Spend>> {
+    const limit = Math.min(Math.max(page.limit, 1), MAX_TREASURY_PAGE)
+    const rows = await this.run(guildId, 'read', (tx) => tx.spendsAfter(page.after ?? 0, limit + 1))
+    const items = rows.slice(0, limit)
+    const last = items.at(-1)
+    return { items, next: rows.length > limit && last ? last.seq : null }
+  }
+
+  async releaseReserve(
+    guildId: string,
+    input: { key: string; amountCents: number },
+    limits: TreasuryLimits
+  ): Promise<EntriesResult> {
+    if (!isCents(input.amountCents)) {
+      return { ok: false, reason: 'invalid_amount' }
+    }
+    return this.run(guildId, 'write', async (tx): Promise<EntriesResult> => {
+      await this.ensureFunded(tx, limits)
+      const idemKey = `reserve:${input.key}`
+      const seen = await tx.entriesByKey(idemKey)
+      if (seen.length > 0) {
+        return { ok: true, entries: seen, created: false }
+      }
+      if (input.amountCents > (await tx.balances()).reserve) {
+        return { ok: false, reason: 'insufficient_funds' }
+      }
+      const out = await this.post(tx, {
+        kind: 'reserve_release',
+        bucket: 'reserve',
+        amountCents: -input.amountCents,
+        idemKey,
+      })
+      const into = await this.post(tx, {
+        kind: 'reserve_release',
+        bucket: 'operating',
+        amountCents: input.amountCents,
+        idemKey,
+      })
+      return { ok: true, entries: [out, into], created: true }
     })
   }
 

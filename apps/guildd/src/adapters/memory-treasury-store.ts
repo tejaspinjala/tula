@@ -1,20 +1,10 @@
 import type { Clock } from '../ports/clock'
-import type {
-  Balances,
-  LedgerEntry,
-  Spend,
-  SpendResult,
-  TreasuryStore,
-} from '../ports/treasury-store'
+import type { Balances, LedgerEntry, Spend, TreasuryStore } from '../ports/treasury-store'
 import { TreasuryCore, type TreasuryTx } from '../treasury-core'
 
 interface GuildState {
   entries: LedgerEntry[]
   spends: Spend[]
-}
-
-const todo = (): never => {
-  throw new Error('not implemented')
 }
 
 /**
@@ -94,6 +84,15 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
       entriesAfter: async (after, limit) =>
         state.entries.filter((e) => e.seq > after).slice(0, limit),
       spendByKey: async (key) => state.spends.find((sp) => sp.key === key) ?? null,
+      spendById: async (id) => state.spends.find((sp) => sp.id === id) ?? null,
+      spendsAfter: async (after, limit) =>
+        state.spends.filter((sp) => sp.seq > after).slice(0, limit),
+      updateSpend: async (spend) => {
+        const at = state.spends.findIndex((sp) => sp.id === spend.id)
+        if (at >= 0) {
+          state.spends[at] = spend
+        }
+      },
       insertSpend: async (spend) => {
         const row: Spend = { ...spend, seq: state.spends.length + 1 }
         state.spends.push(row)
@@ -101,27 +100,5 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
       },
       emit: async (type, payload) => this.onEvent(guildId, type, payload),
     }
-  }
-
-  async approveSpend(): Promise<SpendResult> {
-    return todo()
-  }
-  async denySpend(): Promise<SpendResult> {
-    return todo()
-  }
-  async settleSpend(): Promise<SpendResult> {
-    return todo()
-  }
-  async releaseSpend(): Promise<SpendResult> {
-    return todo()
-  }
-  async getSpend(): Promise<Spend | null> {
-    return todo()
-  }
-  async listSpends(): Promise<never> {
-    return todo()
-  }
-  async releaseReserve(): Promise<never> {
-    return todo()
   }
 }
