@@ -22,3 +22,20 @@ export interface ObjectStore {
 export function hashBytes(bytes: Uint8Array): string {
   return new Bun.CryptoHasher('sha256').update(bytes).digest('hex')
 }
+
+const GUILD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const HASH = /^[0-9a-f]{64}$/
+
+/** Throws unless `guildId` is a UUID: adapters build keys from it, so it must not carry a path. */
+export function assertGuildId(guildId: string): void {
+  if (!GUILD_ID.test(guildId)) {
+    throw new Error('invalid guild id')
+  }
+}
+
+/** Throws unless `hash` is 64 lowercase hex characters. */
+export function assertHash(hash: string): void {
+  if (!HASH.test(hash)) {
+    throw new Error('invalid object hash')
+  }
+}

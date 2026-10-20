@@ -1,5 +1,11 @@
 import { S3Client } from 'bun'
-import { hashBytes, type ObjectHead, type ObjectStore } from '../ports/object-store'
+import {
+  assertGuildId,
+  assertHash,
+  hashBytes,
+  type ObjectHead,
+  type ObjectStore,
+} from '../ports/object-store'
 
 /** Connection settings for {@link S3ObjectStore}. */
 export interface S3ObjectStoreOptions {
@@ -65,17 +71,22 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   async put(guildId: string, bytes: Uint8Array): Promise<string> {
+    assertGuildId(guildId)
     const hash = hashBytes(bytes)
     await this.client.write(`${guildId}/${hash}`, bytes)
     return hash
   }
 
   async get(guildId: string, hash: string): Promise<Uint8Array | null> {
+    assertGuildId(guildId)
+    assertHash(hash)
     const file = this.client.file(`${guildId}/${hash}`)
     return (await file.exists()) ? await file.bytes() : null
   }
 
   async head(guildId: string, hash: string): Promise<ObjectHead | null> {
+    assertGuildId(guildId)
+    assertHash(hash)
     const file = this.client.file(`${guildId}/${hash}`)
     return (await file.exists()) ? { size: (await file.stat()).size } : null
   }

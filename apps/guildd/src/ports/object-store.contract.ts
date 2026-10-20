@@ -44,5 +44,26 @@ export function objectStoreContract(
       expect(await store.head(guildB, hash)).toBeNull()
       expect(text(await store.get(guildA, hash))).toBe('secret')
     })
+
+    test('path-traversal and slash-bearing ids are rejected and never reach another guild', async () => {
+      const { store } = await make()
+      const hash = await store.put(guildB, bytes('B-private'))
+      const attacks: Array<[string, string]> = [
+        [`${guildA}/../${guildB}`, hash],
+        [guildA, `../${guildB}/${hash}`],
+        [`${guildA}/x`, hash],
+        [guildA, `${hash}/..`],
+        [guildA, hash.toUpperCase()],
+        ['not-a-uuid', hash],
+      ]
+      for (const [g, h] of attacks) {
+        const got = await store.get(g, h).catch(() => null)
+        expect(got).toBeNull()
+        expect(await store.head(g, h).catch(() => null)).toBeNull()
+      }
+      await expect(store.put(`${guildA}/../${guildB}`, bytes('x'))).rejects.toThrow()
+      await expect(store.get(guildA, `../${guildB}/${hash}`)).rejects.toThrow()
+      await expect(store.head(guildA, 'abc')).rejects.toThrow()
+    })
   })
 }
