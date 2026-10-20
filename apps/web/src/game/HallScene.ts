@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
+import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
 import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
@@ -91,6 +92,8 @@ export interface HallOptions {
   onRoom: (slot: number | null) => void
   /** Called when who the Guild Master could talk to changes (null: nobody in reach). */
   onNear: (target: Target | null) => void
+  /** Called when a Member is clicked or tapped (inspect them). */
+  onInspect?: ((memberId: string) => void) | undefined
   /** Called when the Guild Master presses E: talk to whoever is in reach. */
   onInteract: () => void
   /** The guild id: with a Member's id it seeds that Member's daily routine. */
@@ -181,6 +184,8 @@ export class HallScene extends Phaser.Scene {
   private room: number | null = null
   /** The map of the town the Guild Master is in. */
   private current: MapId = 'hall'
+  /** The map the camera shows: the Guild Master's, unless the camera follows a Member elsewhere. */
+  private viewMap: MapId = 'hall'
   private phase: Phase = phaseAt(new Date().getHours())
   private phaseForced = false
   private veil: Phaser.GameObjects.Rectangle | null = null
@@ -318,6 +323,7 @@ export class HallScene extends Phaser.Scene {
   /** Moves the Guild Master into a map at a tile position, framing the camera on it. */
   private enter(id: MapId, at: Vec): void {
     this.current = id
+    this.viewMap = id
     this.at = { ...at }
     this.path = []
     this.releaseKeys()
@@ -331,15 +337,17 @@ export class HallScene extends Phaser.Scene {
   /** Bounds the camera to the current map, opens at a whole zoom and centres on the Guild Master. */
   private frameMap(): void {
     const cam = this.cameras.main
-    const { x, y } = OFFSETS[this.current]
-    const map = mapData(this.current)
+    const { x, y } = OFFSETS[this.viewMap]
+    const map = mapData(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     cam.setSize(this.scale.width, this.scale.height)
     this.zoomLevel = openZoomWhole(this.scale.width, this.scale.height, w, h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
-    cam.centerOn(x + this.at.x * map.tileSize, y + this.at.y * map.tileSize)
+    if (this.viewMap === this.current) {
+      cam.centerOn(x + this.at.x * map.tileSize, y + this.at.y * map.tileSize)
+    }
   }
 
   /**
@@ -348,8 +356,8 @@ export class HallScene extends Phaser.Scene {
    */
   private boundCamera(): void {
     const cam = this.cameras.main
-    const { x, y } = OFFSETS[this.current]
-    const map = mapData(this.current)
+    const { x, y } = OFFSETS[this.viewMap]
+    const map = mapData(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     const boundW = Math.max(w, cam.width / cam.zoom)
@@ -364,8 +372,8 @@ export class HallScene extends Phaser.Scene {
       return
     }
     const tint = tintFor(this.phase)
-    const { x, y } = OFFSETS[this.current]
-    const map = mapData(this.current)
+    const { x, y } = OFFSETS[this.viewMap]
+    const map = mapData(this.viewMap)
     this.veil
       .setPosition(x, y)
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
@@ -644,6 +652,13 @@ export class HallScene extends Phaser.Scene {
   /** Follows the Guild Master with the camera: no easing under reduced motion. */
   private chase(snap: boolean): void {
     const cam = this.cameras.main
+    if (this.player && this.viewMap !== this.current) {
+      // The camera was off following a Member in another map: come home to the Guild Master.
+      this.viewMap = this.current
+      this.frameMap()
+      this.applyTint()
+      this.chasing = false
+    }
     if (this.player && (!this.chasing || snap)) {
       this.chasing = true
       this.followed = GUILD_MASTER
@@ -699,7 +714,7 @@ export class HallScene extends Phaser.Scene {
       cam.stopFollow()
     }
     cam.setSize(this.scale.width, this.scale.height)
-    const map = mapData(this.current)
+    const map = mapData(this.viewMap)
     this.zoomLevel = integerZoom(
       this.scale.width,
       this.scale.height,
@@ -711,23 +726,37 @@ export class HallScene extends Phaser.Scene {
     this.centre()
   }
 
-  /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
+  /**
+   * Follows a Member's sprite with the camera (null returns to the fixed overview). A Member in
+   * another map of the town takes the camera there: the view switches map with them (the Guild
+   * Master stays where it is, and walking brings the camera back).
+   */
   follow(memberId: string | null): void {
     this.followed = memberId
     this.chasing = false
     const target = memberId ? this.memberObject(memberId) : null
-    if (target) {
+    const map = memberId ? this.memberMap(memberId) : null
+    if (target && map) {
+      if (map !== this.viewMap) {
+        this.viewMap = map
+        this.frameMap()
+        this.applyTint()
+      }
       this.cameras.main.startFollow(target, true, 0.1, 0.1)
+      this.cameras.main.centerOn(target.x, target.y)
     } else {
       this.cameras.main.stopFollow()
+      this.viewMap = this.current
+      this.frameMap()
+      this.applyTint()
       this.centre()
     }
   }
 
   private centre(): void {
     if (this.followed === null) {
-      const map = mapData(this.current)
-      const { x, y } = OFFSETS[this.current]
+      const map = mapData(this.viewMap)
+      const { x, y } = OFFSETS[this.viewMap]
       this.cameras.main.centerOn(
         x + px(map.width, map.tileSize) / 2,
         y + px(map.height, map.tileSize) / 2
@@ -1052,6 +1081,9 @@ export class HallScene extends Phaser.Scene {
       sleep.setScale(0.5)
       const root = this.add.container(0, 0, [...layers, scroll, sleep]).setDepth(15)
       root.setName(member.id)
+      root.setSize(16, 16)
+      root.setInteractive({ useHandCursor: true })
+      root.on('pointerdown', () => this.options.onInspect?.(member.id))
       view = {
         root,
         bubble: null,
@@ -1124,7 +1156,11 @@ export class HallScene extends Phaser.Scene {
     const { walker } = view
     const s = this.layout.tileSize
     const { x: ox, y: oy } = OFFSETS[walker.map]
-    view.root.setPosition(Math.round(ox + walker.pos.x * s), Math.round(oy + walker.pos.y * s))
+    const spot = { x: Math.round(ox + walker.pos.x * s), y: Math.round(oy + walker.pos.y * s) }
+    // Never stand on the Guild Master: step aside when sharing their map and tile.
+    const gm = this.player
+    const to = gm && walker.map === this.current ? stepAside(spot, { x: gm.x, y: gm.y }) : spot
+    view.root.setPosition(to.x, to.y)
     view.root.setVisible(!walker.hidden)
     view.scroll.setVisible(walker.carry === 'scroll' || walker.anim === 'handin')
     view.sleep.setVisible(walker.anim === 'sleep')
@@ -1153,7 +1189,16 @@ export class HallScene extends Phaser.Scene {
       }
       this.syncMember(view)
     }
-    // An inspection hook for run-checks: where every Member is (map, tile, doing what).
+    // A followed Member who walks into another map takes the camera with them.
+    const followed = this.followed
+    if (followed !== null && followed !== GUILD_MASTER) {
+      const there = this.memberMap(followed)
+      if (there !== null && there !== this.viewMap) {
+        this.follow(followed)
+      }
+    }
+    // Run-check hooks: the map the camera shows, and where every Member is (map, tile, doing what).
+    this.game.canvas.dataset.view = this.viewMap
     this.game.canvas.dataset.members = [...this.members]
       .map(
         ([id, v]) =>
