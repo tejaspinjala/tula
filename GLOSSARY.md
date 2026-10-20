@@ -163,3 +163,19 @@ A passkey sign-in opened a session (payload: session id).
 
 **identity.reauthenticated**:
 A session re-authenticated with its passkey and received a short-lived proof (payload: session id).
+
+## Archive and config events
+
+Event types the Archive and the guild's config append to the chained event log (ids and small facts only, never note bodies or config content):
+
+**note.added** / **note.edited**:
+A note was added to the Archive (version 1) / a new note version was written (payload: note id, version, kind).
+
+**config.seeded**:
+The guild's first config version was seeded at founding (payload: version).
+
+**config.version_proposed**:
+A config version was proposed (payload: version, status `pending` or `applied`, kind, change). A widening change stays `pending` until confirmed.
+
+**config.version_confirmed**:
+A pending config version was confirmed and took force (payload: version).

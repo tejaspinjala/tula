@@ -14,7 +14,11 @@ The master key is not in Postgres or in the object store. **Without it the audit
 verified and the vault cannot be decrypted**, so a database backup alone is not a recoverable
 backup. Keep the key backup somewhere other than the data backup (another disk, a password manager
 or a sealed offline copy), and never in the same directory or bucket. `bun run backup` refuses a
-`BACKUP_KEY_DIR` inside `BACKUP_DIR`.
+`BACKUP_KEY_DIR` inside `BACKUP_DIR` (or the reverse) before it writes anything.
+
+**Encrypt before the backup leaves the host.** The dump and the copied objects are plaintext
+apart from vault ciphertext, so they expose guild data. Encrypt the backup directory (`age` or
+`gpg`) before copying it off the host; the key backup is raw and must be stored securely too.
 
 ## Scheduled backups
 

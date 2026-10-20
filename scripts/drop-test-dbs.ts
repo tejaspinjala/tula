@@ -6,13 +6,33 @@
  */
 import postgres from 'postgres'
 import { testDbName } from '../apps/guildd/src/testing/test-db'
+import { ident } from './backup-restore'
 
-/** Matches the name of a per-worktree test database. */
-export const PER_WORKTREE_DB = /_test_[0-9a-f]{8}$/
+/** Matches the test suffix of a database name (shared `_test` or per-worktree `_test_<8 hex>`). */
+const TEST_SUFFIX = /_test(_[0-9a-f]{8})?$/
 
-/** The per-worktree databases among `names`, minus `keep`. */
+function isSafe(name: string): boolean {
+  try {
+    ident(name)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The per-worktree databases among `names` of the same project as `keep` (exactly
+ * `<base>_test_<8 hex>`), minus `keep`. Other projects' databases and unsafe names never appear.
+ */
 export function staleTestDbs(names: readonly string[], keep: string): string[] {
-  return names.filter((n) => PER_WORKTREE_DB.test(n) && n !== keep)
+  const base = keep.replace(TEST_SUFFIX, '')
+  return names.filter(
+    (n) =>
+      n !== keep &&
+      n.startsWith(`${base}_test_`) &&
+      /^_test_[0-9a-f]{8}$/.test(n.slice(base.length)) &&
+      isSafe(n)
+  )
 }
 
 if (import.meta.main) {
@@ -27,7 +47,7 @@ if (import.meta.main) {
     )
     for (const name of stale) {
       if (!dryRun) {
-        await sql.unsafe(`drop database "${name}" with (force)`)
+        await sql.unsafe(`drop database ${ident(name)} with (force)`)
       }
       console.log(`${dryRun ? 'would drop' : 'dropped'} ${name}`)
     }
