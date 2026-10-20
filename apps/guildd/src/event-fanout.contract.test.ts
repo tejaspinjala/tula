@@ -55,6 +55,7 @@ function countingApp(
     streamTickets: harness.adapters.streamTickets,
     classifier: harness.adapters.classifier,
     routingLog: harness.adapters.routingLog,
+    gateway: harness.adapters.gateway,
     keys,
     devGuildHeader: true,
     eventPollMs: 600_000,

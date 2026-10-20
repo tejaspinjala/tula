@@ -63,6 +63,7 @@ describe('websocket backpressure', () => {
       streamTickets: harness.adapters.streamTickets,
       classifier: harness.adapters.classifier,
       routingLog: harness.adapters.routingLog,
+      gateway: harness.adapters.gateway,
       keys,
       devGuildHeader: true,
       eventPollMs: 600_000,
