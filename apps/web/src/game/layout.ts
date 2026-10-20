@@ -29,7 +29,7 @@ export interface HallLayout {
   walkable: (x: number, y: number) => boolean
 }
 
-const property = z.object({ name: z.string(), value: z.number() })
+const property = z.object({ name: z.string(), value: z.union([z.string(), z.number()]) })
 const mapObject = z.object({
   name: z.string(),
   type: z.string(),
@@ -74,7 +74,10 @@ export function hallLayout(): HallLayout {
   })
   const slotOf = (o: z.infer<typeof mapObject>): RoomSlot => ({
     ...rect(o),
-    slot: o.properties?.find((p) => p.name === 'slot')?.value ?? 0,
+    slot: z
+      .number()
+      .catch(0)
+      .parse(o.properties?.find((p) => p.name === 'slot')?.value),
   })
   const ofType = (type: string) => objects.filter((o) => o.type === type)
   const one = (type: string): TileRect => {
