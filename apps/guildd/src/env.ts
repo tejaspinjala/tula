@@ -13,6 +13,7 @@ const productionFields = {
 const DEV_RP_ID = 'localhost'
 const DEV_ORIGIN = 'http://localhost:5173'
 const DEV_KEY_FILE = '.guildhall/master.key'
+const DEV_CHECKPOINT_DIR = '.guildhall/checkpoints'
 
 /** Fails in production unless the relying party is explicit; fills development defaults. */
 function relyingParty(
@@ -57,6 +58,11 @@ const baseSchema = z.object({
    */
   KEY_FILE: z.string().min(1).optional(),
   /**
+   * Directory anchoring signed audit-chain checkpoints outside Postgres. Must be on storage the
+   * database host cannot rewrite (another volume or machine). Required in production.
+   */
+  CHECKPOINT_DIR: z.string().min(1).optional(),
+  /**
    * `true` when exactly one trusted reverse proxy fronts guildd: rate limits then key on the last
    * `X-Forwarded-For` hop instead of the socket address. Anything but true/false fails at boot.
    */
@@ -77,6 +83,13 @@ const schema = baseSchema
         message: 'KEY_FILE is required in production',
       })
     }
+    if (env.NODE_ENV === 'production' && !env.CHECKPOINT_DIR) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CHECKPOINT_DIR'],
+        message: 'CHECKPOINT_DIR is required in production',
+      })
+    }
     if (env.NODE_ENV === 'production' && env.DEV_GUILD_HEADER) {
       ctx.addIssue({
         code: 'custom',
@@ -88,6 +101,7 @@ const schema = baseSchema
   .transform((env) => ({
     ...env,
     KEY_FILE: env.KEY_FILE ?? DEV_KEY_FILE,
+    CHECKPOINT_DIR: env.CHECKPOINT_DIR ?? DEV_CHECKPOINT_DIR,
     WEBAUTHN_RP_ID: env.WEBAUTHN_RP_ID ?? DEV_RP_ID,
     WEBAUTHN_ORIGIN: env.WEBAUTHN_ORIGIN ?? DEV_ORIGIN,
   }))

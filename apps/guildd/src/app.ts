@@ -1,12 +1,13 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { verifyChain } from './audit-chain'
+import { InvalidCursorError, MAX_VERIFY_ENTRIES, signCheckpoint, verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
@@ -33,6 +34,8 @@ export interface AppDeps {
   identity: IdentityProvider
   /** Custody of the audit chain's MAC key; never the database. */
   keys: KeyProvider
+  /** Signed chain-head checkpoints kept outside Postgres; what makes tail truncation detectable. */
+  anchor: CheckpointAnchor
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
   /** Versioned guild config: Halls, roster, Seal Policy, caps; widening changes wait for re-auth. */
@@ -70,6 +73,14 @@ const foundGuildBody = z.object({
 })
 
 const uuid = z.uuid()
+const verifyQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+  cursor: z.string().max(300).optional(),
+  full: z.enum(['true', 'false']).optional(),
+})
+const checkpointBody = z.object({
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
 /** Largest accepted request body for adding a secret. */
 const MAX_SECRET_REQUEST_BYTES = 16 * 1024
 const addSecretBody = z.object({ ref: secretRef, value: secretValue })
@@ -655,7 +666,55 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== caller) {
       return c.json({ error: 'not_found' }, 404)
     }
-    return c.json(await deps.db.withGuild(caller, (tx) => verifyChain(tx, deps.keys)))
+    const query = verifyQuery.safeParse(c.req.query())
+    if (!query.success) {
+      return c.json({ error: 'invalid_query' }, 400)
+    }
+    try {
+      return c.json(
+        await deps.db.withGuild(caller, (tx) =>
+          verifyChain(tx, deps.keys, deps.anchor, {
+            ...(query.data.limit === undefined ? {} : { limit: query.data.limit }),
+            ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
+            full: query.data.full === 'true',
+          })
+        )
+      )
+    } catch (error) {
+      if (error instanceof InvalidCursorError) {
+        return c.json({ error: 'invalid_cursor' }, 400)
+      }
+      throw error
+    }
+  })
+
+  // The Guild Master's daily act: re-authenticate, and the verified chain position is signed,
+  // recorded and anchored outside Postgres. What is signed is the position's seq and MAC.
+  app.post('/guilds/:id/audit/checkpoints', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (c.req.param('id') !== check.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const body = checkpointBody.safeParse(await c.req.json().catch(() => ({})))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const outcome = await deps.db.withGuild(check.guildId, (tx) =>
+      signCheckpoint(
+        tx,
+        deps.keys,
+        deps.anchor,
+        body.data.limit === undefined ? {} : { limit: body.data.limit }
+      )
+    )
+    if (!outcome.ok) {
+      return c.json(outcome.verdict, 409)
+    }
+    const { seq, mac, signature, complete } = outcome
+    return c.json({ seq, mac, signature, complete }, 201)
   })
 
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row

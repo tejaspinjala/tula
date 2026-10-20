@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import postgres from 'postgres'
 import { FileKeyProvider } from '../apps/guildd/src/adapters/file-key-provider'
+import { MemoryCheckpointAnchor } from '../apps/guildd/src/adapters/memory-checkpoint-anchor'
 import { S3ObjectStore } from '../apps/guildd/src/adapters/s3-object-store'
 import { verifyChain } from '../apps/guildd/src/audit-chain'
 import { createDb } from '../apps/guildd/src/db/client'
@@ -67,6 +68,7 @@ describe('backup and restore drill', () => {
 
     const keyPath = join(work, 'keys-live', 'master.key')
     const keys = await FileKeyProvider.open(keyPath)
+    const anchor = new MemoryCheckpointAnchor()
     const store = new S3ObjectStore({
       endpoint,
       bucket: source.bucket,
@@ -87,7 +89,7 @@ describe('backup and restore drill', () => {
         size: bytes.byteLength,
       })
       await appendEvent(tx, keys, 'quest.noted', { note: 'known note' })
-      return { events: await headSeq(tx), verdict: await verifyChain(tx, keys) }
+      return { events: await headSeq(tx), verdict: await verifyChain(tx, keys, anchor) }
     })
     expect(before.verdict.intact).toBe(true)
     await db.close()
@@ -118,7 +120,7 @@ describe('backup and restore drill', () => {
     try {
       const after = await restoredDb.withGuild(guild, async (tx) => ({
         events: await headSeq(tx),
-        verdict: await verifyChain(tx, restoredKeys),
+        verdict: await verifyChain(tx, restoredKeys, anchor),
         notes: await tx`select payload from events where type = 'quest.noted'`,
       }))
       expect(after.events).toBe(before.events)

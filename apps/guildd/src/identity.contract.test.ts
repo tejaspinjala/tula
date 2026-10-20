@@ -223,7 +223,7 @@ describe('identity events in the audit chain', () => {
     const { token } = await signIn(guildId, key)
     await reauth(token, key)
     const { verdict, events } = await harness.adapters.db.withGuild(guildId, async (tx) => ({
-      verdict: await verifyChain(tx, harness.adapters.keys),
+      verdict: await verifyChain(tx, harness.adapters.keys, harness.adapters.anchor),
       events: await eventsAfter(tx, 0),
     }))
     expect(events.map((e) => e.type)).toEqual([

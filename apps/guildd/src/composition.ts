@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
+import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
+import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
@@ -21,7 +23,7 @@ import { loadEnv, loadWebauthnEnv } from './env'
 export async function compose(
   overrides: Partial<AppDeps> = {}
 ): Promise<{ app: Hono; adapters: AppDeps }> {
-  const { db, devGuildHeader, objectStore, keys, trustProxy } =
+  const { db, devGuildHeader, objectStore, keys, trustProxy, anchor } =
     overrides.db &&
     overrides.devGuildHeader !== undefined &&
     overrides.objectStore &&
@@ -31,6 +33,7 @@ export async function compose(
           devGuildHeader: overrides.devGuildHeader,
           objectStore: overrides.objectStore,
           keys: overrides.keys,
+          anchor: overrides.anchor ?? new MemoryCheckpointAnchor(),
           trustProxy: false,
         }
       : await fromEnv(overrides)
@@ -52,6 +55,7 @@ export async function compose(
         origin: rp.WEBAUTHN_ORIGIN,
       }),
     keys,
+    anchor,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
     config: overrides.config ?? new PgConfigStore(db, keys),
@@ -64,13 +68,16 @@ export async function compose(
 async function fromEnv(
   overrides: Partial<AppDeps>
 ): Promise<
-  Required<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys' | 'trustProxy'>>
+  Required<
+    Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys' | 'trustProxy' | 'anchor'>
+  >
 > {
   const env = loadEnv()
   return {
     keys:
       overrides.keys ??
       (await FileKeyProvider.open(env.KEY_FILE, { create: env.NODE_ENV !== 'production' })),
+    anchor: overrides.anchor ?? new FileCheckpointAnchor(env.CHECKPOINT_DIR),
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
     trustProxy: overrides.trustProxy ?? env.TRUST_PROXY,
