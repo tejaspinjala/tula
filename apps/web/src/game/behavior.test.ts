@@ -78,6 +78,21 @@ test('a Member whose Quest awaits a Seal stands at the Seal desk', () => {
   expect(plan.stops.at(-1)?.anim).toBe('stand')
 })
 
+test('a Member working another Quest is not frozen at the Seal desk', () => {
+  const plan = planFor(
+    input({
+      member: member({
+        status: 'working',
+        questId: 'q2',
+        awaitingSeal: true,
+        activity: { name: 'writing', seq: 7 },
+      }),
+    }),
+  )
+  expect(plan.key).toBe('m2:writing@7')
+  expect(plan.stops.at(-1)?.spot).toEqual(desk)
+})
+
 test('a finished Quest is handed in at the Quest Board before the routine resumes', () => {
   const plan = planFor(input({ handIn: true, member: member({ doneSeq: 9 }) }))
   expect(plan.stops[0]?.spot).toEqual(stand('quest-board'))
