@@ -113,10 +113,21 @@ test('Treasury spend adds to the coin counter; revenue does not', () => {
   seq = 0
   const events = [
     ev('treasury.entry', { kind: 'revenue', bucket: 'operating', amountCents: 5000 }),
-    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: -120 }),
-    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: -30 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -120 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -30 }),
   ]
   expect(deriveScene({ roster, quests, events, upTo: null }).coinsCents).toBe(150)
+})
+
+test('the coin counter is the net spend: reserves minus settle refunds and releases', () => {
+  seq = 0
+  const events = [
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -10 }),
+    ev('treasury.entry', { kind: 'spend_settle', bucket: 'operating', amountCents: 4 }),
+    ev('treasury.entry', { kind: 'spend_reserve', bucket: 'operating', amountCents: -20 }),
+    ev('treasury.entry', { kind: 'spend_release', bucket: 'operating', amountCents: 20 }),
+  ]
+  expect(deriveScene({ roster, quests, events, upTo: null }).coinsCents).toBe(6)
 })
 
 test('replay: upTo folds only events up to that seq', () => {
