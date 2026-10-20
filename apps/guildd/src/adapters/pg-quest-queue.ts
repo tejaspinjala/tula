@@ -21,6 +21,7 @@ import {
   parkTransition,
   type Quest,
   QuestError,
+  type QuestLink,
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
@@ -31,6 +32,8 @@ import {
   retryDelayMs,
   type SealOutcome,
   type SealSettleOptions,
+  type SpawnRequest,
+  type SpawnResult,
   sealSettleTransition,
   submitTransition,
   type Transition,
@@ -348,6 +351,18 @@ export class PgQuestQueue implements QuestQueue {
       const t = parkTransition(before, attempt, ids, mode, this.clock.now())
       return t.quest === before ? before : this.save(tx, guildId, t)
     })
+  }
+
+  async spawn(_guildId: string, _request: SpawnRequest): Promise<SpawnResult> {
+    throw new QuestError('invalid_state')
+  }
+
+  async children(_guildId: string, _parentId: string): Promise<QuestLink[]> {
+    return []
+  }
+
+  async linkOf(_guildId: string, _childId: string): Promise<QuestLink | null> {
+    return null
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

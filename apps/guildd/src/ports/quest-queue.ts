@@ -46,6 +46,38 @@ export type NewQuest = z.input<typeof newQuest>
 /** How a waiting Quest's fan-in is met: every sub-Quest finished, or the first one done. */
 export type WaitMode = 'all' | 'any'
 
+/** The link from a sub-Quest to the Quest that spawned it. */
+export interface QuestLink {
+  parentId: string
+  childId: string
+  /** 1 for a child of a posted Quest, 2 for its child, and so on. */
+  depth: number
+  /** The parent's delivery that spawned it. */
+  attempt: number
+  /** Hash of the spawn request; with the parent and attempt it makes a retried spawn idempotent. */
+  briefHash: string
+  /** The data class the child inherited. */
+  dataClass: DataClass
+  createdAt: string
+}
+
+/** What {@link QuestQueue.spawn} needs: the parent's delivery, the child and the caps to enforce. */
+export interface SpawnRequest {
+  parentId: string
+  /** The parent's attempt: the fencing token. */
+  attempt: number
+  briefHash: string
+  /** The child Quest; its job key is derived from the parent, attempt and brief hash. */
+  child: Omit<NewQuest, 'jobKey' | 'campaignId' | 'blockedBy'>
+  maxChildren: number
+  maxDepth: number
+}
+
+/** The outcome of {@link QuestQueue.spawn}: the child and its link, or the cap that refused it (no row written). */
+export type SpawnResult =
+  | { ok: true; quest: Quest; link: QuestLink; created: boolean }
+  | { ok: false; error: 'spawn_cap' | 'depth_cap' }
+
 /** A Quest as the queue holds it. */
 export interface Quest {
   id: string
@@ -244,6 +276,19 @@ export interface QuestQueue {
     waitingOn: readonly string[],
     mode: WaitMode
   ): Promise<Quest>
+  /**
+   * Posts a sub-Quest of a Quest the caller holds (fenced by `attempt`: `stale_lease` or
+   * `invalid_state` otherwise), links it to its parent and appends `quest.spawned`, atomically.
+   * Idempotent per (parent, attempt, brief hash): a repeat returns the same child with
+   * `created: false`, whatever the caps now say. Over `maxChildren` the parent already has, or past
+   * `maxDepth`, it refuses with `spawn_cap` / `depth_cap` and writes nothing. A sub-Quest belongs to
+   * no Campaign and is blocked by nothing, so it is deliverable at once.
+   */
+  spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult>
+  /** The sub-Quests of a Quest, in spawn order (at most the guild's `maxChildrenPerQuest`). */
+  children(guildId: string, parentId: string): Promise<QuestLink[]>
+  /** The link of a sub-Quest to its parent, or null for a Quest nobody spawned. */
+  linkOf(guildId: string, childId: string): Promise<QuestLink | null>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */

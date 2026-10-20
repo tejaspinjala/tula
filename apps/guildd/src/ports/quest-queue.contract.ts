@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { MemoryClock } from '../adapters/memory-clock'
-import { type NewQuest, QuestError, type QuestQueue } from './quest-queue'
+import { type NewQuest, QuestError, type QuestQueue, type SpawnRequest } from './quest-queue'
 
 /** A queue under test, with the controllable clock it reads. Jitter is fixed at 0.5 (a 750ms first retry). */
 export interface QuestQueueFixture {
@@ -647,6 +647,142 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         await expect(
           f.queue.park(f.g, f.parent.id, 2, [crypto.randomUUID()], 'all')
         ).rejects.toMatchObject({ code: 'unknown_blocker' })
+      })
+    })
+
+    describe('sub-Quests', () => {
+      const CAPS = { maxChildren: 3, maxDepth: 2 }
+      const child = (over: Partial<SpawnRequest['child']> = {}): SpawnRequest['child'] => {
+        const { jobKey: _jobKey, campaignId: _c, blockedBy: _b, ...rest } = quest(over)
+        return rest
+      }
+      const hash = (n: number) => n.toString(16).padStart(64, '0')
+      const setup = async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        await f.queue.post(g, quest())
+        const parent = await f.queue.claim(g, LEASE)
+        if (!parent) {
+          throw new Error('expected a claim')
+        }
+        const spawn = (n: number, over: Partial<SpawnRequest> = {}) =>
+          f.queue.spawn(g, {
+            parentId: parent.id,
+            attempt: parent.attempts,
+            briefHash: hash(n),
+            child: child(),
+            ...CAPS,
+            ...over,
+          })
+        return { ...f, g, parent, spawn }
+      }
+      const spawned = <T extends { ok: boolean }>(r: T) => {
+        if (!r.ok) {
+          throw new Error('expected the spawn to be accepted')
+        }
+        return r as Extract<T, { ok: true }>
+      }
+
+      test('spawns a linked child at depth 1, deliverable at once, with a quest.spawned event', async () => {
+        const { queue, g, parent, spawn, events } = await setup()
+        const made = spawned(await spawn(1, { child: child({ dataClass: 'private' }) }))
+        expect(made.created).toBe(true)
+        expect(made.quest).toMatchObject({ state: 'queued', campaignId: null, blockedBy: [] })
+        expect(made.link).toMatchObject({
+          parentId: parent.id,
+          childId: made.quest.id,
+          depth: 1,
+          attempt: parent.attempts,
+          briefHash: hash(1),
+          dataClass: 'private',
+        })
+        expect(await queue.children(g, parent.id)).toEqual([made.link])
+        expect(await queue.linkOf(g, made.quest.id)).toEqual(made.link)
+        expect(await queue.linkOf(g, parent.id)).toBeNull()
+        expect((await queue.claim(g, LEASE))?.id).toBe(made.quest.id)
+        expect(await events(g)).toContain('quest.spawned')
+      })
+
+      test('a retry for the same parent, attempt and brief hash returns the same child, even over the cap', async () => {
+        const { queue, g, parent, spawn, events } = await setup()
+        const first = spawned(await spawn(1))
+        const again = spawned(await spawn(1, { maxChildren: 1 }))
+        expect(again).toMatchObject({ created: false, quest: { id: first.quest.id } })
+        expect(await queue.children(g, parent.id)).toHaveLength(1)
+        expect((await events(g)).filter((e) => e === 'quest.spawned')).toHaveLength(1)
+        spawned(await spawn(2, { maxChildren: 2 }))
+      })
+
+      test('the children cap holds exactly at its boundary and writes nothing over it', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        for (const n of [1, 2, 3]) {
+          spawned(await spawn(n))
+        }
+        const before = (await queue.list(g, { limit: 100 })).quests.length
+        expect(await spawn(4)).toEqual({ ok: false, error: 'spawn_cap' })
+        expect((await queue.list(g, { limit: 100 })).quests).toHaveLength(before)
+        expect(await queue.children(g, parent.id)).toHaveLength(3)
+      })
+
+      test('concurrent spawns never exceed the cap', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        const results = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => spawn(n)))
+        expect(results.filter((r) => r.ok)).toHaveLength(3)
+        expect(await queue.children(g, parent.id)).toHaveLength(3)
+      })
+
+      test('depth is capped: a grandchild is allowed at maxDepth 2 and refused at 1', async () => {
+        const { queue, g, spawn } = await setup()
+        const kid = spawned(await spawn(1))
+        const claimed = await queue.claim(g, { ...LEASE, questId: kid.quest.id })
+        if (!claimed) {
+          throw new Error('expected the child claim')
+        }
+        const grand = (n: number, maxDepth: number) =>
+          queue.spawn(g, {
+            parentId: claimed.id,
+            attempt: claimed.attempts,
+            briefHash: hash(n),
+            child: child(),
+            maxChildren: 3,
+            maxDepth,
+          })
+        expect(await grand(10, 1)).toEqual({ ok: false, error: 'depth_cap' })
+        expect(spawned(await grand(11, 2)).link.depth).toBe(2)
+        expect(await grand(12, 2)).toMatchObject({ ok: true })
+        const deepest = (await queue.children(g, claimed.id))[0]
+        expect(deepest).toBeDefined()
+        expect(
+          deepest && (await queue.claim(g, { ...LEASE, questId: deepest.childId }))
+        ).toBeTruthy()
+      })
+
+      test('only the holder of the live delivery may spawn', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        await expect(spawn(1, { attempt: 99 })).rejects.toMatchObject({ code: 'stale_lease' })
+        await queue.complete(g, parent.id, parent.attempts)
+        await expect(spawn(1)).rejects.toMatchObject({ code: 'invalid_state' })
+        await expect(spawn(1, { parentId: crypto.randomUUID() })).rejects.toMatchObject({
+          code: 'not_found',
+        })
+      })
+
+      test('sub-Quests are invisible to another guild', async () => {
+        const { queue, newGuild, g, parent, spawn } = await setup()
+        const made = spawned(await spawn(1))
+        const other = await newGuild()
+        expect(await queue.children(other, parent.id)).toEqual([])
+        expect(await queue.linkOf(other, made.quest.id)).toBeNull()
+        await expect(
+          queue.spawn(other, {
+            parentId: parent.id,
+            attempt: parent.attempts,
+            briefHash: hash(1),
+            child: child(),
+            ...CAPS,
+          })
+        ).rejects.toMatchObject({ code: 'not_found' })
+        expect(await queue.children(g, parent.id)).toHaveLength(1)
       })
     })
 

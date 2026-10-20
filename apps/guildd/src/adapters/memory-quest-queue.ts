@@ -17,6 +17,7 @@ import {
   pickClaimable,
   type Quest,
   QuestError,
+  type QuestLink,
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
@@ -25,6 +26,8 @@ import {
   retryDelayMs,
   type SealOutcome,
   type SealSettleOptions,
+  type SpawnRequest,
+  type SpawnResult,
   sealSettleTransition,
   submitTransition,
   type Transition,
@@ -249,6 +252,18 @@ export class MemoryQuestQueue implements QuestQueue {
       throw new QuestError('unknown_blocker')
     }
     return this.apply(guildId, parkTransition(quest, attempt, waitingOn, mode, this.clock.now()))
+  }
+
+  async spawn(_guildId: string, _request: SpawnRequest): Promise<SpawnResult> {
+    throw new QuestError('invalid_state')
+  }
+
+  async children(_guildId: string, _parentId: string): Promise<QuestLink[]> {
+    return []
+  }
+
+  async linkOf(_guildId: string, _childId: string): Promise<QuestLink | null> {
+    return null
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
