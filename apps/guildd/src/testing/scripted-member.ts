@@ -93,14 +93,20 @@ export class ScriptedMember {
   }
 
   /**
-   * Runs read Brief, put artifact, complete for a Quest the dispatcher already claimed: the
-   * caller supplies the lease handle from the sandbox spec and the Brief. @throws Error if a step is refused.
+   * Runs read Brief (through `read_brief`, as a real worker does), put artifact, complete for a
+   * Quest the dispatcher already claimed: the caller supplies the lease handle from the sandbox
+   * spec. @throws Error if a step is refused.
    */
-  async runLeased(
-    lease: { questId: string; attempt: number; token: string },
-    brief: string
-  ): Promise<ScriptedRun> {
-    return this.work(lease, brief)
+  async runLeased(lease: {
+    questId: string
+    attempt: number
+    token: string
+  }): Promise<ScriptedRun> {
+    const read = await callTool(this.transport, 'read_brief', { lease })
+    if (read.status !== 200 || read.isError || read.rpcError) {
+      throw new Error(`read_brief refused: ${read.rpcError ?? JSON.stringify(read.data)}`)
+    }
+    return this.work(lease, z.string().parse(read.data.brief))
   }
 
   private async work(
