@@ -33,15 +33,22 @@ function send(text: string) {
   }
 }
 
-test('a send appends missive.sent with ids and a short excerpt, never the whole text', async () => {
+test('a send appends missive.sent with ids only, never any of the text', async () => {
   const guild = await foundTestGuild(db, { name: 'Missives', goal: 'g' })
   const store = new PgMissiveStore(db, new MemoryKeyProvider())
-  await store.send(guild, send(`${'x'.repeat(300)} TAIL-MARKER`))
+  const sent = await store.send(guild, send('SECRET-WORDS and more'))
   const events = await owner`
     select type, payload from events where guild_id = ${guild} and type = 'missive.sent'`
   expect(events).toHaveLength(1)
-  expect(events[0]?.payload).toMatchObject({ from: 'm-ada', to: WHOLE_HALL, hall: 'h-forge' })
-  expect(JSON.stringify(events)).not.toContain('TAIL-MARKER')
+  const payload = events[0]?.payload
+  expect(Object.keys(payload).sort()).toEqual(['from', 'hall', 'missiveId', 'to'])
+  expect(payload).toMatchObject({
+    missiveId: sent.ok ? sent.missive.id : '',
+    from: 'm-ada',
+    to: WHOLE_HALL,
+    hall: 'h-forge',
+  })
+  expect(JSON.stringify(events)).not.toContain('SECRET-WORDS')
 })
 
 test('a repeated send appends one event only', async () => {
