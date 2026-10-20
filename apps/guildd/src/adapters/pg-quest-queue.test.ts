@@ -8,6 +8,7 @@ import { testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgQuestQueue } from './pg-quest-queue'
+import { PgTripwireStore } from './pg-tripwire-store'
 
 const db = createDb(testDbUrl('app'))
 const owner = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
@@ -31,6 +32,14 @@ questQueueContract('postgres', async () => {
     clock,
     newGuild,
     events,
+    setHallPaused: async (guildId: string, hallId: string, paused: boolean) => {
+      const tripwires = new PgTripwireStore(db, new MemoryKeyProvider(), clock)
+      if (paused) {
+        await tripwires.pause(guildId, { hallId, tripwire: 'manual', observed: 0, threshold: 0 })
+      } else {
+        await tripwires.resume(guildId, hallId)
+      }
+    },
   }
 })
 

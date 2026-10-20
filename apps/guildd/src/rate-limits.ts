@@ -17,6 +17,7 @@ export type RateRoute =
   | 'quest-post'
   | 'seal-posted'
   | 'gateway-call'
+  | 'proposal-post'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -63,6 +64,7 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
     client: { limit: 300, windowMs: MINUTE },
     unknown: { limit: 60, windowMs: MINUTE },
   },
+  'proposal-post': writeLimits(60, 300),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
