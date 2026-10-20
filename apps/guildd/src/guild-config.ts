@@ -90,6 +90,16 @@ export function sealPostWindowMs(config: GuildConfig): number {
   return (config.caps.sealPostWindowHours ?? DEFAULT_SEAL_POST_WINDOW_HOURS) * 3_600_000
 }
 
+/** The guild's cap on sub-Quests one Quest may spawn; stub until implemented. */
+export function spawnChildrenCap(_config: GuildConfig): number {
+  return 0
+}
+
+/** The guild's cap on how deep sub-Quests may nest; stub until implemented. */
+export function spawnDepthCap(_config: GuildConfig): number {
+  return 0
+}
+
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
 
