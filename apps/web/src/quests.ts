@@ -26,9 +26,9 @@ const pageBody = z.object({
 /** A Quest as the Quest Board shows it; `parentId` is set on a Sub-Quest. */
 export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
 
-/** The Sub-Quests of `parentId` among `quests`, in board order; stub until implemented. */
-export function childrenOf(_quests: readonly BoardQuest[], _parentId: string): BoardQuest[] {
-  return []
+/** The Sub-Quests of `parentId` among `quests`, in board order. */
+export function childrenOf(quests: readonly BoardQuest[], parentId: string): BoardQuest[] {
+  return quests.filter((q) => q.parentId === parentId)
 }
 /** The Quest Board's columns, in lifecycle order. */
 export const BOARD_STATES = QUEST_STATES
