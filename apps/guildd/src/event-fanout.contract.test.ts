@@ -40,6 +40,7 @@ function countingApp(
     clock: harness.adapters.clock,
     db: counting,
     objectStore: harness.adapters.objectStore,
+    anchor: harness.adapters.anchor,
     identity: harness.adapters.identity,
     rateLimiter: harness.adapters.rateLimiter,
     rateLimits: UNLIMITED_RATE_LIMITS,

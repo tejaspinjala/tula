@@ -1,4 +1,5 @@
 import postgres from 'postgres'
+import { MemoryCheckpointAnchor } from '../adapters/memory-checkpoint-anchor'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryKeyProvider } from '../adapters/memory-key-provider'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
@@ -38,6 +39,7 @@ export interface HarnessOptions {
       | 'streamTickets'
       | 'objectStore'
       | 'keys'
+      | 'anchor'
       | 'objectStoreTimeoutMs'
       | 'maxArtifactBytes'
       | 'eventPollMs'
@@ -68,12 +70,14 @@ export async function createHarness(options: HarnessOptions = {}) {
   const memoryStore = new MemoryObjectStore()
   const objectStore = options.app?.objectStore ?? memoryStore
   const keys = options.app?.keys ?? new MemoryKeyProvider()
+  const anchor = options.app?.anchor ?? new MemoryCheckpointAnchor()
   const { app, adapters: composed } = await compose({
     clock,
     db,
     ...options.app,
     objectStore,
     keys,
+    anchor,
     devGuildHeader: options.devGuildHeader ?? true,
     eventPollMs: options.app?.eventPollMs ?? 25,
     // Tests found many guilds and sign in from one in-process address, so limits stay off unless a test sets them.
@@ -98,6 +102,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,
+      anchor,
+      witness: { anchor, identity: composed.identity, clock },
     },
     /** Founds a guild through the chained path with the harness's keys (see `foundTestGuild`). */
     foundGuild: (input: { name: string; goal: string }) => foundTestGuild(db, input, keys),

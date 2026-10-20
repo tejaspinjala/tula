@@ -4,6 +4,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/server'
+import { z } from 'zod'
 import type { TenantTx } from '../db/client'
 
 /** Why an identity call was refused; never reveals whether a guild exists. */
@@ -33,6 +34,20 @@ export const CHALLENGE_TTL_MS = 5 * 60 * 1000
 export const FOUNDING_TTL_MS = 15 * 60 * 1000
 /** Outstanding ceremony challenges kept per guild and per kind; the oldest of a kind are evicted beyond this. */
 export const MAX_OUTSTANDING_CHALLENGES = 20
+
+/**
+ * The Guild Master's passkey assertion over a checkpoint: everything needed to re-verify it later
+ * against the credential's public key. All fields are base64url.
+ */
+export const checkpointAssertion = z.object({
+  credentialId: z.string().min(1).max(1400),
+  authenticatorData: z.string().min(1).max(4096),
+  clientDataJSON: z.string().min(1).max(4096),
+  signature: z.string().min(1).max(1400),
+})
+
+/** See {@link checkpointAssertion}. */
+export type CheckpointAssertion = z.infer<typeof checkpointAssertion>
 
 /** A signed-in session, bound to exactly one guild. */
 export interface IdentitySession {
@@ -102,6 +117,34 @@ export interface IdentityProvider {
     challengeId: string,
     response: AuthenticationResponseJSON
   ): Promise<ReauthProof>
+  /**
+   * Starts the Guild Master's signature over a chain checkpoint: WebAuthn authentication options
+   * whose challenge is the 32-byte `checkpointHash` (lowercase hex) followed by a random nonce,
+   * kept as a single-use challenge. Throws `unauthenticated` without a live session.
+   */
+  beginCheckpointSignature(
+    sessionToken: string,
+    checkpointHash: string
+  ): Promise<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }>
+  /**
+   * Verifies the assertion against the stored passkey and returns it with the checkpoint hash the
+   * challenge carried, for the caller to check against the chain and store.
+   */
+  finishCheckpointSignature(
+    sessionToken: string,
+    challengeId: string,
+    response: AuthenticationResponseJSON
+  ): Promise<{ checkpointHash: string; assertion: CheckpointAssertion }>
+  /**
+   * Re-verifies a stored assertion later, with no challenge store: true only if it is a valid
+   * passkey signature by one of `guildId`'s credentials over a challenge that starts with
+   * `checkpointHash`. Never touches state.
+   */
+  verifyCheckpointAssertion(
+    guildId: string,
+    checkpointHash: string,
+    assertion: CheckpointAssertion
+  ): Promise<boolean>
   /** The guild a live session is bound to, or null when unknown or expired. */
   resolveSession(sessionToken: string): Promise<{ guildId: string } | null>
   /** True only for the current, unexpired proof issued to this live session; does not consume it. */

@@ -11,9 +11,9 @@ test('a harness-founded guild has exactly its guild.founded event and an intact 
   const events = await harness.adapters.db.withGuild(id, (tx) => eventsAfter(tx, 0))
   expect(events.map((e) => e.type)).toEqual(['guild.founded'])
   const verdict = await harness.adapters.db.withGuild(id, (tx) =>
-    verifyChain(tx, harness.adapters.keys)
+    verifyChain(tx, harness.adapters.keys, harness.adapters.witness)
   )
-  expect(verdict).toEqual({ intact: true, entries: 1 })
+  expect(verdict).toMatchObject({ intact: true, entries: 1 })
 })
 
 test('the production Db surface has no unchained foundGuild', () => {

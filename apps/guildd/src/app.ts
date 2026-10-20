@@ -1,12 +1,20 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { verifyChain } from './audit-chain'
+import {
+  checkpointHash,
+  InvalidCursorError,
+  MAX_VERIFY_ENTRIES,
+  signCheckpoint,
+  verifyChain,
+  verifyFrom,
+} from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
@@ -38,6 +46,8 @@ export interface AppDeps {
   identity: IdentityProvider
   /** Custody of the audit chain's MAC key; never the database. */
   keys: KeyProvider
+  /** Signed chain-head checkpoints kept outside Postgres; what makes tail truncation detectable. */
+  anchor: CheckpointAnchor
   /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
   secrets: SecretStore
   /** Versioned guild config: Halls, roster, Seal Policy, caps; widening changes wait for re-auth. */
@@ -83,6 +93,19 @@ const foundGuildBody = z.object({
 })
 
 const uuid = z.uuid()
+const verifyQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+  cursor: z.string().max(300).optional(),
+  full: z.enum(['true', 'false']).optional(),
+})
+const checkpointBeginBody = z.object({
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
+const checkpointFinishBody = assertFinishBody.extend({
+  seq: z.number().int().min(1),
+  mac: z.string().regex(/^[0-9a-f]{64}$/),
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
 /** Largest accepted request body for adding a secret. */
 const MAX_SECRET_REQUEST_BYTES = 16 * 1024
 const addSecretBody = z.object({ ref: secretRef, value: secretValue })
@@ -744,6 +767,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
   // the caller's is indistinguishable from one that does not exist.
+  const witness = { anchor: deps.anchor, identity: deps.identity, clock: deps.clock }
   app.get('/guilds/:id/audit/verify', async (c) => {
     const caller = await callerGuild(c)
     if (!caller) {
@@ -752,7 +776,109 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== caller) {
       return c.json({ error: 'not_found' }, 404)
     }
-    return c.json(await deps.db.withGuild(caller, (tx) => verifyChain(tx, deps.keys)))
+    const query = verifyQuery.safeParse(c.req.query())
+    if (!query.success) {
+      return c.json({ error: 'invalid_query' }, 400)
+    }
+    try {
+      return c.json(
+        await deps.db.withGuild(caller, (tx) =>
+          verifyChain(tx, deps.keys, witness, {
+            ...(query.data.limit === undefined ? {} : { limit: query.data.limit }),
+            ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
+            full: query.data.full === 'true',
+          })
+        )
+      )
+    } catch (error) {
+      if (error instanceof InvalidCursorError) {
+        return c.json({ error: 'invalid_cursor' }, 400)
+      }
+      throw error
+    }
+  })
+
+  // The Guild Master's daily act, as a passkey ceremony: `begin` verifies the chain and issues a
+  // challenge carrying the hash of the position (seq + MAC) to sign; `finish` checks the
+  // assertion, re-verifies the chain through exactly that position, then records the checkpoint
+  // with the assertion and anchors it outside Postgres. The assertion is itself a fresh proof.
+  app.post('/guilds/:id/audit/checkpoints/begin', async (c) => {
+    const body = checkpointBeginBody.safeParse(await c.req.json().catch(() => ({})))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const { verdict, position } = await deps.db.withGuild(session.guildId, (tx) =>
+      verifyFrom(
+        tx,
+        deps.keys,
+        witness,
+        body.data.limit === undefined ? {} : { limit: body.data.limit }
+      )
+    )
+    if (!verdict.intact || position.seq < 1) {
+      return c.json(verdict, 409)
+    }
+    const ceremony = await deps.identity.beginCheckpointSignature(
+      token,
+      checkpointHash(session.guildId, position.seq, position.mac)
+    )
+    return c.json({
+      ...ceremony,
+      seq: position.seq,
+      mac: position.mac,
+      complete: !('partial' in verdict),
+    })
+  })
+
+  app.post('/guilds/:id/audit/checkpoints/finish', async (c) => {
+    const body = checkpointFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const signed = await deps.identity.finishCheckpointSignature(
+      token,
+      body.data.challengeId,
+      body.data.response
+    )
+    const { seq, mac, limit } = body.data
+    if (signed.checkpointHash !== checkpointHash(session.guildId, seq, mac)) {
+      return c.json({ error: 'checkpoint_mismatch' }, 409)
+    }
+    const outcome = await deps.db.withGuild(session.guildId, (tx) =>
+      signCheckpoint(tx, deps.keys, witness, {
+        ...(limit === undefined ? {} : { limit }),
+        expect: { seq, mac },
+        assertion: signed.assertion,
+      })
+    )
+    if (!outcome.ok) {
+      return c.json(outcome.verdict, 409)
+    }
+    return c.json(
+      {
+        seq: outcome.seq,
+        mac: outcome.mac,
+        signature: outcome.signature,
+        complete: outcome.complete,
+      },
+      201
+    )
   })
 
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row

@@ -36,7 +36,7 @@ describe('loadEnv', () => {
     expect(() => loadEnv(prod)).toThrow()
     expect(() => loadEnv({ ...prod, WEBAUTHN_RP_ID: 'guild.example' })).toThrow()
     expect(() => loadEnv({ ...prod, ...rp, DEV_GUILD_HEADER: 'true' })).toThrow()
-    expect(loadEnv({ ...prod, ...rp, KEY_FILE: '/k' }).WEBAUTHN_ORIGIN).toBe(
+    expect(loadEnv({ ...prod, ...rp, KEY_FILE: '/k', CHECKPOINT_DIR: '/c' }).WEBAUTHN_ORIGIN).toBe(
       'https://guild.example'
     )
     expect(() => loadWebauthnEnv(prod)).toThrow()
@@ -51,10 +51,23 @@ describe('loadEnv', () => {
       WEBAUTHN_ORIGIN: 'https://guild.example',
     }
     expect(() => loadEnv(prod)).toThrow(/KEY_FILE/)
-    expect(loadEnv({ ...prod, KEY_FILE: '/run/keys/master.key' }).KEY_FILE).toBe(
-      '/run/keys/master.key'
-    )
+    expect(
+      loadEnv({ ...prod, KEY_FILE: '/run/keys/master.key', CHECKPOINT_DIR: '/c' }).KEY_FILE
+    ).toBe('/run/keys/master.key')
     expect(loadEnv(base).KEY_FILE).toBe('.guildhall/master.key')
+  })
+
+  test('production requires an explicit CHECKPOINT_DIR; development defaults it', () => {
+    const prod = {
+      ...base,
+      NODE_ENV: 'production',
+      WEBAUTHN_RP_ID: 'guild.example',
+      WEBAUTHN_ORIGIN: 'https://guild.example',
+      KEY_FILE: '/k',
+    }
+    expect(() => loadEnv(prod)).toThrow(/CHECKPOINT_DIR/)
+    expect(loadEnv({ ...prod, CHECKPOINT_DIR: '/mnt/anchor' }).CHECKPOINT_DIR).toBe('/mnt/anchor')
+    expect(loadEnv(base).CHECKPOINT_DIR).toBe('.guildhall/checkpoints')
   })
 
   test('no dev credentials are baked into production source', async () => {
