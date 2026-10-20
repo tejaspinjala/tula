@@ -6,7 +6,7 @@ import type { SealStore } from './ports/seal-store'
 export interface CostPerPostDeps {
   ledger: Pick<ModelLedger, 'report'>
   quests: Pick<QuestQueue, 'get'>
-  sealStore: Pick<SealStore, 'forQuest'>
+  sealStore: Pick<SealStore, 'list'>
 }
 
 /** Accepted posts and what they cost, in millionths of a cent. */
@@ -30,8 +30,8 @@ export interface CostPerPostPage {
 }
 
 /**
- * Cost per accepted post: the metered spend of each Quest whose Seal was consumed or posted
- * (spend on Quests whose Seal was denied, expired or never asked is not a post and is left out),
+ * Cost per accepted post: every Quest whose Seal was consumed or posted counts as a post, and its
+ * metered spend (0 when none) is its cost (spend on Quests whose Seal was denied, expired or never asked is not a post and is left out),
  * grouped per Campaign. `overall` covers every Campaign; `campaigns` is one page, ordered by
  * Campaign id with the no-Campaign group first, and `after` is the previous page's cursor.
  */
@@ -41,25 +41,40 @@ export async function costPerPost(
   page: { limit: number; after?: string }
 ): Promise<CostPerPostPage> {
   const groups = new Map<string, { campaignId: string | null; posts: number; costMicros: number }>()
-  let cursor: string | undefined
+  const spend = new Map<string, number>()
+  let spendCursor: string | undefined
   do {
     const rows = await deps.ledger.report(guildId, 'quest', {
       limit: 100,
-      ...(cursor === undefined ? {} : { after: cursor }),
+      ...(spendCursor === undefined ? {} : { after: spendCursor }),
     })
     for (const row of rows.rows) {
-      const seal = await deps.sealStore.forQuest(guildId, row.key)
-      if (seal?.status !== 'consumed') {
+      spend.set(row.key, row.costMicros)
+    }
+    spendCursor = rows.next ?? undefined
+  } while (spendCursor !== undefined)
+  // Every Quest with a consumed Seal is a post, metered or not (no spend costs 0).
+  const counted = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const seals = await deps.sealStore.list(guildId, {
+      limit: 100,
+      status: 'consumed',
+      ...(cursor === undefined ? {} : { after: cursor }),
+    })
+    for (const seal of seals.seals) {
+      if (counted.has(seal.questId)) {
         continue
       }
-      const quest = await deps.quests.get(guildId, row.key)
+      counted.add(seal.questId)
+      const quest = await deps.quests.get(guildId, seal.questId)
       const campaignId = quest?.campaignId ?? null
       const group = groups.get(campaignId ?? '') ?? { campaignId, posts: 0, costMicros: 0 }
       group.posts += 1
-      group.costMicros += row.costMicros
+      group.costMicros += spend.get(seal.questId) ?? 0
       groups.set(campaignId ?? '', group)
     }
-    cursor = rows.next ?? undefined
+    cursor = seals.next ?? undefined
   } while (cursor !== undefined)
   const cost = (g: { posts: number; costMicros: number }): PostCost => ({
     posts: g.posts,
