@@ -8,6 +8,7 @@ import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
 import {
   confirmWorkflowVersion,
+  listRuns,
   listWorkflows,
   loadRunState,
   loadVersions,
@@ -229,6 +230,13 @@ export function WorkflowPanel({
       setVersion(loaded.version.version)
       setActiveVersion(loaded.activeVersion)
       setVersions(await loadVersions(session, workflowId, fetcher).catch(() => []))
+      // Coming back to a Workflow shows its newest run, so leaving the view does not lose the overlay.
+      const runs = await listRuns(session, workflowId, fetcher).catch(() => [])
+      const newest = runs.reduce<(typeof runs)[number] | null>(
+        (best, r) => (best === null || r.createdAt > best.createdAt ? r : best),
+        null
+      )
+      setRunId(newest?.id ?? null)
     },
     [session, fetcher]
   )
