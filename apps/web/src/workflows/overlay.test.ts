@@ -49,3 +49,18 @@ test('quest and workflow events reload the open run; other events only move the 
   expect(readRunFrame(JSON.stringify({ type: 'snapshot' }))).toEqual({ refresh: true, seq: null })
   expect(readRunFrame('not json')).toEqual({ refresh: false, seq: null })
 })
+
+test('a gate node that shares its agent Quest does not repeat the agent attempts and cost', () => {
+  const overlay = runOverlay(
+    [
+      { id: 'draft', type: 'agent', status: 'running', questId: 'q1' },
+      { id: 'check', type: 'verify', status: 'pending', questId: 'q1' },
+      { id: 'seal', type: 'approval', status: 'pending', questId: 'q1' },
+    ],
+    new Map([['q1', 2]]),
+    new Map([['q1', 12_500]])
+  )
+  expect(overlay.get('draft')).toMatchObject({ attempts: 2, costMicros: 12_500 })
+  expect(overlay.get('check')).toMatchObject({ attempts: null, costMicros: null })
+  expect(overlay.get('seal')).toMatchObject({ attempts: null, costMicros: null })
+})
