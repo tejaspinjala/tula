@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod'
 import {
   type ModelProvider,
@@ -139,11 +142,26 @@ export class ClaudeCliModelProvider implements ModelProvider {
 
   /** Runs one child to completion: killed at the timeout or when stdout passes its cap. */
   private async run(args: string[], prompt: string): Promise<{ text: string; exitCode: number }> {
+    // A fresh empty directory, so the CLI finds no project files, settings or memory to read.
+    const cwd = await mkdtemp(join(tmpdir(), 'guildhall-claude-'))
+    try {
+      return await this.runIn(cwd, args, prompt)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }
+
+  private async runIn(
+    cwd: string,
+    args: string[],
+    prompt: string
+  ): Promise<{ text: string; exitCode: number }> {
     const proc = Bun.spawn([this.bin, ...args], {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'ignore',
       env: this.env,
+      cwd,
     })
     let timedOut = false
     const timer = setTimeout(() => {
