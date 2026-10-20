@@ -24,6 +24,7 @@ import {
   MCP_PROTOCOL_VERSION,
   putArtifactArgs,
   readArchiveArgs,
+  readBriefArgs,
   roleToolNames,
   TOOL_CATALOG,
   type ToolDef,
@@ -46,6 +47,8 @@ export interface McpGatewayDeps {
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** The tools on offer; defaults to {@link TOOL_CATALOG}. A role's list is frozen per Campaign from it. */
   catalog?: readonly ToolDef[]
+  /** Largest Brief in tokens; defaults to {@link BRIEF_TOKEN_CAP}. */
+  briefTokenCap?: number
   /** Lease length at claim; defaults to ten minutes. */
   leaseMs?: number
   /** How long an assignment may be used to claim; defaults to fifteen minutes. */
@@ -298,6 +301,9 @@ export class McpGateway {
     const caller = await this.fromLease(lease, false)
     await this.expose(caller, name)
     switch (name) {
+      case 'read_brief':
+        readBriefArgs.parse(args)
+        return this.briefReply(caller, await this.exposed(caller), (brief) => ok({ brief }))
       case 'read_archive':
         return this.readArchive(caller, readArchiveArgs.parse(args))
       case 'write_archive':
@@ -414,17 +420,39 @@ export class McpGateway {
       }),
     }
     const tools = await this.exposed({ ...caller, quest: claimed })
-    const pointers = await hallNotes(this.deps.notes, guild, claimed.hallId, { limit: 20 })
-    const brief = compileBrief(
+    return this.briefReply({ ...caller, quest: claimed }, tools, (brief) =>
+      ok({ lease, brief, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+    )
+  }
+
+  /** Compiles the Brief and hands it to `onBrief`; a Quest too large for the cap is a coded refusal. */
+  private async briefReply(
+    caller: Caller,
+    tools: readonly string[],
+    onBrief: (brief: string) => ToolReply
+  ): Promise<ToolReply> {
+    try {
+      return onBrief(await this.compile(caller, tools))
+    } catch (error) {
+      if (error instanceof Error && error.message === 'brief_too_large') {
+        return refuse('brief_too_large')
+      }
+      throw error
+    }
+  }
+
+  private async compile(caller: Caller, tools: readonly string[]): Promise<string> {
+    const { guild, quest } = caller
+    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, { limit: 20 })
+    return compileBrief(
       {
-        quest: claimed,
-        role: claimed.rank,
+        quest,
+        role: quest.rank,
         tools,
         notes: pointers.notes.map((n) => ({ id: n.id, title: n.title })),
       },
-      BRIEF_TOKEN_CAP
-    )
-    return ok({ lease, brief: brief.text, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+      this.deps.briefTokenCap ?? BRIEF_TOKEN_CAP
+    ).text
   }
 
   private async readArchive(

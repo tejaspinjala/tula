@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import type { MemoryClock } from './adapters/memory-clock'
 import type { MemoryModelProvider } from './adapters/memory-model-provider'
-import { compileBrief } from './brief'
 import { costPerPost } from './cost-per-post'
 import type { Dispatcher } from './dispatch'
 import type { Gates } from './gates'
@@ -14,7 +13,7 @@ import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-sto
 import type { ProposalEngine } from './proposals'
 import type { SealEngine } from './seals'
 import type { RecordingSandboxRunner } from './testing/recording-sandbox'
-import { ScriptedMember } from './testing/scripted-member'
+import { callTool, ScriptedMember } from './testing/scripted-member'
 import type { ContentPolicy } from './verdict'
 
 /** What a guild needs from {@link E2eWorld.newGuild}. */
@@ -84,7 +83,11 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       if (!(quest && spec.runToken)) {
         throw new Error('the sandbox was handed no Quest or run token')
       }
-      const brief = compileBrief({ quest, role: quest.rank, tools: [], notes: [] }).text
+      // The Brief comes from the MCP tool, as a real worker's does, not from the test.
+      const read = await callTool((request) => w.mcp.handle(request), 'read_brief', {
+        lease: handle,
+      })
+      const brief = z.string().parse(read.data.brief)
       w.provider.script({
         ok: true,
         text: content,
@@ -106,7 +109,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           })
         },
       })
-      return member.runLeased(handle, brief)
+      return member.runLeased(handle)
     }
 
     /** Posts, dispatches and works a Quest, then dispatches again so its Seal is requested. */
