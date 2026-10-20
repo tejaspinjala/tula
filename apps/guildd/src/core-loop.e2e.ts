@@ -318,6 +318,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         const { guildId } = await w.newGuild()
         const parent = await postParent(w, guildId)
         await dispatchStarts(w, guildId, parent)
+        const parentToken = w.sandboxes.latest(parent.id).runToken ?? ''
         const { spawned, waiting } = await parentSpawns(w, parent.id)
         expect(spawned.map((s) => s.isError)).toEqual([false, false])
         expect(waiting.data.waiting).toBe(true)
@@ -325,6 +326,16 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           state: 'queued',
           leaseExpiresAt: null,
         })
+        // Parking retires the parent's run: its token is revoked and its sandbox is gone, so it
+        // cannot keep calling the model outside the worker-slot count.
+        expect((await w.ledger.getRun(guildId, runIdFor(parent.id, 1)))?.state).toBe('revoked')
+        await expect(
+          w.gateway.complete(parentToken, {
+            messages: [{ role: 'user', content: 'x' }],
+            maxTokens: 10,
+          })
+        ).rejects.toMatchObject({ code: 'token_revoked' })
+        expect((await w.sandboxes.list(guildId)).map((sb) => sb.questId)).not.toContain(parent.id)
         const kids = spawned.map((s) => z.string().parse(s.data.childId))
         // The parent holds no worker slot: the children are dispatched, one per pass, to normal workers.
         for (const [i, kid] of kids.entries()) {
@@ -362,11 +373,21 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         await dispatchStarts(w, guildId, parent)
         const { spawned } = await parentSpawns(w, parent.id)
         const kids = spawned.map((s) => z.string().parse(s.data.childId))
+        const oldTokens = [w.sandboxes.latest(parent.id).runToken ?? '']
         for (const kid of kids) {
           await startsQuest(w, guildId, kid)
+          oldTokens.push(w.sandboxes.latest(kid).runToken ?? '')
         }
         expect((await w.sandboxes.list(guildId)).length).toBeGreaterThan(0)
-        await w.gates.bar({ guildId, memberId: masterId }, 'guild')
+        const actor = { guildId, memberId: masterId }
+        await w.gates.bar(actor, 'guild')
+        // Every member of the tree has a revoked run: the parent's first attempt and each child's.
+        for (const [id, attempt] of [
+          [parent.id, 1],
+          ...kids.map((k) => [k, 1] as const),
+        ] as const) {
+          expect((await w.ledger.getRun(guildId, runIdFor(id, attempt)))?.state).toBe('revoked')
+        }
         expect(await w.sandboxes.list(guildId)).toEqual([])
         for (const kid of kids) {
           expect(await w.quests.get(guildId, kid)).toMatchObject({
@@ -382,6 +403,24 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           template: 'herald-brief',
         })
         expect(denied.rpcError).toBe('gates_barred')
+        // Lifting the bar does not bring the old tokens back; the tree resumes on new runs.
+        expect(await w.gates.lift(actor, 'guild')).toBe(true)
+        w.clock.advance(60 * 60_000)
+        for (const token of oldTokens) {
+          await expect(
+            w.gateway.complete(token, { messages: [{ role: 'user', content: 'x' }], maxTokens: 10 })
+          ).rejects.toMatchObject({ code: 'token_revoked' })
+        }
+        for (const [i, kid] of kids.entries()) {
+          await startsQuest(w, guildId, kid)
+          await memberWorks(w, guildId, kid, `Findings ${i}`)
+        }
+        await startsQuest(w, guildId, parent.id)
+        const resumed = await w.quests.get(guildId, parent.id)
+        expect(resumed?.state).toBe('active')
+        const fresh = runIdFor(parent.id, resumed?.attempts ?? 0)
+        expect(fresh).not.toBe(runIdFor(parent.id, 1))
+        expect((await w.ledger.getRun(guildId, fresh))?.state).toBe('active')
       })
     })
 
