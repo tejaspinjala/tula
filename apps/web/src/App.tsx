@@ -8,6 +8,7 @@ import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
 
@@ -38,6 +39,7 @@ export function App() {
           <a href="#proposals-heading">Proposals</a>
           <a href="#seals-heading">Seals</a>
           <a href="#quests-heading">Quest Board</a>
+          <a href="#treasury-heading">Treasury</a>
           <a href="#costs-heading">Costs</a>
         </nav>
       </header>
@@ -51,6 +53,7 @@ export function App() {
         <ProposalPanel session={session} />
         <SealPanel session={session} />
         <TripwirePanel session={session} />
+        <TreasuryPanel session={session} />
         <QuestBoardPanel session={session} />
         <CostTablePanel session={session} />
       </main>
