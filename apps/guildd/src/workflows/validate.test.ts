@@ -256,6 +256,12 @@ describe('validateWorkflow: subagents and team nodes', () => {
     expect(codes(g)).toContain('gate_unapproved:publish')
   })
 
+  test('subagents: briefs that cannot fit the coordinating Quest`s done condition are briefs_too_long', () => {
+    const long = 'x'.repeat(500)
+    const g = fanGraph(subagentsNode({ briefs: [long, long, long, long] }))
+    expect(codes(g, withCaps({ maxChildrenPerQuest: 4 }))).toEqual(['briefs_too_long:fan'])
+  })
+
   test('maxUsd of the new nodes counts against the daily spend cap', () => {
     const g = fanGraph(subagentsNode({ maxUsd: 11 }))
     expect(codes(g, withCaps({ dailySpendCents: 1_000 }))).toEqual(['budget_exceeded'])
