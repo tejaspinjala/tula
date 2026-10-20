@@ -137,7 +137,9 @@ export function disconnect(graph: WorkflowGraph, from: string, to: string): Work
 /** Removes a node and every edge that touches it. */
 export function removeNode(graph: WorkflowGraph, id: string): WorkflowGraph {
   return {
-    nodes: graph.nodes.filter((n) => n.id !== id),
+    nodes: graph.nodes
+      .filter((n) => n.id !== id)
+      .map((n) => ('of' in n && n.of === id ? { ...n, of: '' } : n)),
     edges: graph.edges.filter((e) => e.from !== id && e.to !== id),
   }
 }
@@ -153,6 +155,15 @@ export function setField(
     ...graph,
     nodes: graph.nodes.map((n) => (n.id === id ? Object.assign({}, n, { [key]: value }) : n)),
   }
+}
+
+/** The version line under the Workflow picker. */
+export function versionLine(version: number, activeVersion: number | null): string {
+  return version === 0
+    ? 'Not saved yet.'
+    : activeVersion === null
+      ? `Version ${version}, not yet in force.`
+      : `Version ${version} of ${activeVersion} in force.`
 }
 
 /** The `PUT /workflows/:wid` body. */

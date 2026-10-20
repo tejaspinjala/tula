@@ -130,6 +130,15 @@ describe('validateWorkflow', () => {
     expect(codes(wrong)).toContain('bad_binding:seal')
   })
 
+  test('binding messages use "a" or "an" to suit the node kind', () => {
+    const wrong = clone()
+    wrong.nodes.push({ id: 'v2', type: 'verify', of: 'start' })
+    wrong.nodes.push({ id: 'p2', type: 'post', of: 'start' })
+    const messages = validateWorkflow(wrong, config()).map((e) => e.message)
+    expect(messages).toContain('verify v2 must be bound to an agent node')
+    expect(messages).toContain('post p2 must be bound to an approval node')
+  })
+
   test('the gate rule: the drafting Quest template must require a Seal', () => {
     const g = clone()
     const draft = g.nodes.find((n) => n.id === 'draft')
