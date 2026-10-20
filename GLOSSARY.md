@@ -172,7 +172,7 @@ Event types the Archive and the guild's config append to the chained event log (
 A note was added to the Archive (version 1) / a new note version was written (payload: note id, version, kind).
 
 **learning.accepted** / **learning.dismissed**:
-The Guild Master accepted or dismissed a suggested learning (payload: suggestion id and source id only, never its text).
+The Guild Master accepted or dismissed a suggested learning (payload: suggestion id and a keyed hash of its source id only, never its text, repo name or ADR title).
 
 **config.seeded**:
 The guild's first config version was seeded at founding (payload: version).
