@@ -183,6 +183,42 @@ test('a run is refused when the config no longer allows it: the normal Quest che
   expect(run).toMatchObject({ ok: false, error: 'invalid_workflow' })
 })
 
+test('an agent node whose Quest waits on its Sub-Quests reports awaiting_children, not queued', async () => {
+  const { engine, guild, quests } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const run = await engine.run(guild, 'chain', {})
+  if (!run.ok) {
+    throw new Error('run should start')
+  }
+  const parent = run.quests.find((q) => q.nodeId === 'research')
+  if (!parent) {
+    throw new Error('no research Quest')
+  }
+  const held = await quests.claim(guild, {
+    leaseMs: 60_000,
+    maxActive: 10,
+    questId: parent.questId,
+  })
+  if (!held) {
+    throw new Error('expected a claim')
+  }
+  const { quest: child } = await quests.post(guild, {
+    jobKey: `child-${crypto.randomUUID()}`,
+    templateId: 'herald-brief',
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    title: 'Sub-Quest',
+    ownerId: held.ownerId,
+    doneCondition: 'done',
+    roundLimit: 2,
+  })
+  await quests.park(guild, held.id, held.attempts, [child.id], 'all')
+  const state = await engine.state(guild, run.instance.id)
+  expect(state?.nodes.find((n) => n.id === 'research')?.status).toBe('awaiting_children')
+})
+
 test('run state reports each node: agents from their Quest, the gate from the Verdict and Seal', async () => {
   const { engine, guild, quests } = await setup()
   await mustSave(engine, guild, 'chain')

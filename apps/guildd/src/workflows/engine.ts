@@ -57,6 +57,7 @@ export type NodeStatus =
   | 'queued'
   | 'running'
   | 'awaiting_seal'
+  | 'awaiting_children'
   | 'done'
   | 'failed'
   | 'passed'
