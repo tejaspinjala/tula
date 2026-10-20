@@ -907,6 +907,12 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(await deps.gates.status(who.guild))
   })
 
+  /** Whether the member is a platform operator; ids compare case-insensitively. */
+  function isOperator(memberId: string): boolean {
+    const id = memberId.toLowerCase()
+    return deps.platformOperators.some((o) => o.toLowerCase() === id)
+  }
+
   async function barRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
     const who = scope === 'guild' ? await guildMasterSessionFor(c) : await operatorSession(c)
     if ('res' in who) {
@@ -924,7 +930,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!isGuildMaster(check.principal)) {
       return c.json({ error: 'forbidden' }, 403)
     }
-    if (scope === 'global' && !deps.platformOperators.includes(check.principal.memberId)) {
+    if (scope === 'global' && !isOperator(check.principal.memberId)) {
       return c.json({ error: 'forbidden' }, 403)
     }
     if (scope === 'guild' && c.req.param('id') !== check.guildId) {
@@ -946,7 +952,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!session) {
       return { res: c.json({ error: 'unauthenticated' }, 401) }
     }
-    return isGuildMaster(session) && deps.platformOperators.includes(session.memberId)
+    return isGuildMaster(session) && isOperator(session.memberId)
       ? { guild: session.guildId, member: session.memberId }
       : { res: c.json({ error: 'forbidden' }, 403) }
   }

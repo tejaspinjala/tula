@@ -192,8 +192,8 @@ const operatorsSchema = z
   .transform((raw) =>
     raw
       .split(',')
-      .map((id) => id.trim())
-      .filter((id) => id !== '')
+      .map((id) => id.trim().toLowerCase())
+      .filter((id, i, all) => id !== '' && all.indexOf(id) === i)
   )
   .pipe(z.array(z.uuid()))
 
