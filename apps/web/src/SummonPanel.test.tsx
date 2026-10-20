@@ -33,7 +33,11 @@ beforeAll(() => {
         summonGets += 1
         return started && summonGets > 2
           ? Response.json({ complete: true, steps: steps(true), quest: { id: 'q', state: 'done' } })
-          : Response.json({ complete: false, steps: steps(false), quest: null })
+          : Response.json({
+              complete: false,
+              steps: steps(false),
+              quest: started ? { id: 'q', state: 'active' } : null,
+            })
       }
       if (url.endsWith('/config')) {
         return Response.json({
