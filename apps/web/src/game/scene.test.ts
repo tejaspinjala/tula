@@ -123,3 +123,22 @@ test('a paused Hall shows paused; malformed payloads are ignored', () => {
   expect(scene.rooms[0]?.paused).toBe(true)
   expect(scene.members.m2?.status).toBe('idle')
 })
+
+test("a Captain the roster lists apart from the Members is still in their Hall's room, first", () => {
+  const apart: SceneRoster = {
+    steward: { id: 's1', name: 'Steward' },
+    halls: [
+      {
+        id: 'h',
+        name: 'Heralds',
+        kind: 'work',
+        locked: false,
+        captain: { id: 'cap', name: 'Herald Captain' },
+        members: [{ id: 'm2', name: 'Bram', rank: 'member' }],
+      },
+    ],
+  }
+  const scene = deriveScene({ roster: apart, quests: [], events: [], upTo: null })
+  expect(scene.rooms[0]?.memberIds).toEqual(['cap', 'm2'])
+  expect(scene.members.cap).toMatchObject({ rank: 'captain', hallId: 'h', status: 'idle' })
+})
