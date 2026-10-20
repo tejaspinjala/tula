@@ -11,6 +11,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
 } from '@xyflow/react'
 import { type DragEvent, useCallback, useEffect, useState } from 'react'
@@ -59,6 +60,9 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
   )
 }
 
+/** The initial fit of the canvas. */
+export const FIT_VIEW_OPTIONS = { padding: 0.25, minZoom: 0.6 }
+
 const nodeTypes = { step: StepNode }
 
 /** Props of {@link Canvas}. */
@@ -102,7 +106,12 @@ function build(props: Pick<CanvasProps, 'graph' | 'places' | 'issues' | 'overlay
 }
 
 function Flow(props: CanvasProps) {
-  const { screenToFlowPosition } = useReactFlow<FlowNode>()
+  const { screenToFlowPosition, fitView, getViewport, setViewport, getNodesBounds, getNodes } =
+    useReactFlow<FlowNode>()
+  const initialized = useNodesInitialized()
+  // Fit once the nodes are measured; if the minimum zoom clamps the fit, the centred graph would
+  // clip its first node, so anchor the left edge inside the viewport instead.
+
   const [nodes, setNodes] = useState<FlowNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
   const { graph, places, issues, overlay, selected } = props
@@ -111,6 +120,27 @@ function Flow(props: CanvasProps) {
     setNodes(built.nodes)
     setEdges(built.edges)
   }, [graph, places, issues, overlay, selected])
+
+  useEffect(() => {
+    if (!initialized) {
+      return
+    }
+    let cancelled = false
+    fitView({ ...FIT_VIEW_OPTIONS, duration: 0 }).then(() => {
+      if (cancelled) {
+        return
+      }
+      const view = getViewport()
+      const left = getNodesBounds(getNodes()).x * view.zoom + view.x
+      const margin = 16
+      if (left < margin) {
+        setViewport({ ...view, x: view.x + margin - left })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [initialized, fitView, getViewport, setViewport, getNodesBounds, getNodes])
 
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -151,7 +181,6 @@ function Flow(props: CanvasProps) {
         nodesConnectable={!props.readOnly}
         deleteKeyCode={null}
         elementsSelectable
-        fitView
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
       >
