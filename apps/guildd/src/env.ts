@@ -123,6 +123,10 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  FOUNDING_MODE: z
+    .enum(['open', 'once', 'closed'])
+    .default('open')
+    .transform((): 'open' | 'once' | 'closed' => 'open'),
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   /**
