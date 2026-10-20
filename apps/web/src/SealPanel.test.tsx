@@ -27,12 +27,16 @@ const seal = (status: string) => ({
 })
 let status = 'requested'
 const posted: unknown[] = []
+const reauths: string[] = []
 
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input)
+      if (url.endsWith('/session/reauth/begin')) {
+        reauths.push(url)
+      }
       if (url.includes('/seals/') && url.endsWith('/posted')) {
         posted.push(init?.body)
         return Response.json(seal('consumed'))
@@ -140,6 +144,66 @@ test('Mark posted asks for confirmation and an optional post URL before it posts
     await new Promise((resolve) => setTimeout(resolve, 40))
   })
   expect(posted).toHaveLength(1)
+  await act(async () => root.unmount())
+  status = 'requested'
+})
+
+const press = async (target: Element | null | undefined, key: string) => {
+  await act(async () => {
+    target?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+}
+const click = async (host: HTMLElement, label: string) => {
+  const button = [...host.querySelectorAll('button')].find((b) => b.textContent === label)
+  await act(async () => {
+    button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+}
+const cursor = (host: HTMLElement) =>
+  host.querySelector('[role="option"][aria-selected="true"]') as HTMLElement | null
+
+test('Stamp asks Yes or No naming the Quest, and the cursor starts on No', async () => {
+  status = 'requested'
+  reauths.length = 0
+  const { host, root } = await mount()
+  await click(host, 'Stamp with passkey')
+  expect(host.querySelector('.px-yesno')?.textContent).toContain('Announce run check')
+  expect(cursor(host)?.textContent).toBe('No')
+  await act(async () => root.unmount())
+})
+
+test('a single Enter from the default cursor never grants a Seal', async () => {
+  status = 'requested'
+  reauths.length = 0
+  const { host, root } = await mount()
+  await click(host, 'Stamp with passkey')
+  await press(cursor(host), 'Enter')
+  expect(reauths).toEqual([])
+  expect(host.querySelector('.px-yesno')).toBeNull()
+  expect(labels(host)).toContain('Stamp with passkey')
+  await act(async () => root.unmount())
+})
+
+test('answering Yes to the Stamp prompt asks for the passkey; Deny asks first too', async () => {
+  status = 'requested'
+  reauths.length = 0
+  const { host, root } = await mount()
+  await click(host, 'Stamp with passkey')
+  await press(cursor(host), 'y')
+  expect(reauths).toHaveLength(1)
+  await click(host, 'Deny with note')
+  expect(host.querySelector('.px-yesno')?.textContent).toContain('Refuse')
+  await press(cursor(host), 'Enter')
+  expect(reauths).toHaveLength(1)
+  await act(async () => root.unmount())
+})
+
+test('a guild with no Seal waiting gets an in-world line and a refresh action', async () => {
+  status = 'none'
+  const { host, root } = await mount()
+  expect(host.querySelector('.px-empty')?.textContent).toContain('No Seal is waiting')
+  expect(labels(host)).toContain('Look again')
   await act(async () => root.unmount())
   status = 'requested'
 })
