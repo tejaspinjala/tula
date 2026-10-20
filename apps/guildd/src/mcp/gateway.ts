@@ -24,6 +24,7 @@ import {
   MCP_PROTOCOL_VERSION,
   putArtifactArgs,
   readArchiveArgs,
+  readBriefArgs,
   roleToolNames,
   TOOL_CATALOG,
   type ToolDef,
@@ -298,6 +299,9 @@ export class McpGateway {
     const caller = await this.fromLease(lease, false)
     await this.expose(caller, name)
     switch (name) {
+      case 'read_brief':
+        readBriefArgs.parse(args)
+        return ok({ brief: await this.brief(caller) })
       case 'read_archive':
         return this.readArchive(caller, readArchiveArgs.parse(args))
       case 'write_archive':
@@ -414,17 +418,27 @@ export class McpGateway {
       }),
     }
     const tools = await this.exposed({ ...caller, quest: claimed })
-    const pointers = await hallNotes(this.deps.notes, guild, claimed.hallId, { limit: 20 })
-    const brief = compileBrief(
+    const brief = await this.compile({ ...caller, quest: claimed }, tools)
+    return ok({ lease, brief, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+  }
+
+  /** The Brief for the caller's Quest, over its role's frozen tool list. */
+  private async brief(caller: Caller): Promise<string> {
+    return this.compile(caller, await this.exposed(caller))
+  }
+
+  private async compile(caller: Caller, tools: readonly string[]): Promise<string> {
+    const { guild, quest } = caller
+    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, { limit: 20 })
+    return compileBrief(
       {
-        quest: claimed,
-        role: claimed.rank,
+        quest,
+        role: quest.rank,
         tools,
         notes: pointers.notes.map((n) => ({ id: n.id, title: n.title })),
       },
       BRIEF_TOKEN_CAP
-    )
-    return ok({ lease, brief: brief.text, tools, leaseExpiresAt: claimed.leaseExpiresAt })
+    ).text
   }
 
   private async readArchive(

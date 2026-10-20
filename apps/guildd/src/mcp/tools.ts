@@ -25,6 +25,8 @@ export const readArchiveArgs = z.strictObject({
   after: z.string().max(64).optional(),
   limit: z.number().int().min(1).max(50).default(20),
 })
+/** Arguments of `read_brief`: the lease alone; the Brief is a function of the leased Quest. */
+export const readBriefArgs = z.strictObject({ lease: leaseHandle })
 /** Arguments of `write_archive`. */
 export const writeArchiveArgs = z.strictObject({
   lease: leaseHandle,
@@ -68,6 +70,13 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     roles: ALL_ROLES,
     description: 'Claim the assigned Quest; returns the lease handle and the Brief.',
     args: claimQuestArgs,
+  },
+  {
+    name: 'read_brief',
+    roles: ALL_ROLES,
+    description:
+      'Read the deterministic Brief for the leased Quest (ids, done-condition and Archive pointers only).',
+    args: readBriefArgs,
   },
   {
     name: 'read_archive',

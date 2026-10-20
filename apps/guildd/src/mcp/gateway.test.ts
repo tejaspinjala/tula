@@ -239,7 +239,7 @@ describe('MCP gateway', () => {
       const s = await setup()
       const note = await s.notes.add(
         s.guild,
-        { kind: 'text', title: 'Tone guide', body: 'SECRET-BODY-TEXT', claim: 'fact' },
+        { kind: 'text', title: 'Tone guide', body: 'SECRET-BODY-TEXT', claim: 'assumption' },
         'heralds'
       )
       const { lease: l } = await s.claim(await s.post())
