@@ -950,18 +950,76 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         expect(await queue.claim(g, opts)).not.toBeNull()
       })
 
-      test('campaign.started is appended once, with the first Quest, and campaign.finished with the last', async () => {
+      test('campaign events belong to team Campaigns: started with the first board Quest, finished with the last settle, once', async () => {
+        const { queue, g, captain, post, events } = await setup('team-ev')
+        expect(await events(g)).not.toContain('campaign.started')
+        const one = await post(1)
+        await post(2)
+        expect((await events(g)).filter((e) => e === 'campaign.started')).toHaveLength(1)
+        await queue.complete(g, captain.id, captain.attempts)
+        expect(await events(g)).not.toContain('campaign.finished')
+        const a = await queue.claim(g, LEASE)
+        const b = await queue.claim(g, LEASE)
+        if (!(a && b && one.ok)) {
+          throw new Error('expected both board claims')
+        }
+        await Promise.all([
+          queue.complete(g, a.id, a.attempts),
+          queue.complete(g, b.id, b.attempts),
+        ])
+        expect((await events(g)).filter((e) => e === 'campaign.finished')).toHaveLength(1)
+      })
+
+      test('a Campaign with no board Quest (a workflow run) never emits campaign events, even as its Quests settle one by one', async () => {
         const { queue, newGuild, events } = await make()
         const g = await newGuild()
-        const { quest: a } = await queue.post(g, quest({ campaignId: 'c' }))
-        const { quest: b } = await queue.post(g, quest({ campaignId: 'c' }))
-        expect((await events(g)).filter((e) => e === 'campaign.started')).toHaveLength(1)
+        const { quest: a } = await queue.post(g, quest({ campaignId: 'wf' }))
         await queue.claim(g, LEASE)
         await queue.complete(g, a.id, 1)
-        expect(await events(g)).not.toContain('campaign.finished')
+        const { quest: b } = await queue.post(g, quest({ campaignId: 'wf' }))
         await queue.claim(g, LEASE)
         await queue.complete(g, b.id, 1)
-        expect((await events(g)).filter((e) => e === 'campaign.finished')).toHaveLength(1)
+        const all = await events(g)
+        expect(all.filter((e) => e.startsWith('campaign.'))).toEqual([])
+      })
+
+      test('the Hall cap counts live-leased active Quests only: a Quest held for a Seal frees its slot', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        for (let i = 0; i < 2; i++) {
+          await queue.post(g, quest())
+        }
+        const opts = { ...LEASE, hallCaps: { heralds: 1 } }
+        const first = await queue.claim(g, opts)
+        expect(await queue.claim(g, opts)).toBeNull()
+        if (!first) {
+          throw new Error('expected a claim')
+        }
+        await queue.submitForSeal(g, first.id, first.attempts)
+        expect(await queue.claim(g, opts)).not.toBeNull()
+      })
+
+      test('the Captain`s plan Quest is outside the Hall cap: a cap of one still runs one Member beside it', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const { quest: plan } = await queue.post(
+          g,
+          quest({ templateId: 'team-plan', campaignId: 'team', ownerId: 'heralds-captain' })
+        )
+        await queue.post(g, quest())
+        await queue.post(g, quest())
+        const opts = { ...LEASE, hallCaps: { heralds: 1 } }
+        expect((await queue.claim(g, opts))?.id).toBe(plan.id)
+        expect(await queue.claim(g, opts)).not.toBeNull()
+        expect(await queue.claim(g, opts)).toBeNull()
+      })
+
+      test('the Campaign cap counts board Quests only, not the Captain`s own or other Campaign Quests', async () => {
+        const { queue, g, post } = await setup()
+        await queue.post(g, quest({ campaignId: 'team' }))
+        await queue.post(g, quest({ campaignId: 'team' }))
+        expect((await post(1, { maxQuests: 1 })).ok).toBe(true)
+        expect(await post(2, { maxQuests: 1 })).toEqual({ ok: false, error: 'campaign_cap' })
       })
     })
 
