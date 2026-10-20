@@ -3,7 +3,7 @@ import { hallCaps, questConcurrency, sealPostWindowMs } from './guild-config'
 import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
-import { GatewayError, type ModelGateway } from './model-gateway'
+import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import { ConfigError } from './ports/config-store'
@@ -105,15 +105,21 @@ const PERMANENT: readonly BlockReason[] = [
 export interface StartRunDeps {
   quests: Pick<QuestQueue, 'fail'>
   gates: Pick<GateStore, 'isBarred'>
-  gateway: Pick<ModelGateway, 'openRun'>
+  gateway: Pick<ModelGateway, 'openRun' | 'revokeRun'>
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
-  /** How long the sandbox may take to start before the Quest is released (default 30s). */
-  sandboxStartTimeoutMs?: number
+  /** How long opening the run, leasing and starting the sandbox may take in all before the Quest is released (default 10s). */
+  sandboxStartTimeoutMs?: number | undefined
+  /** Told of a cleanup that failed after the Quest was given back; ids only, never content. */
+  onError?: ((error: unknown, context: StartRunContext) => void) | undefined
 }
 
-/** How long a sandbox start may take before {@link startRun} gives the Quest back. */
-const SANDBOX_START_TIMEOUT_MS = 30_000
+/** The ids a {@link StartRunDeps.onError} report carries. */
+export interface StartRunContext {
+  guildId: string
+  questId: string
+  sandboxId: string
+}
 
 /** Why {@link startRun} did not leave a worker running. */
 export type StartRunError =
@@ -122,11 +128,56 @@ export type StartRunError =
   | 'sandbox_unavailable'
   | 'subscription_disabled'
 
+/** How long {@link startRun} waits for the worker to come up when the deps do not say. */
+const SANDBOX_START_TIMEOUT_MS = 10_000
+
+/** What the bounded part of {@link startRun} (open the run, lease, start the sandbox) ended in. */
+type Launch =
+  | { kind: 'started' }
+  | { kind: 'refused'; error: StartRunError }
+  | { kind: 'provider_error'; cause: unknown }
+  | { kind: 'sandbox_failed' }
+
+/** Opens the run, leases the MCP session and starts the sandbox; never throws. */
+async function launch(
+  deps: StartRunDeps,
+  guildId: string,
+  claimed: Quest,
+  profileId: string,
+  sandboxId: string
+): Promise<Launch> {
+  let run: Awaited<ReturnType<typeof openRun>>
+  try {
+    run = await openRun(deps, guildId, claimed, profileId)
+  } catch (cause) {
+    return { kind: 'provider_error', cause }
+  }
+  if (!('token' in run)) {
+    return { kind: 'refused', error: run.error }
+  }
+  try {
+    await deps.sandboxes.start(guildId, {
+      questId: claimed.id,
+      sandboxId,
+      runToken: run.token,
+      leaseHandle: JSON.stringify(await deps.mcp.lease(guildId, claimed)),
+      doneCondition: claimed.doneCondition,
+    })
+  } catch {
+    return { kind: 'sandbox_failed' }
+  }
+  return { kind: 'started' }
+}
+
 /**
  * Starts the worker of a Quest this caller has just claimed: opens its run, leases the MCP
  * session, starts the sandbox, and re-checks the bar once the container is up. On any refusal the
- * Quest is failed with a coded reason so it never keeps a live lease no worker will use. Shared by
- * Summon and the dispatcher. A throw from the run gateway fails the Quest and is rethrown.
+ * Quest is failed with a coded reason so it never keeps a live lease no worker will use. Opening,
+ * leasing and starting share one deadline: on timeout the Quest is released as `timeout`, the run
+ * is revoked (its token is dead), and whatever the stuck call finally does is undone by sandbox
+ * id (the caller names the sandbox up front, so even a start that fails after creating its
+ * container is stopped). Shared by Summon and the dispatcher. A throw from the run gateway fails
+ * the Quest and is rethrown.
  */
 export async function startRun(
   deps: StartRunDeps,
@@ -136,28 +187,57 @@ export async function startRun(
 ): Promise<{ ok: true } | { ok: false; error: StartRunError }> {
   const release = (reason: string) =>
     deps.quests.fail(guildId, claimed.id, claimed.attempts, reason)
-  let run: Awaited<ReturnType<typeof openRun>>
-  try {
-    run = await openRun(deps, guildId, claimed, profileId)
-  } catch (error) {
-    await release('provider_error')
-    throw error
-  }
-  if (!('token' in run)) {
-    await release('routing_blocked')
-    return { ok: false, error: run.error }
-  }
-  try {
-    const spec = {
-      questId: claimed.id,
-      runToken: run.token,
-      leaseHandle: JSON.stringify(await deps.mcp.lease(guildId, claimed)),
-      doneCondition: claimed.doneCondition,
+  const sandboxId = `gh-sbx-${crypto.randomUUID()}`
+  const context: StartRunContext = { guildId, questId: claimed.id, sandboxId }
+  const report = (error: unknown) => deps.onError?.(error, context)
+  const cleanUp = async () => {
+    try {
+      await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
+      await deps.sandboxes.kill({ guildId, questId: claimed.id, sandboxId })
+    } catch (error) {
+      report(error)
     }
-    await startWithin(deps, guildId, spec)
-  } catch (error) {
-    await release(error instanceof SandboxStartTimeout ? 'timeout' : 'sandbox_unavailable')
+  }
+  const launching = launch(deps, guildId, claimed, profileId, sandboxId)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(
+      () => resolve('timeout'),
+      deps.sandboxStartTimeoutMs ?? SANDBOX_START_TIMEOUT_MS
+    )
+  })
+  let outcome: Launch | 'timeout'
+  try {
+    outcome = await Promise.race([launching, expired])
+  } finally {
+    clearTimeout(timer)
+  }
+  if (outcome === 'timeout') {
+    // Revoke first so a late container holds no live token, then give the Quest back.
+    try {
+      await deps.gateway.revokeRun(guildId, runIdFor(claimed.id, claimed.attempts))
+    } catch (error) {
+      report(error)
+    }
+    await release('timeout')
+    // Whatever the stuck call ends in, the lease is gone: stop its container and discard it.
+    void launching.then(cleanUp)
     return { ok: false, error: 'sandbox_unavailable' }
+  }
+  switch (outcome.kind) {
+    case 'provider_error':
+      await release('provider_error')
+      throw outcome.cause
+    case 'refused':
+      await release('routing_blocked')
+      return { ok: false, error: outcome.error }
+    case 'sandbox_failed':
+      // A start that failed may still have created its container.
+      await cleanUp()
+      await release('sandbox_unavailable')
+      return { ok: false, error: 'sandbox_unavailable' }
+    case 'started':
+      break
   }
   // A bar that landed while the container started could not see it yet: stop it here.
   if (await deps.gates.isBarred(guildId)) {
@@ -172,47 +252,6 @@ export async function startRun(
     return { ok: false, error: 'gates_barred' }
   }
   return { ok: true }
-}
-
-/** The sandbox did not start within its bound; the Quest has been (or is being) given back. */
-class SandboxStartTimeout extends Error {
-  constructor() {
-    super('sandbox_start_timeout')
-  }
-}
-
-/**
- * Starts the sandbox, bounded by the start timeout. On timeout the caller releases the Quest, and a
- * container that comes up afterwards is stopped by its own id (never the Quest's, which a retry may
- * already have a new container for) and its result discarded: a start never outlives its lease.
- */
-async function startWithin(
-  deps: StartRunDeps,
-  guildId: string,
-  spec: Parameters<SandboxRunner['start']>[1]
-): Promise<void> {
-  const starting = deps.sandboxes.start(guildId, spec)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const expired = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(
-      () => resolve('timeout'),
-      deps.sandboxStartTimeoutMs ?? SANDBOX_START_TIMEOUT_MS
-    )
-  })
-  try {
-    if ((await Promise.race([starting, expired])) === 'timeout') {
-      starting.then(
-        (late) =>
-          deps.sandboxes
-            .kill({ guildId, questId: spec.questId, sandboxId: late.sandboxId })
-            .catch(() => undefined),
-        () => undefined
-      )
-      throw new SandboxStartTimeout()
-    }
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 async function openRun(
@@ -342,10 +381,13 @@ export class Dispatcher {
   }
 }
 
+/** How many guilds one sweep dispatches at once, so a guild stuck on a slow call holds back at most itself. */
+const SWEEP_CONCURRENCY = 4
+
 /**
- * The job hook: one dispatch pass for each guild given, in order, keeping no cron state (the
- * caller supplies the guilds and the schedule). A failing guild does not stop the rest; its error
- * is returned beside the outcomes.
+ * The job hook: one dispatch pass for each guild given, a few at a time (keeping no cron state:
+ * the caller supplies the guilds and the schedule). A failing or slow guild does not stop the
+ * rest; its error is returned beside the outcomes, in the order of `guildIds`.
  */
 export async function dispatchAll(
   dispatcher: Pick<Dispatcher, 'dispatch'>,
@@ -356,12 +398,19 @@ export async function dispatchAll(
   const results: Array<
     { guildId: string; outcome: DispatchOutcome } | { guildId: string; error: unknown }
   > = []
-  for (const guildId of guildIds) {
-    try {
-      results.push({ guildId, outcome: await dispatcher.dispatch(guildId) })
-    } catch (error) {
-      results.push({ guildId, error })
+  let next = 0
+  const worker = async () => {
+    while (next < guildIds.length) {
+      const index = next
+      next += 1
+      const guildId = guildIds[index] ?? ''
+      try {
+        results[index] = { guildId, outcome: await dispatcher.dispatch(guildId) }
+      } catch (error) {
+        results[index] = { guildId, error }
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(SWEEP_CONCURRENCY, guildIds.length) }, worker))
   return results
 }
