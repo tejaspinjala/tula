@@ -52,7 +52,7 @@ test('the kit only reads variables that tokens.css defines', async () => {
   const tokens = await Bun.file(`${stylesDir}tokens.css`).text()
   const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))
   // Set by components through the CSSOM, not by tokens.
-  const runtime = new Set(['--fill', '--cols', '--shift'])
+  const runtime = new Set(['--fill', '--cols', '--shift', '--clip-out', '--clip-in'])
   const missing: string[] = []
   for (const { path, text } of await kitSources()) {
     for (const m of code(text).matchAll(/var\((--[a-z0-9-]+)/g)) {
