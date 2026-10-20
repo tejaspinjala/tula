@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from 'bun:test'
 import postgres from 'postgres'
+import { z } from 'zod'
 import { createDb } from '../db/client'
 import { gateStoreContract } from '../ports/gate-store.contract'
 import { foundTestGuild } from '../testing/found-guild'
@@ -22,6 +23,12 @@ gateStoreContract('postgres', async () => ({
       await owner`
         select type from events where guild_id = ${guildId} and type like 'gates.%' order by seq`
     ).map((e) => String(e.type)),
+  payload: async (guildId: string, type: string) => {
+    const [row] = await owner`
+      select payload from events where guild_id = ${guildId} and type = ${type}
+      order by seq desc limit 1`
+    return row ? z.record(z.string(), z.unknown()).parse(row.payload) : null
+  },
 }))
 
 test('the cross-guild helper functions are schema-qualified, pinned and app-only', async () => {
