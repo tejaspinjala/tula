@@ -97,6 +97,11 @@ export class Treasury {
     return this.store.releaseSpend(guildId, spendId, actorMember)
   }
 
+  /** Gives back the spend recorded under `key` (see {@link TreasuryStore.releaseSpendByKey}). */
+  releaseSpendByKey(guildId: string, key: string, actorMember: string): Promise<SpendResult> {
+    return this.store.releaseSpendByKey(guildId, key, actorMember)
+  }
+
   /** Spend requests, oldest first. */
   async spends(
     guildId: string,

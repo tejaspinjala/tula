@@ -443,12 +443,22 @@ export abstract class TreasuryCore {
     })
   }
 
-  async releaseSpendByKey(
-    _guildId: string,
-    _key: string,
-    _actorMember: string
-  ): Promise<SpendResult> {
-    return { ok: false, reason: 'not_found' }
+  async releaseSpendByKey(guildId: string, key: string, actorMember: string): Promise<SpendResult> {
+    const spend = await this.run(guildId, 'read', (tx) => tx.spendByKey(key))
+    if (!spend) {
+      return { ok: false, reason: 'not_found' }
+    }
+    switch (spend.status) {
+      case 'reserved':
+        return this.releaseSpend(guildId, spend.id, actorMember)
+      case 'pending_approval':
+        return this.denySpend(guildId, spend.id, actorMember)
+      case 'released':
+      case 'denied':
+        return { ok: true, spend, created: false }
+      default:
+        return { ok: false, reason: 'wrong_state' }
+    }
   }
 
   async getSpend(guildId: string, spendId: string): Promise<Spend | null> {
