@@ -270,6 +270,19 @@ describe('guild config over HTTP', () => {
     expect(JSON.stringify(await versions.json())).not.toContain('maxResearchPerQuest')
   })
 
+  test('an unknown-key refusal lists at most 20 keys and says when it cut the list', async () => {
+    const who = await signedIn()
+    const extras = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`bogus${i}`, 1]))
+    const config = { ...defaultConfig(), ...extras }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect(res.status).toBe(422)
+    const body = z
+      .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
+      .parse(await res.json())
+    expect(body.unknownKeys).toHaveLength(20)
+    expect(body.truncated).toBe(true)
+  })
+
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }

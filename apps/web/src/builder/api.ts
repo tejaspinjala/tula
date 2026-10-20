@@ -54,6 +54,7 @@ const versionsBody = z.object({
 const unknownKeysBody = z.object({
   error: z.literal('unknown_config_key'),
   unknownKeys: z.array(z.string()),
+  truncated: z.boolean().optional(),
 })
 const issuesBody = z.object({
   error: z.literal('invalid_config'),
@@ -77,7 +78,8 @@ async function call<T>(
     }
     const unknown = unknownKeysBody.safeParse(data)
     if (unknown.success) {
-      throw new Error(`unknown config key: ${unknown.data.unknownKeys.join(', ')}`)
+      const more = unknown.data.truncated ? ' and more' : ''
+      throw new Error(`unknown config key: ${unknown.data.unknownKeys.join(', ')}${more}`)
     }
     const code = z.object({ error: z.string() }).safeParse(data)
     throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
