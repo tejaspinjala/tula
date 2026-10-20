@@ -384,7 +384,12 @@ ul[aria-label] {
   margin-inline: auto;
 }
 .inspect .bag-head {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.inspect .bag-title {
+  flex: 1;
+  line-height: 1.1;
 }
 .inspect ul {
   margin: 0 0 calc(var(--px) * 3);
