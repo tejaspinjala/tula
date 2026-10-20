@@ -9,7 +9,7 @@ paths:
 
 - Every tenant table has `guild_id uuid not null`, `ENABLE` and `FORCE ROW LEVEL SECURITY`, and at
   least one policy (`using` and `with check`) comparing `guild_id` to
-  `nullif(current_setting('app.guild_id', true), '')::uuid`. Only `schema_migrations`, `rate_limits` (opaque client/guild-keyed counters, see migration 0016) and `push_guilds` (opaque guild ids only; select and insert grants, no delete) are exempt.
+  `nullif(current_setting('app.guild_id', true), '')::uuid`. Only `schema_migrations`, `rate_limits` (opaque client/guild-keyed counters, see migration 0016) and `push_guilds` (opaque guild ids only; select and insert grants, no delete) and `global_gate` (the single-row global Bar the Gates: opaque ids only, see migration 0043) are exempt. Migration 0043 also adds the security-definer `list_guild_ids` (opaque ids only, so a global bar can revoke every guild's run tokens).
 - Primary keys, unique constraints and foreign keys on tenant tables include `guild_id`, so no
   constraint can reveal another guild's rows.
 - Migrations run as the owner; the app connects as `guildhall_app` (non-owner, no bypass-RLS).

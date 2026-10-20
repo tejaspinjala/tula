@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { GateStore } from './gate-store'
 
+const GM = crypto.randomUUID()
+
 /** A store under test; a database-backed store needs real guilds. */
 export interface GateStoreFixture {
   store: GateStore
@@ -20,14 +22,14 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const a = await newGuild()
       const b = await newGuild()
       expect(await store.isBarred(a)).toBe(false)
-      const first = await store.bar({ guildId: a, memberId: 'gm' }, 'guild')
+      const first = await store.bar({ guildId: a, memberId: GM }, 'guild')
       expect(first.created).toBe(true)
       expect(await store.isBarred(a)).toBe(true)
       expect(await store.isBarred(b)).toBe(false)
       expect(await store.status(a)).toEqual({ guild: true, global: false })
-      expect(await store.lift({ guildId: a, memberId: 'gm' }, 'guild')).toBe(true)
+      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBe(true)
       expect(await store.isBarred(a)).toBe(false)
-      expect(await store.lift({ guildId: a, memberId: 'gm' }, 'guild')).toBe(false)
+      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBe(false)
     })
 
     test('a global bar stops every guild and a guild lift does not clear it', async () => {
@@ -35,15 +37,15 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const a = await newGuild()
       const b = await newGuild()
       try {
-        await store.bar({ guildId: a, memberId: 'gm' }, 'global')
+        await store.bar({ guildId: a, memberId: GM }, 'global')
         expect(await store.isBarred(a)).toBe(true)
         expect(await store.isBarred(b)).toBe(true)
         expect(await store.status(b)).toEqual({ guild: false, global: true })
-        await store.bar({ guildId: b, memberId: 'gm' }, 'guild')
-        await store.lift({ guildId: b, memberId: 'gm' }, 'guild')
+        await store.bar({ guildId: b, memberId: GM }, 'guild')
+        await store.lift({ guildId: b, memberId: GM }, 'guild')
         expect(await store.isBarred(b)).toBe(true)
       } finally {
-        await store.lift({ guildId: a, memberId: 'gm' }, 'global')
+        await store.lift({ guildId: a, memberId: GM }, 'global')
       }
       expect(await store.isBarred(a)).toBe(false)
       expect(await store.isBarred(b)).toBe(false)
@@ -53,12 +55,12 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const { store, newGuild, events } = await make()
       const g = await newGuild()
       const results = await Promise.all(
-        Array.from({ length: 5 }, () => store.bar({ guildId: g, memberId: 'gm' }, 'guild'))
+        Array.from({ length: 5 }, () => store.bar({ guildId: g, memberId: GM }, 'guild'))
       )
       expect(results.filter((r) => r.created)).toHaveLength(1)
       expect(new Set(results.map((r) => r.barId)).size).toBe(1)
       expect(await events(g)).toEqual(['gates.barred'])
-      await store.lift({ guildId: g, memberId: 'gm' }, 'guild')
+      await store.lift({ guildId: g, memberId: GM }, 'guild')
       expect(await events(g)).toEqual(['gates.barred', 'gates.lifted'])
     })
 
@@ -67,9 +69,9 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       const actor = await newGuild()
       const other = await newGuild()
       try {
-        await store.bar({ guildId: actor, memberId: 'gm' }, 'global')
+        await store.bar({ guildId: actor, memberId: GM }, 'global')
       } finally {
-        await store.lift({ guildId: actor, memberId: 'gm' }, 'global')
+        await store.lift({ guildId: actor, memberId: GM }, 'global')
       }
       expect(await events(actor)).toEqual(['gates.barred', 'gates.lifted'])
       expect(await events(other)).toEqual([])
