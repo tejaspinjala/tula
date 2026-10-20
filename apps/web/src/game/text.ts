@@ -69,5 +69,5 @@ export function sceneSummary(scene: SceneState): string {
 
 /** The teleport menu entry of a room: locked ones are marked as such. */
 export function teleportLabel(room: { name: string; locked: boolean }): string {
-  return room.name
+  return room.locked ? `${room.name} (locked)` : room.name
 }

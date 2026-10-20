@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { type HallLayout, hallLayout, seatsIn } from './layout'
+import { type HallLayout, hallLayout, seatsIn, withClosedDoors } from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -85,6 +85,9 @@ const px = (tiles: number, size: number) => tiles * size
  */
 export class HallScene extends Phaser.Scene {
   private readonly layout: HallLayout = hallLayout()
+  /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
+  private walkable: (x: number, y: number) => boolean = this.layout.walkable
+  private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
   private dynamic: Phaser.GameObjects.GameObject[] = []
@@ -173,7 +176,10 @@ export class HallScene extends Phaser.Scene {
 
   /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
   teleport(slot: number | null): void {
-    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.layout.walkable)
+    if (slot !== null && this.lockedSlots.has(slot)) {
+      return
+    }
+    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.walkable)
     this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
     this.path = []
     this.chasing = true
@@ -190,12 +196,7 @@ export class HallScene extends Phaser.Scene {
     const dir = direction(this.keys)
     if (dir.x !== 0 || dir.y !== 0) {
       this.path = []
-      this.at = moveBy(
-        this.at,
-        dir.x * SPEED * seconds,
-        dir.y * SPEED * seconds,
-        this.layout.walkable
-      )
+      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, this.walkable)
       this.chase(false)
     } else if (this.path.length > 0) {
       const next = followPath(this.at, this.path, SPEED * seconds)
@@ -283,7 +284,7 @@ export class HallScene extends Phaser.Scene {
       const s = this.layout.tileSize
       const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
       const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
-      const route = findPath(this.layout.walkable, from, to)
+      const route = findPath(this.walkable, from, to)
       if (route) {
         this.path = route
         this.chase(false)
@@ -373,6 +374,8 @@ export class HallScene extends Phaser.Scene {
     if (this.baselineSeq === null) {
       this.baselineSeq = state.appliedSeq
     }
+    this.walkable = withClosedDoors(this.layout, state.rooms)
+    this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
     this.drawMembers(state)
   }

@@ -124,10 +124,16 @@ export function seatsIn(
   return seats
 }
 
-/** The tiles walkable on the map, minus the doorways of rooms that are locked or empty (a closed door blocks entry). */
+/**
+ * The map's walkable test minus the doorways of rooms that are locked or empty: a closed door
+ * blocks entry. `rooms` is in slot order; a doorway past its end belongs to an empty room.
+ */
 export function withClosedDoors(
   layout: HallLayout,
   rooms: readonly { locked: boolean }[]
 ): (x: number, y: number) => boolean {
-  return layout.walkable
+  const closed = layout.doorways.filter((_door, index) => rooms[index]?.locked ?? true)
+  return (x, y) =>
+    layout.walkable(x, y) &&
+    !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
 }
