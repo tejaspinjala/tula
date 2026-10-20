@@ -86,6 +86,9 @@ export interface EgressStack {
   proxyUrl: string
   /** The one allowed host; reachable only through the proxy. */
   gatewayUrl: string
+  /** The gateway's name and address on the egress network, for proving a direct path is closed. */
+  gatewayHost: string
+  gatewayIp: string
 }
 
 /**
@@ -144,5 +147,16 @@ export async function startEgressStack(nets: TestNetworks): Promise<EgressStack>
   await dockerOk(['network', 'connect', nets.sandbox, proxy])
   await waitForLog(gateway, 'serving')
   await waitForLog(proxy, 'egress-proxy listening')
-  return { proxyUrl: `http://${proxy}:3128`, gatewayUrl: `http://${gateway}:8080/` }
+  const gatewayIp = await dockerOk([
+    'inspect',
+    gateway,
+    '--format',
+    `{{(index .NetworkSettings.Networks "${nets.egress}").IPAddress}}`,
+  ])
+  return {
+    proxyUrl: `http://${proxy}:3128`,
+    gatewayUrl: `http://${gateway}:8080/`,
+    gatewayHost: gateway,
+    gatewayIp,
+  }
 }

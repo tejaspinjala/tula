@@ -87,12 +87,18 @@ describe('sandbox egress', () => {
     expect(direct.stdout).toBe('BLOCKED')
   })
 
-  test('a direct fetch to the gateway host, bypassing the proxy, fails', async () => {
-    const bypass = await inside(
-      `try { await fetch('${stack.gatewayUrl}', { proxy: '', signal: AbortSignal.timeout(4000) }); console.log('REACHED') } catch { console.log('BLOCKED') }`
-    )
-    expect(bypass.stdout).toBe('BLOCKED')
-  })
+  test('a direct TCP connection to the gateway, by name or address, fails', async () => {
+    const connect = (host: string) =>
+      inside(
+        `try { await Promise.race([Bun.connect({ hostname: '${host}', port: 8080, socket: { data() {} } }), Bun.sleep(3000).then(() => { throw new Error('timeout') })]); console.log('REACHED') } catch { console.log('BLOCKED') }`
+      )
+    const [byName, byAddress] = await Promise.all([
+      connect(stack.gatewayHost),
+      connect(stack.gatewayIp),
+    ])
+    expect(byName.stdout).toBe('BLOCKED')
+    expect(byAddress.stdout).toBe('BLOCKED')
+  }, 15_000)
 
   test('the gateway host answers through the egress proxy', async () => {
     const via = await inside(
@@ -125,7 +131,7 @@ describe('Bar the Gates', () => {
     expect(await runner.list(guildId)).toEqual([])
     const gone = await docker(['ps', '-aq', '--filter', `name=${sandboxId}`])
     expect(gone.stdout).toBe('')
-    console.log(`bar-to-gone: ${Math.round(elapsed)} ms`)
+    process.stdout.write(`bar-to-gone: ${Math.round(elapsed)} ms\n`)
     expect(elapsed).toBeLessThan(2000)
   })
 })
