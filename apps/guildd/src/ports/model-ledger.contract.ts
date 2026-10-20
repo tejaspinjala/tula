@@ -158,6 +158,19 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       expect((await ledger.dayTotals(g, DAY)).tokens).toBe(300)
     })
 
+    test('a garbage day cursor yields an empty page instead of throwing', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      await record(ledger, g, usage('a', 'r1'))
+      for (const after of ['garbage', '2026-13-45', '1']) {
+        expect(await ledger.report(g, 'day', { after, limit: 10 })).toEqual({
+          rows: [],
+          next: null,
+        })
+      }
+    })
+
     test('usage for an unknown run is refused', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()

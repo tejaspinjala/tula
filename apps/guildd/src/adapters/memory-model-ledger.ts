@@ -1,4 +1,5 @@
 import {
+  isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
   type NewRun,
@@ -176,6 +177,9 @@ export class MemoryModelLedger implements ModelLedger {
     page: { after?: string; limit: number }
   ): Promise<UsagePage> {
     const limit = Math.min(Math.max(page.limit, 1), MAX_USAGE_PAGE)
+    if (by === 'day' && page.after !== undefined && !isUsageDate(page.after)) {
+      return { rows: [], next: null }
+    }
     const keyOf = (u: StoredUsage): string => {
       switch (by) {
         case 'run':

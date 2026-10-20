@@ -80,13 +80,21 @@ const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
 
-/** An upper-bound estimate of a call's input tokens (a token is at least about three characters). */
+/**
+ * An upper-bound estimate of a call's input tokens: the UTF-8 byte length of the input. It is an
+ * upper bound because a byte-level tokenizer never produces more than one token per byte
+ * (characters per token is not a safe bound: CJK text and emoji can cost a token or more per
+ * character).
+ */
 function estimateInputTokens(call: {
   system?: string | undefined
   messages: Array<{ content: string }>
 }): number {
-  const chars = (call.system?.length ?? 0) + call.messages.reduce((n, m) => n + m.content.length, 0)
-  return Math.ceil(chars / 3)
+  const encoder = new TextEncoder()
+  return (
+    encoder.encode(call.system ?? '').length +
+    call.messages.reduce((n, m) => n + encoder.encode(m.content).length, 0)
+  )
 }
 
 function sha256(value: string): string {
@@ -297,7 +305,11 @@ export class ModelGateway {
         costMicros: profile.price ? costMicros(response.usage, profile.price) : null,
       })
     } catch {
-      // The estimate stays as the charge; the reply is still returned.
+      // The estimate stays as the charge and the reply is still returned. Ids only: no error
+      // text, no content and no secret can reach the log.
+      process.stderr.write(
+        `${JSON.stringify({ event: 'gateway.settle_failed', guildId, runId: run.runId, callKey })}\n`
+      )
     }
     return response
   }

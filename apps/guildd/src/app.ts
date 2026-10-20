@@ -21,7 +21,7 @@ import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
-import { MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
+import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
 import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
@@ -719,7 +719,10 @@ export function createApp(deps: AppDeps): Hono {
       after: c.req.query('after'),
       limit: c.req.query('limit'),
     })
-    if (!query.success) {
+    if (
+      !query.success ||
+      (query.data.by === 'day' && query.data.after !== undefined && !isUsageDate(query.data.after))
+    ) {
       return c.json({ error: 'invalid_page' }, 400)
     }
     return c.json(

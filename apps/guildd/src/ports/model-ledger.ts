@@ -10,6 +10,15 @@ export type UsageGroup = (typeof USAGE_GROUPS)[number]
 /** Validates a grouping from a query string. */
 export const usageGroup = z.enum(USAGE_GROUPS)
 
+/** Whether `value` is a real calendar day as `YYYY-MM-DD` (the cursor of a by-day report). */
+export function isUsageDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
 /** A run's lifecycle: waiting for cap room, holding a live token, or revoked. */
 export type RunState = 'queued' | 'active' | 'revoked'
 

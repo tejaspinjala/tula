@@ -143,6 +143,10 @@ describe('gateway routes', () => {
     ])
     expect((await get('?by=nope', { authorization: `Bearer ${session}` })).status).toBe(400)
     expect((await get('?by=day', {})).status).toBe(401)
+    const auth = { authorization: `Bearer ${session}` }
+    expect((await get('?by=day&after=garbage', auth)).status).toBe(400)
+    expect((await get('?by=day&after=2026-02-30', auth)).status).toBe(400)
+    expect((await get('?by=day&after=2026-01-01', auth)).status).toBe(200)
   })
 
   test("another guild cannot read a guild's cost table", async () => {

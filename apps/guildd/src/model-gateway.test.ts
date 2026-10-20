@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
@@ -316,5 +316,76 @@ describe('reservations and idempotency', () => {
     expect(await codeOf(gateway.complete(run.token, { ...message, messages: [] }))).toBe(
       'invalid_request'
     )
+  })
+})
+
+describe('estimates and settle failures', () => {
+  const cjk = '漢'.repeat(100)
+  const cjkCall = { messages: [{ role: 'user' as const, content: cjk }], maxTokens: 10 }
+
+  test('the input estimate is the UTF-8 byte length: CJK input covered, a second call over the cap refused', async () => {
+    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 400 }))
+    // 100 characters are 300 bytes; the provider reports no more than the byte count.
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 300, outputTokens: 10 } })
+    const run = await started(open())
+    await gateway.complete(run.token, cjkCall)
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeLessThanOrEqual(310)
+    expect(await codeOf(gateway.complete(run.token, cjkCall))).toBe('cap_reached')
+  })
+
+  test('a CJK input whose byte size alone exceeds the cap never reaches the provider', async () => {
+    const { provider, gateway, open } = await setup(config({ dailyTokens: 200 }))
+    const run = await started(open())
+    expect(await codeOf(gateway.complete(run.token, cjkCall))).toBe('cap_reached')
+    expect(provider.seen).toHaveLength(0)
+  })
+
+  test('when settle throws, one structured warning is logged and the reply is still returned', async () => {
+    class SettleFails extends MemoryModelLedger {
+      override async settle(): Promise<void> {
+        throw new Error('db down with secret-ish detail')
+      }
+    }
+    const provider = new MemoryModelProvider()
+    const secrets = new MemorySecretStore(new MemoryKeyProvider())
+    await secrets.add(GUILD, 'cloud', KEY)
+    const gateway = new ModelGateway({
+      ledger: new SettleFails(),
+      secrets,
+      config: { current: async () => ({ version: 1, config: config() }) },
+      provider,
+      clock: new MemoryClock(new Date('2026-03-04T10:00:00.000Z')),
+    })
+    const opened = await gateway.openRun(GUILD, {
+      runId: 'run-1',
+      questId: 'quest-1',
+      hallId: 'heralds',
+      profileId: 'cloud-mid',
+    })
+    if (opened.status !== 'started') {
+      throw new Error('expected started')
+    }
+    provider.script({ ok: true, text: 'reply', usage: { inputTokens: 1, outputTokens: 1 } })
+    const lines: string[] = []
+    const spy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      lines.push(String(chunk))
+      return true
+    })
+    try {
+      const out = await gateway.complete(opened.token, message)
+      expect(out.text).toBe('reply')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(lines).toHaveLength(1)
+    const logged = lines[0] ?? ''
+    expect(JSON.parse(logged)).toMatchObject({
+      event: 'gateway.settle_failed',
+      guildId: GUILD,
+      runId: 'run-1',
+      callKey: expect.any(String),
+    })
+    expect(logged).not.toContain('secret-ish')
+    expect(logged).not.toContain(KEY)
   })
 })

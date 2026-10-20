@@ -3,6 +3,7 @@ import type { Db } from '../db/client'
 import { appendEvent } from '../events'
 import type { KeyProvider } from '../ports/key-provider'
 import {
+  isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
   type NewRun,
@@ -208,6 +209,9 @@ export class PgModelLedger implements ModelLedger {
   ): Promise<UsagePage> {
     const limit = Math.min(Math.max(page.limit, 1), MAX_USAGE_PAGE)
     const after = page.after ?? null
+    if (by === 'day' && after !== null && !isUsageDate(after)) {
+      return { rows: [], next: null }
+    }
     const rows = await this.db.withGuild(
       guildId,
       // The cursor filters the grouping column itself (not a computed key) so each grouping's
