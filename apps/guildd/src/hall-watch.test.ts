@@ -129,4 +129,24 @@ describe('watchHalls', () => {
     expect(await watchHalls(deps, w.guild)).toEqual(['heralds'])
     expect(rowsRead).toBe(10)
   })
+
+  test('failed Verdicts of the last hour count as gate denials, older ones do not', async () => {
+    const w = world()
+    const fail = async (hallId: string, content: string) => {
+      const q = await w.quest(hallId)
+      await w.proposals.propose(
+        w.guild,
+        { questId: q.id, author: 'heralds-member-2', kind: 'post', content },
+        { passed: false, findings: [{ check: 'length', passed: false, detail: 'too long' }] }
+      )
+    }
+    for (let i = 0; i < 25; i++) {
+      await fail('smiths', `old ${i}`)
+    }
+    w.clock.advance(3 * 60 * 60 * 1000)
+    for (let i = 0; i < 10; i++) {
+      await fail('heralds', `recent ${i}`)
+    }
+    expect(await watchHalls(w.deps, w.guild)).toEqual(['heralds'])
+  })
 })
