@@ -26,10 +26,10 @@ import type { Session } from './passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
+import { reconnectDelayMs, streamNotice } from './stream-retry'
 import { TalkDialog } from './TalkDialog'
 import { DialogueBox, ItemGet, PixelButton } from './ui/pixel'
 
-const MAX_RECONNECT_MS = 10_000
 const BANNER_MS = 4000
 
 /** What the home hands to whatever draws over the world (the HUD and the Bag). */
@@ -66,6 +66,8 @@ export function GamePanel({
   const [position, setPosition] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  // Failed connect or load attempts in a row; after a few the Hall says so in-world.
+  const [streamFailures, setStreamFailures] = useState(0)
   const [roomSlot, setRoomSlot] = useState<number | null>(null)
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
@@ -128,11 +130,16 @@ export function GamePanel({
         retry()
         return
       }
+      let opened = false
       socket = new WebSocket(
         questStreamUrl(session, window.location.origin, lastSeq.current, ticket)
       )
+      socket.onopen = () => {
+        opened = true
+      }
       socket.onmessage = (message) => {
         attempt = 0
+        setStreamFailures(0)
         const event = readEventFrame(String(message.data))
         if (event) {
           setBanner(bannerFor(event))
@@ -144,15 +151,22 @@ export function GamePanel({
           }
         }
       }
-      socket.onclose = retry
+      socket.onclose = () => {
+        if (opened) {
+          attempt = 0
+          setStreamFailures(0)
+        }
+        retry()
+      }
     }
 
-    function retry() {
+    function retry(again: () => void = connect) {
       if (!closed) {
-        // Jittered backoff so many tabs do not reconnect in lockstep.
-        const ceiling = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
+        // Jittered backoff so many tabs reloaded together do not retry in lockstep.
+        const wait = reconnectDelayMs(attempt, Math.random())
         attempt += 1
-        timer = setTimeout(connect, ceiling / 2 + Math.random() * (ceiling / 2))
+        setStreamFailures(attempt)
+        timer = setTimeout(again, wait)
       }
     }
 
@@ -161,31 +175,41 @@ export function GamePanel({
     loadGuildMasterLook(session, fetch)
       .then((saved) => !closed && setLook(saved))
       .catch(() => undefined)
-    Promise.all([
-      loadRoster(session, fetch),
-      loadQuests(session, fetch),
-      loadHistory(session, fetch),
-    ])
-      .then(([loadedRoster, loadedQuests, history]) => {
-        if (closed) {
-          return
-        }
-        setRoster(loadedRoster)
-        setQuests(
-          loadedQuests.map((q) => ({
-            id: q.id,
-            title: q.title,
-            hallId: q.hallId,
-            ownerId: q.ownerId,
-            state: q.state,
-          }))
-        )
-        setEvents(history)
-        lastSeq.current = history.reduce((max, e) => Math.max(max, e.seq), 0)
-        setLoadError(false)
-        connect()
-      })
-      .catch(() => !closed && setLoadError(true))
+    const load = () =>
+      Promise.all([
+        loadRoster(session, fetch),
+        loadQuests(session, fetch),
+        loadHistory(session, fetch),
+      ])
+        .then(([loadedRoster, loadedQuests, history]) => {
+          if (closed) {
+            return
+          }
+          setRoster(loadedRoster)
+          setQuests(
+            loadedQuests.map((q) => ({
+              id: q.id,
+              title: q.title,
+              hallId: q.hallId,
+              ownerId: q.ownerId,
+              state: q.state,
+            }))
+          )
+          setEvents(history)
+          lastSeq.current = history.reduce((max, e) => Math.max(max, e.seq), 0)
+          setLoadError(false)
+          attempt = 0
+          setStreamFailures(0)
+          connect()
+        })
+        .catch(() => {
+          if (!closed) {
+            // A rate-limited or briefly unreachable load backs off and tries again, never dead-ends.
+            setLoadError(true)
+            retry(load)
+          }
+        })
+    load()
     return () => {
       closed = true
       clearTimeout(timer)
@@ -220,6 +244,7 @@ export function GamePanel({
             events,
             upTo: at >= events.length ? null : (events[at - 1]?.seq ?? 0),
             missiveTexts,
+            now: at >= events.length ? Date.now() : undefined,
           })
         : null,
     [roster, quests, events, at, missiveTexts]
@@ -391,6 +416,11 @@ export function GamePanel({
       {(failed || loadError) && (
         <p role="alert" className="world-alert">
           The guild hall could not load everything; retrying through the stream.
+        </p>
+      )}
+      {streamNotice(streamFailures) !== null && (
+        <p role="status" className="world-alert">
+          {streamNotice(streamFailures)}
         </p>
       )}
       <InspectCard

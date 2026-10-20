@@ -202,9 +202,6 @@ function working(input: PlanInput, name: NonNullable<SceneMember['activity']>['n
  */
 export function planFor(input: PlanInput): Plan {
   const { member } = input
-  if (member.awaitingSeal) {
-    return { key: `${member.id}:seal`, stops: [stop(spotOf('seal-desk'), 'stand')] }
-  }
   if (member.status === 'working') {
     const activity = member.activity
     if (!activity) {
@@ -214,6 +211,10 @@ export function planFor(input: PlanInput): Plan {
       key: `${member.id}:${activity.name}@${activity.seq}`,
       stops: working(input, activity.name),
     }
+  }
+  // The Seal desk is shown only when the Member has no active work in hand.
+  if (member.awaitingSeal) {
+    return { key: `${member.id}:seal`, stops: [stop(spotOf('seal-desk'), 'stand')] }
   }
   const rest = routine(input)
   if (input.handIn) {
