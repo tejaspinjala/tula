@@ -62,6 +62,11 @@ describe('hardenedRunArgs', () => {
     expect(args.slice(-3)).toEqual([spec.image, 'sleep', '300'])
   })
 
+  test('ends options with -- immediately before the image', () => {
+    const args = hardenedRunArgs(spec)
+    expect(args.slice(-4)).toEqual(['--', spec.image, 'sleep', '300'])
+  })
+
   test('never carries env values on the command line', () => {
     const args = hardenedRunArgs(spec)
     expect(args).not.toContain('--env')

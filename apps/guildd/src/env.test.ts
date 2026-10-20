@@ -167,6 +167,19 @@ describe('sandbox settings', () => {
       /EGRESS_PROXY_URL/
     )
   })
+  test('refuses an option-like image and a host-wide or option-like network', () => {
+    expect(() =>
+      loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `-x@sha256:${'a'.repeat(64)}` })
+    ).toThrow(/SANDBOX_IMAGE/)
+    expect(() =>
+      loadSandboxEnv({ ...docker, SANDBOX_IMAGE: `x y@sha256:${'a'.repeat(64)}` })
+    ).toThrow(/SANDBOX_IMAGE/)
+    for (const network of ['host', 'bridge', 'none', '--x', '-v']) {
+      expect(() => loadSandboxEnv({ ...docker, SANDBOX_NETWORK: network })).toThrow(
+        /SANDBOX_NETWORK/
+      )
+    }
+  })
   test('production refuses an unset runner and the memory runner', () => {
     expect(() => loadSandboxEnv({ NODE_ENV: 'production' })).toThrow(/SANDBOX_RUNNER/)
     expect(() => loadSandboxEnv({ NODE_ENV: 'production', SANDBOX_RUNNER: 'memory' })).toThrow(
