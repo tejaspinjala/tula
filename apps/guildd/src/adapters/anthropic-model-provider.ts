@@ -83,7 +83,11 @@ export class AnthropicModelProvider implements ModelProvider {
     this.random = options.random ?? Math.random
   }
 
-  async complete(credential: ProviderSecret, request: ModelRequest): Promise<ModelResponse> {
+  async complete(
+    credential: ProviderSecret,
+    request: ModelRequest,
+    _signal?: AbortSignal
+  ): Promise<ModelResponse> {
     const parsed = modelRequest.safeParse(request)
     if (!parsed.success) {
       throw new ModelProviderError('invalid_request')
