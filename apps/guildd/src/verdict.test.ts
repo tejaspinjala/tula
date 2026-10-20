@@ -49,4 +49,21 @@ describe('deterministic Verdict checks', () => {
     const f = find('password: hunter2', 'private_data')
     expect(JSON.stringify(f)).not.toContain('hunter2')
   })
+  test('meta_draft: text that talks about doing the task instead of doing it fails', () => {
+    for (const meta of [
+      "I'm ready to work on this Quest and draft an announcement.",
+      'I will draft the announcement now.',
+      'As an AI language model, I cannot post.',
+      'Sure! I can help you write that announcement.',
+    ]) {
+      expect(find(meta, 'meta_draft')?.passed).toBe(false)
+    }
+    expect(
+      find('Guildhall 1.0 is live: Seals now bind every post to its Verdict.', 'meta_draft')?.passed
+    ).toBe(true)
+  })
+  test('meta_draft: allowMetaDrafts turns the check off', () => {
+    const policy = { ...DEFAULT_POLICY, allowMetaDrafts: true }
+    expect(find('I will draft the announcement now.', 'meta_draft', policy)?.passed).toBe(true)
+  })
 })

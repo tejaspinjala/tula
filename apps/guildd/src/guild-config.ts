@@ -157,6 +157,8 @@ export const contentPolicy = z.object({
   maxLength: z.number().int().min(1).max(20_000),
   bannedTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
   requiredTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+  /** True lets a draft that talks about the task through the Verdict; absent means rejected. */
+  allowMetaDrafts: z.boolean().optional(),
 })
 
 /** The guild's effective content policy for Verdicts. */
@@ -410,9 +412,10 @@ function policyNoWider(prev: ContentPolicy, next: ContentPolicy): boolean {
   }
   return (
     next.maxLength <= prev.maxLength &&
+    (next.allowMetaDrafts !== true || prev.allowMetaDrafts === true) &&
     covers(next.bannedTerms, prev.bannedTerms) &&
     covers(next.requiredTerms, prev.requiredTerms) &&
-    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms'])
+    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms', 'allowMetaDrafts'])
   )
 }
 

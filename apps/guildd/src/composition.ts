@@ -141,6 +141,7 @@ export async function compose(
   const proposals =
     overrides.proposals ??
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
+  const workflowStore = new PgWorkflowStore(db, keys, clock)
   const mcp =
     overrides.mcp ??
     new McpGateway({
@@ -151,6 +152,7 @@ export async function compose(
       handoffs: new PgHandoffStore(db, keys),
       toolsets: new PgToolsetStore(db),
       proposals,
+      workflows: workflowStore,
       keys,
       clock,
       tripwires,
@@ -191,7 +193,7 @@ export async function compose(
     workflows:
       overrides.workflows ??
       new WorkflowEngine({
-        store: new PgWorkflowStore(db, keys, clock),
+        store: workflowStore,
         config,
         quests,
         tripwires,
