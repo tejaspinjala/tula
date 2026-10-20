@@ -43,6 +43,7 @@ import {
 import type { StreamTicketStore } from './ports/stream-ticket'
 import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
+import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealPushRelay } from './seal-push'
@@ -126,12 +127,20 @@ const foundGuildBody = z.object({
   goal: z.string().trim().min(1).max(2000),
 })
 
-const pushEndpoint = z.url({ protocol: /^https$/ }).max(2048)
-const pushSubscribeBody = z.object({
-  endpoint: pushEndpoint,
-  keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
+/** Bytes in the base64url string, or -1 when it is not base64url. */
+function base64urlLength(value: string): number {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? Buffer.from(value, 'base64url').length : -1
+}
+
+/** The device keys a browser's PushSubscription carries: a P-256 point and a 16-byte secret. */
+const pushKeys = z.object({
+  p256dh: z
+    .string()
+    .refine((v) => base64urlLength(v) === 65 && Buffer.from(v, 'base64url')[0] === 4),
+  auth: z.string().refine((v) => base64urlLength(v) === 16),
 })
-const pushUnsubscribeBody = z.object({ endpoint: pushEndpoint })
+const pushSubscribeBody = z.object({ endpoint: z.string().max(2048), keys: pushKeys })
+const pushUnsubscribeBody = z.object({ endpoint: z.string().max(2048) })
 
 const uuid = z.uuid()
 const verifyQuery = z.object({
@@ -847,22 +856,23 @@ export function createApp(deps: AppDeps): Hono {
       return who.res
     }
     const body = pushSubscribeBody.safeParse(await c.req.json().catch(() => null))
-    if (!body.success) {
+    if (
+      !body.success ||
+      !isPushEndpoint(body.data.endpoint, deps.pushAllowedHosts ?? PUSH_SERVICE_HOSTS)
+    ) {
       return c.json({ error: 'invalid_subscription' }, 400)
     }
-    // Catch the log up first so Seals requested before this device existed are never pushed to it.
-    await deps.pushRelay.dispatch(who.guild)
-    await deps.pushStore.add(
+    // Events up to now are never pushed to this device; nothing here waits on a push service.
+    const sinceSeq = await deps.db.withGuild(who.guild, headSeq)
+    const added = await deps.pushStore.add(
       who.guild,
       who.member,
-      {
-        endpoint: body.data.endpoint,
-        p256dh: body.data.keys.p256dh,
-        auth: body.data.keys.auth,
-      },
-      0
+      { endpoint: body.data.endpoint, p256dh: body.data.keys.p256dh, auth: body.data.keys.auth },
+      sinceSeq
     )
-    return c.json({ endpoint: body.data.endpoint }, 201)
+    return added === 'conflict'
+      ? c.json({ error: 'endpoint_taken' }, 409)
+      : c.json({ endpoint: body.data.endpoint }, 201)
   })
 
   app.delete('/guilds/:id/push/subscriptions', async (c) => {
@@ -874,9 +884,11 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_subscription' }, 400)
     }
-    return (await deps.pushStore.remove(who.guild, who.member, body.data.endpoint)) === 'removed'
-      ? c.body(null, 204)
-      : c.json({ error: 'not_found' }, 404)
+    const removed = await deps.pushStore.remove(who.guild, who.member, body.data.endpoint)
+    if (removed === 'conflict') {
+      return c.json({ error: 'endpoint_taken' }, 409)
+    }
+    return removed === 'removed' ? c.body(null, 204) : c.json({ error: 'not_found' }, 404)
   })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
