@@ -4,7 +4,7 @@
  * Postgres tools run inside the Postgres container (`docker exec`), so the host needs none.
  */
 import { chmod, copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { S3Client } from 'bun'
 import postgres from 'postgres'
 import { z } from 'zod'
@@ -36,6 +36,21 @@ const Manifest = z.object({
 
 function sha256(bytes: Uint8Array): string {
   return new Bun.CryptoHasher('sha256').update(bytes).digest('hex')
+}
+
+/** True when `child` is `parent` or lies inside it. */
+function isWithin(parent: string, child: string): boolean {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+/** Throws unless the key directory and the backup directory are disjoint (neither contains the other). */
+export function assertKeySeparated(backupDir: string, keyDir: string): void {
+  const a = resolve(backupDir)
+  const b = resolve(keyDir)
+  if (isWithin(a, b) || isWithin(b, a)) {
+    throw new Error('BACKUP_KEY_DIR and BACKUP_DIR must not contain one another')
+  }
 }
 
 /** Validates a SQL identifier and quotes it; names are generated or operator-supplied. */
