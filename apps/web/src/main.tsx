@@ -11,7 +11,9 @@ import '@fontsource/vt323/latin-400.css'
 import '@xyflow/react/dist/style.css'
 import './styles/tokens.css'
 import './ui/pixel/pixel.css'
+import './work.css'
 import './index.css'
+import './TitleScene.css'
 import { bootTheme, browserThemeEnv } from './ui/pixel/theme'
 
 // Day or night, from the saved Guild Master choice or the system, before the first paint of the app.

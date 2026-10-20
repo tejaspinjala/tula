@@ -153,7 +153,7 @@ test('a cancelled passkey is announced and retrying reuses the founding token wi
   const w = world({ createError: cancel })
   const { host, root } = await mount(w)
   await submit(host)
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('cancelled')
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('set the passkey aside')
   await act(async () => {
     host
       .querySelector('form')

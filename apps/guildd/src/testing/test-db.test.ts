@@ -1,7 +1,15 @@
 import { expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import postgres from 'postgres'
-import { ensureTestDatabase, isolatedDbName, testDbName, testDbUrl } from './test-db'
+import { migrate, migrationsDir } from '../db/migrate'
+import {
+  createIsolatedTestDb,
+  ensureTestDatabase,
+  isolatedDbName,
+  testDbName,
+  testDbUrl,
+  withScratchSchema,
+} from './test-db'
 
 const dbCount = async () => {
   const admin = postgres(process.env.DATABASE_URL ?? testDbUrl(), { max: 1 })
@@ -82,3 +90,21 @@ test('a missing database is created and migrated, then ensuring again is a no-op
     await admin.end()
   }
 })
+
+test('concurrent isolated database setups, drops and scratch migrations do not collide on cluster-wide DDL', async () => {
+  const setup = async (n: number) => {
+    for (let round = 0; round < 3; round++) {
+      const db = await createIsolatedTestDb(`concurrent-${n}-${round}-${crypto.randomUUID()}`)
+      await db.drop()
+    }
+  }
+  const scratch = async () => {
+    for (let round = 0; round < 3; round++) {
+      await withScratchSchema((sql, schema) => migrate(sql, migrationsDir, { schema }))
+    }
+  }
+  await Promise.all([
+    ...Array.from({ length: 6 }, (_, n) => setup(n)),
+    ...Array.from({ length: 6 }, () => scratch()),
+  ])
+}, 180_000)

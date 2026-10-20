@@ -317,6 +317,73 @@ const subscriptionSchema = z
     maxConcurrent: env.CLAUDE_CLI_MAX_CONCURRENT,
   }))
 
+const researchSeed = z.object({
+  results: z.array(z.object({ title: z.string(), url: z.string(), snippet: z.string() })),
+  pages: z.record(z.string(), z.string()).default({}),
+})
+
+const researchSchema = z
+  .object({
+    /** The search provider research uses. Absent: research is off (ADR-0010). */
+    RESEARCH_PROVIDER: z.enum(['brave', 'memory']).optional(),
+    /** Brave Search API token (secret); required for `brave`. */
+    BRAVE_SEARCH_API_KEY: z.string().min(1).optional(),
+    /** Whether private-class Quests may send queries to the provider; a host decision, off by default. */
+    RESEARCH_PRIVATE_ELIGIBLE: z.enum(['true', 'false']).default('false'),
+    /** Paper cents the Treasury charges per research call. */
+    RESEARCH_CALL_COST_CENTS: z.coerce.number().int().min(0).max(10_000).default(1),
+    /** JSON `{results, pages}` served by the `memory` provider (development and run-checks only). */
+    RESEARCH_MEMORY_SEED: z.string().optional(),
+    NODE_ENV: z.string().default('development'),
+  })
+  .transform((env, ctx) => {
+    const common = {
+      privateEligible: env.RESEARCH_PRIVATE_ELIGIBLE === 'true',
+      costCents: env.RESEARCH_CALL_COST_CENTS,
+    }
+    if (env.RESEARCH_PROVIDER === 'brave') {
+      if (!env.BRAVE_SEARCH_API_KEY) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['BRAVE_SEARCH_API_KEY'],
+          message: 'BRAVE_SEARCH_API_KEY is required for RESEARCH_PROVIDER=brave',
+        })
+        return z.NEVER
+      }
+      return { kind: 'brave' as const, apiKey: env.BRAVE_SEARCH_API_KEY, ...common }
+    }
+    if (env.RESEARCH_PROVIDER === 'memory') {
+      let seed: z.infer<typeof researchSeed> | null = null
+      try {
+        const parsed = researchSeed.safeParse(JSON.parse(env.RESEARCH_MEMORY_SEED ?? ''))
+        seed = parsed.success ? parsed.data : null
+      } catch {
+        seed = null
+      }
+      if (env.NODE_ENV === 'production' || seed === null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['RESEARCH_PROVIDER'],
+          message:
+            env.NODE_ENV === 'production'
+              ? 'RESEARCH_PROVIDER=memory is not allowed in production'
+              : 'RESEARCH_MEMORY_SEED must be JSON {results, pages}',
+        })
+        return z.NEVER
+      }
+      return { kind: 'memory' as const, seed, ...common }
+    }
+    return null
+  })
+
+/**
+ * Reads the web research settings (ADR-0010): null (research off) unless `RESEARCH_PROVIDER` names
+ * a provider; throws at boot on anything invalid.
+ */
+export function loadResearchEnv(source: Record<string, string | undefined> = process.env) {
+  return researchSchema.parse(source)
+}
+
 /** Reads the subscription provider settings (ADR-0008); throws at boot on anything invalid. */
 export function loadSubscriptionEnv(source: Record<string, string | undefined> = process.env) {
   return subscriptionSchema.parse(source)

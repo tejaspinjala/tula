@@ -10,6 +10,7 @@ import {
   loadCosts,
 } from './costs'
 import type { Session } from './passkeys'
+import { WorkSection } from './WorkSection'
 
 const GROUPS: Array<{ value: CostGroup; label: string }> = [
   { value: 'day', label: 'Day' },
@@ -47,14 +48,11 @@ export function CostTablePanel({ session }: { session: Session | null }) {
   }, [session])
 
   return (
-    <section aria-labelledby="costs-heading" className="card">
-      <h2 id="costs-heading" className="card-title">
-        Costs
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see spend.</p>}
+    <WorkSection id="costs" title="Costs">
+      {!session && <p>Sign in with a passkey to see spend.</p>}
       {failed && <p role="alert">The cost table could not be loaded.</p>}
       {session && (
-        <label className="mt-4 block">
+        <label className="block">
           Group by{' '}
           <select
             value={by}
@@ -70,7 +68,7 @@ export function CostTablePanel({ session }: { session: Session | null }) {
       )}
       {rows && (
         <div className="table-scroll">
-          <table className="mt-2 w-full text-left">
+          <table className="w-full text-left">
             <caption className="sr-only">Spend by {by}</caption>
             <thead>
               <tr>
@@ -97,15 +95,15 @@ export function CostTablePanel({ session }: { session: Session | null }) {
       )}
       {posts && (
         <>
-          <h3 className="sub-title">Cost per accepted post</h3>
-          <p className="mt-2">
+          <h3 className="work-sub">Cost per accepted post</h3>
+          <p>
             {posts.overall.posts === 0
               ? 'No post has been accepted yet.'
               : `${posts.overall.posts} accepted, ${costPerPostText(posts.overall)}${posts.overall.costMicros === 0 ? '' : ' each'}.`}
           </p>
           {posts.campaigns.length > 0 && (
             <div className="table-scroll">
-              <table className="mt-2 w-full text-left">
+              <table className="w-full text-left">
                 <caption className="sr-only">Cost per accepted post by Campaign</caption>
                 <thead>
                   <tr>
@@ -132,6 +130,6 @@ export function CostTablePanel({ session }: { session: Session | null }) {
           )}
         </>
       )}
-    </section>
+    </WorkSection>
   )
 }
