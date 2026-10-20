@@ -130,11 +130,21 @@ describe('guild config over HTTP', () => {
   })
 
   test('seeding is chained: the founding transaction wrote a config event and the chain verifies', async () => {
-    const who = await signedIn()
-    const events = await harness.adapters.db.withGuild(who.guildId, (tx) => eventsAfter(tx, 0, 50))
-    expect(events.map((e) => e.type)).toContain('config.seeded')
-    const verify = await send(harness, 'GET', `${who.base}/audit/verify`, undefined, who.auth)
-    expect(await verify.json()).toMatchObject({ intact: true })
+    const founded = foundedBody.parse(
+      await (await send(devHarness, 'POST', '/guilds', { name: 'Pinned', goal: 'g' })).json()
+    )
+    const events = await devHarness.adapters.db.withGuild(founded.id, (tx) =>
+      eventsAfter(tx, 0, 50)
+    )
+    // Pin everything founding writes: guild.founded first, then the identity and config events.
+    expect(events.map((e) => e.type).sort()).toEqual(
+      ['config.seeded', 'guild.founded', 'identity.founding_token_issued'].sort()
+    )
+    expect(events[0]?.type).toBe('guild.founded')
+    const verify = await send(devHarness, 'GET', `/guilds/${founded.id}/audit/verify`, undefined, {
+      'x-guild-id': founded.id,
+    })
+    expect(await verify.json()).toMatchObject({ intact: true, entries: events.length })
   })
 
   test('tightening applies at once and the change is a chained event', async () => {
@@ -202,6 +212,22 @@ describe('guild config over HTTP', () => {
     )
     expect(restore.status).toBe(401)
     expect((await who.current()).config.sealPolicy).toBe('always')
+  })
+
+  test('removing a private Hall and re-adding it unlocked never applies at once', async () => {
+    const who = await signedIn()
+    const base = defaultConfig()
+    const health = base.halls.find((h) => h.id === 'health')
+    if (!health) {
+      throw new Error('health Hall is seeded')
+    }
+    const gone = { ...base, halls: base.halls.filter((h) => h.id !== 'health') }
+    const first = await send(harness, 'PUT', `${who.base}/config`, { config: gone }, who.auth)
+    expect(first.status).toBe(202)
+    const back = { ...base, halls: [...gone.halls, { ...health, locked: false }] }
+    const second = await send(harness, 'PUT', `${who.base}/config`, { config: back }, who.auth)
+    expect(second.status).toBe(202)
+    expect((await who.current()).config).toEqual(base)
   })
 
   test('an earlier version can be restored, history is paginated, and a bad config is refused', async () => {
