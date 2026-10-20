@@ -40,9 +40,14 @@ if (mode === 'argv') {
   await Bun.write(mode.slice('pidhang:'.length), String(process.pid))
   process.stdout.write('x'.repeat(2_000_000))
   setInterval(() => {}, 1000)
-} else if (mode === 'grandchild') {
+} else if (mode.startsWith('grandchild:')) {
   // A grandchild inherits stdout and outlives this process, holding the pipe open.
-  Bun.spawn(['sleep', '30'], { stdout: 'inherit', stderr: 'ignore', stdin: 'ignore' })
+  const grandchild = Bun.spawn(['sleep', '30'], {
+    stdout: 'inherit',
+    stderr: 'ignore',
+    stdin: 'ignore',
+  })
+  await Bun.write(mode.slice('grandchild:'.length), String(grandchild.pid))
   process.exit(0)
 } else if (mode === 'hang') {
   setInterval(() => {}, 1000)

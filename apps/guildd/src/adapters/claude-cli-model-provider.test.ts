@@ -82,11 +82,27 @@ describe('ClaudeCliModelProvider cleanup', () => {
     }
   })
 
-  test('a grandchild holding stdout open cannot stall the call past the timeout', async () => {
-    const provider = new ClaudeCliModelProvider({ bin: FAKE, timeoutMs: 500 })
-    const started = Date.now()
-    expect(await codeOf(provider.complete(secret, call('grandchild')))).toBe('timeout')
-    expect(Date.now() - started).toBeLessThan(3000)
+  test('a grandchild holding stdout open cannot stall the call, and is killed with the child', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cli-test-'))
+    const pidFile = join(dir, 'pid')
+    let pid = 0
+    try {
+      const provider = new ClaudeCliModelProvider({ bin: FAKE, timeoutMs: 500 })
+      const started = Date.now()
+      expect(await codeOf(provider.complete(secret, call(`grandchild:${pidFile}`)))).toBe('timeout')
+      expect(Date.now() - started).toBeLessThan(3000)
+      pid = Number(await Bun.file(pidFile).text())
+      expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/)
+    } finally {
+      if (pid > 0) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // already gone, as it should be
+        }
+      }
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 
