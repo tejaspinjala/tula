@@ -5,7 +5,7 @@
 export {}
 
 const stdin = await new Response(Bun.stdin.stream()).text()
-const mode = /^MODE=(\S+)/.exec(stdin)?.[1] ?? 'ok'
+const mode = /^MODE=(\S+)/m.exec(stdin)?.[1] ?? 'ok'
 const usage = {
   input_tokens: 11,
   output_tokens: 5,
@@ -16,7 +16,14 @@ const base = { type: 'result', subtype: 'success', is_error: false, total_cost_u
 const emit = (body: object) => process.stdout.write(JSON.stringify({ ...base, ...body }))
 
 if (mode === 'argv') {
-  emit({ result: JSON.stringify({ argv: process.argv.slice(2), env: process.env, stdin }) })
+  emit({
+    result: JSON.stringify({
+      argv: process.argv.slice(2),
+      env: process.env,
+      cwd: process.cwd(),
+      stdin,
+    }),
+  })
 } else if (mode === 'error') {
   emit({ subtype: 'error_during_execution', is_error: true, result: 'something broke' })
   process.exit(1)
