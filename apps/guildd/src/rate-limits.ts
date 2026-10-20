@@ -68,17 +68,20 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   // The Summon panel polls its status; a read is cheap but still bounded per client and guild.
   'summon-status': writeLimits(60, 240),
   'seal-posted': writeLimits(30, 120),
-  // Run-token calls to the model gateway: each spends money, so they are bounded per client
-  // (workers share a few addresses); the daily caps bound the total spend.
+  // Run-token calls to the model gateway: each spends money. Every sandbox reaches guildd
+  // through the one proxy address, so the client bucket is loose; the guild the verified run
+  // token names is bounded tighter (charged after the token verifies). Daily caps bound spend.
   'gateway-call': {
-    client: { limit: 300, windowMs: MINUTE },
+    client: { limit: 1200, windowMs: MINUTE },
     unknown: { limit: 60, windowMs: MINUTE },
+    guild: { limit: 300, windowMs: MINUTE },
   },
-  // The MCP gateway: no guild in the path, so it is bounded per client; every tool call is also
-  // authorised by a signed lease token, and a forged one costs a MAC check.
+  // The MCP gateway: no guild in the path, so the guild bucket is charged to the guild named by
+  // the verified lease or assignment token; a forged token costs a MAC check and spends nothing.
   mcp: {
-    client: { limit: 600, windowMs: MINUTE },
+    client: { limit: 2400, windowMs: MINUTE },
     unknown: { limit: 120, windowMs: MINUTE },
+    guild: { limit: 600, windowMs: MINUTE },
   },
   'proposal-post': writeLimits(60, 300),
   // A person registers a handful of devices; each call is a dispatch scan and a database write.
@@ -187,8 +190,8 @@ export type RateAuth = 'session' | 'unauthenticated'
  * How each limited route is reached. `unauthenticated` means not session-gated: the guild bucket,
  * if any, is charged before auth (a caller has no session yet). `session` routes charge it only
  * after the caller's session resolves to the guild in the path, so another guild's session, or
- * none, cannot spend it. `gateway-call` and `mcp` carry tokens, not sessions, and have no guild
- * rule, so they are counted per client only.
+ * none, cannot spend it. `gateway-call` and `mcp` carry tokens, not sessions: their guild bucket is
+ * charged by the handler after the token verifies, never by this middleware.
  */
 export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'signin-begin': 'unauthenticated',
