@@ -45,6 +45,7 @@ function countingApp(
     seals: harness.adapters.seals,
     tripwires: harness.adapters.tripwires,
     treasury: harness.adapters.treasury,
+    learning: harness.adapters.learning,
     proposals: harness.adapters.proposals,
     rateLimiter: harness.adapters.rateLimiter,
     rateLimits: UNLIMITED_RATE_LIMITS,

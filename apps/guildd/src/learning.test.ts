@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { extractSuggestions } from './learning'
+import type { NewSuggestion } from './ports/suggestion-store'
 
 const input = {
   repo: 'tula-solutions/guildhall',
@@ -26,7 +27,7 @@ const input = {
   ],
 }
 
-const expected = [
+const expected: NewSuggestion[] = [
   {
     sourceId: 'adr:tula-solutions/guildhall:docs/adr/0007-use-row-level-security.md',
     repo: 'tula-solutions/guildhall',

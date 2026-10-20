@@ -49,6 +49,9 @@ export interface HarnessOptions {
       | 'mcp'
       | 'tripwires'
       | 'treasury'
+      | 'learning'
+      | 'githubEnvoy'
+      | 'suggestions'
       | 'streamTickets'
       | 'pushStore'
       | 'pushNotifier'
@@ -122,6 +125,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       mcp: composed.mcp,
       tripwires: composed.tripwires,
       treasury: composed.treasury,
+      learning: composed.learning,
       streamTickets: composed.streamTickets,
       pushStore: composed.pushStore,
       pushNotifier: composed.pushNotifier,
