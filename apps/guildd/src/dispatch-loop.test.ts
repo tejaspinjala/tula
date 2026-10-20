@@ -113,4 +113,46 @@ describe('startDispatchLoop', () => {
     timer.tick()
     await loop.idle()
   })
+
+  test('a loop with no dispatcher only runs its guild sweeps and reports no error', async () => {
+    const swept: string[] = []
+    const errors: unknown[] = []
+    const timer = manualTimer()
+    const loop = startDispatchLoop({
+      guildSweeps: [async (g) => void swept.push(g)],
+      guildIds: guilds,
+      intervalMs: 1000,
+      timer,
+      onError: (e) => void errors.push(e),
+    })
+    timer.tick()
+    await loop.idle()
+    expect(swept).toEqual(['a', 'b', 'c'])
+    expect(errors).toEqual([])
+  })
+
+  test('each tick also runs every guild sweep, and a failing sweep is reported, not fatal', async () => {
+    const swept: string[] = []
+    const errors: string[] = []
+    const timer = manualTimer()
+    const loop = startDispatchLoop({
+      dispatcher: { dispatch: async () => ({ status: 'idle' }) },
+      guildSweeps: [
+        async (g) => {
+          if (g === 'b') {
+            throw new Error('boom')
+          }
+          swept.push(g)
+        },
+      ],
+      guildIds: guilds,
+      intervalMs: 1000,
+      timer,
+      onError: (_e, g) => void errors.push(g ?? 'all'),
+    })
+    timer.tick()
+    await loop.idle()
+    expect(swept).toEqual(['a', 'c'])
+    expect(errors).toEqual(['b'])
+  })
 })

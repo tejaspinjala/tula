@@ -60,6 +60,7 @@ import type { ProposalEngine } from './proposals'
 import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
+import type { Research } from './research'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
@@ -115,6 +116,8 @@ export interface AppDeps {
   routingLog: RoutingLog
   /** The model gateway: per-run tokens, metering and caps in front of the model providers. */
   gateway: ModelGateway
+  /** Composition-only: governed web research, swept by the dispatch loop; absent when no provider is configured. */
+  research?: Research
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
   /** Serves `subscription` providers; tests inject a memory one, production the `claude` CLI adapter. */

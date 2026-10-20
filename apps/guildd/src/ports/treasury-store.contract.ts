@@ -270,6 +270,34 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         })
       })
 
+      test('releasing by key frees a reservation, is a no-op when absent or already ended, and refuses a settled spend', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await request(store, g, 'k-open', 500)
+        expect(await store.releaseSpendByKey(g, 'k-open', ACTOR)).toMatchObject({
+          ok: true,
+          spend: { status: 'released' },
+        })
+        expect(await store.releaseSpendByKey(g, 'k-open', ACTOR)).toMatchObject({ ok: true })
+        expect((await store.snapshot(g, LIMITS)).balances.operating).toBe(7000)
+        expect(await store.releaseSpendByKey(g, 'k-none', ACTOR)).toEqual({
+          ok: false,
+          reason: 'not_found',
+        })
+        const done = await request(store, g, 'k-done', 100)
+        await store.settleSpend(g, done.id, 100, ACTOR)
+        expect(await store.releaseSpendByKey(g, 'k-done', ACTOR)).toEqual({
+          ok: false,
+          reason: 'wrong_state',
+        })
+        // Another guild's key is not found.
+        const other = await newGuild()
+        expect(await store.releaseSpendByKey(other, 'k-done', ACTOR)).toEqual({
+          ok: false,
+          reason: 'not_found',
+        })
+      })
+
       test('releasing a reservation frees all of it and is idempotent', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
