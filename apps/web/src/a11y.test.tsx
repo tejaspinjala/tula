@@ -16,7 +16,9 @@ import { ProposalPanel } from './ProposalPanel'
 import { webAuthnBrowser } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
+import { VIEWS } from './router'
 import { SealPanel } from './SealPanel'
+import { Shell } from './Shell'
 import { SummonPanel } from './SummonPanel'
 import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
@@ -64,7 +66,7 @@ const suggestion = {
 }
 
 // react-dom reads the DOM's capabilities when it loads, so the DOM is registered first.
-GlobalRegistrator.register()
+GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 
 beforeAll(() => {
@@ -147,6 +149,20 @@ describe('axe: no serious or critical violations', () => {
     expect(await violations(m.host)).toEqual([])
     await unmount(m)
   })
+
+  test.each(VIEWS.map((v) => [v.label, v.path] as const))(
+    'the signed-in %s view',
+    async (_label, path) => {
+      window.history.pushState({}, '', path)
+      const m = await mount(
+        <Shell session={session} guildName="Ember Guild" status="ok" onSession={() => {}} />
+      )
+      expect(m.host.querySelectorAll('h1').length).toBe(1)
+      expect(await violations(m.host)).toEqual([])
+      await unmount(m)
+      window.history.pushState({}, '', '/')
+    }
+  )
 
   test('the signed-out ledger shell', async () => {
     const m = await mount(<App />)

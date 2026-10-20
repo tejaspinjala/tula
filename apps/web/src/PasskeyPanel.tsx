@@ -32,22 +32,22 @@ export function PasskeyPanel({
 
   const guild = guildId.trim()
   return (
-    <section aria-labelledby="passkey-heading" className="mt-8">
-      <h2 id="passkey-heading" className="text-xl font-semibold">
+    <section aria-labelledby="passkey-heading" className="card">
+      <h2 id="passkey-heading" className="card-title">
         Passkey
       </h2>
       <div className="mt-4 flex flex-col gap-2">
         <label htmlFor="passkey-guild">Guild id</label>
         <input
           id="passkey-guild"
-          className="rounded border p-2 font-mono"
+          className="mono"
           value={guildId}
           onChange={(event) => setGuildId(event.target.value)}
         />
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="rounded bg-black p-2 text-white"
+            className="btn-primary"
             disabled={!guild}
             onClick={() =>
               run('Register passkey', async () => {
@@ -70,7 +70,7 @@ export function PasskeyPanel({
           </button>
           <button
             type="button"
-            className="rounded bg-black p-2 text-white"
+            className="btn-primary"
             disabled={!guild}
             onClick={() =>
               run('Sign in', async () => {
@@ -84,7 +84,6 @@ export function PasskeyPanel({
           {session && (
             <button
               type="button"
-              className="rounded border p-2"
               onClick={() => {
                 onSession(null)
                 setMessage('Signed out')

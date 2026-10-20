@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Badge, questTone } from './Badge'
 import type { Session } from './passkeys'
 import {
   BOARD_STATES,
@@ -98,22 +99,24 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
   const board = groupByState(quests)
 
   return (
-    <section aria-labelledby="quests-heading" className="mt-8">
-      <h2 id="quests-heading" className="text-xl font-semibold">
+    <section aria-labelledby="quests-heading" className="card">
+      <h2 id="quests-heading" className="card-title">
         Quest Board
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
       {session && (
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-5" aria-live="polite">
+        <div className="board" aria-live="polite">
           {BOARD_STATES.map((state) => (
             <div key={state}>
-              <h3 className="font-medium">
-                {COLUMN_NAMES[state]} ({board[state].length})
+              <h3 className="column-title">
+                <Badge tone={questTone(state)}>
+                  {`${COLUMN_NAMES[state]} (${board[state].length})`}
+                </Badge>
               </h3>
               <ul aria-label={COLUMN_NAMES[state]} className="mt-2 flex flex-col gap-2">
                 {board[state].map((quest) => (
-                  <li key={quest.id}>
+                  <li key={quest.id} className="item">
                     <strong>{quest.title}</strong>
                     <div>
                       {quest.hallId} / {quest.ownerId}

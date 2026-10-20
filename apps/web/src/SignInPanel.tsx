@@ -51,14 +51,14 @@ export function SignInPanel({
 
   const guild = guildId.trim()
   return (
-    <section aria-labelledby="sign-in-heading" className="mt-8">
-      <h2 id="sign-in-heading" className="text-xl font-semibold">
+    <section aria-labelledby="sign-in-heading" className="card">
+      <h2 id="sign-in-heading" className="card-title">
         Sign in
       </h2>
       <div className="mt-4 flex flex-col gap-2">
         <button
           type="button"
-          className="rounded bg-black p-2 text-white"
+          className="btn-primary"
           disabled={busy}
           onClick={() => run(() => signInWithPasskey(fetcher, browser))}
         >
@@ -71,13 +71,12 @@ export function SignInPanel({
             <input
               id="sign-in-guild-id"
               name="guild-id"
-              className="rounded border p-2 font-mono"
+              className="mono"
               value={guildId}
               onChange={(event) => setGuildId(event.target.value)}
             />
             <button
               type="button"
-              className="rounded border p-2"
               disabled={busy || !guild}
               onClick={() => run(() => signIn(guild, fetcher, browser))}
             >
