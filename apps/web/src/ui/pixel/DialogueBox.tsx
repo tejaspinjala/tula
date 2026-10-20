@@ -78,7 +78,7 @@ export function DialogueBox({ speaker, lines, onDone, cps = 40 }: DialogueBoxPro
       >
         <span className="px-dialogue-speaker" aria-hidden="true">
           {speaker}
-        </span>
+        </span>{' '}
         <span className="px-dialogue-text" aria-hidden="true">
           <span className="px-dialogue-shown">{line.slice(0, count)}</span>
           <span className="px-dialogue-rest">{line.slice(count)}</span>
