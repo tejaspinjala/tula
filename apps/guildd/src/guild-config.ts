@@ -36,7 +36,15 @@ export const sealPolicy = z.enum(SEAL_POLICY_LEVELS)
 /**
  * Per-provider auth (ADR-0005): the Guild Master picks `subscription` or `api_key` per provider.
  */
-export const provider = z.object({ id: slug, auth: z.enum(['subscription', 'api_key']) })
+export const provider = z.object({
+  id: slug,
+  auth: z.enum(['subscription', 'api_key']),
+  /**
+   * Whether this provider may serve private-class work. Only the Guild Master sets it; turning
+   * it on is a widening change (a new or edited provider never matches a prior one).
+   */
+  privateEligible: z.boolean().default(false),
+})
 
 /** A routing profile: which provider serves which model tier (cheap, mid, deep). */
 export const routingProfile = z.object({

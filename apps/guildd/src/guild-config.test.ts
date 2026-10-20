@@ -56,12 +56,21 @@ describe('classifyChange', () => {
       'tightening'
     )
   })
+  test('flipping a provider privateEligible either way is widening', () => {
+    const off = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: false }]
+    const on = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: true }]
+    expect(classifyChange({ ...base, providers: off }, { ...base, providers: on })).toBe('widening')
+    expect(classifyChange({ ...base, providers: on }, { ...base, providers: off })).toBe('widening')
+  })
   test('private eligibility on, unlocking and a new provider are widening', () => {
     const halls = base.halls.map((h) => (h.id === 'health' ? { ...h, privateEligible: true } : h))
     expect(classifyChange(base, { ...base, halls })).toBe('widening')
     const unlocked = base.halls.map((h) => (h.id === 'health' ? { ...h, locked: false } : h))
     expect(classifyChange(base, { ...base, halls: unlocked })).toBe('widening')
-    const withProvider = { ...base, providers: [{ id: 'anthropic', auth: 'api_key' as const }] }
+    const withProvider = {
+      ...base,
+      providers: [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: false }],
+    }
     expect(classifyChange(base, withProvider)).toBe('widening')
     expect(classifyChange(withProvider, base)).toBe('tightening')
   })
@@ -105,7 +114,7 @@ describe('classifyChange fails closed', () => {
     withHalls(base.halls.map((h) => (h.id === 'heralds' ? { ...h, ...patch } : h)))
   const provided: GuildConfig = {
     ...base,
-    providers: [{ id: 'anthropic', auth: 'subscription' }],
+    providers: [{ id: 'anthropic', auth: 'subscription', privateEligible: false }],
     routingProfiles: [{ id: 'main', provider: 'anthropic', tier: 'cheap' }],
     schedules: [{ id: 'daily', cron: '0 9 * * *' }],
   }
@@ -150,7 +159,7 @@ describe('classifyChange fails closed', () => {
     [
       'a provider changing auth',
       provided,
-      { ...provided, providers: [{ id: 'anthropic', auth: 'api_key' }] },
+      { ...provided, providers: [{ id: 'anthropic', auth: 'api_key', privateEligible: false }] },
     ],
     [
       'a schedule changing its cron',

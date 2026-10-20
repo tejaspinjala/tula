@@ -92,6 +92,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       config: composed.config,
       notes: composed.notes,
       seals: composed.seals,
+      classifier: composed.classifier,
+      routingLog: composed.routingLog,
       keys,
     },
     /** Founds a guild through the chained path with the harness's keys (see `foundTestGuild`). */
