@@ -110,6 +110,7 @@ describe('requestQuestSeal', () => {
     })
     const deps = {
       quests: s.quests,
+      sealStore: s.seals,
       proposals,
       seals: new SealEngine({ store: s.seals, config, identity }),
     }
@@ -152,6 +153,24 @@ describe('requestQuestSeal', () => {
     await g.draft('More free money')
     await requestQuestSeal(g.deps, g.guild, second)
     expect((await g.quests.get(g.guild, g.quest.id))?.state).toBe('dead')
+  })
+
+  test('a revision round with no new Proposal requests no Seal for the denied hash', async () => {
+    const g = await gate(2)
+    await g.draft('Hello guild')
+    await requestQuestSeal(g.deps, g.guild, g.quest)
+    const first = await g.seals.forQuest(g.guild, g.quest.id)
+    await g.seals.decide(g.guild, first?.id ?? '', {
+      verdict: 'denied',
+      expectedHash: first?.actionHash ?? '',
+    })
+    await reconcileSeals({ quests: g.quests, seals: g.seals }, g.guild)
+    const again = await g.quests.claim(g.guild, { leaseMs: 60_000, maxActive: 5 })
+    const second = await g.quests.submitForSeal(g.guild, g.quest.id, again?.attempts ?? 0)
+    const result = await requestQuestSeal(g.deps, g.guild, second)
+    expect(result.outcome).toBe('rejected')
+    expect((await g.seals.forQuest(g.guild, g.quest.id))?.round).toBe(1)
+    expect((await g.quests.get(g.guild, g.quest.id))?.lastError).toBe('no_revision')
   })
 
   test('a Quest with no Proposal is left as it is', async () => {

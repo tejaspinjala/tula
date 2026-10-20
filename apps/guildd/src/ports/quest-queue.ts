@@ -82,6 +82,8 @@ export const FAIL_REASONS = [
   'worker_crash',
   'sandbox_unavailable',
   'seal_rejected',
+  'no_revision',
+  'requester_reserved',
   'blocker_dead',
   'hall_locked',
   'hall_not_found',
