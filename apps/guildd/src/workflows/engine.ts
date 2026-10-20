@@ -1,16 +1,19 @@
 import type { ConfigStore } from '../ports/config-store'
-import type { QuestQueue } from '../ports/quest-queue'
+import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
 import type { WorkflowInstance, WorkflowStore, WorkflowVersion } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
-import type { PostQuestError } from '../quests'
-import type { WorkflowError } from './graph'
+import { type PostQuestError, postQuest } from '../quests'
+import { classifyWorkflowChange } from './classify'
+import { type WorkflowError, type WorkflowGraph, type WorkflowNode, workflowGraph } from './graph'
+import { LEARNING_TO_LINKEDIN, LEARNING_TO_LINKEDIN_ID } from './templates'
+import { validateWorkflow } from './validate'
 
 /** Collaborators of {@link WorkflowEngine}. The engine holds no authority of its own. */
 export interface WorkflowEngineDeps {
   store: WorkflowStore
-  config: Pick<ConfigStore, 'current'>
+  config: ConfigStore
   quests: QuestQueue
   tripwires: TripwireStore
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
@@ -61,6 +64,63 @@ export interface RunState {
   nodes: { id: string; type: string; status: NodeStatus; questId: string | null }[]
 }
 
+const AGENT_STATUS = {
+  queued: 'queued',
+  active: 'running',
+  awaiting_seal: 'awaiting_seal',
+  done: 'done',
+  dead: 'failed',
+} as const
+
+type AgentNode = Extract<WorkflowNode, { type: 'agent' }>
+
+/** The agent nodes that run directly before `id`, looking back through non-agent nodes. */
+function upstreamAgents(graph: WorkflowGraph, id: string): string[] {
+  const kinds = new Map(graph.nodes.map((n) => [n.id, n.type]))
+  const found = new Set<string>()
+  const seen = new Set<string>()
+  const stack = [id]
+  while (stack.length > 0) {
+    const at = stack.pop()
+    if (at === undefined) {
+      break
+    }
+    for (const e of graph.edges.filter((x) => x.to === at)) {
+      if (seen.has(e.from)) {
+        continue
+      }
+      seen.add(e.from)
+      if (kinds.get(e.from) === 'agent') {
+        found.add(e.from)
+      } else {
+        stack.push(e.from)
+      }
+    }
+  }
+  return graph.nodes.filter((n) => found.has(n.id)).map((n) => n.id)
+}
+
+/** Agent nodes in an order where every upstream agent comes first (stable by graph order). */
+function agentOrder(graph: WorkflowGraph): AgentNode[] {
+  const agents = graph.nodes.filter((n): n is AgentNode => n.type === 'agent')
+  const done = new Set<string>()
+  const ordered: AgentNode[] = []
+  while (ordered.length < agents.length) {
+    const next = agents.find(
+      (a) => !done.has(a.id) && upstreamAgents(graph, a.id).every((u) => done.has(u))
+    )
+    if (!next) {
+      break
+    }
+    done.add(next.id)
+    ordered.push(next)
+  }
+  return ordered
+}
+
+/** The idempotency key of a node execution: `instance:node:iteration` (one iteration here). */
+const jobKey = (instanceId: string, nodeId: string) => `${instanceId}:${nodeId}:0`
+
 /**
  * The workflow engine: validates and versions graphs, and compiles an instance's `agent` nodes to
  * Quests through the normal queue. It has no authority of its own: Verdicts, Seals, caps and the
@@ -70,44 +130,199 @@ export class WorkflowEngine {
   constructor(private readonly deps: WorkflowEngineDeps) {}
 
   /** Dry-run validation against the guild's current config. */
-  async validate(_guildId: string, _graph: unknown): Promise<WorkflowError[]> {
-    throw new Error(`not implemented ${typeof this.deps}`)
+  async validate(guildId: string, graph: unknown): Promise<WorkflowError[]> {
+    const { config } = await this.deps.config.current(guildId)
+    return validateWorkflow(graph, config)
   }
 
-  /** Saves the next version: invalid graphs are refused, widening ones wait for confirmation. */
+  /**
+   * Saves the next version: invalid graphs are refused with coded errors; a save that is not
+   * provably no wider than the previous version (or any first version) is stored `pending` and
+   * runs only once confirmed.
+   */
   async save(
-    _guildId: string,
-    _workflowId: string,
-    _input: { name: string; graph: unknown }
+    guildId: string,
+    workflowId: string,
+    input: { name: string; graph: unknown }
   ): Promise<SaveResult> {
-    throw new Error('not implemented')
+    const errors = await this.validate(guildId, input.graph)
+    if (errors.length > 0) {
+      return { status: 'invalid', errors }
+    }
+    const graph = workflowGraph.parse(input.graph)
+    const previous = await this.deps.store.getVersion(guildId, workflowId)
+    const classification = classifyWorkflowChange(previous?.graph ?? null, graph)
+    const status = classification === 'internal' ? 'active' : 'pending'
+    const version = await this.deps.store.saveVersion(guildId, workflowId, {
+      name: input.name,
+      graph,
+      classification,
+      status,
+    })
+    return { status, version }
   }
 
-  /** Confirms a pending version; null when absent. */
+  /** Confirms a pending version (the caller has re-authenticated); null when absent. */
   async confirm(
-    _guildId: string,
-    _workflowId: string,
-    _version: number
+    guildId: string,
+    workflowId: string,
+    version: number
   ): Promise<WorkflowVersion | null> {
-    throw new Error('not implemented')
-  }
-
-  /** Starts (or resumes, for the same `runKey`) an instance of an active version. */
-  async run(
-    _guildId: string,
-    _workflowId: string,
-    _opts: { version?: number; runKey?: string }
-  ): Promise<RunResult> {
-    throw new Error('not implemented')
-  }
-
-  /** Per-node status of an instance, or null when absent. */
-  async state(_guildId: string, _instanceId: string): Promise<RunState | null> {
-    throw new Error('not implemented')
+    return this.deps.store.activate(guildId, workflowId, version)
   }
 
   /** Saves the seeded templates as active versions, once per guild. */
-  async seedTemplates(_guildId: string): Promise<void> {
-    throw new Error('not implemented')
+  async seedTemplates(guildId: string): Promise<void> {
+    if (await this.deps.store.getVersion(guildId, LEARNING_TO_LINKEDIN_ID)) {
+      return
+    }
+    await this.deps.store.saveVersion(guildId, LEARNING_TO_LINKEDIN_ID, {
+      name: 'Learning to LinkedIn post',
+      graph: LEARNING_TO_LINKEDIN,
+      classification: 'internal',
+      status: 'active',
+    })
+  }
+
+  /**
+   * Starts an instance of an active version, or resumes it for the same `runKey`. The graph is
+   * validated again against today's config, then each `agent` node is posted as a Quest through
+   * the normal checks (Hall locks, Tripwires, owners), keyed `instance:node:0` so a restart posts
+   * nothing twice.
+   */
+  async run(
+    guildId: string,
+    workflowId: string,
+    opts: { version?: number; runKey?: string }
+  ): Promise<RunResult> {
+    const head = await this.deps.store.getVersion(guildId, workflowId)
+    if (!head) {
+      return { ok: false, error: 'not_found' }
+    }
+    const pinned =
+      opts.version === undefined
+        ? await this.deps.store.latestActive(guildId, workflowId)
+        : await this.deps.store.getVersion(guildId, workflowId, opts.version)
+    if (!pinned) {
+      return { ok: false, error: opts.version === undefined ? 'no_active_version' : 'not_found' }
+    }
+    if (pinned.status !== 'active') {
+      return { ok: false, error: 'version_not_active' }
+    }
+    if (!pinned.graph.nodes.some((n) => n.type === 'trigger.manual')) {
+      return { ok: false, error: 'no_manual_trigger' }
+    }
+    const errors = await this.validate(guildId, pinned.graph)
+    if (errors.length > 0) {
+      return { ok: false, error: 'invalid_workflow', errors }
+    }
+    const { instance, created } = await this.deps.store.createInstance(guildId, {
+      workflowId,
+      version: pinned.version,
+      runKey: opts.runKey ?? crypto.randomUUID(),
+    })
+    const posted = new Map<string, string>()
+    for (const node of agentOrder(pinned.graph)) {
+      const blockedBy = upstreamAgents(pinned.graph, node.id).flatMap((u) => {
+        const id = posted.get(u)
+        return id === undefined ? [] : [id]
+      })
+      const result = await postQuest(
+        { config: this.deps.config, queue: this.deps.quests, tripwires: this.deps.tripwires },
+        guildId,
+        {
+          templateId: node.templateId,
+          jobKey: jobKey(instance.id, node.id),
+          title: `${pinned.name}: ${node.name ?? node.id}`.slice(0, 200),
+          campaignId: instance.id,
+          blockedBy,
+          doneCondition: node.doneCondition,
+        }
+      )
+      if (!result.ok) {
+        return { ok: false, error: result.error, nodeId: node.id }
+      }
+      posted.set(node.id, result.quest.id)
+    }
+    return {
+      ok: true,
+      instance,
+      created,
+      quests: [...posted].map(([nodeId, questId]) => ({ nodeId, questId })),
+    }
+  }
+
+  /** Per-node status of an instance, or null when absent. */
+  async state(guildId: string, instanceId: string): Promise<RunState | null> {
+    const instance = await this.deps.store.getInstance(guildId, instanceId)
+    if (!instance) {
+      return null
+    }
+    const version = await this.deps.store.getVersion(guildId, instance.workflowId, instance.version)
+    if (!version) {
+      return null
+    }
+    const byId = new Map(version.graph.nodes.map((n) => [n.id, n]))
+    const agentOf = (node: WorkflowNode): string | null => {
+      if (node.type === 'agent') {
+        return node.id
+      }
+      if (node.type === 'verify' || node.type === 'approval' || node.type === 'post') {
+        const next = byId.get(node.of)
+        return next ? agentOf(next) : null
+      }
+      return null
+    }
+    const nodes: RunState['nodes'] = []
+    for (const node of version.graph.nodes) {
+      const agentId = agentOf(node)
+      const quest = agentId
+        ? await this.deps.quests.findByJobKey(guildId, jobKey(instance.id, agentId))
+        : null
+      nodes.push({
+        id: node.id,
+        type: node.type,
+        questId: quest?.id ?? null,
+        status: await this.statusOf(guildId, node, quest),
+      })
+    }
+    return { instance, nodes }
+  }
+
+  private async statusOf(
+    guildId: string,
+    node: WorkflowNode,
+    quest: Quest | null
+  ): Promise<NodeStatus> {
+    if (node.type === 'trigger.manual' || node.type === 'trigger.schedule') {
+      return 'done'
+    }
+    if (!quest) {
+      return 'pending'
+    }
+    if (node.type === 'agent') {
+      return AGENT_STATUS[quest.state]
+    }
+    if (node.type === 'verify') {
+      const proposal = await this.deps.proposals.latestForQuest(guildId, quest.id)
+      const verdict = proposal ? await this.deps.proposals.verdictFor(guildId, proposal.hash) : null
+      return verdict ? (verdict.passed ? 'passed' : 'failed') : 'pending'
+    }
+    const seal = await this.deps.seals.forQuest(guildId, quest.id)
+    if (!seal) {
+      return 'pending'
+    }
+    if (node.type === 'approval') {
+      return seal.status === 'requested'
+        ? 'awaiting'
+        : seal.status === 'denied' || seal.status === 'expired'
+          ? 'rejected'
+          : 'approved'
+    }
+    return seal.status === 'consumed'
+      ? 'done'
+      : seal.status === 'reserved'
+        ? 'publishing'
+        : 'pending'
   }
 }
