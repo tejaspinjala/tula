@@ -161,8 +161,22 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
-  async releaseLeases(_guildId: string, _reason: FailReason): Promise<number> {
-    throw new Error('not implemented')
+  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+    const now = this.clock.now().toISOString()
+    let released = 0
+    for (const q of this.guild(guildId).byId.values()) {
+      if (q.state === 'active') {
+        this.guild(guildId).byId.set(q.id, {
+          ...q,
+          state: 'queued',
+          leaseExpiresAt: null,
+          notBefore: now,
+          lastError: reason,
+        })
+        released += 1
+      }
+    }
+    return released
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
