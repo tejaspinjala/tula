@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { DEFAULT_RATE_LIMITS } from './rate-limits'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
@@ -202,5 +203,56 @@ describe('session cookie', () => {
     expect(done.status).toBe(200)
     const { proof } = z.object({ proof: z.string() }).parse(await done.json())
     expect((await add({ 'x-reauth-proof': proof })).status).toBe(200)
+  })
+})
+
+describe('session cookie review fixes', () => {
+  test('cookie-authenticated requests keep the real socket address, not the shared unknown bucket', async () => {
+    const limited = await createHarness({
+      devGuildHeader: false,
+      app: { rateLimits: DEFAULT_RATE_LIMITS },
+    })
+    try {
+      const base = limited.listen().replace('ws:', 'http:')
+      const { guildId, key } = await found(harness)
+      const { cookie } = await signIn(harness, guildId, key)
+      // stream-ticket: the unknown bucket allows 10 a minute, the client bucket 30.
+      const statuses: number[] = []
+      for (let i = 0; i < 14; i++) {
+        const res = await fetch(`${base}/guilds/${guildId}/events/ticket`, {
+          method: 'POST',
+          headers: { cookie, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+          body: '{}',
+        })
+        statuses.push(res.status)
+      }
+      expect(statuses.filter((s) => s === 429)).toEqual([])
+    } finally {
+      await limited.close()
+    }
+  })
+
+  test('Secure stays on whenever a proxy header is present, even without TRUST_PROXY', async () => {
+    const { guildId, key } = await found(harness)
+    for (const header of [
+      { 'x-forwarded-proto': 'https' },
+      { 'x-forwarded-host': 'guild.example.test' },
+      { forwarded: 'proto=https' },
+    ]) {
+      const { setCookie } = await signIn(harness, guildId, key, {
+        base: 'http://localhost:8787',
+        extra: header,
+      })
+      expect(setCookie).toContain('Secure')
+    }
+  })
+
+  test('a cross-site request cannot ask for a cookie session', async () => {
+    const { guildId, key } = await found(harness)
+    const { res, setCookie } = await signIn(harness, guildId, key, {
+      extra: { 'sec-fetch-site': 'cross-site' },
+    })
+    expect(res.status).toBe(403)
+    expect(setCookie).toBe('')
   })
 })
