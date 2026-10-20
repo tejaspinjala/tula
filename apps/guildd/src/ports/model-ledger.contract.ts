@@ -141,6 +141,32 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       expect(await ledger.dayTotals(g, '2026-03-06')).toEqual({ tokens: 0, costMicros: 0 })
     })
 
+    test('hall day totals split a day by Hall and cover only the asked range', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      await ledger.openRun(g, run('r2', { hallId: 'smiths' }))
+      await ledger.openRun(other, run('r1'))
+      await record(ledger, g, usage('a', 'r1'))
+      await record(ledger, g, usage('b', 'r1', { day: '2026-03-05', costMicros: null }))
+      await record(ledger, g, usage('c', 'r1', { day: '2026-03-09' }))
+      await record(ledger, g, usage('d', 'r2'))
+      await record(ledger, other, usage('e', 'r1'))
+      expect(
+        await ledger.hallDayTotals(g, 'heralds', { from: '2026-03-04', to: '2026-03-08' })
+      ).toEqual([
+        { day: '2026-03-04', tokens: 150, costMicros: 1000 },
+        { day: '2026-03-05', tokens: 150, costMicros: 0 },
+      ])
+      expect(
+        await ledger.hallDayTotals(g, 'smiths', { from: '2026-03-04', to: '2026-03-04' })
+      ).toEqual([{ day: '2026-03-04', tokens: 150, costMicros: 1000 }])
+      expect(
+        await ledger.hallDayTotals(g, 'nowhere', { from: '2026-03-01', to: '2026-03-31' })
+      ).toEqual([])
+    })
+
     test('parallel reservations against a cap that admits one: exactly one is reserved', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()

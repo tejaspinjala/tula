@@ -255,7 +255,7 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   }
   const { config } = current
   await reconcileSeals(
-    { quests: deps.quests, seals: deps.sealStore },
+    { quests: deps.quests, seals: deps.sealStore, awaiting: deps.awaiting },
     guildId,
     sealPostWindowMs(config)
   )

@@ -1,4 +1,5 @@
 import {
+  type HallDayTotals,
   isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
@@ -211,6 +212,24 @@ export class MemoryModelLedger implements ModelLedger {
 
   async dayTotals(guildId: string, day: string): Promise<Totals> {
     return this.totalsOf(this.state(guildId), day)
+  }
+
+  async hallDayTotals(
+    guildId: string,
+    hallId: string,
+    range: { from: string; to: string }
+  ): Promise<HallDayTotals[]> {
+    const days = new Map<string, HallDayTotals>()
+    for (const u of this.state(guildId).usage.values()) {
+      if (u.hallId !== hallId || u.day < range.from || u.day > range.to) {
+        continue
+      }
+      const row = days.get(u.day) ?? { day: u.day, tokens: 0, costMicros: 0 }
+      row.tokens += u.inputTokens + u.outputTokens
+      row.costMicros += u.costMicros ?? 0
+      days.set(u.day, row)
+    }
+    return [...days.values()].sort((a, b) => (a.day < b.day ? -1 : 1))
   }
 
   async report(

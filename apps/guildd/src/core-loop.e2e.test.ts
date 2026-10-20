@@ -1,3 +1,4 @@
+import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
@@ -8,6 +9,7 @@ import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryNoteStore } from './adapters/memory-note-store'
 import { MemoryObjectStore } from './adapters/memory-object-store'
+import { MemoryPostCostReader } from './adapters/memory-post-cost-reader'
 import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
@@ -88,6 +90,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     config,
     quests,
     sealStore,
+    awaiting: new MemoryAwaitingSealReader(quests, sealStore),
     proposals,
     seals,
     routing: { classifier: new MemoryClassifier(), log: new MemoryRoutingLog(), keys },
@@ -112,6 +115,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     mcp,
     gates,
     ledger,
+    postCosts: new MemoryPostCostReader({ ledger, quests, sealStore }),
     provider,
     sandboxes,
     newGuild: async (options = {}) => {

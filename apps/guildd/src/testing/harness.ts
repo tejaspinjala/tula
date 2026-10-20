@@ -148,6 +148,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       dispatcher: composed.dispatcher,
       sealStore: composed.sealStore,
       modelLedger: composed.modelLedger,
+      postCosts: composed.postCosts,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,

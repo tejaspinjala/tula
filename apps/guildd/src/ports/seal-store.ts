@@ -105,10 +105,14 @@ export interface SealStore {
   forQuest(guildId: string, questId: string): Promise<Seal | null>
   /** The Seal, or null when absent for this guild. */
   get(guildId: string, id: string): Promise<Seal | null>
-  /** Seals in id order strictly after `after`, optionally only those in `status`. */
+  /**
+   * Seals in id order strictly after `after`, optionally only those in `status` and, with
+   * `decidedSince` (an ISO instant), only those decided at or after it (an indexed range, so a
+   * pass over recent decisions never reads old ones).
+   */
   list(
     guildId: string,
-    page: { after?: string; limit: number; status?: SealStatus }
+    page: { after?: string; limit: number; status?: SealStatus; decidedSince?: string }
   ): Promise<SealPage>
   /** Moves a requested Seal to approved or denied, once, bound to `expectedHash`. */
   decide(

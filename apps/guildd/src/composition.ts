@@ -6,12 +6,14 @@ import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
+import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgGateStore } from './adapters/pg-gate-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
+import { PgPostCostReader } from './adapters/pg-post-cost-reader'
 import { PgProposalStore } from './adapters/pg-proposal-store'
 import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
@@ -162,6 +164,7 @@ export async function compose(
     seals,
     sealStore,
     modelLedger,
+    postCosts: new PgPostCostReader(db),
     secrets,
     proposals,
     notes,
@@ -197,6 +200,7 @@ export async function compose(
         config,
         quests,
         sealStore,
+        awaiting: new PgAwaitingSealReader(db, clock),
         proposals,
         seals,
         routing: { classifier, log: routingLog, keys },

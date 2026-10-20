@@ -109,14 +109,16 @@ export class MemorySealStore implements SealStore {
 
   async list(
     guildId: string,
-    page: { after?: string; limit: number; status?: SealStatus }
+    page: { after?: string; limit: number; status?: SealStatus; decidedSince?: string }
   ): Promise<SealPage> {
+    const since = page.decidedSince === undefined ? null : Date.parse(page.decidedSince)
     const matching = [...this.seals(guildId).values()]
       .map((s) => this.read(s.seal))
       .filter(
         (s) =>
           (page.after === undefined || s.id > page.after) &&
-          (page.status === undefined || s.status === page.status)
+          (page.status === undefined || s.status === page.status) &&
+          (since === null || (s.decidedAt !== null && Date.parse(s.decidedAt) >= since))
       )
       .sort((a, b) => (a.id < b.id ? -1 : 1))
     const seals = matching.slice(0, page.limit)

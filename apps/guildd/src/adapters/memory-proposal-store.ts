@@ -84,6 +84,25 @@ export class MemoryProposalStore implements ProposalStore {
     return { proposals, next: matching.length > page.limit && last ? last.id : null }
   }
 
+  async listFailedSince(
+    guildId: string,
+    since: string,
+    page: { after?: string; limit: number }
+  ): Promise<ProposalPage> {
+    const from = Date.parse(since)
+    const matching = [...this.proposals(guildId).values()]
+      .filter(
+        (p) =>
+          !p.verdict.passed &&
+          Date.parse(p.createdAt) >= from &&
+          (page.after === undefined || p.id > page.after)
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+    const proposals = matching.slice(0, page.limit).map((p) => this.copy(p))
+    const last = proposals.at(-1)
+    return { proposals, next: matching.length > page.limit && last ? last.id : null }
+  }
+
   async verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null> {
     const found = this.verdicts.get(`${guildId}\u0000${proposalHash}`)
     return found ? structuredClone(found) : null

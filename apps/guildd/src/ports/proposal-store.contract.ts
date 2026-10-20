@@ -32,6 +32,37 @@ export function proposalStoreContract(name: string, make: () => Promise<Proposal
       expect(await store.verdictFor(g, hash)).toEqual(p.verdict)
     })
 
+    test('failed Verdicts since an instant list only the failing, recent Proposals of the guild', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const bad = await store.propose(g, draft('Too long'), { passed: false, findings: FAIL })
+      await store.propose(g, draft('Fine'), { passed: true, findings: PASS })
+      await store.propose(other, draft('Elsewhere'), { passed: false, findings: FAIL })
+      const at = bad.createdAt
+      const failed = await store.listFailedSince(g, at, { limit: 10 })
+      expect(failed.proposals.map((p) => p.id)).toEqual([bad.id])
+      expect(failed.next).toBeNull()
+      const later = new Date(Date.parse(at) + 1).toISOString()
+      expect((await store.listFailedSince(g, later, { limit: 10 })).proposals).toEqual([])
+    })
+
+    test('failed Verdicts since an instant are paged', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const a = await store.propose(g, draft('one'), { passed: false, findings: FAIL })
+      await store.propose(g, draft('two'), { passed: false, findings: FAIL })
+      const first = await store.listFailedSince(g, a.createdAt, { limit: 1 })
+      expect(first.proposals).toHaveLength(1)
+      expect(first.next).not.toBeNull()
+      const second = await store.listFailedSince(g, a.createdAt, {
+        limit: 1,
+        ...(first.next ? { after: first.next } : {}),
+      })
+      expect(second.proposals).toHaveLength(1)
+      expect(second.next).toBeNull()
+    })
+
     test('the latest Proposal of a Quest is found by its Quest, in its own guild only', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
