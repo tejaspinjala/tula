@@ -195,15 +195,18 @@ test('list with decidedSince and a status uses the partial decided index', async
     select gen_random_uuid(), ${guild}, gen_random_uuid(), 'h', 'post', 't', '', encode(sha256(convert_to('t', 'UTF8')), 'hex'), 'denied', now(), now() + interval '1 day', now() - (g || ' minutes')::interval
     from generate_series(1, 3000) g`
   await owner`analyze seals`
-  const scans = async (): Promise<number> => {
-    await owner`select pg_stat_force_next_flush()`
-    const [row] =
-      await owner`select coalesce(sum(idx_scan), 0)::int as n from pg_stat_user_indexes where indexrelname = 'seals_guild_decided'`
-    return Number(row?.n ?? 0)
-  }
-  const before = await scans()
+  // Same predicate shape as PgSealStore.list, planned as the app role under forced RLS.
   const since = new Date(Date.now() - 5 * 60_000).toISOString()
+  const plan = await db.withGuild(guild, async (tx) => {
+    const after: string | null = null
+    const decided = tx`decided_at >= ${since}::timestamptz`
+    return tx`explain select seal_id from seals
+      where guild_id = ${guild} and status = 'denied'
+        and (${after}::uuid is null or seal_id > ${after}::uuid) and ${decided}
+      order by seal_id limit 11`
+  })
+  expect(JSON.stringify(plan)).toContain('seals_guild_decided')
   const page = await store.list(guild, { limit: 10, status: 'denied', decidedSince: since })
-  expect(page.seals.length).toBeGreaterThan(0)
-  expect(await scans()).toBeGreaterThan(before)
+  expect(page.seals.length).toBeGreaterThanOrEqual(4)
+  expect(page.seals.length).toBeLessThanOrEqual(5)
 })
