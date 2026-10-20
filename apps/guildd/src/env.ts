@@ -12,6 +12,7 @@ const productionFields = {
 
 const DEV_RP_ID = 'localhost'
 const DEV_ORIGIN = 'http://localhost:5173'
+const DEV_KEY_FILE = '.guildhall/master.key'
 
 /** Fails in production unless the relying party is explicit; fills development defaults. */
 function relyingParty(
@@ -50,14 +51,24 @@ const baseSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  /** Local file holding the audit-chain master key (created 0600 if missing); never in Postgres. */
-  KEY_FILE: z.string().min(1).default('.guildhall/master.key'),
+  /**
+   * Local file holding the audit-chain master key; never in Postgres. Required in production,
+   * where a missing file is an error; elsewhere defaults and is created 0600 if missing.
+   */
+  KEY_FILE: z.string().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
 const schema = baseSchema
   .superRefine((env, ctx) => {
     relyingParty(env, ctx)
+    if (env.NODE_ENV === 'production' && !env.KEY_FILE) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KEY_FILE'],
+        message: 'KEY_FILE is required in production',
+      })
+    }
     if (env.NODE_ENV === 'production' && env.DEV_GUILD_HEADER) {
       ctx.addIssue({
         code: 'custom',
@@ -68,6 +79,7 @@ const schema = baseSchema
   })
   .transform((env) => ({
     ...env,
+    KEY_FILE: env.KEY_FILE ?? DEV_KEY_FILE,
     WEBAUTHN_RP_ID: env.WEBAUTHN_RP_ID ?? DEV_RP_ID,
     WEBAUTHN_ORIGIN: env.WEBAUTHN_ORIGIN ?? DEV_ORIGIN,
   }))

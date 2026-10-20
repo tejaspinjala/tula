@@ -30,9 +30,25 @@ describe('loadEnv', () => {
     expect(() => loadEnv(prod)).toThrow()
     expect(() => loadEnv({ ...prod, WEBAUTHN_RP_ID: 'guild.example' })).toThrow()
     expect(() => loadEnv({ ...prod, ...rp, DEV_GUILD_HEADER: 'true' })).toThrow()
-    expect(loadEnv({ ...prod, ...rp }).WEBAUTHN_ORIGIN).toBe('https://guild.example')
+    expect(loadEnv({ ...prod, ...rp, KEY_FILE: '/k' }).WEBAUTHN_ORIGIN).toBe(
+      'https://guild.example'
+    )
     expect(() => loadWebauthnEnv(prod)).toThrow()
     expect(loadWebauthnEnv({ NODE_ENV: 'development' }).WEBAUTHN_RP_ID).toBe('localhost')
+  })
+
+  test('production requires an explicit KEY_FILE; development defaults it', () => {
+    const prod = {
+      ...base,
+      NODE_ENV: 'production',
+      WEBAUTHN_RP_ID: 'guild.example',
+      WEBAUTHN_ORIGIN: 'https://guild.example',
+    }
+    expect(() => loadEnv(prod)).toThrow(/KEY_FILE/)
+    expect(loadEnv({ ...prod, KEY_FILE: '/run/keys/master.key' }).KEY_FILE).toBe(
+      '/run/keys/master.key'
+    )
+    expect(loadEnv(base).KEY_FILE).toBe('.guildhall/master.key')
   })
 
   test('no dev credentials are baked into production source', async () => {

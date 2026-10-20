@@ -57,7 +57,9 @@ async function fromEnv(
 ): Promise<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys'>> {
   const env = loadEnv()
   return {
-    keys: overrides.keys ?? (await FileKeyProvider.open(env.KEY_FILE)),
+    keys:
+      overrides.keys ??
+      (await FileKeyProvider.open(env.KEY_FILE, { create: env.NODE_ENV !== 'production' })),
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
     objectStore:
