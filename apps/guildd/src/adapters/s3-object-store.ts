@@ -1,5 +1,11 @@
 import { S3Client } from 'bun'
-import { hashBytes, type ObjectHead, type ObjectStore } from '../ports/object-store'
+import {
+  assertGuildId,
+  assertHash,
+  hashBytes,
+  type ObjectHead,
+  type ObjectStore,
+} from '../ports/object-store'
 
 /** Connection settings for {@link S3ObjectStore}. */
 export interface S3ObjectStoreOptions {
@@ -7,6 +13,8 @@ export interface S3ObjectStoreOptions {
   bucket: string
   accessKeyId: string
   secretAccessKey: string
+  /** Fetch implementation for bucket creation; defaults to the global one (a seam for tests). */
+  fetch?: typeof fetch
 }
 
 const REGION = 'us-east-1'
@@ -20,7 +28,8 @@ export class S3ObjectStore implements ObjectStore {
   private readonly client: S3Client
 
   constructor(private readonly options: S3ObjectStoreOptions) {
-    this.client = new S3Client({ ...options, region: REGION })
+    const { fetch: _fetch, ...clientOptions } = options
+    this.client = new S3Client({ ...clientOptions, region: REGION })
   }
 
   /**
@@ -49,7 +58,7 @@ export class S3ObjectStore implements ObjectStore {
       key = hmac(key, part)
     }
     const signature = new Bun.CryptoHasher('sha256', key).update(toSign).digest('hex')
-    const res = await fetch(`${endpoint.replace(/\/$/, '')}/${bucket}`, {
+    const res = await (this.options.fetch ?? fetch)(`${endpoint.replace(/\/$/, '')}/${bucket}`, {
       method: 'PUT',
       headers: {
         'x-amz-content-sha256': payloadHash,
@@ -58,24 +67,34 @@ export class S3ObjectStore implements ObjectStore {
       },
       signal: AbortSignal.timeout(10_000),
     })
-    // 409: the bucket already exists (and is ours).
-    if (!res.ok && res.status !== 409) {
+    // 409 is success only when the bucket is already ours; BucketAlreadyExists means another
+    // account owns the name.
+    if (res.ok) {
+      return
+    }
+    const body = res.status === 409 ? await res.text() : ''
+    if (!body.includes('<Code>BucketAlreadyOwnedByYou</Code>')) {
       throw new Error(`could not create bucket ${bucket}: ${res.status}`)
     }
   }
 
   async put(guildId: string, bytes: Uint8Array): Promise<string> {
+    assertGuildId(guildId)
     const hash = hashBytes(bytes)
     await this.client.write(`${guildId}/${hash}`, bytes)
     return hash
   }
 
   async get(guildId: string, hash: string): Promise<Uint8Array | null> {
+    assertGuildId(guildId)
+    assertHash(hash)
     const file = this.client.file(`${guildId}/${hash}`)
     return (await file.exists()) ? await file.bytes() : null
   }
 
   async head(guildId: string, hash: string): Promise<ObjectHead | null> {
+    assertGuildId(guildId)
+    assertHash(hash)
     const file = this.client.file(`${guildId}/${hash}`)
     return (await file.exists()) ? { size: (await file.stat()).size } : null
   }

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { readdir } from 'node:fs/promises'
 import postgres from 'postgres'
 import { migrate } from '../src/db/migrate'
 
@@ -21,25 +22,20 @@ afterAll(async () => {
   await admin.end()
 })
 
+// Derived from the directory, so adding a migration never means editing this test.
+const onDisk = (await readdir(new URL('../migrations/', import.meta.url)))
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+
 describe('migrate', () => {
   test('applies migrations to a fresh database, then is a no-op on re-run', async () => {
     const first = await migrate(sql)
-    expect(first.applied).toEqual([
-      '0001_baseline.sql',
-      '0002_guilds.sql',
-      '0003_events.sql',
-      '0004_artifacts.sql',
-    ])
+    expect(first.applied).toEqual(onDisk)
 
     const second = await migrate(sql)
     expect(second.applied).toEqual([])
 
     const rows = await sql`select name from schema_migrations order by name`
-    expect(rows.map((r) => r.name)).toEqual([
-      '0001_baseline.sql',
-      '0002_guilds.sql',
-      '0003_events.sql',
-      '0004_artifacts.sql',
-    ])
+    expect(rows.map((r) => r.name)).toEqual(onDisk)
   })
 })

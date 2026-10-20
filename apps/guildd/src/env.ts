@@ -1,8 +1,6 @@
 import { z } from 'zod'
 
 const schema = z.object({
-  /** Owner connection: used only by migrations and test setup. */
-  DATABASE_URL: z.url().default('postgres://guildhall:guildhall@localhost:5432/guildhall'),
   /** Non-owner `guildhall_app` connection: the only one the running app uses. */
   APP_DATABASE_URL: z.url(),
   /** Trust `x-guild-id` as the caller's guild. Development only, until authentication lands. */
@@ -13,8 +11,13 @@ const schema = z.object({
   /** S3-compatible object storage for artifacts (MinIO in development). */
   OBJECT_STORE_ENDPOINT: z.url().default('http://localhost:9000'),
   OBJECT_STORE_BUCKET: z.string().min(3).default('guildhall-artifacts'),
-  OBJECT_STORE_ACCESS_KEY: z.string().min(1).default('guildhall'),
-  OBJECT_STORE_SECRET_KEY: z.string().min(1).default('guildhall-dev-secret'),
+  OBJECT_STORE_ACCESS_KEY: z.string().min(1),
+  OBJECT_STORE_SECRET_KEY: z.string().min(1),
+  /** Create the bucket at boot if missing: development and tests only. */
+  OBJECT_STORE_CREATE_BUCKET: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
