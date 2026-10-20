@@ -174,6 +174,11 @@ describe('Bar the Gates routes', () => {
       expect((await send('POST', '/gates/bar', other.auth)).status).toBe(403)
       expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
       expect((await send('POST', '/gates/bar', op.auth)).status).toBe(201)
+      const told = await harness.owner`
+        select type, payload from events
+        where guild_id = ${other.guildId} and type like 'gates.%' order by seq`
+      expect(told.map((e) => e.type)).toEqual(['gates.barred'])
+      expect(Object.keys(told[0]?.payload ?? {}).sort()).toEqual(['barId', 'memberId', 'scope'])
       expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
       expect(await harness.adapters.gates.status(other.guildId)).toEqual({
         guild: false,
