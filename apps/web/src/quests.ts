@@ -31,22 +31,19 @@ export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
 export function childrenOf(quests: readonly BoardQuest[], parentId: string): BoardQuest[] {
   return quests.filter((q) => q.parentId === parentId)
 }
-/** Stub. */
-export function campaignsOf(_quests: readonly BoardQuest[]): string[] {
-  return []
+/** The Campaigns present on the board, each once, sorted; Quests with no Campaign add none. */
+export function campaignsOf(quests: readonly BoardQuest[]): string[] {
+  return [...new Set(quests.flatMap((q) => (q.campaignId === null ? [] : [q.campaignId])))].sort()
 }
 
-/** Stub. */
-export function inCampaign(
-  quests: readonly BoardQuest[],
-  _campaignId: string | null
-): BoardQuest[] {
-  return [...quests]
+/** The Quests of one Campaign in board order, or all of them when `campaignId` is null. */
+export function inCampaign(quests: readonly BoardQuest[], campaignId: string | null): BoardQuest[] {
+  return campaignId === null ? [...quests] : quests.filter((q) => q.campaignId === campaignId)
 }
 
-/** Stub. */
-export function claimerOf(_quest: BoardQuest): string | null {
-  return null
+/** The Member who claimed a Quest (its owner, once it has been leased at least once), or null while unclaimed. */
+export function claimerOf(quest: BoardQuest): string | null {
+  return quest.attempts > 0 ? quest.ownerId : null
 }
 
 /** The Quest Board's columns, in lifecycle order. */

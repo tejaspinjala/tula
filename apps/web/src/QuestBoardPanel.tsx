@@ -4,9 +4,12 @@ import type { Session } from './passkeys'
 import {
   BOARD_STATES,
   type BoardQuest,
+  campaignsOf,
   childrenOf,
+  claimerOf,
   fetchStreamTicket,
   groupByState,
+  inCampaign,
   loadQuests,
   questStreamUrl,
   readQuestFrame,
@@ -30,6 +33,7 @@ const MAX_RECONNECT_MS = 10_000
 export function QuestBoardPanel({ session }: { session: Session | null }) {
   const [quests, setQuests] = useState<BoardQuest[]>([])
   const [failed, setFailed] = useState(false)
+  const [campaign, setCampaign] = useState<string | null>(null)
   const lastSeq = useRef(0)
 
   useEffect(() => {
@@ -97,7 +101,8 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
     }
   }, [session])
 
-  const board = groupByState(quests)
+  const campaigns = campaignsOf(quests)
+  const board = groupByState(inCampaign(quests, campaign))
 
   return (
     <section aria-labelledby="quests-heading" className="card">
@@ -106,6 +111,23 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
+      {session && campaigns.length > 0 && (
+        <label className="mt-4 block">
+          Campaign
+          <select
+            className="ml-2"
+            value={campaign ?? ''}
+            onChange={(e) => setCampaign(e.target.value === '' ? null : e.target.value)}
+          >
+            <option value="">All Campaigns</option>
+            {campaigns.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {session && (
         <div className="board" aria-live="polite">
           {BOARD_STATES.map((state) => (
@@ -121,6 +143,10 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
                     <strong>{quest.title}</strong>
                     <div>
                       {quest.hallId} / {quest.ownerId}
+                    </div>
+                    {quest.campaignId !== null && <div>Campaign {quest.campaignId}</div>}
+                    <div>
+                      {claimerOf(quest) === null ? 'Unclaimed' : `Claimed by ${claimerOf(quest)}`}
                     </div>
                     <div>
                       Round {quest.round} of {quest.roundLimit}
