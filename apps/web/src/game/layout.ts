@@ -123,3 +123,17 @@ export function seatsIn(
   }
   return seats
 }
+
+/** Stub. */
+export function questBoardIn(_layout: HallLayout, room: TileRect): { x: number; y: number } {
+  return { x: room.x, y: room.y }
+}
+
+/** Stub. */
+export function apprenticeSeats(
+  _layout: HallLayout,
+  _room: TileRect,
+  _count: number
+): { x: number; y: number }[] {
+  return []
+}
