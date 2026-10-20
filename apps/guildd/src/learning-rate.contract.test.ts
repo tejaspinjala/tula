@@ -14,6 +14,9 @@ const envoy: GitHubEnvoy = {
 }
 const LIMIT = 2
 const harness = await createHarness({
+  // Rate-limit counters persist in the shared test database, keyed by window: a window of our own
+  // keeps reruns from inheriting a previous run's count.
+  now: new Date(Date.UTC(2040, 0, 1) + Math.floor(Math.random() * 1_000_000) * 60_000),
   app: {
     githubEnvoy: envoy,
     rateLimits: {
