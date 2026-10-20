@@ -45,18 +45,24 @@ export function talkReducer(state: TalkState, action: TalkAction): TalkState {
     case 'near':
       return sameTarget(state.near, action.target) ? state : { ...state, near: action.target }
     case 'interact':
-      return state.open !== null || state.near === null
-        ? state
+      if (state.open !== null || state.inspect !== null || state.near === null) {
+        return state
+      }
+      return state.near.kind === 'member'
+        ? { ...state, inspect: state.near.id, form: 'view' }
         : { ...state, open: state.near, form: 'view' }
     case 'inspect':
+      return state.open !== null ? state : { ...state, inspect: action.id, form: 'view' }
     case 'talk':
-      return state
+      return state.inspect === null
+        ? state
+        : { ...state, open: { kind: 'member', id: state.inspect }, inspect: null, form: 'view' }
     case 'assign':
       return state.open?.kind === 'member' ? { ...state, form: 'assign' } : state
     case 'back':
       return { ...state, form: 'view' }
     case 'close':
-      return { ...state, open: null, form: 'view' }
+      return { ...state, open: null, inspect: null, form: 'view' }
   }
 }
 
