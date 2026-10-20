@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -24,6 +24,8 @@ beforeAll(() => {
   writeFileSync(join(dist, 'assets', 'index-abc123.css'), 'a{}')
   writeFileSync(join(dist, 'icon.svg'), '<svg/>')
   writeFileSync(secret, 'nope')
+  symlinkSync(secret, join(dist, 'leak.txt'))
+  symlinkSync(root, join(dist, 'out'))
 })
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
@@ -80,6 +82,21 @@ describe('withWebApp', () => {
       expect(body).not.toContain('nope')
       // The URL parser may normalise a plain `..`; then the SPA shell is all that can come back.
       expect(res.status === 404 || body === html).toBe(true)
+    }
+  })
+
+  test('the CSP allows no inline styles', async () => {
+    const res = await app.request('/', asBrowser)
+    const csp = res.headers.get('content-security-policy') ?? ''
+    expect(csp).toContain("style-src 'self'")
+    expect(csp).not.toContain('unsafe-inline')
+  })
+
+  test('a symlink in dist pointing outside it is 404, file or directory', async () => {
+    for (const path of ['/leak.txt', '/out/secret.txt']) {
+      const res = await app.request(path)
+      expect(res.status).toBe(404)
+      expect(await res.text()).not.toContain('nope')
     }
   })
 

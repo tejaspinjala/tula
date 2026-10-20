@@ -126,6 +126,11 @@ const baseSchema = z.object({
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   /**
+   * Address guildd binds. Defaults to loopback: `POST /guilds` and the other routes are not
+   * exposed to the LAN. Exposing guildd needs a TLS reverse proxy (see the self-host runbook).
+   */
+  HOST: z.string().min(1).default('127.0.0.1'),
+  /**
    * Built web app (`apps/web/dist`) to serve at this origin, API under `/api`. The directory
    * must exist and hold `index.html`. Unset: guildd serves the API only.
    */

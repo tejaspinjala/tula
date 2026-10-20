@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { Hono } from 'hono'
 
@@ -21,7 +21,7 @@ const TYPES: Record<string, string> = {
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
@@ -48,9 +48,15 @@ function safePath(dist: string, pathname: string): string | null {
   return target === dist || target.startsWith(dist + sep) ? target : null
 }
 
-function isFile(path: string): boolean {
+/**
+ * True when `path` is a regular file whose real path (symlinks resolved) is still inside the real
+ * path of `dist`, so a symlink in `dist` cannot reach a file outside it.
+ */
+function isFileWithin(path: string, dist: string): boolean {
   try {
-    return statSync(path).isFile()
+    const real = realpathSync(path)
+    const base = realpathSync(dist)
+    return real.startsWith(base + sep) && statSync(real).isFile()
   } catch {
     return false
   }
@@ -101,11 +107,11 @@ export function withWebApp(api: Hono, dist: string): Hono {
       if (target === null) {
         return c.notFound()
       }
-      if (isFile(target)) {
+      if (isFileWithin(target, root)) {
         return serve(target, req.method, url.pathname.startsWith('/assets/'))
       }
       const index = join(root, 'index.html')
-      if ((req.headers.get('accept') ?? '').includes('text/html') && isFile(index)) {
+      if ((req.headers.get('accept') ?? '').includes('text/html') && isFileWithin(index, root)) {
         return serve(index, req.method, false)
       }
     }

@@ -37,6 +37,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `WEBAUTHN_RP_ID` | `localhost` | required | Domain passkeys are scoped to. |
 | `WEBAUTHN_ORIGIN` | `http://localhost:5173` | required | Exact origin the web app is served from (`http://localhost:8787` self-hosted). |
 | `PORT` | `8787` | set | HTTP port. |
+| `HOST` | `127.0.0.1` | keep loopback unless behind a TLS proxy | Address guildd binds. See Exposing guildd. |
 | `WEB_DIST` | unset | optional | Path to `apps/web/dist`; must exist and hold `index.html`, else boot fails. Unset: API only. |
 | `KEY_FILE` | `.guildhall/master.key` | required | Audit-chain master key file (created 0600 if missing outside production). Back it up separately. |
 | `CHECKPOINT_DIR` | `.guildhall/checkpoints` | required | Signed audit-chain checkpoints; use storage the database host cannot rewrite. |
@@ -54,7 +55,10 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `SANDBOX_KILL_DEADLINE_MS` | `2000` | optional | Deadline for killing sandboxes (1 to 10000). |
 | `EGRESS_PROXY_URL` | none | with `docker` | Where a sandbox finds the egress proxy. |
 | `SANDBOX_GATEWAY_URL` | none | with `docker`, must be `https` | The one origin sandboxes reach through the proxy. |
-| `SUBSCRIPTION_PROVIDER` | disabled | leave disabled on hosted | `enabled` allows a `subscription` provider (see Models; built in #64). |
+| `SUBSCRIPTION_PROVIDER` | disabled | leave disabled on hosted | `enabled` allows a `subscription` provider (see Models). |
+| `CLAUDE_CLI_BIN` | `claude` | n/a (self-host only) | The `claude` executable the subscription provider runs. |
+| `CLAUDE_CLI_TIMEOUT_MS` | `120000` | n/a (self-host only) | Milliseconds before a `claude` child is killed (1 to 3600000). |
+| `CLAUDE_CLI_MAX_CONCURRENT` | `2` | n/a (self-host only) | Most `claude` children at once (1 to 32). |
 
 ### Migrations (`apps/guildd/src/db/migrate-cli.ts`)
 
@@ -102,7 +106,21 @@ resolve it. Then reference the provider in the guild config.
 Subscription: a `subscription` provider runs the unmodified `claude` CLI signed in on this Mac
 (ADR-0008); Guildhall never reads or stores the OAuth token. It is off unless
 `SUBSCRIPTION_PROVIDER=enabled` is set for guildd. Run `claude` once on the host and sign in
-first. The provider is built in ticket #64; see it for the exact configuration.
+first. Setup, in order:
+
+1. Set `SUBSCRIPTION_PROVIDER=enabled` for guildd.
+2. Sign `claude` in on the host (run it once). `CLAUDE_CLI_BIN`, `CLAUDE_CLI_TIMEOUT_MS` and
+   `CLAUDE_CLI_MAX_CONCURRENT` tune the child process.
+3. In the guild config, declare the provider with `auth: 'subscription'` and give the routing
+   profile that uses it a `model` (the model id lives only in routing).
+
+## Exposing guildd
+
+guildd binds `127.0.0.1` (`HOST`), because `POST /guilds` and the other routes are unauthenticated
+until a guild exists. `start:selfhost` pins `HOST=127.0.0.1`. To reach it from other machines, do
+not set `HOST=0.0.0.0` bare: put a TLS reverse proxy in front, set `TRUST_PROXY=true` (exactly one
+proxy), and set production WebAuthn settings (`NODE_ENV=production`, `WEBAUTHN_RP_ID` and
+`WEBAUTHN_ORIGIN` for the public https origin).
 
 ## Summon
 
