@@ -1,46 +1,87 @@
+import { z } from 'zod'
 import type { Fetcher } from './artifacts'
-import type { PasskeyBrowser, Session } from './passkeys'
+import { type PasskeyBrowser, PasskeyRequestError, reauthenticate, type Session } from './passkeys'
+
+const statusBody = z.object({ guild: z.boolean(), global: z.boolean() })
+const barBody = z.object({
+  barId: z.string(),
+  scope: z.enum(['guild', 'global']),
+  created: z.boolean(),
+  revokedRuns: z.number(),
+  killedSandboxes: z.number(),
+})
 
 /** Which bars are up for the signed-in guild. */
-export interface GatesStatus {
-  guild: boolean
-  global: boolean
+export type GatesStatus = z.infer<typeof statusBody>
+/** What barring stopped. */
+export type BarResult = z.infer<typeof barBody>
+
+function path(session: Session, scope: 'guild' | 'global', action: 'bar' | 'lift'): string {
+  return scope === 'global'
+    ? `/api/gates/${action}`
+    : `/api/guilds/${session.guildId}/gates/${action}`
 }
 
-/** What barring stopped. */
-export interface BarResult {
-  barId: string
-  scope: 'guild' | 'global'
-  created: boolean
-  revokedRuns: number
-  killedSandboxes: number
+async function call<T>(
+  fetcher: Fetcher,
+  url: string,
+  schema: z.ZodType<T>,
+  init: { method: 'GET' | 'POST'; token: string; proof?: string }
+): Promise<T> {
+  const res = await fetcher(url, {
+    method: init.method,
+    headers: {
+      authorization: `Bearer ${init.token}`,
+      ...(init.proof === undefined ? {} : { 'x-reauth-proof': init.proof }),
+    },
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return schema.parse(data)
 }
 
 /** Reads which bars are up. */
-export async function loadGates(_session: Session, _fetcher: Fetcher): Promise<GatesStatus> {
-  throw new Error('not implemented')
+export function loadGates(session: Session, fetcher: Fetcher): Promise<GatesStatus> {
+  return call(fetcher, `/api/guilds/${session.guildId}/gates`, statusBody, {
+    method: 'GET',
+    token: session.token,
+  })
 }
 
 /** Bars the Gates for the guild or every guild; immediate, no re-authentication. */
-export async function barGates(
-  _session: Session,
-  _scope: 'guild' | 'global',
-  _fetcher: Fetcher
+export function barGates(
+  session: Session,
+  scope: 'guild' | 'global',
+  fetcher: Fetcher
 ): Promise<BarResult> {
-  throw new Error('not implemented')
+  return call(fetcher, path(session, scope, 'bar'), barBody, {
+    method: 'POST',
+    token: session.token,
+  })
 }
 
 /** Lifts the bar after a fresh passkey re-authentication. */
 export async function liftGates(
-  _session: Session,
-  _scope: 'guild' | 'global',
-  _fetcher: Fetcher,
-  _browser: PasskeyBrowser
+  session: Session,
+  scope: 'guild' | 'global',
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<void> {
-  throw new Error('not implemented')
+  const proof = await reauthenticate(session.token, fetcher, browser)
+  await call(fetcher, path(session, scope, 'lift'), z.object({ barred: z.literal(false) }), {
+    method: 'POST',
+    token: session.token,
+    proof,
+  })
 }
 
 /** One sentence describing the bars. */
-export function describeGates(_status: GatesStatus): string {
-  return ''
+export function describeGates(status: GatesStatus): string {
+  if (status.global) {
+    return 'The Gates are barred for every guild.'
+  }
+  return status.guild ? 'The Gates are barred for this guild.' : 'The Gates are open.'
 }
