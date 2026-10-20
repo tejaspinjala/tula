@@ -16,6 +16,7 @@ export type RateRoute =
   | 'checkpoint-finish'
   | 'quest-post'
   | 'summon'
+  | 'summon-status'
   | 'seal-posted'
   | 'gateway-call'
   | 'mcp'
@@ -64,6 +65,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'quest-post': writeLimits(60, 300),
   // Starting a worker spends money and a container: far tighter than other writes.
   summon: writeLimits(10, 30),
+  // The Summon panel polls its status; a read is cheap but still bounded per client and guild.
+  'summon-status': writeLimits(60, 240),
   'seal-posted': writeLimits(30, 120),
   // Run-token calls to the model gateway: each spends money, so they are bounded per client
   // (workers share a few addresses); the daily caps bound the total spend.
@@ -199,6 +202,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'checkpoint-finish': 'session',
   'quest-post': 'session',
   summon: 'session',
+  'summon-status': 'session',
   'seal-posted': 'session',
   'gateway-call': 'unauthenticated',
   mcp: 'unauthenticated',
