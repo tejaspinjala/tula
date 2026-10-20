@@ -1,18 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { createECDH, createPublicKey, verify } from 'node:crypto'
+import { createPublicKey, verify } from 'node:crypto'
 import { z } from 'zod'
 import { PushRejectedError } from '../ports/push-notifier'
 import { pushNotifierContract } from '../ports/push-notifier.contract'
 import { FakePushService } from '../testing/fake-push-service'
+import { vapidKeys } from '../testing/vapid-keys'
 import { WebPushNotifier } from './web-push-notifier'
 
-const vapid = createECDH('prime256v1')
-vapid.generateKeys()
-const keys = {
-  publicKey: vapid.getPublicKey().toString('base64url'),
-  privateKey: vapid.getPrivateKey().toString('base64url'),
-  subject: 'mailto:ops@guild.example',
-}
+const keys = vapidKeys()
 
 function make(overrides: { timeoutMs?: number; retries?: number } = {}) {
   const service = new FakePushService()
@@ -61,8 +56,8 @@ describe('WebPushNotifier', () => {
       key: {
         kty: 'EC',
         crv: 'P-256',
-        x: vapid.getPublicKey().subarray(1, 33).toString('base64url'),
-        y: vapid.getPublicKey().subarray(33).toString('base64url'),
+        x: Buffer.from(keys.publicKey, 'base64url').subarray(1, 33).toString('base64url'),
+        y: Buffer.from(keys.publicKey, 'base64url').subarray(33).toString('base64url'),
       },
       format: 'jwk',
     })

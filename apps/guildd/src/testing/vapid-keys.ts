@@ -16,7 +16,10 @@ export function vapidKeys(privateScalar?: Uint8Array): VapidKeys {
   }
   return {
     publicKey: ecdh.getPublicKey().toString('base64url'),
-    privateKey: ecdh.getPrivateKey().toString('base64url'),
+    // getPrivateKey() returns the scalar as a big integer, dropping leading zero bytes.
+    privateKey: Buffer.from(ecdh.getPrivateKey().toString('hex').padStart(64, '0'), 'hex').toString(
+      'base64url'
+    ),
     subject: 'mailto:ops@guild.example',
   }
 }
