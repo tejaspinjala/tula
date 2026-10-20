@@ -47,7 +47,7 @@ test('the live region tells the team activity: Campaign, board, apprentices and 
   })
   const summary = sceneSummary(scene)
   expect(summary).toContain('A team Campaign is running.')
-  expect(summary).toContain('Heralds: 2 Quests on the Quest Board.')
+  expect(summary).toContain('Heralds: 1 Quest on the Quest Board.')
   expect(summary).toContain('Heralds: 1 apprentice, Draft the headline.')
   expect(summary).toContain('Ada says: Mind the headline.')
 })

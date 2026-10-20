@@ -31,6 +31,8 @@ export interface SceneMember {
   bubble: SceneBubble | null
   /** The seq of the claim that put this Member to work (a new seq walks them to the Quest Board). */
   claimSeq: number | null
+  /** The Member's latest Missive, as text (the bubble shows it while it is the newest thing said). */
+  saying?: SceneBubble | undefined
   /** The Guild Master's override of the look this Member's id seeds. */
   look?: LookChoice | undefined
 }
@@ -221,8 +223,12 @@ export function deriveScene(input: SceneInput): SceneState {
   }
   for (const [memberId, saying] of sayings) {
     const member = members[memberId]
-    if (member && (member.bubble === null || saying.seq > member.bubble.seq)) {
-      member.bubble = { text: saying.text.slice(0, EXCERPT_CHARS), seq: saying.seq }
+    if (member) {
+      const said = { text: saying.text.slice(0, EXCERPT_CHARS), seq: saying.seq }
+      member.saying = said
+      if (member.bubble === null || said.seq > member.bubble.seq) {
+        member.bubble = said
+      }
     }
   }
   const settled = new Set([...replay.quests.done, ...replay.quests.dead])
