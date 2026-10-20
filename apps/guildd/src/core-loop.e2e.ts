@@ -18,6 +18,7 @@ import type { RecordingSandboxRunner } from './testing/recording-sandbox'
 import { callTool, ScriptedMember } from './testing/scripted-member'
 import type { ContentPolicy } from './verdict'
 import type { WorkflowEngine } from './workflows/engine'
+import type { WorkflowGraph, WorkflowNode } from './workflows/graph'
 
 /** What a guild needs from {@link E2eWorld.newGuild}. */
 export interface GuildOptions {
@@ -641,6 +642,148 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         ['seal', 'approved'],
         ['publish', 'done'],
       ])
+    })
+
+    describe('workflow fan-out nodes', () => {
+      const fanGraph = (node: WorkflowNode): WorkflowGraph => ({
+        nodes: [{ id: 'start', type: 'trigger.manual' }, node],
+        edges: [{ from: 'start', to: node.id }],
+      })
+      const subagentsGraph = fanGraph({
+        id: 'fan',
+        type: 'subagents',
+        hallId: 'heralds',
+        templateId: 'herald-brief',
+        briefs: ['Research topic A', 'Research topic B'],
+        join: 'all',
+        maxUsd: 1,
+      })
+      const teamGraph = fanGraph({
+        id: 'crew',
+        type: 'team',
+        hallId: 'heralds',
+        goal: 'Ship the launch notes',
+        maxMembers: 2,
+        maxQuests: 3,
+        maxUsd: 1,
+      })
+      /** Saves the graph, confirms it (a fan-out is widening) and runs it. */
+      const runGraph = async (w: E2eWorld, guild: string, graph: WorkflowGraph) => {
+        const saved = await w.workflows.save(guild, 'fanout', { name: 'Fan out', graph })
+        if (saved.status === 'invalid') {
+          throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
+        }
+        await w.workflows.confirm(guild, 'fanout', saved.version.version)
+        const run = await w.workflows.run(guild, 'fanout', { runKey: 'e2e' })
+        if (!run.ok) {
+          throw new Error(`run refused: ${run.error}`)
+        }
+        return run
+      }
+      const nodeOf = async (w: E2eWorld, guild: string, instance: string, id: string) =>
+        (await w.workflows.state(guild, instance))?.nodes.find((n) => n.id === id)
+      const handleOf = (w: E2eWorld, questId: string) =>
+        lease.parse(JSON.parse(w.sandboxes.latest(questId).leaseHandle ?? 'null'))
+      const starts = async (w: E2eWorld, guild: string, questId: string) => {
+        const quest = await w.quests.get(guild, questId)
+        if (!quest) {
+          throw new Error('no such Quest')
+        }
+        await dispatchStarts(w, guild, quest)
+      }
+      const tool = (w: E2eWorld, questId: string, name: string, args: object) =>
+        callTool((r) => w.mcp.handle(r), name, { lease: handleOf(w, questId), ...args })
+
+      test('a subagents node fans out under the caps and reaches done with the children`s result refs', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        const run = await runGraph(w, guildId, subagentsGraph)
+        const parentId = run.quests[0]?.questId ?? ''
+        await starts(w, guildId, parentId)
+        const kids: string[] = []
+        for (const topic of ['A', 'B']) {
+          const spawned = await tool(w, parentId, 'spawn_subquest', {
+            title: `Topic ${topic}`,
+            brief: `Research topic ${topic}`,
+            template: 'herald-brief',
+          })
+          expect(spawned.isError).toBe(false)
+          kids.push(z.string().parse(spawned.data.childId))
+        }
+        expect((await tool(w, parentId, 'await_children', { mode: 'all' })).data.waiting).toBe(true)
+        for (const kid of kids) {
+          await w.dispatcher.dispatch(guildId)
+          await memberWorks(w, guildId, kid, `Findings ${kid}`)
+        }
+        expect(await w.dispatcher.dispatch(guildId)).toMatchObject({
+          status: 'started',
+          questId: parentId,
+        })
+        const handle = handleOf(w, parentId)
+        const finished = await new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Fanned in',
+          output: () => 'Both topics researched',
+        }).runLeased(handle)
+        expect(finished.completion).toMatchObject({ isError: false, data: { state: 'done' } })
+        const node = await nodeOf(w, guildId, run.instance.id, 'fan')
+        expect(node).toMatchObject({ status: 'done', questId: parentId })
+        expect(node?.refs).toHaveLength(2)
+      })
+
+      test('a team node starts the Captain`s Campaign and reaches done with the board Quests` result refs', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild({ memberCap: 2 })
+        const run = await runGraph(w, guildId, teamGraph)
+        const planId = run.quests[0]?.questId ?? ''
+        const plan = await w.quests.get(guildId, planId)
+        if (!plan) {
+          throw new Error('no plan Quest')
+        }
+        expect(plan).toMatchObject({ templateId: 'team-plan', ownerId: 'heralds-captain' })
+        await dispatchStarts(w, guildId, plan)
+        const board: string[] = []
+        const captain = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Plan',
+          output: () => 'The plan',
+          afterArtifact: async () => {
+            for (const n of [1, 2]) {
+              const out = await tool(w, planId, 'post_to_board', {
+                title: `Section ${n}`,
+                brief: `Write section ${n}`,
+                template: 'herald-brief',
+              })
+              board.push(z.string().parse(out.data.questId))
+            }
+          },
+        })
+        expect((await captain.runLeased(handleOf(w, planId))).completion.isError).toBe(false)
+        expect((await nodeOf(w, guildId, run.instance.id, 'crew'))?.status).toBe('running')
+        for (const id of board) {
+          await starts(w, guildId, id)
+          await memberWorks(w, guildId, id, `Done ${id}`)
+        }
+        const node = await nodeOf(w, guildId, run.instance.id, 'crew')
+        expect(node?.status).toBe('done')
+        expect(node?.refs).toHaveLength(2)
+      })
+
+      test('a bar mid-instance stops the fan-out: nothing dispatches and the coordinator spawns nothing', async () => {
+        const w = await make()
+        const { guildId, masterId } = await w.newGuild()
+        const run = await runGraph(w, guildId, subagentsGraph)
+        const parentId = run.quests[0]?.questId ?? ''
+        await starts(w, guildId, parentId)
+        await w.gates.bar({ guildId, memberId: masterId }, 'guild')
+        expect(await w.dispatcher.dispatch(guildId)).toEqual({ status: 'barred' })
+        const denied = await tool(w, parentId, 'spawn_subquest', {
+          title: 'x',
+          brief: 'y',
+          template: 'herald-brief',
+        })
+        expect(denied.rpcError).toBe('gates_barred')
+        expect((await nodeOf(w, guildId, run.instance.id, 'fan'))?.status).not.toBe('done')
+        expect(await w.quests.children(guildId, parentId)).toEqual([])
+      })
     })
 
     test('a permanent routing block kills the Quest with a coded reason', async () => {

@@ -9,12 +9,9 @@ export const MAX_DONE_CONDITION = 2000
  * validator, so a node whose briefs would not fit is refused at save time.
  */
 export function subagentsDoneCondition(node: Extract<WorkflowNode, { type: 'subagents' }>): string {
-  const briefs = node.briefs.map((brief, i) => `${i + 1}. ${brief}`).join('\n')
-  return [
-    `Spawn one Sub-Quest per brief below with spawn_subquest (Hall ${node.hallId}, template ${node.templateId}), then call await_children with mode ${node.join}.`,
-    "Finish with the Sub-Quests' result refs.",
-    briefs,
-  ].join('\n')
+  // One line: the Handoff's done-condition must equal it exactly, and the brief shows it as "Done when: ...".
+  const briefs = node.briefs.map((brief, i) => `(${i + 1}) ${brief.replace(/\s+/g, ' ')}`).join(' ')
+  return `Spawn one Sub-Quest per brief with spawn_subquest (Hall ${node.hallId}, template ${node.templateId}), call await_children with mode ${node.join}, then finish with their result refs. Briefs: ${briefs}`
 }
 
 /** The Campaign id of a `team` node in one instance: the instance id and the node's position (stable per version, within the queue's 100 characters). */
