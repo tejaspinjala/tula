@@ -11,7 +11,7 @@
   "version": "1.10",
   "tiledversion": "1.10.2",
   "nextlayerid": 6,
-  "nextobjectid": 17,
+  "nextobjectid": 24,
   "tilesets": [
     {
       "firstgid": 1,
@@ -265,7 +265,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 0 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 0
+            }
+          ]
         },
         {
           "id": 2,
@@ -277,7 +283,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 1 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 1
+            }
+          ]
         },
         {
           "id": 3,
@@ -289,7 +301,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 2 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 2
+            }
+          ]
         },
         {
           "id": 4,
@@ -301,7 +319,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 3 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 3
+            }
+          ]
         },
         {
           "id": 5,
@@ -313,7 +337,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 4 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 4
+            }
+          ]
         },
         {
           "id": 6,
@@ -325,7 +355,13 @@
           "height": 128,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 5 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 5
+            }
+          ]
         },
         {
           "id": 7,
@@ -337,7 +373,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 0 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 0
+            }
+          ]
         },
         {
           "id": 8,
@@ -349,7 +391,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 1 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 1
+            }
+          ]
         },
         {
           "id": 9,
@@ -361,7 +409,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 2 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 2
+            }
+          ]
         },
         {
           "id": 10,
@@ -373,7 +427,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 3 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 3
+            }
+          ]
         },
         {
           "id": 11,
@@ -385,7 +445,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 4 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 4
+            }
+          ]
         },
         {
           "id": 12,
@@ -397,7 +463,13 @@
           "height": 16,
           "rotation": 0,
           "visible": true,
-          "properties": [{ "name": "slot", "type": "int", "value": 5 }]
+          "properties": [
+            {
+              "name": "slot",
+              "type": "int",
+              "value": 5
+            }
+          ]
         },
         {
           "id": 13,
@@ -439,6 +511,100 @@
           "x": 320,
           "y": 192,
           "width": 32,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 17,
+          "name": "door-to-plaza",
+          "type": "door",
+          "x": 624,
+          "y": 176,
+          "width": 16,
+          "height": 48,
+          "rotation": 0,
+          "visible": true,
+          "properties": [
+            {
+              "name": "to",
+              "type": "string",
+              "value": "plaza"
+            },
+            {
+              "name": "toX",
+              "type": "int",
+              "value": 5
+            },
+            {
+              "name": "toY",
+              "type": "int",
+              "value": 7
+            }
+          ]
+        },
+        {
+          "id": 18,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 96,
+          "y": 160,
+          "width": 16,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 19,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 320,
+          "y": 160,
+          "width": 16,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 20,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 528,
+          "y": 224,
+          "width": 16,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 21,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 96,
+          "y": 224,
+          "width": 16,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 22,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 320,
+          "y": 224,
+          "width": 16,
+          "height": 16,
+          "rotation": 0,
+          "visible": true
+        },
+        {
+          "id": 23,
+          "name": "lantern",
+          "type": "lantern",
+          "x": 528,
+          "y": 160,
+          "width": 16,
           "height": 16,
           "rotation": 0,
           "visible": true
