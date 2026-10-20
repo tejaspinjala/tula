@@ -1,6 +1,6 @@
 import { afterAll } from 'bun:test'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
-import { coreLoopEndToEnd, type E2eWorld } from './core-loop.e2e'
+import { coreLoopEndToEnd, type E2eWorld, hallsFor } from './core-loop.e2e'
 import { defaultConfig, guildConfig } from './guild-config'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
@@ -36,6 +36,7 @@ async function pgWorld(): Promise<E2eWorld> {
       await a.config.seed(guildId)
       const next = guildConfig.parse({
         ...defaultConfig(),
+        halls: hallsFor(options),
         ...(options.caps ? { caps: options.caps } : {}),
         ...(options.contentPolicy ? { contentPolicy: options.contentPolicy } : {}),
         providers: [{ id: 'cloud', auth: 'api_key' }],

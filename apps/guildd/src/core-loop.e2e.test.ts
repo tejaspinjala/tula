@@ -18,7 +18,7 @@ import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { MemoryWorkflowStore } from './adapters/memory-workflow-store'
-import { coreLoopEndToEnd, type E2eWorld } from './core-loop.e2e'
+import { coreLoopEndToEnd, type E2eWorld, hallsFor } from './core-loop.e2e'
 import { Dispatcher } from './dispatch'
 import { Gates } from './gates'
 import { defaultConfig, guildConfig } from './guild-config'
@@ -137,6 +137,7 @@ async function memoryWorld(): Promise<E2eWorld> {
       await config.seed(guildId)
       const next = guildConfig.parse({
         ...defaultConfig(),
+        halls: hallsFor(options),
         ...(options.caps ? { caps: options.caps } : {}),
         ...(options.contentPolicy ? { contentPolicy: options.contentPolicy } : {}),
         providers: [{ id: 'cloud', auth: 'api_key' }],
