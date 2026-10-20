@@ -131,6 +131,13 @@ export class HallScene extends Phaser.Scene {
         this.fit(true)
       }
     })
+    // The camera never shows past the hall: a small hall is centred, not dragged into the void.
+    this.cameras.main.setBounds(
+      0,
+      0,
+      px(this.layout.width, this.layout.tileSize),
+      px(this.layout.height, this.layout.tileSize)
+    )
     this.createPlayer()
     this.ready = true
     this.fit()
