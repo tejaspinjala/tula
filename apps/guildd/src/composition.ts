@@ -47,6 +47,7 @@ import { ProposalEngine } from './proposals'
 import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
+import { Summon } from './summon'
 import { Treasury } from './treasury'
 
 /**
@@ -115,6 +116,20 @@ export async function compose(
       tripwires,
       gates: gateStore,
     })
+  const mcp =
+    overrides.mcp ??
+    new McpGateway({
+      quests,
+      config,
+      notes,
+      objectStore,
+      handoffs: new PgHandoffStore(db, keys),
+      toolsets: new PgToolsetStore(db),
+      keys,
+      clock,
+      tripwires,
+      gates: gateStore,
+    })
   const adapters: AppDeps = {
     ...overrides,
     pushStore,
@@ -141,20 +156,7 @@ export async function compose(
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
     notes,
     quests,
-    mcp:
-      overrides.mcp ??
-      new McpGateway({
-        quests,
-        config,
-        notes,
-        objectStore,
-        handoffs: new PgHandoffStore(db, keys),
-        toolsets: new PgToolsetStore(db),
-        keys,
-        clock,
-        tripwires,
-        gates: gateStore,
-      }),
+    mcp,
     tripwires,
     treasury:
       overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
@@ -183,6 +185,8 @@ export async function compose(
     routingLog: overrides.routingLog ?? new PgRoutingLog(db),
     gateway,
     sandboxes,
+    summon:
+      overrides.summon ?? new Summon({ config, quests, tripwires, gateway, mcp, sandboxes, clock }),
     platformOperators: overrides.platformOperators ?? loadPlatformOperators(),
     gates:
       overrides.gates ??

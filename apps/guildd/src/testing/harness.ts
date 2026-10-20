@@ -61,6 +61,7 @@ export interface HarnessOptions {
       | 'platformOperators'
       | 'pushAllowedHosts'
       | 'gateway'
+      | 'sandboxes'
       | 'modelProvider'
       | 'objectStore'
       | 'keys'
@@ -136,6 +137,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       gateway: composed.gateway,
       gates: composed.gates,
       sandboxes: composed.sandboxes,
+      summon: composed.summon,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,

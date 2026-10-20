@@ -5,6 +5,8 @@ export interface SandboxSpec {
   runToken?: string
   /** Opaque handle the worker exchanges for its Quest lease at the MCP gateway. */
   leaseHandle?: string
+  /** The Quest's done-condition: public template text, not a secret. */
+  doneCondition?: string
 }
 
 /** A running sandbox. */

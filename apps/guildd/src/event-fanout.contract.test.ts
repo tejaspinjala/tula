@@ -64,6 +64,7 @@ function countingApp(
     gateway: harness.adapters.gateway,
     gates: harness.adapters.gates,
     sandboxes: harness.adapters.sandboxes,
+    summon: harness.adapters.summon,
     platformOperators: [],
     keys,
     devGuildHeader: true,

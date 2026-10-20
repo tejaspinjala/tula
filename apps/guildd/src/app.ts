@@ -55,6 +55,7 @@ import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
+import type { Summon } from './summon'
 import { isGuildMaster, type Treasury } from './treasury'
 import { readBufferedAmount } from './ws-support'
 
@@ -98,6 +99,8 @@ export interface AppDeps {
   gates: Gates
   /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
   sandboxes: SandboxRunner
+  /** "Summon your first member": the test Quest that proves the worker and provider run end to end. */
+  summon: Summon
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
