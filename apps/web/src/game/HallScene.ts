@@ -436,7 +436,8 @@ export class HallScene extends Phaser.Scene {
         const centre = bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y)
         const extra = (height - 20) / 2
         const wide = view.bubble.getData('width')
-        const left = typeof wide === 'number' ? bubbleCentreX(this.cameras.main.worldView, wide, x) : x
+        const left =
+          typeof wide === 'number' ? bubbleCentreX(this.cameras.main.worldView, wide, x) : x
         view.bubble.setPosition(left, centre < y ? centre - extra : centre + extra)
       }
     }

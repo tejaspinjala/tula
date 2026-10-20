@@ -87,7 +87,7 @@ test('a Member working another Quest is not frozen at the Seal desk', () => {
         awaitingSeal: true,
         activity: { name: 'writing', seq: 7 },
       }),
-    }),
+    })
   )
   expect(plan.key).toBe('m2:writing@7')
   expect(plan.stops.at(-1)?.spot).toEqual(desk)

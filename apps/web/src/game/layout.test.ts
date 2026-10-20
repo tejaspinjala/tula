@@ -1,5 +1,13 @@
 import { expect, test } from 'bun:test'
-import { bubbleCentreX, bubbleCentreY, fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
+import {
+  bubbleCentreX,
+  bubbleCentreY,
+  fitZoom,
+  hallLayout,
+  openZoom,
+  seatsIn,
+  withClosedDoors,
+} from './layout'
 
 const layout = hallLayout()
 

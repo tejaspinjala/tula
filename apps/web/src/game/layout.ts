@@ -204,7 +204,11 @@ export function bubbleCentreY(
  * camera `view` (a narrow screen would otherwise clip it at the edge). A bubble wider than the
  * view centres on the view.
  */
-export function bubbleCentreX(view: { x: number; width: number }, width: number, x: number): number {
+export function bubbleCentreX(
+  view: { x: number; width: number },
+  width: number,
+  x: number
+): number {
   const half = width / 2 + 1
   if (width + 2 >= view.width) {
     return view.x + view.width / 2
