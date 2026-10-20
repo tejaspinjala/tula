@@ -10,6 +10,7 @@ import { TreasuryCore, type TreasuryTx } from '../treasury-core'
 
 interface GuildState {
   entries: LedgerEntry[]
+  spends: Spend[]
 }
 
 const todo = (): never => {
@@ -58,7 +59,7 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
     if (found) {
       return found
     }
-    const fresh: GuildState = { entries: [] }
+    const fresh: GuildState = { entries: [], spends: [] }
     this.guilds.set(guildId, fresh)
     return fresh
   }
@@ -92,13 +93,16 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
       },
       entriesAfter: async (after, limit) =>
         state.entries.filter((e) => e.seq > after).slice(0, limit),
+      spendByKey: async (key) => state.spends.find((sp) => sp.key === key) ?? null,
+      insertSpend: async (spend) => {
+        const row: Spend = { ...spend, seq: state.spends.length + 1 }
+        state.spends.push(row)
+        return row
+      },
       emit: async (type, payload) => this.onEvent(guildId, type, payload),
     }
   }
 
-  async requestSpend(): Promise<SpendResult> {
-    return todo()
-  }
   async approveSpend(): Promise<SpendResult> {
     return todo()
   }

@@ -10,6 +10,9 @@ import {
   type LedgerVerdict,
   MAX_TREASURY_PAGE,
   type NewRevenue,
+  type NewSpend,
+  type Spend,
+  type SpendResult,
   STARTING_FUNDS_CENTS,
   type TreasuryPage,
   type TreasurySnapshot,
@@ -38,6 +41,10 @@ export interface TreasuryTx {
   append(entry: LedgerEntry): Promise<void>
   /** Entries after `afterSeq`, oldest first. */
   entriesAfter(afterSeq: number, limit: number): Promise<LedgerEntry[]>
+  /** The spend request filed under an idempotency key, or null. */
+  spendByKey(key: string): Promise<Spend | null>
+  /** Inserts a spend request, assigning its per-guild `seq`. */
+  insertSpend(spend: Omit<Spend, 'seq'>): Promise<Spend>
   /** Records an event carrying ids and amounts only. */
   emit(type: string, payload: Record<string, string | number>): Promise<void>
 }
@@ -188,6 +195,60 @@ export abstract class TreasuryCore {
         }
       }
       return { ok: true, entries, created: true }
+    })
+  }
+
+  async requestSpend(
+    guildId: string,
+    input: NewSpend,
+    limits: TreasuryLimits
+  ): Promise<SpendResult> {
+    if (!isCents(input.amountCents)) {
+      return { ok: false, reason: 'invalid_amount' }
+    }
+    return this.run(guildId, 'write', async (tx): Promise<SpendResult> => {
+      await this.ensureFunded(tx, limits)
+      const seen = await tx.spendByKey(input.key)
+      if (seen) {
+        return { ok: true, spend: seen, created: false }
+      }
+      const { operating } = await tx.balances()
+      if (input.amountCents > operating) {
+        return { ok: false, reason: 'insufficient_funds' }
+      }
+      const spentToday = await tx.spentOn(this.today())
+      const escalation =
+        input.amountCents > limits.treasurerLimitCents
+          ? ('over_treasurer_limit' as const)
+          : spentToday + input.amountCents > limits.dailyCapCents
+            ? ('daily_cap' as const)
+            : null
+      const spend = await tx.insertSpend({
+        id: crypto.randomUUID(),
+        key: input.key,
+        amountCents: input.amountCents,
+        settledCents: null,
+        purpose: input.purpose,
+        requestedBy: input.requestedBy,
+        status: escalation ? 'pending_approval' : 'reserved',
+        escalation,
+        approvedBy: escalation ? null : 'treasurer',
+        createdAt: this.clock.now().toISOString(),
+      })
+      if (!escalation) {
+        await this.post(tx, {
+          kind: 'spend_reserve',
+          bucket: 'operating',
+          amountCents: -spend.amountCents,
+          spendId: spend.id,
+        })
+      }
+      await tx.emit('treasury.spend', {
+        spendId: spend.id,
+        status: spend.status,
+        amountCents: spend.amountCents,
+      })
+      return { ok: true, spend, created: true }
     })
   }
 
