@@ -52,6 +52,7 @@ describe('websocket backpressure', () => {
       identity: harness.adapters.identity,
       seals: harness.adapters.seals,
       tripwires: harness.adapters.tripwires,
+      treasury: harness.adapters.treasury,
       proposals: harness.adapters.proposals,
       rateLimiter: harness.adapters.rateLimiter,
       rateLimits: UNLIMITED_RATE_LIMITS,

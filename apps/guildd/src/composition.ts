@@ -19,6 +19,7 @@ import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { PgStreamTicketStore } from './adapters/pg-stream-ticket-store'
 import { PgToolsetStore } from './adapters/pg-toolset-store'
+import { PgTreasuryStore } from './adapters/pg-treasury-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -33,6 +34,7 @@ import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
+import { Treasury } from './treasury'
 
 /**
  * The single composition root: wires adapters into the app.
@@ -125,6 +127,8 @@ export async function compose(
         tripwires,
       }),
     tripwires,
+    treasury:
+      overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
