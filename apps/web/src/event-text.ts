@@ -46,7 +46,7 @@ export function eventText(event: ReplayEvent): string {
     case 'artifact.attached':
       return `Artifact ${str(p, 'hash')} attached to Quest ${str(p, 'quest_id')}`
     case 'handoff.recorded':
-      return `Handoff recorded for Quest ${str(p, 'questId')}`
+      return `Handoff recorded for Quest ${str(p, 'quest_id')}`
     case 'note.added':
       return `Note ${str(p, 'noteId')} added, version ${str(p, 'version')}`
     case 'note.edited':
