@@ -6,9 +6,10 @@ import {
   MAX_USAGE_PAGE,
   type ModelLedger,
   type NewRun,
+  type Reservation,
+  type ReserveResult,
   type RunRecord,
   type Totals,
-  type UsageEntry,
   type UsageGroup,
   type UsagePage,
 } from '../ports/model-ledger'
@@ -44,6 +45,13 @@ const toRun = (r: z.infer<typeof runRow>): RunRecord => ({
   state: r.state,
   expiresAt: r.expires_at,
 })
+
+const COLUMN: Record<UsageGroup, string> = {
+  run: 'run_id',
+  quest: 'quest_id',
+  hall: 'hall_id',
+  day: 'day',
+}
 
 /**
  * Postgres {@link ModelLedger}: every call runs in `Db.withGuild`, so forced RLS scopes it to one
@@ -127,24 +135,58 @@ export class PgModelLedger implements ModelLedger {
     return rows.map((r) => toRun(runRow.parse(r)))
   }
 
-  async recordUsage(guildId: string, e: UsageEntry): Promise<void> {
-    await this.db.withGuild(guildId, async (tx) => {
-      const rows = await tx`
-        insert into model_usage
-          (guild_id, call_key, run_id, quest_id, hall_id, day, input_tokens, output_tokens, cost_micros)
-        select guild_id, ${e.callKey}, run_id, quest_id, hall_id, ${e.day}::date,
-               ${e.inputTokens}, ${e.outputTokens}, ${e.costMicros}
-        from model_runs where guild_id = ${guildId} and run_id = ${e.runId}
-        on conflict (guild_id, call_key) do nothing
-        returning call_key`
-      if (rows.length === 0) {
-        const [exists] = await tx`
-          select 1 as one from model_usage where guild_id = ${guildId} and call_key = ${e.callKey}`
-        if (!exists) {
-          throw new Error('usage for an unknown run')
+  // One transaction per guild at a time (advisory lock) so the cap check and the charge are
+  // atomic: parallel calls cannot all pass a cap that admits one.
+  async reserve(guildId: string, r: Reservation): Promise<ReserveResult> {
+    return this.db.withGuild(guildId, async (tx): Promise<ReserveResult> => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${guildId}, 26))`
+      if (r.clientKey !== null) {
+        const dup = await tx`
+          select 1 as one from model_usage
+          where guild_id = ${guildId} and run_id = ${r.runId} and client_key = ${r.clientKey}`
+        if (dup.length > 0) {
+          return { status: 'duplicate' }
         }
       }
+      const [row] = await tx`
+        select coalesce(sum(input_tokens + output_tokens), 0) as tokens,
+               coalesce(sum(cost_micros), 0) as cost_micros
+        from model_usage where guild_id = ${guildId} and day = ${r.day}::date`
+      const totals = totalsRow.parse(row)
+      if (totals.tokens + r.inputTokens + r.outputTokens > r.caps.tokens) {
+        return { status: 'cap_reached', reason: 'daily_tokens' }
+      }
+      if (totals.cost_micros + (r.costMicros ?? 0) > r.caps.costMicros) {
+        return { status: 'cap_reached', reason: 'daily_spend' }
+      }
+      const inserted = await tx`
+        insert into model_usage
+          (guild_id, call_key, run_id, quest_id, hall_id, day, input_tokens, output_tokens,
+           cost_micros, state, client_key)
+        select guild_id, ${r.callKey}, run_id, quest_id, hall_id, ${r.day}::date,
+               ${r.inputTokens}, ${r.outputTokens}, ${r.costMicros}, 'pending', ${r.clientKey}
+        from model_runs where guild_id = ${guildId} and run_id = ${r.runId}
+        returning call_key`
+      if (inserted.length === 0) {
+        throw new Error('usage for an unknown run')
+      }
+      return { status: 'reserved' }
     })
+  }
+
+  async settle(
+    guildId: string,
+    callKey: string,
+    actual: { inputTokens: number; outputTokens: number; costMicros: number | null }
+  ): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        update model_usage set input_tokens = ${actual.inputTokens},
+          output_tokens = ${actual.outputTokens}, cost_micros = ${actual.costMicros},
+          state = 'settled'
+        where guild_id = ${guildId} and call_key = ${callKey}`
+    )
   }
 
   async dayTotals(guildId: string, day: string): Promise<Totals> {
@@ -168,17 +210,22 @@ export class PgModelLedger implements ModelLedger {
     const after = page.after ?? null
     const rows = await this.db.withGuild(
       guildId,
-      (tx) => tx`
-        select k, count(*) as calls, sum(input_tokens) as input_tokens,
-               sum(output_tokens) as output_tokens, coalesce(sum(cost_micros), 0) as cost_micros
-        from (
-          select case ${by}::text when 'run' then run_id when 'quest' then quest_id
-                   when 'hall' then hall_id else day::text end as k,
-                 input_tokens, output_tokens, cost_micros
-          from model_usage where guild_id = ${guildId}
-        ) u
-        where ${after}::text is null or k > ${after}::text
-        group by k order by k limit ${limit + 1}`
+      // The cursor filters the grouping column itself (not a computed key) so each grouping's
+      // index narrows the scan before anything is aggregated.
+      (tx) => {
+        const col = tx(COLUMN[by])
+        const past =
+          after === null
+            ? tx`true`
+            : by === 'day'
+              ? tx`${col} > ${after}::date`
+              : tx`${col} > ${after}`
+        return tx`
+          select ${col}::text as k, count(*) as calls, sum(input_tokens) as input_tokens,
+                 sum(output_tokens) as output_tokens, coalesce(sum(cost_micros), 0) as cost_micros
+          from model_usage where guild_id = ${guildId} and ${past}
+          group by ${col} order by ${col} limit ${limit + 1}`
+      }
     )
     const parsed = rows.map((r) => usageRow.parse(r))
     const out = parsed.slice(0, limit).map((r) => ({

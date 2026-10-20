@@ -91,13 +91,43 @@ describe('gateway routes', () => {
   })
 
   test('a call past the daily cap is 429 cap_reached', async () => {
-    const { g } = await found('G3', { dailyTokens: 1, dailySpendCents: 1000 })
-    provider.script({ ok: true, text: 'x', usage: { inputTokens: 5, outputTokens: 5 } })
+    const { g } = await found('G3', { dailyTokens: 200, dailySpendCents: 1000 })
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 150, outputTokens: 100 } })
     const token = await start(g, 'r1')
     expect((await call(token)).status).toBe(200)
     const res = await call(token)
     expect(res.status).toBe(429)
     expect(errorBody.parse(await res.json()).error).toBe('cap_reached')
+  })
+
+  test('parallel calls against a cap that admits one: one reaches the provider, the rest are 429', async () => {
+    const { g } = await found('G3b', { dailyTokens: 150, dailySpendCents: 1000 })
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 100, outputTokens: 60 } })
+    const token = await start(g, 'r1')
+    const seenBefore = provider.seen.length
+    const statuses = (await Promise.all(Array.from({ length: 5 }, () => call(token)))).map(
+      (r) => r.status
+    )
+    expect(statuses.filter((s) => s === 200)).toHaveLength(1)
+    expect(statuses.filter((s) => s === 429)).toHaveLength(4)
+    expect(provider.seen.length - seenBefore).toBe(1)
+  })
+
+  test('a reused client key is refused before any provider call; a bad body is 400', async () => {
+    const { g } = await found('G3c')
+    provider.script({ ok: true, text: 'x', usage: { inputTokens: 1, outputTokens: 1 } })
+    const token = await start(g, 'r1')
+    const send = (b: unknown) =>
+      harness.request('/gateway/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(b),
+      })
+    expect((await send({ ...body, idempotencyKey: 'k' })).status).toBe(200)
+    const seen = provider.seen.length
+    expect((await send({ ...body, idempotencyKey: 'k' })).status).toBe(409)
+    expect(provider.seen.length).toBe(seen)
+    expect((await send({ ...body, messages: [] })).status).toBe(400)
   })
 
   test('the cost table pages spend by Quest, Hall, run and day', async () => {

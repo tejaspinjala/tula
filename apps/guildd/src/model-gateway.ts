@@ -16,6 +16,8 @@ import type { SecretStore } from './ports/secret-store'
 /** Why the gateway refused or could not serve a call. */
 export type GatewayErrorCode =
   | 'invalid_token'
+  | 'invalid_request'
+  | 'duplicate_call'
   | 'token_expired'
   | 'token_revoked'
   | 'cap_reached'
@@ -53,8 +55,11 @@ export interface AdmittedRun {
 
 /** A call as a worker makes it: no model id (the routing profile supplies it) and no key. */
 export const gatewayCall = modelRequest.omit({ model: true }).extend({
-  /** Idempotency key: the same key meters once. */
-  callKey: z.string().min(1).max(200).optional(),
+  /**
+   * Optional idempotency key, scoped to the run: a reuse is refused as `duplicate_call` before
+   * any provider call. Metering never depends on it (the gateway mints its own call id).
+   */
+  idempotencyKey: z.string().min(1).max(200).optional(),
 })
 /** One call through the gateway. */
 export type GatewayCall = z.input<typeof gatewayCall>
@@ -74,6 +79,15 @@ export interface GatewayDeps {
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
+
+/** An upper-bound estimate of a call's input tokens (a token is at least about three characters). */
+function estimateInputTokens(call: {
+  system?: string | undefined
+  messages: Array<{ content: string }>
+}): number {
+  const chars = (call.system?.length ?? 0) + call.messages.reduce((n, m) => n + m.content.length, 0)
+  return Math.ceil(chars / 3)
+}
 
 function sha256(value: string): string {
   return new Bun.CryptoHasher('sha256').update(value).digest('hex')
@@ -134,6 +148,10 @@ export class ModelGateway {
     guildId: string,
     run: { runId: string; questId: string; hallId: string; profileId: string }
   ): Promise<OpenRunResult> {
+    const existing = await this.deps.ledger.getRun(guildId, run.runId)
+    if (existing && existing.state !== 'queued') {
+      return { status: 'exists' }
+    }
     const { config } = await this.deps.config.current(guildId)
     const { profile } = resolveProfile(config, run.profileId)
     const capped = await this.capReason(guildId, config)
@@ -149,6 +167,13 @@ export class ModelGateway {
       await this.notify(guildId, capped)
       return { status: 'queued', reason: capped }
     }
+    const started = { status: 'started', token: issue.token, expiresAt: issue.expiresAt } as const
+    if (existing) {
+      // Only a queued run reaches here; activating it is atomic, so a racing retry starts it once.
+      return (await this.deps.ledger.activate(guildId, run.runId, issue.hash, issue.expiresAt))
+        ? started
+        : { status: 'exists' }
+    }
     const created = await this.deps.ledger.openRun(guildId, {
       ...run,
       providerId: profile.provider,
@@ -156,17 +181,7 @@ export class ModelGateway {
       tokenHash: issue.hash,
       expiresAt: issue.expiresAt,
     })
-    if (created === 'created') {
-      return { status: 'started', token: issue.token, expiresAt: issue.expiresAt }
-    }
-    const existing = await this.deps.ledger.getRun(guildId, run.runId)
-    if (
-      existing?.state === 'queued' &&
-      (await this.deps.ledger.activate(guildId, run.runId, issue.hash, issue.expiresAt))
-    ) {
-      return { status: 'started', token: issue.token, expiresAt: issue.expiresAt }
-    }
-    return { status: 'exists' }
+    return created === 'created' ? started : { status: 'exists' }
   }
 
   /** Admits queued runs, oldest first, while the caps have room; returns the tokens issued. */
@@ -207,7 +222,13 @@ export class ModelGateway {
     return this.deps.ledger.revoke(guildId, runId)
   }
 
-  /** Serves one call for the run holding `token`; throws {@link GatewayError}. */
+  /**
+   * Serves one call for the run holding `token`; throws {@link GatewayError}. The call's
+   * estimated charge (input size plus `maxTokens` at the profile price) is reserved against the
+   * daily caps atomically before the provider is called, and reconciled to actual usage after.
+   * If the provider fails, replies without usable usage, or the reconcile fails, the estimate
+   * stays as the charge: a call that may have been served is never free.
+   */
   async complete(token: string, call: GatewayCall): Promise<ModelResponse> {
     const request = gatewayCall.safeParse(call)
     const guildId = this.guildOf(token)
@@ -217,15 +238,10 @@ export class ModelGateway {
     }
     this.checkLive(run)
     if (!request.success) {
-      throw new GatewayError('provider_failed')
+      throw new GatewayError('invalid_request')
     }
     const { config } = await this.deps.config.current(guildId)
     const { profile, provider } = resolveProfile(config, run.profileId)
-    const capped = await this.capReason(guildId, config)
-    if (capped) {
-      await this.notify(guildId, capped)
-      throw new GatewayError('cap_reached')
-    }
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
@@ -236,7 +252,32 @@ export class ModelGateway {
     if (key === null) {
       throw new GatewayError('key_missing')
     }
-    const { callKey, ...rest } = request.data
+    const { idempotencyKey, ...rest } = request.data
+    const callKey = crypto.randomUUID()
+    const estimate = {
+      inputTokens: estimateInputTokens(rest),
+      outputTokens: rest.maxTokens,
+    }
+    const day = this.day()
+    const reserved = await this.deps.ledger.reserve(guildId, {
+      callKey,
+      runId: run.runId,
+      day,
+      ...estimate,
+      costMicros: profile.price ? costMicros(estimate, profile.price) : null,
+      clientKey: idempotencyKey ?? null,
+      caps: {
+        tokens: config.caps.dailyTokens,
+        costMicros: config.caps.dailySpendCents * MICROS_PER_CENT,
+      },
+    })
+    if (reserved.status === 'duplicate') {
+      throw new GatewayError('duplicate_call')
+    }
+    if (reserved.status === 'cap_reached') {
+      await this.notify(guildId, reserved.reason)
+      throw new GatewayError('cap_reached')
+    }
     let response: ModelResponse
     try {
       response = await this.deps.provider.complete(new ProviderSecret(key), {
@@ -249,14 +290,15 @@ export class ModelGateway {
       }
       throw e
     }
-    await this.deps.ledger.recordUsage(guildId, {
-      callKey: callKey ?? crypto.randomUUID(),
-      runId: run.runId,
-      day: this.day(),
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      costMicros: profile.price ? costMicros(response.usage, profile.price) : null,
-    })
+    try {
+      await this.deps.ledger.settle(guildId, callKey, {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        costMicros: profile.price ? costMicros(response.usage, profile.price) : null,
+      })
+    } catch {
+      // The estimate stays as the charge; the reply is still returned.
+    }
     return response
   }
 

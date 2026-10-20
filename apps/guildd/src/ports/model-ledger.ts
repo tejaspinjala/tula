@@ -39,7 +39,7 @@ export interface NewRun {
 
 /** One call's usage. `costMicros` is null for providers that bill no dollars (subscription). */
 export interface UsageEntry {
-  /** Idempotency key: recording the same key twice counts once. */
+  /** Server-minted id of the call; a caller never chooses it. */
   callKey: string
   runId: string
   /** UTC day `YYYY-MM-DD` the call is attributed to. */
@@ -48,6 +48,20 @@ export interface UsageEntry {
   outputTokens: number
   costMicros: number | null
 }
+
+/** A call's reservation: its estimated charge, checked against the daily caps before the provider is called. */
+export interface Reservation extends UsageEntry {
+  /** The caller's own idempotency key, scoped to the run; a reuse is `duplicate`. Null for none. */
+  clientKey: string | null
+  /** Daily caps the estimate must fit under, with everything already charged that day. */
+  caps: { tokens: number; costMicros: number }
+}
+
+/** The outcome of {@link ModelLedger.reserve}. */
+export type ReserveResult =
+  | { status: 'reserved' }
+  | { status: 'duplicate' }
+  | { status: 'cap_reached'; reason: 'daily_tokens' | 'daily_spend' }
 
 /** Tokens and dollars (millionths) spent. */
 export interface Totals {
@@ -89,8 +103,21 @@ export interface ModelLedger {
   revoke(guildId: string, runId: string): Promise<boolean>
   /** Queued runs, oldest first, at most `limit`. */
   listQueued(guildId: string, limit: number): Promise<RunRecord[]>
-  /** Records a call's usage under the run's Quest and Hall; the same `callKey` counts once. */
-  recordUsage(guildId: string, entry: UsageEntry): Promise<void>
+  /**
+   * Atomically, per guild: charges the call's estimate only if the day's charges (settled and
+   * pending) plus the estimate stay within `caps`; otherwise changes nothing. A reused
+   * `clientKey` for the same run is `duplicate`. Rejects for an unknown run.
+   */
+  reserve(guildId: string, reservation: Reservation): Promise<ReserveResult>
+  /**
+   * Replaces a reservation's estimate with the actual usage. A reservation never settled keeps
+   * its estimate as the charge.
+   */
+  settle(
+    guildId: string,
+    callKey: string,
+    actual: { inputTokens: number; outputTokens: number; costMicros: number | null }
+  ): Promise<void>
   /** Totals for one guild-day. */
   dayTotals(guildId: string, day: string): Promise<Totals>
   /** The cost table grouped by `by`, ascending by key, strictly after `after`, at most `limit`. */

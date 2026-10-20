@@ -169,12 +169,16 @@ describe('metering', () => {
     }
   })
 
-  test('a provider failure records nothing and surfaces a coded error', async () => {
+  test("a provider failure or an unusable reply keeps the call's estimate as the charge", async () => {
     const { provider, gateway, ledger, open } = await setup()
     provider.script({ ok: false, code: 'unavailable' })
     const run = await started(open())
     expect(await codeOf(gateway.complete(run.token, message))).toBe('provider_failed')
-    expect(await ledger.dayTotals(GUILD, '2026-03-04')).toEqual({ tokens: 0, costMicros: 0 })
+    const first = (await ledger.dayTotals(GUILD, '2026-03-04')).tokens
+    expect(first).toBeGreaterThan(100)
+    provider.script({ ok: false, code: 'invalid_response' })
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('provider_failed')
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(first)
   })
 
   test('an api_key profile with no price is refused, so caps cannot be bypassed', async () => {
@@ -210,8 +214,8 @@ describe('metering', () => {
 
 describe('caps', () => {
   test('hitting the token cap queues new runs and the Steward notifies once per day', async () => {
-    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 100 }))
-    provider.script({ ok: true, text: 'big', usage: { inputTokens: 80, outputTokens: 40 } })
+    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 200 }))
+    provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
 
@@ -239,8 +243,8 @@ describe('caps', () => {
   })
 
   test('queued runs start on the next day and get a token', async () => {
-    const { clock, provider, gateway, open } = await setup(config({ dailyTokens: 100 }))
-    provider.script({ ok: true, text: 'big', usage: { inputTokens: 80, outputTokens: 40 } })
+    const { clock, provider, gateway, open } = await setup(config({ dailyTokens: 200 }))
+    provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
     await open('run-2')
@@ -256,5 +260,61 @@ describe('caps', () => {
   test('a zero cap queues every run', async () => {
     const { open } = await setup(config({ dailySpendCents: 0 }))
     expect((await open()).status).toBe('queued')
+  })
+})
+
+describe('reservations and idempotency', () => {
+  test('parallel calls against a cap that admits one: one reaches the provider, the rest are cap_reached', async () => {
+    const { provider, gateway, open } = await setup(config({ dailyTokens: 150 }))
+    provider.script({ ok: true, text: 'one', usage: { inputTokens: 100, outputTokens: 60 } })
+    const run = await started(open())
+    const codes = await Promise.all(
+      Array.from({ length: 5 }, () => codeOf(gateway.complete(run.token, message)))
+    )
+    expect(provider.seen).toHaveLength(1)
+    expect(codes.filter((c) => c === 'cap_reached')).toHaveLength(4)
+  })
+
+  test('the same client key twice never makes a second unmetered provider call', async () => {
+    const { provider, gateway, ledger, open } = await setup()
+    provider.script({ ok: true, text: 'a', usage: { inputTokens: 10, outputTokens: 5 } })
+    provider.script({ ok: true, text: 'b', usage: { inputTokens: 10, outputTokens: 5 } })
+    const run = await started(open())
+    await gateway.complete(run.token, { ...message, idempotencyKey: 'k' })
+    expect(await codeOf(gateway.complete(run.token, { ...message, idempotencyKey: 'k' }))).toBe(
+      'duplicate_call'
+    )
+    expect(provider.seen).toHaveLength(1)
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBe(15)
+  })
+
+  test('two runs sharing a client key are both metered', async () => {
+    const { provider, gateway, ledger, open } = await setup()
+    provider.script({ ok: true, text: 'a', usage: { inputTokens: 10, outputTokens: 5 } })
+    provider.script({ ok: true, text: 'b', usage: { inputTokens: 10, outputTokens: 5 } })
+    const r1 = await started(open('run-1'))
+    const r2 = await started(open('run-2'))
+    await gateway.complete(r1.token, { ...message, idempotencyKey: 'k' })
+    await gateway.complete(r2.token, { ...message, idempotencyKey: 'k' })
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBe(30)
+  })
+
+  test('reopening an active or revoked run reports exists, even past a cap, with no notice', async () => {
+    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 200 }))
+    provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
+    const run = await started(open())
+    await gateway.complete(run.token, message)
+    expect(await open()).toEqual({ status: 'exists' })
+    await gateway.revokeRun(GUILD, 'run-1')
+    expect(await open()).toEqual({ status: 'exists' })
+    expect(ledger.notices).toBe(0)
+  })
+
+  test('a malformed call is invalid_request', async () => {
+    const { gateway, open } = await setup()
+    const run = await started(open())
+    expect(await codeOf(gateway.complete(run.token, { ...message, messages: [] }))).toBe(
+      'invalid_request'
+    )
   })
 })

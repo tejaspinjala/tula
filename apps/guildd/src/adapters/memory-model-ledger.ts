@@ -2,6 +2,8 @@ import {
   MAX_USAGE_PAGE,
   type ModelLedger,
   type NewRun,
+  type Reservation,
+  type ReserveResult,
   type RunRecord,
   type Totals,
   type UsageEntry,
@@ -22,6 +24,7 @@ interface GuildState {
   runs: Map<string, StoredRun>
   usage: Map<string, StoredUsage>
   notices: Set<string>
+  clientKeys: Set<string>
 }
 
 const view = ({ tokenHash: _hash, seq: _seq, ...record }: StoredRun): RunRecord => record
@@ -35,7 +38,12 @@ export class MemoryModelLedger implements ModelLedger {
     if (found) {
       return found
     }
-    const fresh: GuildState = { runs: new Map(), usage: new Map(), notices: new Set() }
+    const fresh: GuildState = {
+      runs: new Map(),
+      usage: new Map(),
+      notices: new Set(),
+      clientKeys: new Set(),
+    }
     this.guilds.set(guildId, fresh)
     return fresh
   }
@@ -107,26 +115,59 @@ export class MemoryModelLedger implements ModelLedger {
       .map(view)
   }
 
-  async recordUsage(guildId: string, entry: UsageEntry): Promise<void> {
+  // The cap check and the charge happen with no await between them, so parallel reservations
+  // cannot both pass a cap that admits one.
+  async reserve(guildId: string, r: Reservation): Promise<ReserveResult> {
     const s = this.state(guildId)
-    const owner = s.runs.get(entry.runId)
+    const owner = s.runs.get(r.runId)
     if (!owner) {
       throw new Error('usage for an unknown run')
     }
-    if (!s.usage.has(entry.callKey)) {
-      s.usage.set(entry.callKey, { ...entry, questId: owner.questId, hallId: owner.hallId })
+    const scoped = r.clientKey === null ? null : `${r.runId}\u0000${r.clientKey}`
+    if (scoped !== null && s.clientKeys.has(scoped)) {
+      return { status: 'duplicate' }
+    }
+    const totals = this.totalsOf(s, r.day)
+    if (totals.tokens + r.inputTokens + r.outputTokens > r.caps.tokens) {
+      return { status: 'cap_reached', reason: 'daily_tokens' }
+    }
+    if (totals.costMicros + (r.costMicros ?? 0) > r.caps.costMicros) {
+      return { status: 'cap_reached', reason: 'daily_spend' }
+    }
+    if (scoped !== null) {
+      s.clientKeys.add(scoped)
+    }
+    const { clientKey: _k, caps: _c, ...entry } = r
+    s.usage.set(r.callKey, { ...entry, questId: owner.questId, hallId: owner.hallId })
+    return { status: 'reserved' }
+  }
+
+  async settle(
+    guildId: string,
+    callKey: string,
+    actual: { inputTokens: number; outputTokens: number; costMicros: number | null }
+  ): Promise<void> {
+    const found = this.state(guildId).usage.get(callKey)
+    if (found) {
+      found.inputTokens = actual.inputTokens
+      found.outputTokens = actual.outputTokens
+      found.costMicros = actual.costMicros
     }
   }
 
-  async dayTotals(guildId: string, day: string): Promise<Totals> {
+  private totalsOf(s: GuildState, day: string): Totals {
     const totals = { tokens: 0, costMicros: 0 }
-    for (const u of this.state(guildId).usage.values()) {
+    for (const u of s.usage.values()) {
       if (u.day === day) {
         totals.tokens += u.inputTokens + u.outputTokens
         totals.costMicros += u.costMicros ?? 0
       }
     }
     return totals
+  }
+
+  async dayTotals(guildId: string, day: string): Promise<Totals> {
+    return this.totalsOf(this.state(guildId), day)
   }
 
   async report(

@@ -29,6 +29,17 @@ const usage = (callKey: string, runId: string, over: Partial<UsageEntry> = {}): 
   ...over,
 })
 
+const HUGE = { tokens: 1_000_000_000, costMicros: 1_000_000_000 }
+
+/** Charges `entry` as a reservation under huge caps, then settles it to the same figures. */
+async function record(ledger: ModelLedger, g: string, entry: UsageEntry): Promise<void> {
+  const r = await ledger.reserve(g, { ...entry, clientKey: null, caps: HUGE })
+  if (r.status !== 'reserved') {
+    throw new Error(`expected reserved, got ${r.status}`)
+  }
+  await ledger.settle(g, entry.callKey, entry)
+}
+
 /** The ModelLedger contract, run against every adapter. `make` returns a fresh ledger. */
 export function modelLedgerContract(name: string, make: () => Promise<ModelLedgerFixture>) {
   describe(`ModelLedger contract: ${name}`, () => {
@@ -79,24 +90,78 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       expect((await ledger.getRun(g, 'q1'))?.state).toBe('active')
     })
 
-    test('usage totals per guild-day and the same call key counts once', async () => {
+    test('usage totals per guild-day', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()
       await ledger.openRun(g, run('r1'))
-      await Promise.all([
-        ledger.recordUsage(g, usage('c1', 'r1')),
-        ledger.recordUsage(g, usage('c1', 'r1')),
-      ])
-      await ledger.recordUsage(g, usage('c2', 'r1', { costMicros: null, inputTokens: 10 }))
-      await ledger.recordUsage(g, usage('c3', 'r1', { day: '2026-03-05' }))
+      await record(ledger, g, usage('c1', 'r1'))
+      await record(ledger, g, usage('c2', 'r1', { costMicros: null, inputTokens: 10 }))
+      await record(ledger, g, usage('c3', 'r1', { day: '2026-03-05' }))
       expect(await ledger.dayTotals(g, DAY)).toEqual({ tokens: 150 + 60, costMicros: 1000 })
       expect(await ledger.dayTotals(g, '2026-03-06')).toEqual({ tokens: 0, costMicros: 0 })
+    })
+
+    test('parallel reservations against a cap that admits one: exactly one is reserved', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      const caps = { tokens: 200, costMicros: 1_000_000 }
+      const results = await Promise.all(
+        ['a', 'b', 'c', 'd'].map((k) =>
+          ledger.reserve(g, { ...usage(k, 'r1'), clientKey: null, caps })
+        )
+      )
+      expect(results.filter((r) => r.status === 'reserved')).toHaveLength(1)
+      expect(results.filter((r) => r.status === 'cap_reached')).toHaveLength(3)
+      expect((await ledger.dayTotals(g, DAY)).tokens).toBe(150)
+    })
+
+    test('a cap refusal names the cap and charges nothing; spend caps count dollars', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      const spend = await ledger.reserve(g, {
+        ...usage('a', 'r1'),
+        clientKey: null,
+        caps: { tokens: 1_000_000, costMicros: 999 },
+      })
+      expect(spend).toEqual({ status: 'cap_reached', reason: 'daily_spend' })
+      const tokens = await ledger.reserve(g, {
+        ...usage('b', 'r1'),
+        clientKey: null,
+        caps: { tokens: 149, costMicros: 1_000_000 },
+      })
+      expect(tokens).toEqual({ status: 'cap_reached', reason: 'daily_tokens' })
+      expect(await ledger.dayTotals(g, DAY)).toEqual({ tokens: 0, costMicros: 0 })
+    })
+
+    test('an unsettled reservation keeps its estimate; settling replaces it with actual usage', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      await ledger.reserve(g, { ...usage('a', 'r1'), clientKey: null, caps: HUGE })
+      expect(await ledger.dayTotals(g, DAY)).toEqual({ tokens: 150, costMicros: 1000 })
+      await ledger.settle(g, 'a', { inputTokens: 10, outputTokens: 5, costMicros: 40 })
+      expect(await ledger.dayTotals(g, DAY)).toEqual({ tokens: 15, costMicros: 40 })
+    })
+
+    test('a client key is scoped to its run: reuse is a duplicate, other runs are unaffected', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      await ledger.openRun(g, run('r1'))
+      await ledger.openRun(g, run('r2', { tokenHash: 'h2' }))
+      const reserve = (callKey: string, runId: string) =>
+        ledger.reserve(g, { ...usage(callKey, runId), clientKey: 'same', caps: HUGE })
+      const same = await Promise.all([reserve('a', 'r1'), reserve('b', 'r1')])
+      expect(same.map((r) => r.status).sort()).toEqual(['duplicate', 'reserved'])
+      expect((await reserve('c', 'r2')).status).toBe('reserved')
+      expect((await ledger.dayTotals(g, DAY)).tokens).toBe(300)
     })
 
     test('usage for an unknown run is refused', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()
-      await expect(ledger.recordUsage(g, usage('c1', 'ghost'))).rejects.toThrow()
+      await expect(record(ledger, g, usage('c1', 'ghost'))).rejects.toThrow()
     })
 
     test('the cost table groups by run, Quest, Hall and day, paginated', async () => {
@@ -105,9 +170,9 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       await ledger.openRun(g, run('r1', { questId: 'qa', hallId: 'heralds' }))
       await ledger.openRun(g, run('r2', { questId: 'qa', hallId: 'heralds', tokenHash: 'h2' }))
       await ledger.openRun(g, run('r3', { questId: 'qb', hallId: 'scribes', tokenHash: 'h3' }))
-      await ledger.recordUsage(g, usage('a', 'r1'))
-      await ledger.recordUsage(g, usage('b', 'r2'))
-      await ledger.recordUsage(g, usage('c', 'r3', { day: '2026-03-05', costMicros: 500 }))
+      await record(ledger, g, usage('a', 'r1'))
+      await record(ledger, g, usage('b', 'r2'))
+      await record(ledger, g, usage('c', 'r3', { day: '2026-03-05', costMicros: 500 }))
 
       const byQuest = await ledger.report(g, 'quest', { limit: 10 })
       expect(byQuest.rows).toEqual([
@@ -146,7 +211,7 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       const a = await newGuild()
       const b = await newGuild()
       await ledger.openRun(a, run('r1'))
-      await ledger.recordUsage(a, usage('c1', 'r1'))
+      await record(ledger, a, usage('c1', 'r1'))
       expect(await ledger.findByTokenHash(b, 'hash-r1')).toBeNull()
       expect(await ledger.getRun(b, 'r1')).toBeNull()
       expect(await ledger.revoke(b, 'r1')).toBe(false)

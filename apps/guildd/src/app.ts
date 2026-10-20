@@ -179,8 +179,10 @@ const usageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
 })
 /** HTTP status for a refused gateway call. */
-function gatewayStatus(code: GatewayError['code']): 401 | 409 | 429 | 502 {
+function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 {
   switch (code) {
+    case 'invalid_request':
+      return 400
     case 'invalid_token':
     case 'token_expired':
     case 'token_revoked':
