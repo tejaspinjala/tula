@@ -463,6 +463,33 @@ describe('dispatch', () => {
     expect(reports[0]).toMatchObject({ guildId: w.guild, questId: stuck.id })
   })
 
+  test('a late cleanup whose revoke fails still kills the container, reporting each failure once', async () => {
+    const w = world()
+    const hang = hangingRunner(w.guild)
+    const reports: unknown[] = []
+    const deps = {
+      ...w.deps,
+      sandboxes: hang.runner,
+      sandboxStartTimeoutMs: 20,
+      gateway: {
+        ...w.deps.gateway,
+        revokeRun: async (): Promise<boolean> => {
+          throw new Error('db down')
+        },
+      },
+      onError: (e: unknown) => {
+        reports.push(e)
+      },
+    }
+    const stuck = await w.queue()
+    await dispatch(deps, w.guild)
+    await hang.comeUp(w.guild, stuck.id)
+    await Bun.sleep(5)
+    expect(await hang.inner.list(w.guild)).toEqual([])
+    // One revoke failure at the deadline, one in the late cleanup.
+    expect(reports).toHaveLength(2)
+  })
+
   test('an MCP lease that never resolves releases the Quest and does not block the next guild', async () => {
     const w = world()
     const deps = {
