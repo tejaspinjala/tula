@@ -16,10 +16,20 @@ const questBody = z.object({
   attempts: z.number(),
   lastError: z.string().nullable(),
 })
-const pageBody = z.object({ quests: z.array(questBody), next: z.string().nullable() })
+const linkBody = z.object({ parentId: z.string(), childId: z.string() })
+const pageBody = z.object({
+  quests: z.array(questBody),
+  next: z.string().nullable(),
+  links: z.array(linkBody).default([]),
+})
 
-/** A Quest as the Quest Board shows it. */
-export type BoardQuest = z.infer<typeof questBody>
+/** A Quest as the Quest Board shows it; `parentId` is set on a Sub-Quest. */
+export type BoardQuest = z.infer<typeof questBody> & { parentId: string | null }
+
+/** The Sub-Quests of `parentId` among `quests`, in board order; stub until implemented. */
+export function childrenOf(_quests: readonly BoardQuest[], _parentId: string): BoardQuest[] {
+  return []
+}
 /** The Quest Board's columns, in lifecycle order. */
 export const BOARD_STATES = QUEST_STATES
 
@@ -32,7 +42,8 @@ export async function loadQuests(
   fetcher: Fetcher,
   options: { limit?: number; deadLetters?: boolean } = {}
 ): Promise<BoardQuest[]> {
-  const quests: BoardQuest[] = []
+  const loaded: z.infer<typeof questBody>[] = []
+  const parents = new Map<string, string>()
   const limit = options.limit ?? 50
   const path = `/api/guilds/${session.guildId}/quests${options.deadLetters ? '/dead-letters' : ''}`
   let after: string | null = null
@@ -47,9 +58,12 @@ export async function loadQuests(
       throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
     }
     const body = pageBody.parse(data)
-    quests.push(...body.quests)
+    loaded.push(...body.quests)
+    for (const link of body.links) {
+      parents.set(link.childId, link.parentId)
+    }
     if (body.next === null) {
-      return quests
+      return loaded.map((q) => ({ ...q, parentId: parents.get(q.id) ?? null }))
     }
     after = body.next
   }
