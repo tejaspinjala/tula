@@ -12,8 +12,10 @@ export function paletteTypes(): string[] {
 /** The fields the inspector edits, in schema order, with the kind of control each needs. */
 export interface FieldSpec {
   key: string
-  kind: 'string' | 'number'
+  kind: 'string' | 'number' | 'lines' | 'choice'
   optional: boolean
+  /** The allowed values of a `choice` field. */
+  options?: string[]
 }
 
 /** The editable fields of a node type, read from the shared schema (`id` and `type` are structural). */
@@ -138,7 +140,7 @@ export function setField(
   graph: WorkflowGraph,
   id: string,
   key: string,
-  value: string | number | undefined
+  value: string | number | string[] | undefined
 ): WorkflowGraph {
   return {
     ...graph,

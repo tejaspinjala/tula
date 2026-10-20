@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { QUEST_TEMPLATES } from '../../../guildd/src/quests'
-import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
-import { addNode, connect, paletteTypes, removeNode, saveBody } from './model'
+import { type WorkflowGraph, workflowNode } from '../../../guildd/src/workflows/graph'
+import { addNode, connect, fieldsFor, paletteTypes, removeNode, saveBody, setField } from './model'
 
 const start: WorkflowGraph = { nodes: [{ id: 'trigger', type: 'trigger.manual' }], edges: [] }
 
@@ -10,10 +10,41 @@ test('the palette lists every node type the shared schema defines', () => {
     'trigger.manual',
     'trigger.schedule',
     'agent',
+    'subagents',
+    'team',
     'verify',
     'approval',
     'post',
   ])
+})
+
+test('the inspector fields of a subagents node: briefs are lines, the fan-in is a choice', () => {
+  expect(fieldsFor('subagents').map((f) => [f.key, f.kind])).toEqual([
+    ['name', 'string'],
+    ['hallId', 'string'],
+    ['templateId', 'string'],
+    ['briefs', 'lines'],
+    ['join', 'choice'],
+    ['maxUsd', 'number'],
+  ])
+  expect(fieldsFor('subagents').find((f) => f.key === 'join')?.options).toEqual(['all', 'any'])
+  expect(fieldsFor('team').map((f) => [f.key, f.kind])).toEqual([
+    ['name', 'string'],
+    ['hallId', 'string'],
+    ['goal', 'string'],
+    ['maxMembers', 'number'],
+    ['maxQuests', 'number'],
+    ['maxUsd', 'number'],
+  ])
+})
+
+test('new fan-out nodes start with fields the schema accepts', () => {
+  for (const type of ['subagents', 'team']) {
+    const graph = addNode(start, type)
+    expect(workflowNode.safeParse(graph.nodes.at(-1)).success).toBe(true)
+  }
+  const edited = setField(addNode(start, 'subagents'), 'subagents', 'briefs', ['a', 'b'])
+  expect(edited.nodes.at(-1)).toMatchObject({ briefs: ['a', 'b'] })
 })
 
 test('a graph edit becomes the save body: dropped nodes, a connection, and the gate reference', () => {

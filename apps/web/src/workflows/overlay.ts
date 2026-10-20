@@ -14,6 +14,8 @@ export interface RunNode {
   type: string
   status: string
   questId: string | null
+  /** A `subagents` or `team` node's output: the artifact hashes its finished Quests produced. */
+  refs?: string[]
 }
 
 /** What the overlay shows on one node. */

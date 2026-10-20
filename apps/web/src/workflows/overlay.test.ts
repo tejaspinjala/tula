@@ -14,6 +14,22 @@ test('validation errors map to their node; the rest are about the whole graph', 
   expect(split.graphLevel).toEqual(['a workflow needs at least one trigger'])
 })
 
+test('a fan-out node owns its Quest`s attempts and spend like an agent node', () => {
+  const overlay = runOverlay(
+    [
+      { id: 'fan', type: 'subagents', status: 'running', questId: 'q1', refs: [] },
+      { id: 'crew', type: 'team', status: 'done', questId: 'q2', refs: ['a'.repeat(64)] },
+    ],
+    new Map([
+      ['q1', 3],
+      ['q2', 1],
+    ]),
+    new Map([['q1', 700]])
+  )
+  expect(overlay.get('fan')).toMatchObject({ attempts: 3, costMicros: 700 })
+  expect(overlay.get('crew')).toMatchObject({ status: 'done', attempts: 1, costMicros: null })
+})
+
 test('the run overlay carries status in words and tone, with attempts and cost from the Quest', () => {
   const overlay = runOverlay(
     [
