@@ -141,6 +141,10 @@ export class PgModelLedger implements ModelLedger {
     return rows.length
   }
 
+  async revokeAllRuns(): Promise<number> {
+    return 0
+  }
+
   async revokeGuildRuns(guildId: string): Promise<number> {
     const rows = await this.db.withGuild(
       guildId,

@@ -128,6 +128,11 @@ export interface ModelLedger {
    * ever reissued; Bar the Gates); returns how many runs changed.
    */
   revokeGuildRuns(guildId: string): Promise<number>
+  /**
+   * Revokes every queued, active or Hall-paused run of EVERY guild for good (`manual`), in one
+   * statement; returns how many runs changed. Only a global Bar the Gates calls it.
+   */
+  revokeAllRuns(): Promise<number>
   /** Queued runs, oldest first, at most `limit`. */
   listQueued(guildId: string, limit: number): Promise<RunRecord[]>
   /**

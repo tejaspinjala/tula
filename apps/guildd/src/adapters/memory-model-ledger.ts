@@ -130,6 +130,10 @@ export class MemoryModelLedger implements ModelLedger {
     return revoked
   }
 
+  async revokeAllRuns(): Promise<number> {
+    return 0
+  }
+
   async revokeGuildRuns(guildId: string): Promise<number> {
     let revoked = 0
     for (const r of this.state(guildId).runs.values()) {

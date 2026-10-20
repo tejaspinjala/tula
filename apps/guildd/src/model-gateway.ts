@@ -287,6 +287,11 @@ export class ModelGateway {
     return this.deps.ledger.revokeGuildRuns(guildId)
   }
 
+  /** Revokes every run token of every guild for good (a global Bar the Gates); returns how many. */
+  revokeAllRuns(): Promise<number> {
+    return this.deps.ledger.revokeAllRuns()
+  }
+
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */
   revokeRun(guildId: string, runId: string): Promise<boolean> {
     return this.deps.ledger.revoke(guildId, runId)
