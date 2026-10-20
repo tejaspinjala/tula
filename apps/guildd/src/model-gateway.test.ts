@@ -283,10 +283,10 @@ describe('subscription provider', () => {
     const run = await started(open('run-s', { profileId: 'sub-mid' }))
     const out = await gateway.complete(run.token, message)
     expect(out.text).toBe('from cli')
-    expect(provider.backendCalls()).toBe(0)
+    expect(provider.seen).toHaveLength(0)
     const { rows } = await ledger.report(GUILD, 'day', { limit: 5 })
     expect(rows).toEqual([
-      { key: '2026-03-04', calls: 1, inputTokens: 40, outputTokens: 9, costMicros: null },
+      { key: '2026-03-04', calls: 1, inputTokens: 40, outputTokens: 9, costMicros: 0 },
     ])
   })
 

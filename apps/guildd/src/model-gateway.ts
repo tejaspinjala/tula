@@ -32,7 +32,9 @@ export type GatewayErrorCode =
   | 'price_unconfigured'
   | 'key_missing'
   | 'provider_failed'
-  /** Subscription providers wait on spike #15; until then the gateway refuses them. */
+  /** The Claude subscription's usage limit is reached; the call is not retried. */
+  | 'subscription_limit'
+  /** Subscription providers are refused unless the host enables them (`SUBSCRIPTION_PROVIDER`). */
   | 'subscription_unsupported_until_spike_15'
 
 /** Thrown by the gateway; the code is the whole message, so no secret can ride in it. */
@@ -82,6 +84,11 @@ export interface GatewayDeps {
   secrets: Pick<SecretStore, 'resolve'>
   config: Pick<ConfigStore, 'current'>
   provider: ModelProvider
+  /**
+   * Serves `subscription` providers (the host's `claude` CLI). Absent when the deployment has not
+   * enabled them, and then the gateway refuses every `subscription` profile.
+   */
+  subscriptionProvider?: ModelProvider
   clock: Clock
   /** Re-read on every open and call: a run token lives only while its Quest attempt holds a live lease. */
   quests: Pick<QuestQueue, 'get'>
@@ -136,13 +143,17 @@ interface Resolved {
   provider: GuildConfig['providers'][number]
 }
 
-function resolveProfile(config: GuildConfig, profileId: string): Resolved {
+function resolveProfile(
+  config: GuildConfig,
+  profileId: string,
+  subscriptionEnabled: boolean
+): Resolved {
   const profile = config.routingProfiles.find((p) => p.id === profileId)
   const provider = profile && config.providers.find((p) => p.id === profile.provider)
   if (!profile || !provider) {
     throw new GatewayError('unknown_profile')
   }
-  if (provider.auth === 'subscription') {
+  if (provider.auth === 'subscription' && !subscriptionEnabled) {
     throw new GatewayError('subscription_unsupported_until_spike_15')
   }
   return { profile, provider }
@@ -206,7 +217,7 @@ export class ModelGateway {
       return { status: 'refused', reason: 'token_revoked' }
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile } = resolveProfile(config, run.profileId)
+    const { profile } = resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
     const capped = await this.capReason(guildId, config)
     const issue = this.issue(guildId)
     if (capped && existing?.state === 'revoked') {
@@ -253,7 +264,7 @@ export class ModelGateway {
         break
       }
       try {
-        resolveProfile(config, run.profileId)
+        resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
       } catch (e) {
         if (e instanceof GatewayError) {
           continue
@@ -326,17 +337,24 @@ export class ModelGateway {
       throw new GatewayError('invalid_request')
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile, provider } = resolveProfile(config, run.profileId)
+    const { profile, provider } = resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
     if (provider.auth === 'api_key' && !profile.price) {
       throw new GatewayError('price_unconfigured')
     }
-    const key = await this.deps.secrets.resolve(guildId, provider.id)
+    const subscription = provider.auth === 'subscription'
+    // A subscription's credential is the host's signed-in CLI: no Vault secret, no price.
+    const key = subscription ? '' : await this.deps.secrets.resolve(guildId, provider.id)
     if (key === null) {
       throw new GatewayError('key_missing')
     }
+    const price = subscription ? undefined : profile.price
+    const backend =
+      subscription && this.deps.subscriptionProvider
+        ? this.deps.subscriptionProvider
+        : this.deps.provider
     const { idempotencyKey, ...rest } = request.data
     const callKey = crypto.randomUUID()
     const estimate = {
@@ -349,7 +367,7 @@ export class ModelGateway {
       runId: run.runId,
       day,
       ...estimate,
-      costMicros: profile.price ? costMicros(estimate, profile.price) : null,
+      costMicros: price ? costMicros(estimate, price) : null,
       clientKey: idempotencyKey ?? null,
       caps: {
         tokens: config.caps.dailyTokens,
@@ -365,13 +383,13 @@ export class ModelGateway {
     }
     let response: ModelResponse
     try {
-      response = await this.deps.provider.complete(new ProviderSecret(key), {
+      response = await backend.complete(new ProviderSecret(key), {
         ...rest,
         model: profile.model,
       })
     } catch (e) {
       if (e instanceof ModelProviderError) {
-        throw new GatewayError('provider_failed')
+        throw new GatewayError(e.code === 'subscription_limit' ? 'subscription_limit' : 'provider_failed')
       }
       throw e
     }
@@ -379,7 +397,7 @@ export class ModelGateway {
       await this.deps.ledger.settle(guildId, callKey, {
         inputTokens: response.usage.inputTokens,
         outputTokens: response.usage.outputTokens,
-        costMicros: profile.price ? costMicros(response.usage, profile.price) : null,
+        costMicros: price ? costMicros(response.usage, price) : null,
       })
     } catch {
       // The estimate stays as the charge and the reply is still returned. Ids only: no error
