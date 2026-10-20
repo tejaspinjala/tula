@@ -7,6 +7,8 @@ import { loadQuests } from './quests'
 import { type ReplayEvent, replayTo } from './replay'
 import { groupRepeats, relativeTime, stateWord } from './timeline-format'
 import { formatCents } from './treasury'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /** Most events listed at once, so a long day stays readable. */
 const VISIBLE = 20
@@ -82,16 +84,13 @@ export function TimelinePanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="timeline-heading" className="card">
-      <h2 id="timeline-heading" className="card-title">
-        Replay the day
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to replay the guild's day.</p>}
+    <WorkSection id="timeline" title="Replay the day">
+      {!session && <p>Sign in with a passkey to replay the guild's day.</p>}
       {failed && <p role="alert">The event log could not be loaded.</p>}
-      {session && events.length === 0 && !failed && <p className="mt-4">No events yet.</p>}
+      {session && events.length === 0 && !failed && <p>No events yet.</p>}
       {events.length > 0 && (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-4">
+        <div className="work-body">
+          <div className="work-actions">
             <label>
               Replay position
               <input
@@ -112,17 +111,13 @@ export function TimelinePanel({ session }: { session: Session | null }) {
                 onChange={(e) => toTime(e.currentTarget.value)}
               />
             </label>
-            <button type="button" onClick={() => setPosition(null)}>
-              Back to now
-            </button>
-            <button type="button" onClick={refresh}>
-              Refresh log
-            </button>
+            <PixelButton onClick={() => setPosition(null)}>Back to now</PixelButton>
+            <PixelButton onClick={refresh}>Refresh log</PixelButton>
           </div>
-          <p className="mt-4">
+          <p>
             Showing {at} of {events.length} events
           </p>
-          <ul aria-label="Replayed state" className="mt-2 flex flex-col gap-1">
+          <ul aria-label="Replayed state" className="work-log">
             {(Object.keys(state.quests) as Array<keyof typeof state.quests>).map((s) => (
               <li key={s}>
                 Quests {stateWord(s)}: {state.quests[s].length}
@@ -140,7 +135,7 @@ export function TimelinePanel({ session }: { session: Session | null }) {
             </li>
             <li>Notes: {state.notes}</li>
           </ul>
-          <ol aria-label="Events" className="mt-4 flex flex-col gap-1">
+          <ol aria-label="Events" className="work-log">
             {shown.map(({ event, text, count }) => (
               <li key={event.seq}>
                 <time dateTime={event.occurredAt} title={event.occurredAt}>
@@ -152,11 +147,11 @@ export function TimelinePanel({ session }: { session: Session | null }) {
             ))}
             <li ref={listEnd} aria-hidden="true" />
           </ol>
-        </>
+        </div>
       )}
       <div aria-live="polite" role="status" className="sr-only">
         {announcement}
       </div>
-    </section>
+    </WorkSection>
   )
 }

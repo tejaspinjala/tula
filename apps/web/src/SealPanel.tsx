@@ -15,11 +15,13 @@ import {
   sealIdFromSearch,
   sealStatusLabel,
 } from './seals'
+import { DialogueBox, EmptyState, PixelButton, YesNo } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 function Evidence({ evidence }: { evidence: string }) {
   const { lead, items } = parseEvidence(evidence)
   return (
-    <div className="mt-2 text-sm">
+    <div>
       <p className="muted">{lead ? `Evidence: ${lead}` : 'Evidence'}</p>
       <ul aria-label="Evidence" className="evidence-list">
         {items.map((item) => (
@@ -40,6 +42,8 @@ export function SealPanel({ session }: { session: Session | null }) {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [titles, setTitles] = useState<Record<string, string>>({})
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [asking, setAsking] = useState<{ id: string; verdict: 'approved' | 'denied' } | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const [postUrl, setPostUrl] = useState('')
   const [message, setMessage] = useState('')
 
@@ -72,6 +76,7 @@ export function SealPanel({ session }: { session: Session | null }) {
         all.unshift(await getSeal(current, focusId, fetch))
       }
       setSeals(all)
+      setLoaded(true)
       // Quest titles are a nicety: a Seal still shows without them.
       loadQuests(current, fetch)
         .then((quests) => setTitles(Object.fromEntries(quests.map((q) => [q.id, q.title]))))
@@ -93,16 +98,12 @@ export function SealPanel({ session }: { session: Session | null }) {
   }
 
   function markPostedButton(seal: InboxSeal) {
-    return (
-      <button type="button" className="btn-primary flex-1" onClick={() => setConfirming(seal.id)}>
-        Mark posted
-      </button>
-    )
+    return <PixelButton onClick={() => setConfirming(seal.id)}>Mark posted</PixelButton>
   }
 
   function confirmPosted(seal: InboxSeal) {
     return (
-      <div className="mt-2 flex flex-col gap-2">
+      <div className="work-body">
         <p>Confirm you posted this exact text by hand. It cannot be undone.</p>
         <label htmlFor={`url-${seal.id}`}>Post URL (optional)</label>
         <input
@@ -113,10 +114,8 @@ export function SealPanel({ session }: { session: Session | null }) {
           value={postUrl}
           onChange={(event) => setPostUrl(event.target.value)}
         />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn-primary flex-1"
+        <div className="work-actions">
+          <PixelButton
             onClick={() =>
               run('Mark posted', async (current) => {
                 replace(await markPosted(current, seal, fetch, webAuthnBrowser))
@@ -126,28 +125,39 @@ export function SealPanel({ session }: { session: Session | null }) {
             }
           >
             Confirm: I posted this
-          </button>
-          <button type="button" className="flex-1" onClick={() => setConfirming(null)}>
-            Cancel
-          </button>
+          </PixelButton>
+          <PixelButton onClick={() => setConfirming(null)}>Cancel</PixelButton>
         </div>
       </div>
     )
   }
 
+  function decide(seal: InboxSeal, verdict: 'approved' | 'denied') {
+    return run(verdict === 'approved' ? 'Stamp' : 'Deny', async (current) =>
+      replace(
+        await decideSeal(
+          current,
+          seal,
+          verdict,
+          verdict === 'denied' ? notes[seal.id]?.trim() || undefined : undefined,
+          fetch,
+          webAuthnBrowser
+        )
+      )
+    )
+  }
+
+  function questName(seal: InboxSeal) {
+    return titles[seal.questId] ?? shortenId(seal.questId)
+  }
+
   return (
-    <section aria-labelledby="seals-heading" className="card">
-      <h2 id="seals-heading" className="card-title">
-        Seal inbox
-      </h2>
+    <WorkSection id="seals" title="Seal inbox">
       {session ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="actions">
-            <button type="button" onClick={() => run('Refresh', refresh)}>
-              Refresh
-            </button>
-            <button
-              type="button"
+        <div className="work-body">
+          <div className="work-actions">
+            <PixelButton onClick={() => run('Refresh', refresh)}>Refresh</PixelButton>
+            <PixelButton
               onClick={() =>
                 run('Enable push', async (current) => {
                   const registration = await navigator.serviceWorker.ready
@@ -163,78 +173,73 @@ export function SealPanel({ session }: { session: Session | null }) {
               }
             >
               Notify me of new Seals
-            </button>
+            </PixelButton>
           </div>
-          <ul aria-label="Seals" className="flex flex-col gap-3">
+          {loaded && seals.length === 0 && (
+            <EmptyState
+              member="Herald"
+              line="No Seal is waiting. The desk is clear."
+              actionLabel="Look again"
+              onAction={() => run('Refresh', refresh)}
+            />
+          )}
+          <ul aria-label="Seals">
             {seals.map((seal) => (
-              <li key={seal.id} className="item">
-                <p className="muted">Quest: {titles[seal.questId] ?? shortenId(seal.questId)}</p>
-                <p className="mt-2 whitespace-pre-wrap">{seal.text}</p>
+              <li key={seal.id} className="work-note">
+                <DialogueBox
+                  speaker={`Seal for ${questName(seal)}`}
+                  lines={seal.text.split(/\n{2,}/)}
+                  cps={400}
+                  onDone={() => undefined}
+                />
+                <p className="muted">Quest: {questName(seal)}</p>
                 <Evidence evidence={seal.evidence} />
-                <p className="break-all text-xs">Hash: {seal.actionHash}</p>
+                <p className="break-all work-log">Hash: {seal.actionHash}</p>
                 <p>
                   <Badge tone={sealTone(sealStatusLabel(seal.status))}>
                     {sealStatusLabel(seal.status)}
                   </Badge>
                 </p>
                 {seal.status === 'requested' ? (
-                  <div className="mt-2 flex flex-col gap-2">
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() =>
-                        run('Stamp', async (current) =>
-                          replace(
-                            await decideSeal(
-                              current,
-                              seal,
-                              'approved',
-                              undefined,
-                              fetch,
-                              webAuthnBrowser
-                            )
-                          )
-                        )
-                      }
-                    >
+                  <div className="work-body">
+                    <PixelButton onClick={() => setAsking({ id: seal.id, verdict: 'approved' })}>
                       Stamp with passkey
-                    </button>
+                    </PixelButton>
                     <label htmlFor={`note-${seal.id}`}>Note (if denying)</label>
                     <input
                       id={`note-${seal.id}`}
                       value={notes[seal.id] ?? ''}
                       onChange={(event) => setNotes({ ...notes, [seal.id]: event.target.value })}
                     />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        run('Deny', async (current) =>
-                          replace(
-                            await decideSeal(
-                              current,
-                              seal,
-                              'denied',
-                              notes[seal.id]?.trim() || undefined,
-                              fetch,
-                              webAuthnBrowser
-                            )
-                          )
-                        )
-                      }
-                    >
+                    <PixelButton onClick={() => setAsking({ id: seal.id, verdict: 'denied' })}>
                       Deny with note
-                    </button>
+                    </PixelButton>
+                    {asking?.id === seal.id ? (
+                      <div className="work-prompt">
+                        <YesNo
+                          safe="no"
+                          question={
+                            asking.verdict === 'approved'
+                              ? `Stamp this Seal for ${questName(seal)}? Your passkey lets this exact text go out.`
+                              : `Refuse this Seal for ${questName(seal)}? Nothing is posted.`
+                          }
+                          onAnswer={(yes) => {
+                            const verdict = asking.verdict
+                            setAsking(null)
+                            if (yes) {
+                              decide(seal, verdict)
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {seal.stale ? (
-                  <div className="mt-2 flex flex-col gap-2">
-                    <p className="text-sm">
-                      A publish started and never finished. Release only if nothing was posted.
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="flex-1"
+                  <div className="work-body">
+                    <p>A publish started and never finished. Release only if nothing was posted.</p>
+                    <div className="work-actions">
+                      <PixelButton
                         onClick={() =>
                           run('Release stale', async (current) =>
                             replace(await releaseStale(current, seal, fetch, webAuthnBrowser))
@@ -242,20 +247,18 @@ export function SealPanel({ session }: { session: Session | null }) {
                         }
                       >
                         Release (nothing posted)
-                      </button>
+                      </PixelButton>
                       {markPostedButton(seal)}
                     </div>
                   </div>
                 ) : null}
                 {seal.status === 'approved' ? (
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      className="flex-1"
+                  <div className="work-actions">
+                    <PixelButton
                       onClick={() => run('Copy', () => navigator.clipboard.writeText(seal.text))}
                     >
                       Copy text
-                    </button>
+                    </PixelButton>
                     {markPostedButton(seal)}
                   </div>
                 ) : null}
@@ -268,8 +271,8 @@ export function SealPanel({ session }: { session: Session | null }) {
           </p>
         </div>
       ) : (
-        <p className="mt-4">Sign in with a passkey to use the Seal inbox.</p>
+        <p>Sign in with a passkey to use the Seal inbox.</p>
       )}
-    </section>
+    </WorkSection>
   )
 }

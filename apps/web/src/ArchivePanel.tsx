@@ -8,6 +8,8 @@ import {
   searchNotes,
 } from './archive'
 import { PasskeyRequestError, type Session } from './passkeys'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /** The Archive screen: add text or link notes, search them, and read versions and backlinks. */
 export function ArchivePanel({ session }: { session: Session | null }) {
@@ -42,12 +44,9 @@ export function ArchivePanel({ session }: { session: Session | null }) {
     )
 
   return (
-    <section aria-labelledby="archive-heading" className="card">
-      <h2 id="archive-heading" className="card-title">
-        Notes
-      </h2>
+    <WorkSection id="archive" title="Notes">
       {session ? (
-        <div className="mt-4 flex flex-col gap-2">
+        <div className="work-body">
           <form
             className="flex flex-col gap-2"
             onSubmit={(event) => {
@@ -113,9 +112,9 @@ export function ArchivePanel({ session }: { session: Session | null }) {
                 />
               </>
             ) : null}
-            <button type="submit" className="btn-primary" disabled={!title.trim() || !body}>
+            <PixelButton type="submit" disabled={!title.trim() || !body}>
               Add note
-            </button>
+            </PixelButton>
           </form>
           <label htmlFor="note-search">Search notes</label>
           <div className="flex gap-2">
@@ -125,16 +124,12 @@ export function ArchivePanel({ session }: { session: Session | null }) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button type="button" onClick={() => run('Search', find)}>
-              Search
-            </button>
+            <PixelButton onClick={() => run('Search', find)}>Search</PixelButton>
           </div>
-          <ul aria-label="Notes">
+          <ul aria-label="Notes" className="work-log">
             {notes.map((note) => (
               <li key={note.id}>
-                <button
-                  type="button"
-                  className="underline"
+                <PixelButton
                   onClick={() =>
                     run('Open note', async (current) =>
                       setDetail(await readNote(current, note.id, fetch))
@@ -142,7 +137,7 @@ export function ArchivePanel({ session }: { session: Session | null }) {
                   }
                 >
                   {note.title}
-                </button>{' '}
+                </PixelButton>{' '}
                 <span className="text-sm">
                   {note.trust === 'fact' ? 'fact' : 'quarantined assumption'}, v{note.version}
                 </span>
@@ -150,7 +145,7 @@ export function ArchivePanel({ session }: { session: Session | null }) {
             ))}
           </ul>
           {detail ? (
-            <article aria-label="Note detail">
+            <article aria-label="Note detail" className="work-note">
               <h3 className="font-semibold">{detail.note.title}</h3>
               <p className="whitespace-pre-wrap">{detail.note.body}</p>
               {detail.note.evidence ? <p>Evidence: {detail.note.evidence}</p> : null}
@@ -175,8 +170,8 @@ export function ArchivePanel({ session }: { session: Session | null }) {
           </p>
         </div>
       ) : (
-        <p className="mt-4">Sign in with a passkey to use the Archive.</p>
+        <p>Sign in with a passkey to use the Archive.</p>
       )}
-    </section>
+    </WorkSection>
   )
 }
