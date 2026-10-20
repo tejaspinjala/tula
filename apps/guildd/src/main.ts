@@ -4,7 +4,7 @@ import { compose } from './composition'
 import { loadEnv } from './env'
 
 const env = loadEnv()
-const { app, adapters } = compose()
+const { app, adapters } = await compose()
 if (env.OBJECT_STORE_CREATE_BUCKET && adapters.objectStore instanceof S3ObjectStore) {
   await adapters.objectStore.ensureBucket()
 }
