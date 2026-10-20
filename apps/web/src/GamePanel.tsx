@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { CharacterPanel } from './CharacterPanel'
 import { initialTalk, talkReducer } from './game/interact'
+import type { LookChoice } from './game/look'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
 import { readEventFrame, sceneSummary } from './game/text'
 import { announceRoom } from './game/walk'
+import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -35,6 +38,9 @@ export function GamePanel({
   const [failed, setFailed] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [roomSlot, setRoomSlot] = useState<number | null>(null)
+  // The Guild Master's saved look (from the server), and whether the customization screen is open.
+  const [look, setLook] = useState<LookChoice | null>(null)
+  const [customizing, setCustomizing] = useState(false)
   const frame = useRef<HTMLDivElement | null>(null)
   const handle = useRef<GameHandle | null>(null)
   const lastSeq = useRef(0)
@@ -114,6 +120,10 @@ export function GamePanel({
     }
 
     lastSeq.current = 0
+    // The character is cosmetic: if it cannot load, the hall still draws the default one.
+    loadGuildMasterLook(session, fetch)
+      .then((saved) => !closed && setLook(saved))
+      .catch(() => undefined)
     Promise.all([
       loadRoster(session, fetch),
       loadQuests(session, fetch),
@@ -206,11 +216,20 @@ export function GamePanel({
     const id = setInterval(() => {
       if (scene && handle.current) {
         handle.current.render(scene)
+        if (look) {
+          handle.current.setLook(look)
+        }
         clearInterval(id)
       }
     }, 250)
     return () => clearInterval(id)
-  }, [scene])
+  }, [scene, look])
+
+  useEffect(() => {
+    if (look) {
+      handle.current?.setLook(look)
+    }
+  }, [look])
 
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
 
@@ -268,7 +287,23 @@ export function GamePanel({
             <span className="muted">
               {position === null ? 'live' : `event ${at} of ${events.length}`}
             </span>
+            <button type="button" onClick={() => setCustomizing((open) => !open)}>
+              Customize character
+            </button>
           </div>
+          {customizing && (
+            <CharacterPanel
+              session={session}
+              fetcher={fetch}
+              saved={look}
+              onPreview={(draft) => handle.current?.setLook(draft)}
+              onSaved={(stored) => {
+                setLook(stored)
+                setCustomizing(false)
+              }}
+              onCancel={() => setCustomizing(false)}
+            />
+          )}
           {/* Above the canvas, so on a phone it is never under the bottom navigation. */}
           <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
             {talk.near && talk.open === null && (

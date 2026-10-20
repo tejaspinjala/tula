@@ -3,7 +3,7 @@ import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import { type HallLayout, hallLayout, seatsIn } from './layout'
-import { lookFor } from './look'
+import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
   direction,
@@ -49,8 +49,8 @@ export interface HallOptions {
 
 /** Where the Guild Master enters the hall: just inside the gate, in tiles. */
 const ENTRANCE: Vec = { x: 38.5, y: 12.5 }
-/** The Guild Master's own look: a fixed id so the sprite is the same every visit. */
-const GUILD_MASTER = 'guild-master'
+/** The Guild Master's sprite name; its look is the saved one, or the one this id seeds. */
+const GUILD_MASTER = GUILD_MASTER_ID
 /** Longest a pointer may travel and still count as a tap, in px. */
 const TAP_SLOP = 8
 
@@ -95,6 +95,8 @@ export class HallScene extends Phaser.Scene {
   private zoomLevel = 1
   private followed: string | null = null
   private player: Phaser.GameObjects.Container | null = null
+  private playerLayers: Phaser.GameObjects.Image[] = []
+  private playerLook: LookChoice | null = null
   private at: Vec = { ...ENTRANCE }
   private path: Vec[] = []
   private chasing = false
@@ -157,6 +159,16 @@ export class HallScene extends Phaser.Scene {
   /** The Guild Master's game object (null before the scene has loaded). */
   guildMasterObject(): Phaser.GameObjects.Container | null {
     return this.player
+  }
+
+  /** Dresses the Guild Master in a look (safe before the scene has loaded; the latest look wins). */
+  setPlayerLook(look: LookChoice): void {
+    this.playerLook = look
+    const frames = framesOf(look)
+    const [body, outfit, hair] = this.playerLayers
+    body?.setFrame(frames.body)
+    outfit?.setFrame(frames.outfit)
+    hair?.setFrame(frames.hair)
   }
 
   /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
@@ -241,11 +253,11 @@ export class HallScene extends Phaser.Scene {
   }
 
   private createPlayer(): void {
-    const look = lookFor(GUILD_MASTER)
-    const layers: Phaser.GameObjects.GameObject[] = [look.body, look.outfit, look.hair].map(
-      (frame) => this.add.image(0, 0, CHARS, frame)
+    const look = lookFor(GUILD_MASTER, this.playerLook ?? undefined)
+    this.playerLayers = [look.body, look.outfit, look.hair].map((frame) =>
+      this.add.image(0, 0, CHARS, frame)
     )
-    layers.push(this.crown())
+    const layers: Phaser.GameObjects.GameObject[] = [...this.playerLayers, this.crown()]
     this.player = this.add.container(0, 0, layers).setDepth(16)
     this.player.setName(GUILD_MASTER)
     this.syncPlayer()
@@ -581,7 +593,7 @@ export class HallScene extends Phaser.Scene {
     const x = tile.x * s + s / 2
     const y = tile.y * s + s / 2
     if (!view) {
-      const look = lookFor(member.id)
+      const look = lookFor(member.id, member.look)
       const layers = [look.body, look.outfit, look.hair].map((frame) =>
         this.add.image(0, 0, CHARS, frame)
       )
