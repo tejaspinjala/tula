@@ -8,6 +8,7 @@ import { MemoryNoteStore } from '../adapters/memory-note-store'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemoryToolsetStore } from '../adapters/memory-toolset-store'
+import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import type { Quest } from '../ports/quest-queue'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
 import { McpGateway, type McpGatewayDeps } from './gateway'
@@ -35,6 +36,7 @@ async function setup(overrides: Partial<McpGatewayDeps> = {}) {
     toolsets,
     keys,
     clock,
+    tripwires: new MemoryTripwireStore(clock),
     ...overrides,
   }
   const gateway = new McpGateway(deps)

@@ -789,6 +789,7 @@ export function createApp(deps: AppDeps): Hono {
       observed: 0,
       threshold: 0,
     })
+    await deps.gateway.revokeHallRuns(who.guild, hallId.data)
     return c.json(pause, created ? 201 : 200)
   })
 

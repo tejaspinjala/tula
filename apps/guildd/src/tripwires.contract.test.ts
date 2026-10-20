@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { DEFAULT_TRIPWIRES } from './guild-config'
+import { DEFAULT_TRIPWIRES, defaultConfig, guildConfig } from './guild-config'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
@@ -69,6 +69,60 @@ const brief = (jobKey: string) => ({ templateId: 'herald-brief', jobKey, title: 
 const lease = { leaseMs: 60_000, maxActive: 10 }
 
 describe('Tripwire and Hall-pause routes', () => {
+  test("the manual pause route revokes the Hall's live run tokens", async () => {
+    const who = await signedIn()
+    const g = who.guildId
+    const { config, secrets, gateway } = harness.adapters
+    const proposed = await config.propose(
+      g,
+      guildConfig.parse({
+        ...defaultConfig(),
+        providers: [{ id: 'cloud', auth: 'api_key' }],
+        routingProfiles: [
+          {
+            id: 'cloud-mid',
+            provider: 'cloud',
+            tier: 'mid',
+            model: 'm',
+            price: { inputMicrosPerMTok: 1, outputMicrosPerMTok: 1 },
+          },
+        ],
+      })
+    )
+    if (proposed.status === 'pending') {
+      await config.confirm(g, proposed.version)
+    }
+    await secrets.add(g, 'cloud', 'sk-route-key')
+    const { quest } = await harness.adapters.quests.post(g, {
+      jobKey: 'route-run',
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Brief',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'done',
+      roundLimit: 2,
+    })
+    const claimed = await harness.adapters.quests.claim(g, { ...lease, questId: quest.id })
+    const run = await gateway.openRun(g, {
+      questId: quest.id,
+      attempt: claimed?.attempts ?? 0,
+      hallId: 'heralds',
+      profileId: 'cloud-mid',
+    })
+    if (run.status !== 'started') {
+      throw new Error('expected started')
+    }
+    await send('POST', `/guilds/${g}/halls/heralds/pause`, who.auth)
+    const res = await harness.request('/gateway/complete', {
+      method: 'POST',
+      headers: { ...json, authorization: `Bearer ${run.token}` },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 5 }),
+    })
+    expect(await res.json()).toEqual({ error: 'token_revoked' })
+  })
+
   test('a paused Hall rejects new Quests and starts no claims; resuming needs re-auth', async () => {
     const who = await signedIn()
     const g = who.guildId

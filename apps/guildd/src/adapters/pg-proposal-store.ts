@@ -27,6 +27,11 @@ const row = z.object({
   checked_at: date,
 })
 type Row = z.infer<typeof row>
+const verdictRow = z.object({
+  passed: z.boolean(),
+  findings: z.array(finding),
+  checked_at: date,
+})
 
 const SELECT = `p.proposal_id, p.quest_id, p.author, p.kind, p.content, p.content_hash, p.created_at,
   v.passed, v.findings, v.checked_at`
@@ -61,11 +66,16 @@ export class PgProposalStore implements ProposalStore {
     private readonly clock: Clock
   ) {}
 
-  private async byHash(tx: TenantTx, guildId: string, hash: string): Promise<Proposal | null> {
+  private async ofQuest(
+    tx: TenantTx,
+    guildId: string,
+    questId: string,
+    hash: string
+  ): Promise<Proposal | null> {
     const [found] = await tx`
       select ${tx.unsafe(SELECT)} from proposals p
       join verdicts v on v.guild_id = p.guild_id and v.proposal_hash = p.content_hash
-      where p.guild_id = ${guildId} and p.content_hash = ${hash}`
+      where p.guild_id = ${guildId} and p.quest_id = ${questId} and p.content_hash = ${hash}`
     return found ? toProposal(row.parse(found)) : null
   }
 
@@ -81,25 +91,30 @@ export class PgProposalStore implements ProposalStore {
         insert into proposals (guild_id, quest_id, author, kind, content, content_hash, created_at)
         values (${guildId}, ${input.questId}, ${input.author}, ${input.kind}, ${input.content},
           ${hash}, ${now})
-        on conflict (guild_id, content_hash) do nothing
+        on conflict (guild_id, quest_id, content_hash) do nothing
         returning proposal_id`
       if (inserted) {
         const id = z.object({ proposal_id: z.string() }).parse(inserted).proposal_id
-        await tx`
+        // The Verdict is shared by every Proposal of this exact content: the first one writes it.
+        const recorded = await tx`
           insert into verdicts (guild_id, proposal_hash, passed, findings, checked_at)
-          values (${guildId}, ${hash}, ${verdict.passed}, ${JSON.stringify(verdict.findings)}::text::jsonb, ${now})`
+          values (${guildId}, ${hash}, ${verdict.passed}, ${JSON.stringify(verdict.findings)}::text::jsonb, ${now})
+          on conflict (guild_id, proposal_hash) do nothing
+          returning passed`
         await appendEvent(tx, this.keys, 'proposal.created', {
           proposalId: id,
           questId: input.questId,
           proposalHash: hash,
         })
-        await appendEvent(tx, this.keys, 'verdict.recorded', {
-          proposalId: id,
-          proposalHash: hash,
-          passed: verdict.passed,
-        })
+        if (recorded.length > 0) {
+          await appendEvent(tx, this.keys, 'verdict.recorded', {
+            proposalId: id,
+            proposalHash: hash,
+            passed: verdict.passed,
+          })
+        }
       }
-      const stored = await this.byHash(tx, guildId, hash)
+      const stored = await this.ofQuest(tx, guildId, input.questId, hash)
       if (!stored) {
         throw new Error('proposal vanished after insert')
       }
@@ -134,9 +149,20 @@ export class PgProposalStore implements ProposalStore {
   }
 
   async verdictFor(guildId: string, proposalHash: string): Promise<Verdict | null> {
-    return this.db.withGuild(
-      guildId,
-      async (tx) => (await this.byHash(tx, guildId, proposalHash))?.verdict ?? null
-    )
+    return this.db.withGuild(guildId, async (tx) => {
+      const [found] = await tx`
+        select passed, findings, checked_at from verdicts
+        where guild_id = ${guildId} and proposal_hash = ${proposalHash}`
+      if (!found) {
+        return null
+      }
+      const v = verdictRow.parse(found)
+      return {
+        proposalHash,
+        passed: v.passed,
+        findings: v.findings,
+        checkedAt: v.checked_at,
+      }
+    })
   }
 }

@@ -58,6 +58,7 @@ export class MemoryModelLedger implements ModelLedger {
     s.runs.set(run.runId, {
       runId: run.runId,
       questId: run.questId,
+      attempt: run.attempt,
       hallId: run.hallId,
       providerId: run.providerId,
       profileId: run.profileId,
@@ -106,6 +107,17 @@ export class MemoryModelLedger implements ModelLedger {
     }
     found.state = 'revoked'
     return true
+  }
+
+  async revokeHallRuns(guildId: string, hallId: string): Promise<number> {
+    let revoked = 0
+    for (const r of this.state(guildId).runs.values()) {
+      if (r.hallId === hallId && r.state !== 'revoked') {
+        r.state = 'revoked'
+        revoked += 1
+      }
+    }
+    return revoked
   }
 
   async listQueued(guildId: string, limit: number): Promise<RunRecord[]> {

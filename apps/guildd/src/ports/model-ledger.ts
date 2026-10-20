@@ -26,6 +26,8 @@ export type RunState = 'queued' | 'active' | 'revoked'
 export interface RunRecord {
   runId: string
   questId: string
+  /** The Quest attempt (delivery) this run belongs to. */
+  attempt: number
   hallId: string
   providerId: string
   profileId: string
@@ -38,6 +40,7 @@ export interface RunRecord {
 export interface NewRun {
   runId: string
   questId: string
+  attempt: number
   hallId: string
   providerId: string
   profileId: string
@@ -110,6 +113,8 @@ export interface ModelLedger {
   getRun(guildId: string, runId: string): Promise<RunRecord | null>
   /** Revokes the run's token so its next call is refused; false if the run is unknown. */
   revoke(guildId: string, runId: string): Promise<boolean>
+  /** Revokes every queued or active run of the Hall; returns how many were revoked. */
+  revokeHallRuns(guildId: string, hallId: string): Promise<number>
   /** Queued runs, oldest first, at most `limit`. */
   listQueued(guildId: string, limit: number): Promise<RunRecord[]>
   /**

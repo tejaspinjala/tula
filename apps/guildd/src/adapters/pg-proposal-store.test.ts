@@ -74,3 +74,27 @@ test('the database binds the hash to the content and freezes Proposals and Verdi
   ).toContain('immutable')
   expect((await store.verdictFor(guild, p.hash))?.passed).toBe(false)
 })
+
+test('the same content under two Quests emits proposal.created per Quest and one verdict.recorded', async () => {
+  const guild = await newGuild()
+  const store = new PgProposalStore(db, new MemoryKeyProvider(), clock)
+  const verdict = {
+    passed: true,
+    findings: [{ check: 'length' as const, passed: true, detail: 'ok' }],
+  }
+  const draft = () => ({
+    questId: crypto.randomUUID(),
+    author: 'herald-1',
+    kind: 'post',
+    content: 'shared-text',
+  })
+  await store.propose(guild, draft(), verdict)
+  await store.propose(guild, draft(), verdict)
+  const events = await owner`
+    select type from events where guild_id = ${guild} and type ~ '^(proposal|verdict)\\.' order by seq`
+  expect(events.map((e) => e.type)).toEqual([
+    'proposal.created',
+    'verdict.recorded',
+    'proposal.created',
+  ])
+})

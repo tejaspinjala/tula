@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { defaultConfig, guildConfig } from './guild-config'
+import { runIdFor } from './model-gateway'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
@@ -48,10 +49,44 @@ async function found(name: string, caps = defaultConfig().caps) {
   return { g, session }
 }
 
-async function start(g: string, runId: string) {
+const leased = new Map<string, { id: string; attempts: number }>()
+
+/** Posts and claims a Quest for the run called `name` in guild `g` (attempt 1). */
+async function leaseFor(g: string, name: string) {
+  const key = `${g}:${name}`
+  const known = leased.get(key)
+  if (known) {
+    return known
+  }
+  const { quests } = harness.adapters
+  const { quest } = await quests.post(g, {
+    jobKey: key,
+    templateId: 'herald-brief',
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    title: name,
+    ownerId: 'heralds-member-2',
+    doneCondition: 'done',
+    roundLimit: 2,
+  })
+  const claimed = await quests.claim(g, {
+    leaseMs: 24 * 3_600_000,
+    maxActive: 1000,
+    questId: quest.id,
+  })
+  if (!claimed) {
+    throw new Error('expected a lease')
+  }
+  leased.set(key, claimed)
+  return claimed
+}
+
+async function start(g: string, name: string) {
+  const quest = await leaseFor(g, name)
   const out = await harness.adapters.gateway.openRun(g, {
-    runId,
-    questId: 'quest-1',
+    questId: quest.id,
+    attempt: quest.attempts,
     hallId: 'heralds',
     profileId: 'cloud-mid',
   })
@@ -84,7 +119,7 @@ describe('gateway routes', () => {
     const token = await start(g, 'r1')
     expect((await harness.request('/gateway/complete', { method: 'POST' })).status).toBe(401)
     expect((await call('ghr.nope')).status).toBe(401)
-    await harness.adapters.gateway.revokeRun(g, 'r1')
+    await harness.adapters.gateway.revokeRun(g, runIdFor((await leaseFor(g, 'r1')).id, 1))
     const res = await call(token)
     expect(res.status).toBe(401)
     expect(errorBody.parse(await res.json()).error).toBe('token_revoked')
@@ -139,7 +174,11 @@ describe('gateway routes', () => {
     const ok = await get('?by=quest&limit=5', { authorization: `Bearer ${session}` })
     expect(ok.status).toBe(200)
     expect(usagePage.parse(await ok.json()).rows).toEqual([
-      expect.objectContaining({ key: 'quest-1', calls: 1, costMicros: 2_100_000 }),
+      expect.objectContaining({
+        key: (await leaseFor(g, 'r1')).id,
+        calls: 1,
+        costMicros: 2_100_000,
+      }),
     ])
     expect((await get('?by=nope', { authorization: `Bearer ${session}` })).status).toBe(400)
     expect((await get('?by=day', {})).status).toBe(401)

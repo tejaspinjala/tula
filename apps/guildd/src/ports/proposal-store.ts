@@ -45,8 +45,9 @@ export interface ProposalPage {
  */
 export interface ProposalStore {
   /**
-   * Stores the Proposal with its Verdict. Idempotent per content hash within a guild: the same
-   * content returns the existing Proposal and keeps its original Verdict.
+   * Stores the Proposal with its Verdict. Idempotent per Quest and content hash within a guild:
+   * the same content under the same Quest returns the existing Proposal. The same content under
+   * another Quest is that Quest's own Proposal, and shares the first Verdict written for that hash.
    */
   propose(
     guildId: string,
