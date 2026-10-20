@@ -3,6 +3,7 @@ import postgres from 'postgres'
 import { createDb, type TenantTx } from '../db/client'
 import { defaultConfig } from '../guild-config'
 import { configStoreContract } from '../ports/config-store.contract'
+import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgConfigStore } from './pg-config-store'
@@ -14,13 +15,13 @@ afterAll(async () => {
 
 configStoreContract('postgres', async () => ({
   store: new PgConfigStore(db, new MemoryKeyProvider()),
-  newGuild: () => db.foundGuild({ name: 'Config', goal: 'g' }),
+  newGuild: () => foundTestGuild(db, { name: 'Config', goal: 'g' }),
 }))
 
 describe('config status guard', () => {
   async function guildWithPending() {
     const store = new PgConfigStore(db, new MemoryKeyProvider())
-    const guild = await db.foundGuild({ name: 'Guard', goal: 'g' })
+    const guild = await foundTestGuild(db, { name: 'Guard', goal: 'g' })
     await store.seed(guild)
     await store.propose(guild, { ...defaultConfig(), sealPolicy: 'autonomous' })
     return guild
