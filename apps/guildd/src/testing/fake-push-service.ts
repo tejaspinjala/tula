@@ -8,6 +8,7 @@ export interface PushRequest {
   url: string
   headers: Record<string, string>
   body: Uint8Array
+  redirect: 'follow' | 'manual' | 'error' | undefined
 }
 
 const payloadShape = z.object({ sealId: z.string(), guildId: z.string() })
@@ -19,8 +20,46 @@ function hkdf(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: numbe
 }
 
 /**
+ * The device side of RFC 8291 aes128gcm for a single record: decrypts `body` with the device's
+ * ECDH key and auth secret and strips the padding strictly (zero bytes after the data, then a
+ * required 0x02 delimiter). Throws when the tag, key or padding is wrong.
+ */
+export function decryptRecord(
+  device: { ecdh: ReturnType<typeof createECDH>; auth: Uint8Array },
+  body: Uint8Array
+): Buffer {
+  const salt = body.subarray(0, 16)
+  const idLength = body[20] ?? 0
+  const senderPublic = body.subarray(21, 21 + idLength)
+  const record = body.subarray(21 + idLength)
+  const shared = device.ecdh.computeSecret(senderPublic)
+  const keyInfo = Buffer.concat([
+    Buffer.from('WebPush: info\0'),
+    device.ecdh.getPublicKey(),
+    senderPublic,
+  ])
+  const ikm = hkdf(shared, device.auth, keyInfo, 32)
+  const cek = hkdf(ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16)
+  const nonce = hkdf(ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12)
+  const decipher = createDecipheriv('aes-128-gcm', cek, nonce)
+  decipher.setAuthTag(Buffer.from(record.subarray(record.length - 16)))
+  const plain = Buffer.concat([
+    decipher.update(record.subarray(0, record.length - 16)),
+    decipher.final(),
+  ])
+  let end = plain.length
+  while (end > 0 && plain[end - 1] === 0) {
+    end -= 1
+  }
+  if (end === 0 || plain[end - 1] !== 2) {
+    throw new Error('bad padding')
+  }
+  return plain.subarray(0, end - 1)
+}
+
+/**
  * Test-only push service plus the browser's side of RFC 8291: it mints subscriptions with real
- * P-256 keys, answers push requests (201, 404/410 for dropped endpoints, or scripted statuses),
+ * P-256 keys, answers push requests (201, 410 for dropped endpoints, or scripted statuses),
  * and decrypts what arrives so tests can assert on the payload a device would see.
  */
 export class FakePushService {
@@ -63,13 +102,13 @@ export class FakePushService {
       })
     }
     if (scripted !== undefined) {
-      this.requests.push({ url, headers, body })
+      this.requests.push({ url, headers, body, redirect: init.redirect })
       return new Response(null, { status: scripted })
     }
     if (this.gone.has(url)) {
       return new Response(null, { status: 410 })
     }
-    this.requests.push({ url, headers, body })
+    this.requests.push({ url, headers, body, redirect: init.redirect })
     return new Response(null, { status: 201 })
   }
 
@@ -81,30 +120,6 @@ export class FakePushService {
     }
     return this.requests
       .filter((r) => r.url === endpoint && r.headers['content-encoding'] === 'aes128gcm')
-      .map((r) => this.decrypt(device, r.body))
-  }
-
-  private decrypt(
-    device: { ecdh: ReturnType<typeof createECDH>; auth: Buffer },
-    body: Uint8Array
-  ): PushPayload {
-    const salt = body.subarray(0, 16)
-    const idLength = body[20] ?? 0
-    const senderPublic = body.subarray(21, 21 + idLength)
-    const record = body.subarray(21 + idLength)
-    const shared = device.ecdh.computeSecret(senderPublic)
-    const uaPublic = device.ecdh.getPublicKey()
-    const keyInfo = Buffer.concat([Buffer.from('WebPush: info\0'), uaPublic, senderPublic])
-    const ikm = hkdf(shared, device.auth, keyInfo, 32)
-    const cek = hkdf(ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16)
-    const nonce = hkdf(ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12)
-    const decipher = createDecipheriv('aes-128-gcm', cek, nonce)
-    decipher.setAuthTag(Buffer.from(record.subarray(record.length - 16)))
-    const plain = Buffer.concat([
-      decipher.update(record.subarray(0, record.length - 16)),
-      decipher.final(),
-    ])
-    const end = plain.lastIndexOf(2)
-    return payloadShape.parse(JSON.parse(plain.subarray(0, end).toString('utf8')))
+      .map((r) => payloadShape.parse(JSON.parse(decryptRecord(device, r.body).toString('utf8'))))
   }
 }
