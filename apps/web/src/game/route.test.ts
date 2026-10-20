@@ -31,7 +31,7 @@ test('every leg but the last ends in a door of its map, and the next leg starts 
     const door = end ? doorAt(mapData(leg.map), end.x, end.y) : null
     expect(door).not.toBeNull()
     const next = legs[i + 1]
-    expect(next?.map).toBe(door?.to ?? '')
+    expect(next?.map).toBe(door?.to)
     expect(next?.start).toEqual({ x: door?.toX ?? -1, y: door?.toY ?? -1 })
   })
 })
