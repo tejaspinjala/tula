@@ -31,6 +31,13 @@ export interface StoredChallenge {
   expiresAt: Date
 }
 
+/** A usernameless sign-in challenge: single-use and held before any guild is known. */
+export interface StoredDiscoverableChallenge {
+  id: string
+  challenge: string
+  expiresAt: Date
+}
+
 /** A guild member and their server-side role. */
 export interface StoredMember {
   memberId: string
@@ -90,6 +97,15 @@ export interface IdentityStore {
     now: Date,
     events: IdentityEvent[]
   ): Promise<boolean>
+  /**
+   * The one guild holding the credential id, or null when none (or, never expected, several) does.
+   * Crosses tenants on purpose, through the security-definer `guild_for_credential` (migration 0057).
+   */
+  guildForCredential(credentialId: string): Promise<string | null>
+  /** Stores a usernameless challenge, first deleting those that expired at `now`. */
+  saveDiscoverableChallenge(challenge: StoredDiscoverableChallenge, now: Date): Promise<void>
+  /** Returns and deletes the usernameless challenge in one step, so it can be used once. */
+  takeDiscoverableChallenge(id: string): Promise<StoredDiscoverableChallenge | null>
   /** Clears the session's re-authentication proof if it is still `hash`; false when it was not. */
   clearReauth(guildId: string, sessionId: string, hash: string): Promise<boolean>
   /** Returns and deletes the challenge in one step, so it can be used once. */

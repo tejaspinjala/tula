@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Badge, sealTone } from './Badge'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import { enablePush } from './push'
 import {
@@ -76,22 +77,17 @@ export function SealPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="seals-heading" className="mt-8">
-      <h2 id="seals-heading" className="text-xl font-semibold">
+    <section aria-labelledby="seals-heading" className="card">
+      <h2 id="seals-heading" className="card-title">
         Seal inbox
       </h2>
       {session ? (
         <div className="mt-4 flex flex-col gap-3">
-          <button
-            type="button"
-            className="min-h-11 rounded border p-2"
-            onClick={() => run('Load Seals', refresh)}
-          >
+          <button type="button" onClick={() => run('Load Seals', refresh)}>
             Load Seals
           </button>
           <button
             type="button"
-            className="min-h-11 rounded border p-2"
             onClick={() =>
               run('Enable push', async (current) => {
                 const registration = await navigator.serviceWorker.ready
@@ -110,24 +106,25 @@ export function SealPanel({ session }: { session: Session | null }) {
           </button>
           <ul aria-label="Seals" className="flex flex-col gap-3">
             {seals.map((seal) => (
-              <li key={seal.id} className="rounded border p-3">
+              <li key={seal.id} className="item">
                 <p className="whitespace-pre-wrap">{seal.text}</p>
                 <p className="mt-2 text-sm">Evidence: {seal.evidence}</p>
                 <p className="break-all text-xs">Hash: {seal.actionHash}</p>
-                <p className="text-sm">Status: {seal.status}</p>
+                <p>
+                  <Badge tone={sealTone(seal.status)}>{seal.status}</Badge>
+                </p>
                 {seal.status === 'requested' ? (
                   <div className="mt-2 flex flex-col gap-2">
                     <label htmlFor={`note-${seal.id}`}>Note (if denying)</label>
                     <input
                       id={`note-${seal.id}`}
-                      className="rounded border p-2"
                       value={notes[seal.id] ?? ''}
                       onChange={(event) => setNotes({ ...notes, [seal.id]: event.target.value })}
                     />
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        className="min-h-11 flex-1 rounded bg-black p-2 text-white"
+                        className="btn-primary flex-1"
                         onClick={() =>
                           run('Stamp', async (current) =>
                             replace(
@@ -147,7 +144,7 @@ export function SealPanel({ session }: { session: Session | null }) {
                       </button>
                       <button
                         type="button"
-                        className="min-h-11 flex-1 rounded border p-2"
+                        className="flex-1"
                         onClick={() =>
                           run('Deny', async (current) =>
                             replace(
@@ -176,7 +173,7 @@ export function SealPanel({ session }: { session: Session | null }) {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        className="min-h-11 flex-1 rounded border p-2"
+                        className="flex-1"
                         onClick={() =>
                           run('Release stale', async (current) =>
                             replace(await releaseStale(current, seal, fetch, webAuthnBrowser))
@@ -187,7 +184,7 @@ export function SealPanel({ session }: { session: Session | null }) {
                       </button>
                       <button
                         type="button"
-                        className="min-h-11 flex-1 rounded bg-black p-2 text-white"
+                        className="btn-primary flex-1"
                         onClick={() =>
                           run('Mark posted', async (current) =>
                             replace(await markPosted(current, seal, fetch, webAuthnBrowser))
@@ -203,14 +200,14 @@ export function SealPanel({ session }: { session: Session | null }) {
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
-                      className="min-h-11 flex-1 rounded border p-2"
+                      className="flex-1"
                       onClick={() => run('Copy', () => navigator.clipboard.writeText(seal.text))}
                     >
                       Copy text
                     </button>
                     <button
                       type="button"
-                      className="min-h-11 flex-1 rounded bg-black p-2 text-white"
+                      className="btn-primary flex-1"
                       onClick={() =>
                         run('Mark posted', async (current) =>
                           replace(await markPosted(current, seal, fetch, webAuthnBrowser))

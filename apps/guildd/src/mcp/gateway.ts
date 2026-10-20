@@ -9,8 +9,10 @@ import type { KeyProvider } from '../ports/key-provider'
 import { NoteError, type NoteStore } from '../ports/note-store'
 import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
+import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
+import type { ProposalEngine } from '../proposals'
 import { QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
@@ -20,12 +22,14 @@ import {
   getArtifactArgs,
   type LeaseHandle,
   leaseHandle,
+  MAX_PROPOSALS_PER_QUEST,
   MAX_TOOL_ARTIFACT_BYTES,
   MCP_PROTOCOL_VERSION,
   putArtifactArgs,
   readArchiveArgs,
   readBriefArgs,
   roleToolNames,
+  submitProposalArgs,
   TOOL_CATALOG,
   type ToolDef,
   writeArchiveArgs,
@@ -39,6 +43,8 @@ export interface McpGatewayDeps {
   objectStore: ObjectStore
   handoffs: HandoffStore
   toolsets: ToolsetStore
+  /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
+  proposals: ProposalEngine
   keys: KeyProvider
   clock: Clock
   /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
@@ -91,6 +97,10 @@ interface Caller {
   quest: Quest
   member: string
 }
+
+/** True when the Quest's template needs a Seal before anything is posted. */
+const requiresSeal = (quest: Quest): boolean =>
+  QUEST_TEMPLATES.find((t) => t.id === quest.templateId)?.requiresSeal ?? false
 
 type Id = string | number | null
 
@@ -303,7 +313,11 @@ export class McpGateway {
     switch (name) {
       case 'read_brief':
         readBriefArgs.parse(args)
-        return this.briefReply(caller, await this.exposed(caller), (brief) => ok({ brief }))
+        return this.briefReply(caller, await this.exposed(caller), (brief) =>
+          ok({ brief, requiresSeal: requiresSeal(caller.quest) })
+        )
+      case 'submit_proposal':
+        return this.submitProposal(caller, submitProposalArgs.parse(args))
       case 'read_archive':
         return this.readArchive(caller, readArchiveArgs.parse(args))
       case 'write_archive':
@@ -497,6 +511,48 @@ export class McpGateway {
     }
   }
 
+  /**
+   * Files the draft as a Proposal of the leased Quest through the Proposal engine, so the Verdict
+   * checks run unchanged. The evidence links join the filed text, so the Verdict judges exactly what
+   * a Seal would post. Idempotent: the engine returns the existing Proposal for the same text.
+   */
+  private async submitProposal(
+    caller: Caller,
+    a: z.infer<typeof submitProposalArgs>
+  ): Promise<ToolReply> {
+    const content =
+      a.evidenceLinks.length === 0
+        ? a.text
+        : `${a.text}\n\nSources:\n${a.evidenceLinks.map((l) => `- ${l}`).join('\n')}`
+    // Newest first. A hash already held must be the latest (else the worker would believe it filed
+    // an older draft while another is judged and sealed); a new one must fit under the cap.
+    const held = await this.deps.proposals.listForQuest(
+      caller.guild,
+      caller.quest.id,
+      MAX_PROPOSALS_PER_QUEST
+    )
+    const hash = await hashProposal(content)
+    if (held.some((p) => p.hash === hash)) {
+      if (held[0]?.hash !== hash) {
+        return refuse('proposal_superseded')
+      }
+    } else if (held.length >= MAX_PROPOSALS_PER_QUEST) {
+      return refuse('proposal_cap')
+    }
+    const proposal = await this.deps.proposals.propose(caller.guild, {
+      questId: caller.quest.id,
+      author: caller.member,
+      kind: 'post',
+      content,
+    })
+    return ok({
+      id: proposal.id,
+      hash: proposal.hash,
+      passed: proposal.verdict.passed,
+      findings: proposal.verdict.findings,
+    })
+  }
+
   private async getArtifact(caller: Caller, hash: string): Promise<ToolReply> {
     const { guild, quest } = caller
     if (!(await this.deps.handoffs.holds(guild, quest.id, hash))) {
@@ -575,9 +631,7 @@ export class McpGateway {
       return refuse('done_condition_unmet')
     }
     try {
-      const needsSeal =
-        QUEST_TEMPLATES.find((t) => t.id === quest.templateId)?.requiresSeal ?? false
-      const after = needsSeal
+      const after = requiresSeal(quest)
         ? await this.deps.quests.submitForSeal(guild, quest.id, lease.attempt)
         : await this.deps.quests.complete(guild, quest.id, lease.attempt)
       return ok({ state: after.state, handoffHash: stored.hash })

@@ -14,6 +14,7 @@ export type IdentityFailure =
   | 'unknown_credential'
   | 'unauthenticated'
   | 'registration_closed'
+  | 'credential_exists'
 
 /** Thrown by an {@link IdentityProvider} when a ceremony or session check fails. */
 export class IdentityError extends Error {
@@ -111,6 +112,23 @@ export interface IdentityProvider {
   /** Verifies the assertion and opens a session bound to `guildId`. */
   finishSignIn(
     guildId: string,
+    challengeId: string,
+    response: AuthenticationResponseJSON
+  ): Promise<IdentitySession>
+  /**
+   * Starts a usernameless passkey sign-in: options with an empty `allowCredentials` (the
+   * authenticator offers its discoverable credentials) and a stored single-use challenge.
+   */
+  beginDiscoverableSignIn(): Promise<{
+    challengeId: string
+    options: PublicKeyCredentialRequestOptionsJSON
+  }>
+  /**
+   * Resolves the guild from the asserted credential id, then verifies exactly as {@link finishSignIn}
+   * and opens the same session. An unknown credential, a spent challenge and an expired challenge
+   * are refused with the same failure shape (`verification_failed` / `invalid_challenge`).
+   */
+  finishDiscoverableSignIn(
     challengeId: string,
     response: AuthenticationResponseJSON
   ): Promise<IdentitySession>

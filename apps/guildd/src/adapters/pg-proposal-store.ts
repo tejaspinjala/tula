@@ -186,6 +186,20 @@ export class PgProposalStore implements ProposalStore {
     })
   }
 
+  async listForQuest(guildId: string, questId: string, limit: number): Promise<Proposal[]> {
+    if (!z.uuid().safeParse(questId).success) {
+      return []
+    }
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select ${tx.unsafe(SELECT)} from proposals p
+        join verdicts v on v.guild_id = p.guild_id and v.proposal_hash = p.content_hash
+        where p.guild_id = ${guildId} and p.quest_id = ${questId}
+        order by p.seq desc limit ${limit}`
+      return rows.map((r) => toProposal(row.parse(r)))
+    })
+  }
+
   async latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
     if (!z.uuid().safeParse(questId).success) {
       return null

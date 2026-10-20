@@ -18,6 +18,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'passkeys-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   founding: { client: NO_LIMIT },
+  'founding-status': { client: NO_LIMIT },
   reauth: { client: NO_LIMIT },
   'stream-ticket': { client: NO_LIMIT, guild: NO_LIMIT },
   'checkpoint-begin': { client: NO_LIMIT, guild: NO_LIMIT },

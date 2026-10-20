@@ -27,8 +27,8 @@ export function TreasuryPanel({ session }: { session: Session | null }) {
   useEffect(refresh, [refresh])
 
   return (
-    <section aria-labelledby="treasury-heading" className="mt-8">
-      <h2 id="treasury-heading" className="text-xl font-semibold">
+    <section aria-labelledby="treasury-heading" className="card">
+      <h2 id="treasury-heading" className="card-title">
         Treasury
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the Treasury.</p>}

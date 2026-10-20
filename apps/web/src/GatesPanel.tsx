@@ -35,8 +35,8 @@ export function GatesPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="gates-heading" className="mt-8">
-      <h2 id="gates-heading" className="text-xl font-semibold">
+    <section aria-labelledby="gates-heading" className="card">
+      <h2 id="gates-heading" className="card-title">
         Bar the Gates
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to use the Gates.</p>}
@@ -49,7 +49,6 @@ export function GatesPanel({ session }: { session: Session | null }) {
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            className="min-h-11 rounded border p-2"
             onClick={() =>
               run(async (current) => {
                 const done = await barGates(current, 'guild', fetch)
@@ -61,7 +60,6 @@ export function GatesPanel({ session }: { session: Session | null }) {
           </button>
           <button
             type="button"
-            className="min-h-11 rounded border p-2"
             onClick={() =>
               run(async (current) => {
                 const done = await barGates(current, 'global', fetch)
@@ -73,7 +71,6 @@ export function GatesPanel({ session }: { session: Session | null }) {
           </button>
           <button
             type="button"
-            className="min-h-11 rounded border p-2"
             onClick={() =>
               run(async (current) => {
                 await liftGates(current, 'guild', fetch, webAuthnBrowser)
@@ -85,7 +82,6 @@ export function GatesPanel({ session }: { session: Session | null }) {
           </button>
           <button
             type="button"
-            className="min-h-11 rounded border p-2"
             onClick={() =>
               run(async (current) => {
                 await liftGates(current, 'global', fetch, webAuthnBrowser)

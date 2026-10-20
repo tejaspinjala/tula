@@ -68,8 +68,8 @@ export function FoundGuildPanel({
   }
 
   return (
-    <section aria-labelledby="found-heading" className="mt-8">
-      <h2 id="found-heading" className="text-xl font-semibold">
+    <section aria-labelledby="found-heading" className="card">
+      <h2 id="found-heading" className="card-title">
         Found your guild
       </h2>
       <form onSubmit={submit} className="mt-4 flex flex-col gap-2">
@@ -77,7 +77,6 @@ export function FoundGuildPanel({
         <input
           id={nameId}
           name="guild-name"
-          className="rounded border p-2"
           required
           maxLength={200}
           disabled={founded !== null}
@@ -88,14 +87,13 @@ export function FoundGuildPanel({
         <input
           id={goalId}
           name="guild-goal"
-          className="rounded border p-2"
           required
           maxLength={2000}
           disabled={founded !== null}
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
         />
-        <button type="submit" className="rounded bg-black p-2 text-white" disabled={busy}>
+        <button type="submit" className="btn-primary" disabled={busy}>
           {founded ? 'Create passkey' : 'Found your guild'}
         </button>
         <p role="alert">{error}</p>

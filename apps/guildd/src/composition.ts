@@ -136,6 +136,9 @@ export async function compose(
       tripwires,
       gates: gateStore,
     })
+  const proposals =
+    overrides.proposals ??
+    new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   const mcp =
     overrides.mcp ??
     new McpGateway({
@@ -145,15 +148,13 @@ export async function compose(
       objectStore,
       handoffs: new PgHandoffStore(db, keys),
       toolsets: new PgToolsetStore(db),
+      proposals,
       keys,
       clock,
       tripwires,
       gates: gateStore,
     })
   const seals = overrides.seals ?? new SealEngine({ store: sealStore, config, identity })
-  const proposals =
-    overrides.proposals ??
-    new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   // No cheap model is wired yet (and no model id lives in engine code): the deterministic
   // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
   const classifier = overrides.classifier ?? new MemoryClassifier()

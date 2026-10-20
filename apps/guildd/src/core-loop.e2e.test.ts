@@ -56,6 +56,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     tripwires,
     gates: gateStore,
   })
+  const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const mcp = new McpGateway({
     quests,
     config,
@@ -63,6 +64,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     objectStore: new MemoryObjectStore(),
     handoffs: new MemoryHandoffStore(),
     toolsets: new MemoryToolsetStore(),
+    proposals,
     keys,
     clock,
     tripwires,
@@ -85,7 +87,6 @@ async function memoryWorld(): Promise<E2eWorld> {
     config,
     identity: { findMember: async () => null },
   })
-  const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const dispatcher = new Dispatcher({
     config,
     quests,

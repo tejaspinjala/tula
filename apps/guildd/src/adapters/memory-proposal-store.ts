@@ -108,6 +108,14 @@ export class MemoryProposalStore implements ProposalStore {
     return found ? structuredClone(found) : null
   }
 
+  async listForQuest(guildId: string, questId: string, limit: number): Promise<Proposal[]> {
+    return [...this.proposals(guildId).values()]
+      .filter((p) => p.questId === questId)
+      .reverse()
+      .slice(0, limit)
+      .map((p) => this.copy(p))
+  }
+
   async latestForQuest(guildId: string, questId: string): Promise<Proposal | null> {
     const mine = [...this.proposals(guildId).values()].filter((p) => p.questId === questId)
     const latest = mine.at(-1)

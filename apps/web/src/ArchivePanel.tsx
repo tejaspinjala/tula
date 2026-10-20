@@ -42,8 +42,8 @@ export function ArchivePanel({ session }: { session: Session | null }) {
     )
 
   return (
-    <section aria-labelledby="archive-heading" className="mt-8">
-      <h2 id="archive-heading" className="text-xl font-semibold">
+    <section aria-labelledby="archive-heading" className="card">
+      <h2 id="archive-heading" className="card-title">
         Archive
       </h2>
       {session ? (
@@ -74,7 +74,6 @@ export function ArchivePanel({ session }: { session: Session | null }) {
             <label htmlFor="note-kind">Kind</label>
             <select
               id="note-kind"
-              className="rounded border p-2"
               value={kind}
               onChange={(event) => setKind(event.target.value === 'link' ? 'link' : 'text')}
             >
@@ -84,7 +83,6 @@ export function ArchivePanel({ session }: { session: Session | null }) {
             <label htmlFor="note-title">Title</label>
             <input
               id="note-title"
-              className="rounded border p-2"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
@@ -93,14 +91,12 @@ export function ArchivePanel({ session }: { session: Session | null }) {
             </label>
             <textarea
               id="note-body"
-              className="rounded border p-2"
               value={body}
               onChange={(event) => setBody(event.target.value)}
             />
             <label htmlFor="note-claim">Trust</label>
             <select
               id="note-claim"
-              className="rounded border p-2"
               value={claim}
               onChange={(event) => setClaim(event.target.value === 'fact' ? 'fact' : 'assumption')}
             >
@@ -112,17 +108,12 @@ export function ArchivePanel({ session }: { session: Session | null }) {
                 <label htmlFor="note-evidence">Evidence</label>
                 <input
                   id="note-evidence"
-                  className="rounded border p-2"
                   value={evidence}
                   onChange={(event) => setEvidence(event.target.value)}
                 />
               </>
             ) : null}
-            <button
-              type="submit"
-              className="rounded bg-black p-2 text-white"
-              disabled={!title.trim() || !body}
-            >
+            <button type="submit" className="btn-primary" disabled={!title.trim() || !body}>
               Add note
             </button>
           </form>
@@ -130,15 +121,11 @@ export function ArchivePanel({ session }: { session: Session | null }) {
           <div className="flex gap-2">
             <input
               id="note-search"
-              className="flex-1 rounded border p-2"
+              className="flex-1"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button
-              type="button"
-              className="rounded border p-2"
-              onClick={() => run('Search', find)}
-            >
+            <button type="button" onClick={() => run('Search', find)}>
               Search
             </button>
           </div>
@@ -163,7 +150,7 @@ export function ArchivePanel({ session }: { session: Session | null }) {
             ))}
           </ul>
           {detail ? (
-            <article aria-label="Note detail" className="rounded border p-2">
+            <article aria-label="Note detail">
               <h3 className="font-semibold">{detail.note.title}</h3>
               <p className="whitespace-pre-wrap">{detail.note.body}</p>
               {detail.note.evidence ? <p>Evidence: {detail.note.evidence}</p> : null}
