@@ -1,7 +1,10 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { z } from 'zod'
 import { createHarness } from './testing/harness'
 import { withClusterDdlLock } from './testing/test-db'
+
+// Each test creates and migrates its own database, which queues behind other workers' DDL.
+setDefaultTimeout(60_000)
 
 type Mode = 'open' | 'once' | 'closed'
 

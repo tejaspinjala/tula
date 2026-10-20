@@ -11,10 +11,12 @@ import {
   withScratchSchema,
 } from './test-db'
 
+/** Counts only the database this worktree owns; others come and go with concurrent workers. */
 const dbCount = async () => {
   const admin = postgres(process.env.DATABASE_URL ?? testDbUrl(), { max: 1 })
   try {
-    const [row] = await admin`select count(*)::int as n from pg_database`
+    const [row] =
+      await admin`select count(*)::int as n from pg_database where datname = ${testDbName()}`
     return row?.n
   } finally {
     await admin.end()
