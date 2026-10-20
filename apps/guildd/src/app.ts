@@ -15,7 +15,7 @@ import type { Dispatcher } from './dispatch'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
-import { guildConfig, guildTripwires } from './guild-config'
+import { type GuildConfig, guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import { GatesBarredError, type LearningEngine } from './learning-engine'
 import type { McpGateway } from './mcp/gateway'
@@ -98,6 +98,10 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Serves `subscription` providers; tests inject a memory one, production the `claude` CLI adapter. */
+  subscriptionProvider?: ModelProvider
+  /** Whether the host enabled `subscription` providers; a config naming one is refused otherwise. */
+  subscriptionEnabled?: boolean
   /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
   platformOperators: readonly string[]
   /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
@@ -296,6 +300,7 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
     case 'token_revoked':
       return 401
     case 'cap_reached':
+    case 'subscription_limit':
       return 429
     case 'provider_failed':
       return 502
@@ -1183,6 +1188,11 @@ export function createApp(deps: AppDeps): Hono {
       : { res: c.json({ error: 'forbidden' }, 403) }
   }
 
+  /** Whether `config` names a `subscription` provider the host has not enabled (save and restore share this). */
+  function namesDisabledSubscription(config: GuildConfig): boolean {
+    return !deps.subscriptionEnabled && config.providers.some((p) => p.auth === 'subscription')
+  }
+
   function configFailure(c: Context, error: unknown): Response {
     if (error instanceof ConfigError) {
       return error.code === 'not_found'
@@ -1266,6 +1276,9 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_config' }, 400)
     }
+    if (namesDisabledSubscription(body.data.config)) {
+      return c.json({ error: 'subscription_disabled' }, 409)
+    }
     try {
       const result = await deps.config.propose(who.guild, body.data.config)
       return c.json(result, result.status === 'pending' ? 202 : 200)
@@ -1284,6 +1297,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'not_found' }, 404)
     }
     try {
+      const stored = await deps.config.get(who.guild, version.data)
+      if (stored && namesDisabledSubscription(stored.config)) {
+        return c.json({ error: 'subscription_disabled' }, 409)
+      }
       const result = await deps.config.restore(who.guild, version.data)
       return c.json(result, result.status === 'pending' ? 202 : 200)
     } catch (error) {

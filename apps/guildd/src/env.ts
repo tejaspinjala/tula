@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 
 /** Settings that must be explicit in production and have development defaults elsewhere. */
@@ -123,6 +125,21 @@ const baseSchema = z.object({
     .transform((v) => v === 'true'),
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
+  /**
+   * Address guildd binds. Defaults to loopback: `POST /guilds` and the other routes are not
+   * exposed to the LAN. Exposing guildd needs a TLS reverse proxy (see the self-host runbook).
+   */
+  HOST: z.string().min(1).default('127.0.0.1'),
+  /**
+   * Built web app (`apps/web/dist`) to serve at this origin, API under `/api`. The directory
+   * must exist and hold `index.html`. Unset: guildd serves the API only.
+   */
+  WEB_DIST: z
+    .string()
+    .min(1)
+    .refine((dir) => existsSync(dir) && statSync(dir).isDirectory(), 'WEB_DIST must be a directory')
+    .refine((dir) => existsSync(join(dir, 'index.html')), 'WEB_DIST must hold index.html')
+    .optional(),
 })
 
 const schema = baseSchema
@@ -274,4 +291,27 @@ export function loadSandboxEnv(
     proxyUrl: docker.EGRESS_PROXY_URL,
     gatewayUrl: docker.SANDBOX_GATEWAY_URL,
   }
+}
+
+const subscriptionSchema = z
+  .object({
+    /** Whether `subscription` providers may serve calls. Off unless the host opts in; hosted (v2) never does. */
+    SUBSCRIPTION_PROVIDER: z.enum(['enabled', 'disabled']).default('disabled'),
+    /** The `claude` executable the subscription provider runs. */
+    CLAUDE_CLI_BIN: z.string().min(1).default('claude'),
+    /** Milliseconds before a `claude` child is killed. */
+    CLAUDE_CLI_TIMEOUT_MS: z.coerce.number().int().min(1).max(3_600_000).default(120_000),
+    /** Most `claude` children at once, so the subscription isn't hammered. */
+    CLAUDE_CLI_MAX_CONCURRENT: z.coerce.number().int().min(1).max(32).default(2),
+  })
+  .transform((env) => ({
+    enabled: env.SUBSCRIPTION_PROVIDER === 'enabled',
+    bin: env.CLAUDE_CLI_BIN,
+    timeoutMs: env.CLAUDE_CLI_TIMEOUT_MS,
+    maxConcurrent: env.CLAUDE_CLI_MAX_CONCURRENT,
+  }))
+
+/** Reads the subscription provider settings (ADR-0008); throws at boot on anything invalid. */
+export function loadSubscriptionEnv(source: Record<string, string | undefined> = process.env) {
+  return subscriptionSchema.parse(source)
 }

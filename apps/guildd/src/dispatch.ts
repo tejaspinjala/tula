@@ -115,7 +115,7 @@ export type StartRunError =
   | 'gates_barred'
   | 'run_not_started'
   | 'sandbox_unavailable'
-  | 'subscription_unsupported_until_spike_15'
+  | 'subscription_disabled'
 
 /**
  * Starts the worker of a Quest this caller has just claimed: opens its run, leases the MCP
@@ -191,8 +191,8 @@ async function openRun(
           : 'run_not_started',
     }
   } catch (error) {
-    if (error instanceof GatewayError && error.code === 'subscription_unsupported_until_spike_15') {
-      return { error: 'subscription_unsupported_until_spike_15' }
+    if (error instanceof GatewayError && error.code === 'subscription_disabled') {
+      return { error: 'subscription_disabled' }
     }
     throw error
   }

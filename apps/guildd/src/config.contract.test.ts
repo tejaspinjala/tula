@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { eventsAfter } from './events'
 import { defaultConfig, guildConfig } from './guild-config'
 import { expectGuildIsolation } from './testing/cross-guild'
@@ -8,9 +9,14 @@ import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const devHarness = await createHarness({ devGuildHeader: true })
+const subscriptionHarness = await createHarness({
+  devGuildHeader: false,
+  app: { subscriptionProvider: new MemoryModelProvider() },
+})
 afterAll(async () => {
   await harness.close()
   await devHarness.close()
+  await subscriptionHarness.close()
 })
 
 const ORIGIN = 'http://localhost:5173'
@@ -49,30 +55,32 @@ function send(h: typeof harness, method: string, path: string, body?: unknown, h
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
 }
-const post = (path: string, body: unknown, headers = {}) =>
-  send(harness, 'POST', path, body, headers)
 
-async function signedIn() {
+async function signedIn(h: typeof harness = harness) {
   const founded = foundedBody.parse(
-    await (await post('/guilds', { name: 'Config', goal: 'g' })).json()
+    await (await send(h, 'POST', '/guilds', { name: 'Config', goal: 'g' })).json()
   )
   const guildId = founded.id
   const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
   const reg = ceremony.parse(
     await (
-      await post(
+      await send(
+        h,
+        'POST',
         `/guilds/${guildId}/passkeys/begin`,
         {},
         { 'x-founding-token': founded.foundingToken }
       )
     ).json()
   )
-  await post(`/guilds/${guildId}/passkeys/finish`, {
+  await send(h, 'POST', `/guilds/${guildId}/passkeys/finish`, {
     challengeId: reg.challengeId,
     response: await key.register(reg.options),
   })
-  const begin = ceremony.parse(await (await post(`/guilds/${guildId}/sign-in/begin`, {})).json())
-  const res = await post(`/guilds/${guildId}/sign-in/finish`, {
+  const begin = ceremony.parse(
+    await (await send(h, 'POST', `/guilds/${guildId}/sign-in/begin`, {})).json()
+  )
+  const res = await send(h, 'POST', `/guilds/${guildId}/sign-in/finish`, {
     challengeId: begin.challengeId,
     response: await key.assert(begin.options),
   })
@@ -83,8 +91,12 @@ async function signedIn() {
     auth,
     base: `/guilds/${guildId}`,
     async proof() {
-      const b = ceremony.parse(await (await post('/session/reauth/begin', {}, auth)).json())
-      const done = await post(
+      const b = ceremony.parse(
+        await (await send(h, 'POST', '/session/reauth/begin', {}, auth)).json()
+      )
+      const done = await send(
+        h,
+        'POST',
         '/session/reauth/finish',
         { challengeId: b.challengeId, response: await key.assert(b.options) },
         auth
@@ -93,11 +105,72 @@ async function signedIn() {
     },
     async current() {
       return configBody.parse(
-        await (await send(harness, 'GET', `/guilds/${guildId}/config`, undefined, auth)).json()
+        await (await send(h, 'GET', `/guilds/${guildId}/config`, undefined, auth)).json()
       )
     },
   }
 }
+
+describe('subscription providers in a saved config', () => {
+  const withSubscription = () => ({
+    ...defaultConfig(),
+    providers: [{ id: 'home', auth: 'subscription' as const, privateEligible: false }],
+    routingProfiles: [],
+  })
+
+  test('are refused as subscription_disabled while the host has not enabled them', async () => {
+    const who = await signedIn()
+    const res = await send(
+      harness,
+      'PUT',
+      `${who.base}/config`,
+      { config: withSubscription() },
+      who.auth
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'subscription_disabled' })
+    expect((await who.current()).version).toBe(1)
+  })
+
+  test('are accepted once the host enables them', async () => {
+    const who = await signedIn(subscriptionHarness)
+    const res = await send(
+      subscriptionHarness,
+      'PUT',
+      `${who.base}/config`,
+      { config: withSubscription() },
+      who.auth
+    )
+    expect(res.status).toBeLessThan(300)
+  })
+})
+
+describe('restoring a version that names a subscription provider', () => {
+  const restoreOf = async (h: typeof harness) => {
+    const who = await signedIn(h)
+    await h.adapters.config.propose(who.guildId, {
+      ...defaultConfig(),
+      providers: [{ id: 'home', auth: 'subscription', privateEligible: false }],
+      routingProfiles: [],
+    })
+    // Version 2 names the subscription provider; move on so it is an earlier version.
+    await h.adapters.config.propose(who.guildId, {
+      ...defaultConfig(),
+      caps: { dailyTokens: 5, dailySpendCents: 5 },
+    })
+    return send(h, 'POST', `${who.base}/config/versions/2/restore`, {}, who.auth)
+  }
+
+  test('is refused as subscription_disabled while the host has not enabled them', async () => {
+    const res = await restoreOf(harness)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'subscription_disabled' })
+  })
+
+  test('works once the host enables them', async () => {
+    expect((await restoreOf(subscriptionHarness)).status).toBeLessThan(300)
+  })
+})
 
 describe('guild config over HTTP', () => {
   test('a founded guild has the Steward, Heralds Hall with Captain and Members, and three locked Halls', async () => {

@@ -66,6 +66,10 @@ export const PROVIDER_ERROR_CODES = [
   'timeout',
   'unavailable',
   'invalid_response',
+  /** The Claude subscription's usage limit is reached; not retried. */
+  'subscription_limit',
+  /** The caller's `AbortSignal` fired (Bar the Gates mid-call); the call was stopped, not retried. */
+  'aborted',
 ] as const
 /** One provider failure code. */
 export type ProviderErrorCode = (typeof PROVIDER_ERROR_CODES)[number]
@@ -84,6 +88,13 @@ export class ModelProviderError extends Error {
  * credential or put it in an error.
  */
 export interface ModelProvider {
-  /** Runs one call; rejects with {@link ModelProviderError}. */
-  complete(credential: ProviderSecret, request: ModelRequest): Promise<ModelResponse>
+  /**
+   * Runs one call; rejects with {@link ModelProviderError}. When `signal` aborts, the call stops
+   * and rejects with code `aborted`.
+   */
+  complete(
+    credential: ProviderSecret,
+    request: ModelRequest,
+    signal?: AbortSignal
+  ): Promise<ModelResponse>
 }

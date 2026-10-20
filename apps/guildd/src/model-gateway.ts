@@ -26,14 +26,18 @@ export type GatewayErrorCode =
   | 'hall_paused'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
+  /** The bar could not be read mid-call, so the call was aborted (fail closed); the reservation stays charged. */
+  | 'gates_unavailable'
   | 'cap_reached'
   | 'unknown_profile'
   | 'model_unconfigured'
   | 'price_unconfigured'
   | 'key_missing'
   | 'provider_failed'
-  /** Subscription providers wait on spike #15; until then the gateway refuses them. */
-  | 'subscription_unsupported_until_spike_15'
+  /** The Claude subscription's usage limit is reached; the call is not retried. */
+  | 'subscription_limit'
+  /** Subscription providers are refused unless the host enables them (`SUBSCRIPTION_PROVIDER`). */
+  | 'subscription_disabled'
 
 /** Thrown by the gateway; the code is the whole message, so no secret can ride in it. */
 export class GatewayError extends Error {
@@ -82,6 +86,11 @@ export interface GatewayDeps {
   secrets: Pick<SecretStore, 'resolve'>
   config: Pick<ConfigStore, 'current'>
   provider: ModelProvider
+  /**
+   * Serves `subscription` providers (the host's `claude` CLI). Absent when the deployment has not
+   * enabled them, and then the gateway refuses every `subscription` profile.
+   */
+  subscriptionProvider?: ModelProvider
   clock: Clock
   /** Re-read on every open and call: a run token lives only while its Quest attempt holds a live lease. */
   quests: Pick<QuestQueue, 'get'>
@@ -91,8 +100,11 @@ export interface GatewayDeps {
   gates: Pick<GateStore, 'isBarred'>
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
+  /** How often a call in flight re-reads the bar (durable, so no process state); defaults to 250 ms. */
+  barPollMs?: number
 }
 
+const DEFAULT_BAR_POLL_MS = 250
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
@@ -136,14 +148,18 @@ interface Resolved {
   provider: GuildConfig['providers'][number]
 }
 
-function resolveProfile(config: GuildConfig, profileId: string): Resolved {
+function resolveProfile(
+  config: GuildConfig,
+  profileId: string,
+  subscriptionEnabled: boolean
+): Resolved {
   const profile = config.routingProfiles.find((p) => p.id === profileId)
   const provider = profile && config.providers.find((p) => p.id === profile.provider)
   if (!profile || !provider) {
     throw new GatewayError('unknown_profile')
   }
-  if (provider.auth === 'subscription') {
-    throw new GatewayError('subscription_unsupported_until_spike_15')
+  if (provider.auth === 'subscription' && !subscriptionEnabled) {
+    throw new GatewayError('subscription_disabled')
   }
   return { profile, provider }
 }
@@ -206,7 +222,11 @@ export class ModelGateway {
       return { status: 'refused', reason: 'token_revoked' }
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile } = resolveProfile(config, run.profileId)
+    const { profile } = resolveProfile(
+      config,
+      run.profileId,
+      this.deps.subscriptionProvider !== undefined
+    )
     const capped = await this.capReason(guildId, config)
     const issue = this.issue(guildId)
     if (capped && existing?.state === 'revoked') {
@@ -253,7 +273,7 @@ export class ModelGateway {
         break
       }
       try {
-        resolveProfile(config, run.profileId)
+        resolveProfile(config, run.profileId, this.deps.subscriptionProvider !== undefined)
       } catch (e) {
         if (e instanceof GatewayError) {
           continue
@@ -326,17 +346,28 @@ export class ModelGateway {
       throw new GatewayError('invalid_request')
     }
     const { config } = await this.deps.config.current(guildId)
-    const { profile, provider } = resolveProfile(config, run.profileId)
+    const { profile, provider } = resolveProfile(
+      config,
+      run.profileId,
+      this.deps.subscriptionProvider !== undefined
+    )
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
     if (provider.auth === 'api_key' && !profile.price) {
       throw new GatewayError('price_unconfigured')
     }
-    const key = await this.deps.secrets.resolve(guildId, provider.id)
+    const subscription = provider.auth === 'subscription'
+    // A subscription's credential is the host's signed-in CLI: no Vault secret, no price.
+    const key = subscription ? '' : await this.deps.secrets.resolve(guildId, provider.id)
     if (key === null) {
       throw new GatewayError('key_missing')
     }
+    const price = subscription ? undefined : profile.price
+    const backend =
+      subscription && this.deps.subscriptionProvider
+        ? this.deps.subscriptionProvider
+        : this.deps.provider
     const { idempotencyKey, ...rest } = request.data
     const callKey = crypto.randomUUID()
     const estimate = {
@@ -349,7 +380,7 @@ export class ModelGateway {
       runId: run.runId,
       day,
       ...estimate,
-      costMicros: profile.price ? costMicros(estimate, profile.price) : null,
+      costMicros: price ? costMicros(estimate, price) : null,
       clientKey: idempotencyKey ?? null,
       caps: {
         tokens: config.caps.dailyTokens,
@@ -364,22 +395,59 @@ export class ModelGateway {
       throw new GatewayError('cap_reached')
     }
     let response: ModelResponse
+    // Bar the Gates mid-call: the bar is read from the store while the call is in flight, and
+    // aborts it. The reservation stays as the charge (the failure path below never settles).
+    // Fails closed: a bar check that errors aborts the call as `gates_unavailable`, since the bar
+    // cannot be known. A tick is skipped while the previous check is still pending.
+    const barred = new AbortController()
+    let abortCode: 'gates_barred' | 'gates_unavailable' = 'gates_barred'
+    let checking = false
+    const poll = setInterval(() => {
+      if (checking) {
+        return
+      }
+      checking = true
+      this.deps.gates
+        .isBarred(guildId)
+        .then(
+          (yes) => {
+            if (yes) {
+              barred.abort()
+            }
+          },
+          () => {
+            abortCode = 'gates_unavailable'
+            barred.abort()
+          }
+        )
+        .finally(() => {
+          checking = false
+        })
+    }, this.deps.barPollMs ?? DEFAULT_BAR_POLL_MS)
     try {
-      response = await this.deps.provider.complete(new ProviderSecret(key), {
-        ...rest,
-        model: profile.model,
-      })
+      response = await backend.complete(
+        new ProviderSecret(key),
+        { ...rest, model: profile.model },
+        barred.signal
+      )
     } catch (e) {
+      if (barred.signal.aborted) {
+        throw new GatewayError(abortCode)
+      }
       if (e instanceof ModelProviderError) {
-        throw new GatewayError('provider_failed')
+        throw new GatewayError(
+          e.code === 'subscription_limit' ? 'subscription_limit' : 'provider_failed'
+        )
       }
       throw e
+    } finally {
+      clearInterval(poll)
     }
     try {
       await this.deps.ledger.settle(guildId, callKey, {
         inputTokens: response.usage.inputTokens,
         outputTokens: response.usage.outputTokens,
-        costMicros: profile.price ? costMicros(response.usage, profile.price) : null,
+        costMicros: price ? costMicros(response.usage, price) : null,
       })
     } catch {
       // The estimate stays as the charge and the reply is still returned. Ids only: no error

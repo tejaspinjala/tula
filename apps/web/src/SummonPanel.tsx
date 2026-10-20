@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { PasskeyRequestError, type Session } from './passkeys'
 import { describeSummon, loadSummon, type SummonStatus, startSummon } from './summon'
 
-const STEP_LABELS = {
-  provider: 'A provider with an API key is chosen',
+/** What each Summon step means, shown beside its tick in the panel. */
+export const STEP_LABELS = {
+  provider: 'A model provider is chosen: an API key or your Claude subscription',
   test_quest: 'The test Quest passed on the worker',
 } as const
 

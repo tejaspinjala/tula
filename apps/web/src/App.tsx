@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
+import { FoundGuildPanel } from './FoundGuildPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
-import type { Session } from './passkeys'
+import { type Session, webAuthnBrowser } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
@@ -51,6 +52,9 @@ export function App() {
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
         <p>guildd: {status}</p>
+        {!session && (
+          <FoundGuildPanel fetcher={fetch} browser={webAuthnBrowser} onSession={setSession} />
+        )}
         <PasskeyPanel session={session} onSession={setSession} />
         <ArtifactViewer session={session} />
         <VaultPanel session={session} />

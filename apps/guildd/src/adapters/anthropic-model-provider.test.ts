@@ -125,3 +125,26 @@ test('a network error or abort is a timeout/unavailable, retried, and never carr
     code: 'timeout',
   })
 })
+
+test('aborting the caller signal cancels the in-flight fetch and is not retried', async () => {
+  let calls = 0
+  const provider = new AnthropicModelProvider({
+    fetch: (_url, init) => {
+      calls++
+      return new Promise<Response>((_, reject) => {
+        init.signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'AbortError'))
+        )
+      })
+    },
+    sleep: async () => undefined,
+    random: () => 0.5,
+    maxAttempts: 3,
+    timeoutMs: 10_000,
+  })
+  const controller = new AbortController()
+  const pending = provider.complete(new ProviderSecret('sk'), request, controller.signal)
+  setTimeout(() => controller.abort(), 20)
+  await expect(pending).rejects.toMatchObject({ code: 'aborted' })
+  expect(calls).toBe(1)
+})

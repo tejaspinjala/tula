@@ -33,7 +33,14 @@ export class MemoryModelProvider implements ModelProvider {
     this.queue.push(reply)
   }
 
-  async complete(credential: ProviderSecret, request: ModelRequest): Promise<ModelResponse> {
+  async complete(
+    credential: ProviderSecret,
+    request: ModelRequest,
+    signal?: AbortSignal
+  ): Promise<ModelResponse> {
+    if (signal?.aborted) {
+      throw new ModelProviderError('aborted')
+    }
     const parsed = modelRequest.safeParse(request)
     if (!parsed.success) {
       throw new ModelProviderError('invalid_request')

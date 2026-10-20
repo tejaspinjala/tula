@@ -1,6 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { defaultConfig, guildConfig, type TripwireThresholds } from './guild-config'
+import {
+  defaultConfig,
+  type GuildConfig,
+  guildConfig,
+  type TripwireThresholds,
+} from './guild-config'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
 
@@ -16,16 +21,21 @@ const outcome = z.object({
 })
 
 /** A founded guild with one api-key provider, a session and one queued Quest. */
-async function found(tripwires?: TripwireThresholds) {
+async function found(
+  tripwires?: TripwireThresholds,
+  shape: Pick<GuildConfig, 'providers' | 'routingProfiles'> = {
+    providers: [{ id: 'cloud', auth: 'api_key', privateEligible: false }],
+    routingProfiles: [
+      { id: 'cloud-mid', provider: 'cloud', tier: 'mid', model: 'configured-model' },
+    ],
+  }
+) {
   const g = await harness.foundGuild({ name: 'Dispatch', goal: 'g' })
   await harness.adapters.config.seed(g)
   const next = guildConfig.parse({
     ...defaultConfig(),
     ...(tripwires ? { tripwires } : {}),
-    providers: [{ id: 'cloud', auth: 'api_key' }],
-    routingProfiles: [
-      { id: 'cloud-mid', provider: 'cloud', tier: 'mid', model: 'configured-model' },
-    ],
+    ...shape,
   })
   const proposed = await harness.adapters.config.propose(g, next)
   if (proposed.status === 'pending') {
@@ -64,6 +74,22 @@ describe('POST /guilds/:id/dispatch', () => {
     const again = await dispatch(g, auth)
     expect(again.status).toBe(200)
     expect(outcome.parse(await again.json()).status).toBe('idle')
+  })
+
+  test('with the subscription provider disabled, routing skips a subscription provider for the api_key one', async () => {
+    const { g, auth } = await found(undefined, {
+      providers: [
+        { id: 'home', auth: 'subscription', privateEligible: false },
+        { id: 'cloud', auth: 'api_key', privateEligible: false },
+      ],
+      routingProfiles: [
+        { id: 'home-mid', provider: 'home', tier: 'mid', model: 'sub-model' },
+        { id: 'cloud-mid', provider: 'cloud', tier: 'mid', model: 'configured-model' },
+      ],
+    })
+    const res = await dispatch(g, auth)
+    expect(res.status).toBe(202)
+    expect(outcome.parse(await res.json()).profileId).toBe('cloud-mid')
   })
 
   test('a barred guild is refused with 409', async () => {

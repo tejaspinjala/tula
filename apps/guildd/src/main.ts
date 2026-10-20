@@ -3,6 +3,8 @@ import { MAX_ARTIFACT_BYTES, websocket } from './app'
 import { compose } from './composition'
 import { startDispatchLoop } from './dispatch-loop'
 import { loadEnv } from './env'
+import { listenOptions } from './server-config'
+import { withWebApp } from './web-static'
 import { assertBackpressureSupported } from './ws-support'
 
 const env = loadEnv()
@@ -52,8 +54,7 @@ process.once('SIGINT', shutdown)
 
 // Bun rejects larger bodies before the app sees them; the slack covers non-artifact JSON bodies.
 export default {
-  port: env.PORT,
-  fetch: app.fetch,
+  ...listenOptions(env, MAX_ARTIFACT_BYTES + 1024 * 1024),
+  fetch: (env.WEB_DIST ? withWebApp(app, env.WEB_DIST) : app).fetch,
   websocket,
-  maxRequestBodySize: MAX_ARTIFACT_BYTES + 1024 * 1024,
 }

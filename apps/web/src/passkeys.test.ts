@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { type PasskeyBrowser, reauthenticate, registerPasskey, signIn } from './passkeys'
+import {
+  foundGuild,
+  type PasskeyBrowser,
+  PasskeyRequestError,
+  reauthenticate,
+  registerPasskey,
+  signIn,
+} from './passkeys'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const options = { challenge: 'abc' }
@@ -57,4 +64,31 @@ test('re-authenticating sends the session token and returns the proof', async ()
   })
   expect(await reauthenticate('t', fetcher, browser)).toBe('p')
   expect(seen.every((s) => s.auth === 'Bearer t')).toBe(true)
+})
+
+test('founding a guild posts name and goal and returns the id and one-time founding token', async () => {
+  const { seen, fetcher } = fakes({ '/api/guilds': { id: guild, foundingToken: 'ft' } })
+  expect(await foundGuild('Ember', 'Ship it', fetcher)).toEqual({ id: guild, foundingToken: 'ft' })
+  expect(seen[0]?.url).toBe('/api/guilds')
+  expect(seen[0]?.body).toEqual({ name: 'Ember', goal: 'Ship it' })
+})
+
+test('the first passkey sends the founding token as x-founding-token on begin only', async () => {
+  const headers: Array<string | null> = []
+  const fetcher = async (url: string, init?: RequestInit) => {
+    headers.push(new Headers(init?.headers).get('x-founding-token'))
+    return Response.json(url.endsWith('/begin') ? { challengeId: 'c1', options } : {}, {
+      status: 200,
+    })
+  }
+  const { browser } = fakes({})
+  await registerPasskey(guild, undefined, fetcher, browser, 'ft')
+  expect(headers).toEqual(['ft', null])
+})
+
+test('a refused founding surfaces the status so the screen can say rate limited', async () => {
+  const fetcher = async () => Response.json({ error: 'rate_limited' }, { status: 429 })
+  const error = await foundGuild('Ember', 'Ship it', fetcher).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(PasskeyRequestError)
+  expect(error instanceof PasskeyRequestError && error.status).toBe(429)
 })

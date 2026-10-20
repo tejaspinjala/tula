@@ -8,10 +8,12 @@ import { App } from './App'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
+import { FoundGuildPanel } from './FoundGuildPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
+import { webAuthnBrowser } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
@@ -118,6 +120,10 @@ async function violations(host: HTMLElement): Promise<string[]> {
 }
 
 const panels: Array<[string, ReactElement]> = [
+  [
+    'Found your guild',
+    <FoundGuildPanel key="f" fetcher={fetch} browser={webAuthnBrowser} onSession={() => {}} />,
+  ],
   ['Passkey', <PasskeyPanel key="p" session={null} onSession={() => {}} />],
   ['Artifact', <ArtifactViewer key="a" session={session} />],
   ['Vault', <VaultPanel key="v" session={session} />],

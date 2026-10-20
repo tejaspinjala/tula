@@ -9,6 +9,7 @@ import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig, type GuildConfig, guildConfig } from './guild-config'
 import { GatewayError, type GatewayErrorCode, ModelGateway, runIdFor } from './model-gateway'
+import { type ModelProvider, ModelProviderError } from './ports/model-provider'
 import type { Quest } from './ports/quest-queue'
 
 const GUILD = '11111111-1111-4111-8111-111111111111'
@@ -75,7 +76,10 @@ async function leaseQuest(quests: MemoryQuestQueue, name: string): Promise<Quest
   return claimed
 }
 
-async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = {}) {
+async function setup(
+  cfg: GuildConfig = config(),
+  opts: { withKey?: boolean; subscription?: ModelProvider } = {}
+) {
   const clock = new MemoryClock(new Date('2026-03-04T10:00:00.000Z'))
   const ledger = new CountingLedger()
   const provider = new MemoryModelProvider()
@@ -85,14 +89,16 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
   }
   const quests = new MemoryQuestQueue(clock, () => 0.5)
   const tripwires = new MemoryTripwireStore(clock)
+  const gates = new MemoryGateStore()
   const gateway = new ModelGateway({
     ledger,
     secrets,
     config: { current: async () => ({ version: 1, config: cfg }) },
     provider,
+    ...(opts.subscription ? { subscriptionProvider: opts.subscription } : {}),
     clock,
     tripwires,
-    gates: new MemoryGateStore(),
+    gates,
     quests: { get: (g, id) => quests.get(g, id) },
     tokenTtlMs: 60_000,
   })
@@ -119,7 +125,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
   }
   /** The ledger run id of the run called `name`. */
   const runIdOf = async (name: string) => runIdFor((await questFor(name)).id, 1)
-  return { clock, ledger, provider, secrets, gateway, tripwires, open, questFor, runIdOf }
+  return { clock, ledger, provider, secrets, gateway, tripwires, gates, open, questFor, runIdOf }
 }
 
 async function started(r: Promise<Awaited<ReturnType<ModelGateway['openRun']>>>) {
@@ -259,11 +265,42 @@ describe('metering', () => {
     expect(await codeOf(open('run-x', { profileId: 'ghost' }))).toBe('unknown_profile')
   })
 
-  test('a subscription provider is refused until spike #15', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled', async () => {
     const { open } = await setup()
-    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe(
-      'subscription_unsupported_until_spike_15'
-    )
+    expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe('subscription_disabled')
+  })
+})
+
+describe('subscription provider', () => {
+  test('serves the call through the subscription provider with no Vault secret, metered in tokens and unpriced', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: true, text: 'from cli', usage: { inputTokens: 40, outputTokens: 9 } })
+    const { gateway, ledger, provider, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    const out = await gateway.complete(run.token, message)
+    expect(out.text).toBe('from cli')
+    expect(provider.seen).toHaveLength(0)
+    const { rows } = await ledger.report(GUILD, 'day', { limit: 5 })
+    expect(rows).toEqual([
+      { key: '2026-03-04', calls: 1, inputTokens: 40, outputTokens: 9, costMicros: 0 },
+    ])
+  })
+
+  test('a usage-limit reply is subscription_limit and the estimate stays as the charge', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: false, code: 'subscription_limit' })
+    const { gateway, ledger, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('subscription_limit')
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
+  })
+
+  test('any other subscription failure is provider_failed', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: false, code: 'unavailable' })
+    const { gateway, open } = await setup(config(), { subscription })
+    const run = await started(open('run-s', { profileId: 'sub-mid' }))
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('provider_failed')
   })
 })
 
@@ -478,5 +515,99 @@ describe('estimates and settle failures', () => {
     })
     expect(logged).not.toContain('secret-ish')
     expect(logged).not.toContain(KEY)
+  })
+})
+
+/** A provider that never answers on its own and rejects `aborted` when the gateway aborts it. */
+class SlowProvider implements ModelProvider {
+  aborts = 0
+  complete(
+    _credential: unknown,
+    _request: unknown,
+    signal?: AbortSignal
+  ): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
+    return new Promise((resolve, reject) => {
+      const done = setTimeout(
+        () => resolve({ text: 'late', usage: { inputTokens: 1, outputTokens: 1 } }),
+        5000
+      )
+      signal?.addEventListener('abort', () => {
+        clearTimeout(done)
+        this.aborts++
+        reject(new ModelProviderError('aborted'))
+      })
+    })
+  }
+}
+
+describe('Bar the Gates mid-call', () => {
+  const actor = { guildId: GUILD, memberId: 'gm' }
+  for (const scope of ['guild', 'global'] as const) {
+    test(`a ${scope} bar raised during a subscription call aborts it within 500 ms as gates_barred, charging the reservation`, async () => {
+      const slow = new SlowProvider()
+      const { gateway, gates, ledger, open } = await setup(config(), { subscription: slow })
+      const run = await started(open('run-bar', { profileId: 'sub-mid' }))
+      const begun = Date.now()
+      const pending = codeOf(gateway.complete(run.token, message))
+      setTimeout(() => void gates.bar(actor, scope), 50)
+      expect(await pending).toBe('gates_barred')
+      expect(Date.now() - begun).toBeLessThan(600)
+      expect(slow.aborts).toBe(1)
+      expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
+    })
+  }
+
+  test('a failed bar check fails closed: the call aborts as gates_unavailable, charging the reservation', async () => {
+    const slow = new SlowProvider()
+    const { gateway, gates, ledger, open } = await setup(config(), { subscription: slow })
+    const run = await started(open('run-fail', { profileId: 'sub-mid' }))
+    // The first read is the pre-call check; every poll after it fails.
+    const real = gates.isBarred.bind(gates)
+    let reads = 0
+    spyOn(gates, 'isBarred').mockImplementation(async (guildId) => {
+      if (++reads === 1) {
+        return real(guildId)
+      }
+      throw new Error('store down')
+    })
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('gates_unavailable')
+    expect(slow.aborts).toBe(1)
+    expect((await ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(100)
+  })
+
+  test('a slow bar check is never stacked: at most one is outstanding', async () => {
+    const slow = new SlowProvider()
+    const { gateway, gates, open } = await setup(config(), { subscription: slow })
+    const run = await started(open('run-slowbar', { profileId: 'sub-mid' }))
+    let active = 0
+    let peak = 0
+    let calls = 0
+    let reads = 0
+    spyOn(gates, 'isBarred').mockImplementation(async () => {
+      if (++reads === 1) {
+        return false
+      }
+      calls++
+      active++
+      peak = Math.max(peak, active)
+      await Bun.sleep(700)
+      active--
+      return true
+    })
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('gates_barred')
+    expect(calls).toBe(1)
+    expect(peak).toBe(1)
+  })
+
+  test('a call that finishes unbarred stops polling', async () => {
+    const subscription = new MemoryModelProvider()
+    subscription.script({ ok: true, text: 'ok', usage: { inputTokens: 1, outputTokens: 1 } })
+    const { gateway, gates, open } = await setup(config(), { subscription })
+    const run = await started(open('run-ok', { profileId: 'sub-mid' }))
+    const probe = spyOn(gates, 'isBarred')
+    await gateway.complete(run.token, message)
+    const after = probe.mock.calls.length
+    await Bun.sleep(600)
+    expect(probe.mock.calls.length).toBe(after)
   })
 })

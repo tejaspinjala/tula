@@ -37,9 +37,9 @@ const statusBody = z.object({
 const errorBody = z.object({ error: z.string() })
 
 /** A founded guild with a session; `auth` picks the provider of its one routing profile. */
-async function found(auth: 'api_key' | 'subscription' | null) {
-  const g = await harness.foundGuild({ name: 'Summon', goal: 'g' })
-  await harness.adapters.config.seed(g)
+async function found(auth: 'api_key' | 'subscription' | null, h: typeof harness = harness) {
+  const g = await h.foundGuild({ name: 'Summon', goal: 'g' })
+  await h.adapters.config.seed(g)
   if (auth !== null) {
     const next = guildConfig.parse({
       ...defaultConfig(),
@@ -54,14 +54,14 @@ async function found(auth: 'api_key' | 'subscription' | null) {
         },
       ],
     })
-    const proposed = await harness.adapters.config.propose(g, next)
+    const proposed = await h.adapters.config.propose(g, next)
     if (proposed.status === 'pending') {
-      await harness.adapters.config.confirm(g, proposed.version)
+      await h.adapters.config.confirm(g, proposed.version)
     }
-    await harness.adapters.secrets.add(g, 'cloud', 'sk-summon-test-key')
+    await h.adapters.secrets.add(g, 'cloud', 'sk-summon-test-key')
   }
-  const session = await openSession(harness.adapters.identity, g)
-  const member = (await harness.adapters.identity.resolveSession(session))?.memberId ?? ''
+  const session = await openSession(h.adapters.identity, g)
+  const member = (await h.adapters.identity.resolveSession(session))?.memberId ?? ''
   return { g, member, auth: { authorization: `Bearer ${session}` } }
 }
 
@@ -99,14 +99,29 @@ describe('Summon your first member', () => {
     expect(s.quest).toBeNull()
   })
 
-  test('a subscription provider is refused until spike #15, and nothing starts', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled, and nothing starts', async () => {
     const { g, auth } = await found('subscription')
     const before = runner.specs.length
     const res = await summon(g, auth)
     expect(res.status).toBe(422)
-    expect(errorBody.parse(await res.json()).error).toBe('subscription_unsupported_until_spike_15')
+    expect(errorBody.parse(await res.json()).error).toBe('subscription_disabled')
     expect(runner.specs).toHaveLength(before)
     expect((await status(g, auth)).complete).toBe(false)
+    expect((await status(g, auth)).steps[0]).toEqual({ id: 'provider', done: false })
+  })
+
+  test('a subscription provider counts as a provider when the host enabled it', async () => {
+    const enabled = await createHarness({
+      devGuildHeader: true,
+      app: { subscriptionProvider: new MemoryModelProvider() },
+    })
+    try {
+      const { g, auth } = await found('subscription', enabled)
+      const res = await enabled.request(`/guilds/${g}/summon`, { headers: auth })
+      expect(statusBody.parse(await res.json()).steps[0]).toEqual({ id: 'provider', done: true })
+    } finally {
+      await enabled.close()
+    }
   })
 
   test('summoning starts the worker but stays incomplete until the test Quest passes', async () => {
