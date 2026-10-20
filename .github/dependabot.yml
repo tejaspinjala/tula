@@ -1,11 +1,29 @@
-# GitHub Actions versions only for now; npm stays with `bun add` until a release-age policy exists.
+# Always latest, majors included; grouped weekly to keep PR noise low.
 version: 2
 updates:
+  # npm covers every workspace (root, apps/*, packages/*) and bun.lock.
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /apps/*
+      - /packages/*
+    target-branch: develop
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+    commit-message:
+      prefix: build
+
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
     commit-message:
       prefix: ci
 
@@ -15,5 +33,8 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      compose:
+        patterns: ['*']
     commit-message:
       prefix: build

@@ -18,6 +18,10 @@ A governed agent-operations platform played as a guild game. `GLOSSARY.md` is bi
 3. `risk` tickets and every batch: the `review-loop` skill reports no blocking findings.
 4. Every fixed bug or review finding starts with a failing regression test.
 
+## Weekly maintenance
+
+Always latest, majors included (Dependabot, grouped, targets `develop`). Each week merge the green Dependabot PRs; a major that breaks the gates becomes a ticket, not a hold-back.
+
 ## Token discipline
 
 - Read only the ticket, this file, the `.claude/rules/*.md` matching the files you touch, and the files the ticket names.
