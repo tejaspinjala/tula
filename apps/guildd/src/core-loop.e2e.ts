@@ -16,6 +16,7 @@ import type { SealEngine } from './seals'
 import type { RecordingSandboxRunner } from './testing/recording-sandbox'
 import { callTool, ScriptedMember } from './testing/scripted-member'
 import type { ContentPolicy } from './verdict'
+import type { WorkflowEngine } from './workflows/engine'
 
 /** What a guild needs from {@link E2eWorld.newGuild}. */
 export interface GuildOptions {
@@ -32,6 +33,8 @@ export interface E2eWorld {
   sealStore: SealStore
   seals: SealEngine
   proposals: ProposalEngine
+  /** The workflow engine over the same queue, Seals and Proposals; absent in worlds that do not wire it. */
+  workflows?: WorkflowEngine
   dispatcher: Pick<Dispatcher, 'dispatch'>
   gateway: ModelGateway
   mcp: McpGateway
@@ -294,6 +297,58 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       expect(after).toMatchObject({ state: 'queued', attempts: 1, lastError: 'routing_blocked' })
       expect(Date.parse(after?.notBefore ?? '')).toBeGreaterThan(w.clock.now().getTime())
       expect(await w.sandboxes.list(guildId)).toEqual([])
+    })
+
+    test('a workflow run reaches done through the normal dispatcher, Verdict and Seal; a restart posts nothing twice', async () => {
+      const w = await make()
+      const engine = w.workflows
+      if (!engine) {
+        throw new Error('this world has no workflow engine')
+      }
+      const { guildId, masterId } = await w.newGuild()
+      await engine.seedTemplates(guildId)
+      const run = await engine.run(guildId, 'learning-to-linkedin', { runKey: 'e2e' })
+      if (!run.ok) {
+        throw new Error(`run refused: ${run.error}`)
+      }
+      const restart = await engine.run(guildId, 'learning-to-linkedin', { runKey: 'e2e' })
+      expect(restart).toMatchObject({ ok: true, created: false })
+      const questId = run.quests[0]?.questId ?? ''
+      const quest = await w.quests.get(guildId, questId)
+      if (!quest) {
+        throw new Error('the workflow posted no Quest')
+      }
+      expect(quest.campaignId).toBe(run.instance.id)
+      expect((await w.quests.list(guildId, { limit: 10 })).quests).toHaveLength(1)
+
+      await dispatchStarts(w, guildId, quest)
+      const worked = await memberWorks(w, guildId, quest.id, 'What we learned this week')
+      expect(worked.completion.data.state).toBe('awaiting_seal')
+      await w.dispatcher.dispatch(guildId)
+      const seal = await w.sealStore.forQuest(guildId, quest.id)
+      if (!seal) {
+        throw new Error('no Seal was requested')
+      }
+      const mid = await engine.state(guildId, run.instance.id)
+      expect(mid?.nodes.map((n) => [n.id, n.status])).toEqual([
+        ['start', 'done'],
+        ['draft', 'awaiting_seal'],
+        ['check', 'passed'],
+        ['seal', 'awaiting'],
+        ['publish', 'pending'],
+      ])
+      expect((await decide(w, guildId, masterId, seal, 'approved')).ok).toBe(true)
+      expect((await w.seals.publish(guildId, seal.id, seal.text, async () => {})).ok).toBe(true)
+      await w.dispatcher.dispatch(guildId)
+      expect(await stateOf(w, guildId, quest.id)).toBe('done')
+      const end = await engine.state(guildId, run.instance.id)
+      expect(end?.nodes.map((n) => [n.id, n.status])).toEqual([
+        ['start', 'done'],
+        ['draft', 'done'],
+        ['check', 'passed'],
+        ['seal', 'approved'],
+        ['publish', 'done'],
+      ])
     })
 
     test('a permanent routing block kills the Quest with a coded reason', async () => {
