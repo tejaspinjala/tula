@@ -254,6 +254,10 @@ export class PgQuestQueue implements QuestQueue {
     )
   }
 
+  async findByJobKey(_guildId: string, _jobKey: string): Promise<Quest | null> {
+    throw new Error('not implemented')
+  }
+
   async get(guildId: string, id: string): Promise<Quest | null> {
     if (!z.uuid().safeParse(id).success) {
       return null

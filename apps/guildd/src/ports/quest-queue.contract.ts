@@ -37,6 +37,18 @@ function quest(overrides: Partial<NewQuest> = {}): NewQuest {
 /** The QuestQueue contract, run against every adapter. `make` returns a fresh queue. */
 export function questQueueContract(name: string, make: () => Promise<QuestQueueFixture>) {
   describe(`QuestQueue contract: ${name}`, () => {
+    test('a Quest is found by its job key in its own guild only, and finding never posts', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const input = quest()
+      expect(await queue.findByJobKey(g, input.jobKey)).toBeNull()
+      const { quest: posted } = await queue.post(g, input)
+      expect((await queue.findByJobKey(g, input.jobKey))?.id).toBe(posted.id)
+      expect(await queue.findByJobKey(other, input.jobKey)).toBeNull()
+      expect((await queue.list(g, { limit: 10 })).quests).toHaveLength(1)
+    })
+
     test('a paused Hall has no Quest claimed until it resumes; other Halls still are', async () => {
       const { queue, newGuild, setHallPaused } = await make()
       const g = await newGuild()
