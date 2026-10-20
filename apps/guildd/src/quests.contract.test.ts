@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { defaultConfig } from './guild-config'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
+import { openSession } from './testing/open-session'
 
 const harness = await createHarness({ devGuildHeader: true })
 const strict = await createHarness({ devGuildHeader: false })
@@ -22,10 +23,17 @@ const pageBody = z.object({ quests: z.array(questBody), next: z.string().nullabl
 const base = (g: string) => `/guilds/${g}/quests`
 const headers = (g: string) => ({ 'content-type': 'application/json', 'x-guild-id': g })
 
+/** Writes need a real session; the dev header only reads. */
+const tokens = new Map<string, string>()
+const bearer = (g: string) => ({
+  'content-type': 'application/json',
+  authorization: `Bearer ${tokens.get(g) ?? 'none'}`,
+})
+
 function post(g: string, body: unknown) {
   return harness.request(base(g), {
     method: 'POST',
-    headers: headers(g),
+    headers: bearer(g),
     body: JSON.stringify(body),
   })
 }
@@ -38,6 +46,7 @@ async function page(g: string, query: string, path = base(g)) {
 async function found(name: string) {
   const g = await harness.foundGuild({ name, goal: 'g' })
   await harness.adapters.config.seed(g)
+  tokens.set(g, await openSession(harness.adapters.identity, g))
   return g
 }
 
@@ -91,16 +100,35 @@ describe('quest routes', () => {
     expect((await strict.request(base(g), { headers: { 'x-guild-id': g } })).status).toBe(401)
   })
 
+  test('posting needs a real session: the dev header alone is 401', async () => {
+    const g = await found('Q')
+    const res = await harness.request(base(g), {
+      method: 'POST',
+      headers: headers(g),
+      body: JSON.stringify(brief('x')),
+    })
+    expect(res.status).toBe(401)
+    const ticket = await harness.request(`/guilds/${g}/events/ticket`, {
+      method: 'POST',
+      headers: headers(g),
+    })
+    expect(ticket.status).toBe(401)
+  })
+
+  test('cross-guild: a session cannot post into another guild, same as a missing one', async () => {
+    const a = await found('A')
+    const b = await found('B')
+    const ghost = crypto.randomUUID()
+    tokens.set(b, tokens.get(a) ?? '')
+    tokens.set(ghost, tokens.get(a) ?? '')
+    expect((await post(b, brief('x'))).status).toBe(404)
+    expect((await post(ghost, brief('x'))).status).toBe(404)
+    expect((await harness.adapters.quests.list(b, { limit: 100 })).quests).toEqual([])
+  })
+
   test('cross-guild: a guild cannot post to or read another guild`s Quests', async () => {
     const snapshot = async (g: string) =>
       (await harness.adapters.quests.list(g, { limit: 100 })).quests.map((q) => q.id)
-    await expectGuildIsolation(harness, {
-      build: (caller, target) => [
-        base(target),
-        { method: 'POST', headers: headers(caller), body: JSON.stringify(brief('x')) },
-      ],
-      snapshot,
-    })
     await expectGuildIsolation(harness, {
       build: (caller, target) => [base(target), { headers: headers(caller) }],
       snapshot,
