@@ -238,27 +238,143 @@ ul[aria-label] {
 }
 
 /* Guild Hall (the Phaser canvas): sized by classes only, since the CSP blocks inline styles. */
+.world {
+  position: absolute;
+  inset: 0;
+}
 .game-frame {
-  width: 100%;
-  height: min(70vh, 640px);
-  min-height: 260px;
-  margin-top: 0.75rem;
-  background: #1b1b26;
+  position: absolute;
+  inset: 0;
+  background: var(--px-wood-900);
   overflow: hidden;
   touch-action: none;
 }
-/* On a wide screen the frame has the hall's own proportions, so the hall fills its card. */
-@media (min-width: 641px) {
-  .game-frame {
-    height: auto;
-    aspect-ratio: 8 / 5;
-    max-height: 80vh;
-  }
+.game-frame:focus {
+  outline: none;
 }
-@media (max-width: 640px) {
-  .game-frame {
-    height: 340px;
-  }
+.world-alert {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: fit-content;
+  bottom: calc(var(--px) * 4);
+  margin: 0 auto;
+  padding: calc(var(--px) * 2) calc(var(--px) * 4);
+  background: var(--px-dialog);
+  color: var(--px-dialog-text);
+  border: var(--px-edge) solid var(--px-ink);
+}
+/* The talk prompt floats at the foot of the world, clear of the Bag button on a phone. */
+.world .talk-prompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: fit-content;
+  bottom: calc(var(--px) * 6);
+  margin: 0 auto;
+}
+/* Banners drop in at the top centre, under the HUD. */
+.world .px-itemget {
+  position: absolute;
+  top: calc(var(--px) * 30);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin: 0 auto;
+  z-index: 2;
+}
+
+/* The HUD: a wood bar of plate, day, Treasury Meter, Seals and the Bag button over the world. */
+.hud {
+  position: absolute;
+  top: calc(var(--px) * 3);
+  left: calc(var(--px) * 3);
+  width: min(calc(var(--px) * 200), calc(100% - var(--px) * 6));
+  z-index: 1;
+  pointer-events: none;
+}
+.hud .px-frame {
+  pointer-events: auto;
+}
+.hud-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--px) * 3);
+  padding: calc(var(--px) * 2) calc(var(--px) * 3);
+  color: var(--px-text);
+}
+.hud-plate {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: var(--head-md);
+  font-weight: 400;
+  line-height: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hud .px-meter {
+  flex: 1 1 100%;
+}
+.hud-day {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+}
+.hud-alert {
+  margin: 0;
+  padding: calc(var(--px) * 1) calc(var(--px) * 3);
+  background: var(--px-danger-700);
+  color: var(--px-on-danger);
+}
+
+/* The Bag: a modal dialog holding one frame, over the world dimmed by its backdrop. */
+.bag {
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--px-text);
+  width: min(48rem, calc(100vw - var(--px) * 8));
+  max-height: calc(100dvh - var(--px) * 8);
+  overflow: visible;
+}
+.bag::backdrop {
+  background: var(--px-wood-900);
+  opacity: 0.6;
+}
+.bag-frame {
+  max-height: calc(100dvh - var(--px) * 8);
+}
+.bag-frame .px-frame-in {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - var(--px) * 16);
+  min-height: 0;
+}
+.bag-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--px) * 3);
+  padding: calc(var(--px) * 2) calc(var(--px) * 3);
+}
+.bag-title {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: var(--head-md);
+  font-weight: 400;
+}
+.bag-actions {
+  display: flex;
+  gap: calc(var(--px) * 2);
+}
+.bag-body {
+  overflow: auto;
+  min-height: 0;
+  padding: 0 calc(var(--px) * 3) calc(var(--px) * 3);
 }
 .game-controls {
   display: flex;
@@ -420,76 +536,12 @@ thead th {
   color: var(--neutral-fg);
 }
 
-.count-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 3rem;
-  padding: 0 var(--space-3);
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  font-weight: 700;
-}
-
-.count-badge-neutral {
-  background: var(--neutral-bg);
-  color: var(--neutral-fg);
-}
-
 /* Home dashboard. */
-.tiles {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-4);
-}
-
-.tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
-.tile-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--muted);
-  margin: 0;
-}
-
-.tile p {
-  margin: 0;
-}
-
-.figure {
-  font-size: var(--text-figure);
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.figure-small {
-  font-size: var(--text-lg);
-}
 
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.stat-list {
-  width: 100%;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.stat-list li {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-1) 0;
-  border-bottom: calc(var(--px) * 2) solid var(--border);
 }
 
 /* Quest Board: stacked on a phone, five columns on a wide screen. */
@@ -502,11 +554,12 @@ thead th {
 
 /* App shell: header on top, tab bar at the foot of a phone, a left rail on desktop. */
 .shell {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
-  padding-bottom: calc(var(--touch) + var(--space-4));
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+.shell:focus {
+  outline: none;
 }
 
 .shell-header {
@@ -536,13 +589,6 @@ thead th {
   min-width: 0;
 }
 
-.shell-main {
-  padding: var(--space-4);
-  max-width: 72rem;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 /* A wide table scrolls inside its own container, never the page. */
 .table-scroll {
   max-width: 100%;
@@ -558,85 +604,10 @@ thead th {
   white-space: nowrap;
 }
 
-.shell-main:focus {
-  outline: none;
-}
-
-.shell-nav {
-  position: fixed;
-  inset: auto 0 0 0;
-  z-index: 10;
-  background: var(--surface);
-  border-top: calc(var(--px) * 2) solid var(--border);
-}
-
-.shell-nav ul {
-  display: flex;
-  flex-wrap: wrap;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.shell-nav li {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-}
-
-.shell-nav .nav-extra {
-  display: none;
-}
-
 /* A tab never shrinks to nothing, so with the More menu open the tab bar wraps onto its own row
    under the extra rows instead of squeezing in beside the last one. */
-.shell-nav .nav-tab,
-.shell-nav .nav-more {
-  min-width: var(--touch);
-}
 
 /* The More menu: the views past the fourth open as full-width rows above the tab bar. */
-.shell-nav[data-more="open"] .nav-extra {
-  display: flex;
-  order: -1;
-  flex: 1 1 100%;
-  border-bottom: calc(var(--px) * 2) solid var(--border);
-}
-
-.shell-nav .nav-more button {
-  width: 100%;
-  border: 0;
-  border-top: calc(var(--px) * 2) solid transparent;
-  background: transparent;
-  font-size: var(--text-sm);
-}
-
-.shell-nav .nav-more button[data-active-inside="true"] {
-  border-top-color: var(--accent);
-  color: var(--accent);
-}
-
-.shell-nav a {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  min-height: var(--touch);
-  min-width: var(--touch);
-  padding: 0 var(--space-1);
-  color: var(--text);
-  text-decoration: none;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  border-top: calc(var(--px) * 2) solid transparent;
-}
-
-.shell-nav a[aria-current="page"] {
-  border-top-color: var(--accent);
-  color: var(--accent);
-  font-weight: 700;
-}
 
 .signed-out-main {
   max-width: 36rem;
@@ -659,10 +630,6 @@ thead th {
 }
 
 @media (min-width: 48rem) {
-  .tiles {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .board {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -679,51 +646,7 @@ thead th {
     padding: var(--space-3) var(--space-8);
   }
 
-  .shell-main {
-    padding: var(--space-6) var(--space-8);
-  }
-
   /* The rail spans the full height of the page; its list sticks to the top while the page scrolls. */
-  .shell-nav {
-    position: static;
-    grid-column: 1;
-    grid-row: 1 / -1;
-    align-self: stretch;
-    border-top: 0;
-    border-right: calc(var(--px) * 2) solid var(--border);
-  }
-
-  .shell-nav ul {
-    position: sticky;
-    top: 0;
-    flex-direction: column;
-    flex-wrap: nowrap;
-    padding: var(--space-4) 0;
-  }
-
-  .shell-nav .nav-extra {
-    display: flex;
-  }
-
-  .shell-nav .nav-more {
-    display: none;
-  }
-
-  .shell-main {
-    grid-column: 2;
-  }
-
-  .shell-nav a {
-    justify-content: flex-start;
-    border-top: 0;
-    border-left: calc(var(--px) * 2) solid transparent;
-    padding: 0 var(--space-6);
-  }
-
-  .shell-nav a[aria-current="page"] {
-    border-left-color: var(--accent);
-    background: var(--surface-2);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -922,8 +845,7 @@ ul.evidence-list {
 }
 
 /* Framed plates and cards: hard borders and hard shadows, no soft depth. */
-.badge,
-.count-badge {
+.badge {
   border: calc(var(--px) * 2) solid currentcolor;
   font-family: var(--font-label);
   text-transform: uppercase;
