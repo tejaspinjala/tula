@@ -9,6 +9,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredMember,
   StoredSession,
 } from './identity-store'
 
@@ -26,13 +27,19 @@ const challengeRow = z.object({
   founding_hash: z.string().nullable(),
   expires_at: z.date(),
 })
+const memberRow = z.object({ member_id: z.string(), role: z.literal('guild_master') })
 const sessionRow = z.object({
   session_id: z.string(),
+  member_id: z.string(),
   token_hash: z.string(),
   expires_at: z.date(),
   reauth_hash: z.string().nullable(),
   reauth_expires_at: z.date().nullable(),
 })
+
+function toMember(row: z.infer<typeof memberRow>): StoredMember {
+  return { memberId: row.member_id, role: row.role }
+}
 
 /** Postgres {@link IdentityStore}: every call runs in `Db.withGuild`, so RLS scopes it to one guild. */
 export class PgIdentityStore implements IdentityStore {
@@ -186,17 +193,40 @@ export class PgIdentityStore implements IdentityStore {
 
   async saveSession(guildId: string, s: StoredSession, event: IdentityEvent): Promise<void> {
     await this.db.withGuild(guildId, async (tx) => {
-      await tx`insert into identity_sessions (guild_id, session_id, token_hash, expires_at)
-           values (${guildId}, ${s.id}, ${s.tokenHash}, ${s.expiresAt})`
+      await tx`insert into identity_sessions (guild_id, session_id, member_id, token_hash, expires_at)
+           values (${guildId}, ${s.id}, ${s.memberId}, ${s.tokenHash}, ${s.expiresAt})`
       await this.append(tx, event)
     })
+  }
+
+  async guildMaster(guildId: string): Promise<StoredMember> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) =>
+        tx`select member_id, role from guild_members
+           where guild_id = ${guildId} and role = 'guild_master'`
+    )
+    if (!rows[0]) {
+      throw new Error('guild has no Guild Master')
+    }
+    return toMember(memberRow.parse(rows[0]))
+  }
+
+  async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) =>
+        tx`select member_id, role from guild_members
+           where guild_id = ${guildId} and member_id = ${memberId}`
+    )
+    return rows[0] ? toMember(memberRow.parse(rows[0])) : null
   }
 
   async findSession(guildId: string, tokenHash: string): Promise<StoredSession | null> {
     const rows = await this.db.withGuild(
       guildId,
       (tx) =>
-        tx`select session_id, token_hash, expires_at, reauth_hash, reauth_expires_at
+        tx`select session_id, member_id, token_hash, expires_at, reauth_hash, reauth_expires_at
            from identity_sessions where guild_id = ${guildId} and token_hash = ${tokenHash}`
     )
     if (!rows[0]) {
@@ -205,6 +235,7 @@ export class PgIdentityStore implements IdentityStore {
     const row = sessionRow.parse(rows[0])
     return {
       id: row.session_id,
+      memberId: row.member_id,
       tokenHash: row.token_hash,
       expiresAt: row.expires_at,
       reauthHash: row.reauth_hash,

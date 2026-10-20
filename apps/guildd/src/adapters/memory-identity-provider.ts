@@ -5,6 +5,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredMember,
   StoredSession,
 } from './identity-store'
 import { type WebAuthnIdentityConfig, WebAuthnIdentityProvider } from './webauthn-identity-provider'
@@ -16,6 +17,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly events = new Map<string, IdentityEvent[]>()
+  private readonly masters = new Map<string, StoredMember>()
 
   /** The audit events appended for the guild so far, in order. */
   eventsOf(guildId: string): IdentityEvent[] {
@@ -124,6 +126,21 @@ export class MemoryIdentityStore implements IdentityStore {
     const challenge = this.challenges.get(key) ?? null
     this.challenges.delete(key)
     return challenge
+  }
+
+  async guildMaster(guildId: string): Promise<StoredMember> {
+    const known = this.masters.get(guildId)
+    if (known) {
+      return known
+    }
+    const minted: StoredMember = { memberId: crypto.randomUUID(), role: 'guild_master' }
+    this.masters.set(guildId, minted)
+    return minted
+  }
+
+  async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
+    const master = this.masters.get(guildId)
+    return master?.memberId === memberId ? master : null
   }
 
   async saveSession(guildId: string, session: StoredSession, event: IdentityEvent) {
