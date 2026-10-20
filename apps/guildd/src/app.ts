@@ -46,7 +46,7 @@ import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
-import type { Treasury } from './treasury'
+import { isGuildMaster, type Treasury } from './treasury'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -1431,6 +1431,25 @@ export function createApp(deps: AppDeps): Hono {
     invalid_amount: 422,
     evidence_required: 422,
     exceeds_reserved: 422,
+    idempotency_conflict: 409,
+  }
+
+  /** A session whose principal is the Guild Master and whose guild is `:id`, else a ready response. */
+  async function treasuryWriter(
+    c: Context
+  ): Promise<{ guild: string; memberId: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return { res: c.json({ error: 'not_found' }, 404) }
+    }
+    if (!isGuildMaster(session)) {
+      return { res: c.json({ error: 'forbidden' }, 403) }
+    }
+    return { guild: session.guildId, memberId: session.memberId }
   }
 
   async function treasuryRoute(c: Context, run: () => Promise<Response>): Promise<Response> {
@@ -1485,7 +1504,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/treasury/revenue', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await treasuryWriter(c)
     if ('res' in who) {
       return who.res
     }
@@ -1494,7 +1513,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return treasuryRoute(c, async () => {
-      const result = await deps.treasury.recordRevenue(who.guild, body.data)
+      const result = await deps.treasury.recordRevenue(who.guild, {
+        ...body.data,
+        actorMember: who.memberId,
+      })
       return result.ok
         ? c.json({ entries: result.entries }, result.created ? 201 : 200)
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
@@ -1502,7 +1524,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/treasury/spends', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await treasuryWriter(c)
     if ('res' in who) {
       return who.res
     }
@@ -1511,7 +1533,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return treasuryRoute(c, async () => {
-      const result = await deps.treasury.requestSpend(who.guild, body.data)
+      const result = await deps.treasury.requestSpend(who.guild, {
+        ...body.data,
+        requestedBy: who.memberId,
+      })
       return result.ok
         ? c.json(result.spend, result.created ? 201 : 200)
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
@@ -1523,11 +1548,18 @@ export function createApp(deps: AppDeps): Hono {
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
     const id = uuid.safeParse(c.req.param('spendId'))
     if (c.req.param('id') !== check.guildId || !id.success) {
       return c.json({ error: 'not_found' }, 404)
     }
-    const result = await deps.treasury.approveSpend(check.guildId, id.data)
+    const result = await deps.treasury.approveSpend(
+      check.guildId,
+      id.data,
+      check.principal.memberId
+    )
     return result.ok
       ? c.json(result.spend)
       : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
@@ -1535,7 +1567,7 @@ export function createApp(deps: AppDeps): Hono {
 
   for (const verb of ['deny', 'release'] as const) {
     app.post(`/guilds/:id/treasury/spends/:spendId/${verb}`, async (c) => {
-      const who = await sessionGuildFor(c)
+      const who = await treasuryWriter(c)
       if ('res' in who) {
         return who.res
       }
@@ -1545,8 +1577,8 @@ export function createApp(deps: AppDeps): Hono {
       }
       const result =
         verb === 'deny'
-          ? await deps.treasury.denySpend(who.guild, id.data)
-          : await deps.treasury.releaseSpend(who.guild, id.data)
+          ? await deps.treasury.denySpend(who.guild, id.data, who.memberId)
+          : await deps.treasury.releaseSpend(who.guild, id.data, who.memberId)
       return result.ok
         ? c.json(result.spend)
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
@@ -1554,7 +1586,7 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   app.post('/guilds/:id/treasury/spends/:spendId/settle', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await treasuryWriter(c)
     if ('res' in who) {
       return who.res
     }
@@ -1566,7 +1598,12 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    const result = await deps.treasury.settleSpend(who.guild, id.data, body.data.actualCents)
+    const result = await deps.treasury.settleSpend(
+      who.guild,
+      id.data,
+      body.data.actualCents,
+      who.memberId
+    )
     return result.ok
       ? c.json(result.spend)
       : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
@@ -1578,6 +1615,9 @@ export function createApp(deps: AppDeps): Hono {
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
     if (c.req.param('id') !== check.guildId) {
       return c.json({ error: 'not_found' }, 404)
     }
@@ -1586,7 +1626,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_request' }, 400)
     }
     return treasuryRoute(c, async () => {
-      const result = await deps.treasury.releaseReserve(check.guildId, body.data)
+      const result = await deps.treasury.releaseReserve(check.guildId, {
+        ...body.data,
+        actorMember: check.principal.memberId,
+      })
       return result.ok
         ? c.json({ entries: result.entries }, result.created ? 201 : 200)
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])

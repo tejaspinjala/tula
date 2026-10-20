@@ -41,6 +41,8 @@ export interface LedgerEntry {
   spendId: string | null
   /** The caller's idempotency key (`seed`, `revenue:<key>`, `reserve:<key>`), or null. */
   idemKey: string | null
+  /** The member (principal) whose action posted the entry; null for the founding seed. */
+  actorMember: string | null
   /** The evidence a revenue entry rests on; null for every other kind. */
   evidence: string | null
   /** The UTC day the entry belongs to (`YYYY-MM-DD`). */
@@ -79,6 +81,8 @@ export interface Spend {
   /** Set while `pending_approval`: which rule sent the request to the Guild Master. */
   escalation: SpendEscalation | null
   approvedBy: 'treasurer' | 'guild_master' | null
+  /** The member (principal) who approved it as Guild Master; null unless approved that way. */
+  approvedByMember: string | null
   createdAt: string
 }
 
@@ -93,6 +97,8 @@ export interface NewSpend {
 
 /** Revenue to record; `evidence` is required. */
 export interface NewRevenue {
+  /** The acting member (the session principal). */
+  actorMember: string
   key: string
   amountCents: number
   evidence: string
@@ -115,6 +121,7 @@ export type TreasuryRefusal =
   | 'not_found'
   | 'wrong_state'
   | 'exceeds_reserved'
+  | 'idempotency_conflict'
 
 /** Result of an operation that changes one spend request. */
 export type SpendResult =
@@ -152,7 +159,7 @@ export interface TreasuryStore {
   /** Guild Master only: moves cents from the reserve to the operating envelope. */
   releaseReserve(
     guildId: string,
-    input: { key: string; amountCents: number },
+    input: { key: string; amountCents: number; actorMember: string },
     limits: TreasuryLimits
   ): Promise<EntriesResult>
   /**
@@ -161,13 +168,18 @@ export interface TreasuryStore {
    */
   requestSpend(guildId: string, input: NewSpend, limits: TreasuryLimits): Promise<SpendResult>
   /** Guild Master only: approves a request that was waiting, reserving its cents if still funded. */
-  approveSpend(guildId: string, spendId: string): Promise<SpendResult>
+  approveSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult>
   /** Denies a request that was waiting. */
-  denySpend(guildId: string, spendId: string): Promise<SpendResult>
+  denySpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult>
   /** Settles a reserved spend at what was actually spent (at most the reservation). */
-  settleSpend(guildId: string, spendId: string, actualCents: number): Promise<SpendResult>
+  settleSpend(
+    guildId: string,
+    spendId: string,
+    actualCents: number,
+    actorMember: string
+  ): Promise<SpendResult>
   /** Releases a reserved spend: nothing was spent. */
-  releaseSpend(guildId: string, spendId: string): Promise<SpendResult>
+  releaseSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult>
   /** One spend request, or null. */
   getSpend(guildId: string, spendId: string): Promise<Spend | null>
   /** Spend requests, oldest first, after the `after` cursor. */

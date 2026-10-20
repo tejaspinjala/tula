@@ -10,7 +10,11 @@ import type {
   TreasuryPage,
   TreasuryStore,
 } from './ports/treasury-store'
-import { GUILD_MASTER_ID } from './seals'
+
+/** Whether a session principal may act on the Treasury: only the Guild Master, the one human role. */
+export function isGuildMaster(principal: { role: string }): boolean {
+  return principal.role === 'guild_master'
+}
 
 /** The Treasury at a glance, with the envelope limits in force. */
 export interface TreasuryOverview {
@@ -55,7 +59,7 @@ export class Treasury {
   /** Guild Master only (the route demands re-authentication): reserve to operating. */
   async releaseReserve(
     guildId: string,
-    input: { key: string; amountCents: number }
+    input: { key: string; amountCents: number; actorMember: string }
   ): Promise<EntriesResult> {
     return this.store.releaseReserve(guildId, input, await this.limits(guildId))
   }
@@ -63,33 +67,34 @@ export class Treasury {
   /** Checks a spend against the envelope; the Treasurer reserves it or it waits for the Guild Master. */
   async requestSpend(
     guildId: string,
-    input: { key: string; amountCents: number; purpose: string }
+    input: { key: string; amountCents: number; purpose: string; requestedBy: string }
   ): Promise<SpendResult> {
-    return this.store.requestSpend(
-      guildId,
-      { ...input, requestedBy: GUILD_MASTER_ID },
-      await this.limits(guildId)
-    )
+    return this.store.requestSpend(guildId, input, await this.limits(guildId))
   }
 
   /** Guild Master only (the route demands re-authentication). */
-  approveSpend(guildId: string, spendId: string): Promise<SpendResult> {
-    return this.store.approveSpend(guildId, spendId)
+  approveSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
+    return this.store.approveSpend(guildId, spendId, actorMember)
   }
 
   /** Denies a waiting spend. */
-  denySpend(guildId: string, spendId: string): Promise<SpendResult> {
-    return this.store.denySpend(guildId, spendId)
+  denySpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
+    return this.store.denySpend(guildId, spendId, actorMember)
   }
 
   /** Settles a reservation at the amount actually spent. */
-  settleSpend(guildId: string, spendId: string, actualCents: number): Promise<SpendResult> {
-    return this.store.settleSpend(guildId, spendId, actualCents)
+  settleSpend(
+    guildId: string,
+    spendId: string,
+    actualCents: number,
+    actorMember: string
+  ): Promise<SpendResult> {
+    return this.store.settleSpend(guildId, spendId, actualCents, actorMember)
   }
 
   /** Releases a reservation: nothing was spent. */
-  releaseSpend(guildId: string, spendId: string): Promise<SpendResult> {
-    return this.store.releaseSpend(guildId, spendId)
+  releaseSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult> {
+    return this.store.releaseSpend(guildId, spendId, actorMember)
   }
 
   /** Spend requests, oldest first. */

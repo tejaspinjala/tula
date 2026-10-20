@@ -47,7 +47,7 @@ test('Treasury events carry ids and amounts only, never evidence or purpose text
   const s = store()
   await s.recordRevenue(
     g,
-    { key: 'r', amountCents: 1000, evidence: 'SECRET-EVIDENCE invoice' },
+    { actorMember: 'member-1', key: 'r', amountCents: 1000, evidence: 'SECRET-EVIDENCE invoice' },
     DEFAULT_TREASURY
   )
   await s.requestSpend(

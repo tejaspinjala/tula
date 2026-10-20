@@ -31,6 +31,7 @@ const entryRow = z.object({
   evidence: z.string().nullable(),
   day: z.string(),
   created_at: iso,
+  actor_member: z.string().nullable(),
   prev_hash: z.string(),
   hash: z.string(),
 })
@@ -46,13 +47,14 @@ const spendRow = z.object({
   status: z.enum(SPEND_STATUSES),
   escalation: z.enum(['over_treasurer_limit', 'daily_cap']).nullable(),
   approved_by: z.enum(['treasurer', 'guild_master']).nullable(),
+  approved_by_member: z.string().nullable(),
   created_at: iso,
 })
 
 const sumRow = z.object({ bucket: z.enum(BUCKETS), total: z.coerce.number() })
 
 const ENTRY_COLUMNS = `seq, entry_id, kind, bucket, amount_cents, mode, spend_id, idem_key,
-  evidence, day::text as day, created_at, prev_hash, hash`
+  evidence, actor_member, day::text as day, created_at, prev_hash, hash`
 
 function toEntry(raw: unknown): LedgerEntry {
   const r = entryRow.parse(raw)
@@ -66,6 +68,7 @@ function toEntry(raw: unknown): LedgerEntry {
     spendId: r.spend_id,
     idemKey: r.idem_key,
     evidence: r.evidence,
+    actorMember: r.actor_member,
     day: r.day,
     createdAt: r.created_at,
     prevHash: r.prev_hash,
@@ -86,6 +89,7 @@ function toSpend(raw: unknown): Spend {
     status: r.status,
     escalation: r.escalation,
     approvedBy: r.approved_by,
+    approvedByMember: r.approved_by_member,
     createdAt: r.created_at,
   }
 }
@@ -165,9 +169,9 @@ export class PgTreasuryStore extends TreasuryCore implements TreasuryStore {
         await tx`
           insert into treasury_ledger
             (guild_id, seq, entry_id, kind, bucket, amount_cents, mode, spend_id, idem_key,
-             evidence, day, created_at, prev_hash, hash)
+             evidence, actor_member, day, created_at, prev_hash, hash)
           values (${guildId}, ${e.seq}, ${e.id}, ${e.kind}, ${e.bucket}, ${e.amountCents},
-                  ${e.mode}, ${e.spendId}, ${e.idemKey}, ${e.evidence}, ${e.day}::date,
+                  ${e.mode}, ${e.spendId}, ${e.idemKey}, ${e.evidence}, ${e.actorMember}, ${e.day}::date,
                   ${e.createdAt}, ${e.prevHash}, ${e.hash})`
       },
       entriesAfter: async (after, limit) =>
@@ -201,16 +205,17 @@ export class PgTreasuryStore extends TreasuryCore implements TreasuryStore {
         const [row] = await tx`
           insert into treasury_spends
             (guild_id, spend_id, client_key, amount_cents, settled_cents, purpose, requested_by,
-             status, escalation, approved_by, created_at)
+             status, escalation, approved_by, approved_by_member, created_at)
           values (${guildId}, ${s.id}, ${s.key}, ${s.amountCents}, ${s.settledCents}, ${s.purpose},
-                  ${s.requestedBy}, ${s.status}, ${s.escalation}, ${s.approvedBy}, ${s.createdAt})
+                  ${s.requestedBy}, ${s.status}, ${s.escalation}, ${s.approvedBy}, ${s.approvedByMember}, ${s.createdAt})
           returning *`
         return toSpend(row)
       },
       updateSpend: async (s) => {
         await tx`
           update treasury_spends set status = ${s.status}, settled_cents = ${s.settledCents},
-            escalation = ${s.escalation}, approved_by = ${s.approvedBy}
+            escalation = ${s.escalation}, approved_by = ${s.approvedBy},
+            approved_by_member = ${s.approvedByMember}
           where guild_id = ${guildId} and spend_id = ${s.id}`
       },
       emit: async (type, payload) => {

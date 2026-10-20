@@ -13,6 +13,7 @@ export interface TreasuryStoreFixture {
 }
 
 const LIMITS = DEFAULT_TREASURY
+const ACTOR = 'member-1'
 
 /** The TreasuryStore contract, run against every adapter. `make` returns a fresh store. */
 export function treasuryStoreContract(name: string, make: () => Promise<TreasuryStoreFixture>) {
@@ -33,7 +34,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       const g = await newGuild()
       const result = await store.recordRevenue(
         g,
-        { key: 'inv-1', amountCents: 1001, evidence: 'invoice #1' },
+        { actorMember: ACTOR, key: 'inv-1', amountCents: 1001, evidence: 'invoice #1' },
         LIMITS
       )
       expect(result.ok).toBe(true)
@@ -47,7 +48,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       for (const evidence of ['', '   ']) {
         const result = await store.recordRevenue(
           g,
-          { key: `k-${evidence.length}`, amountCents: 500, evidence },
+          { actorMember: ACTOR, key: `k-${evidence.length}`, amountCents: 500, evidence },
           LIMITS
         )
         expect(result).toEqual({ ok: false, reason: 'evidence_required' })
@@ -62,7 +63,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
     test('a retried revenue key records once', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const input = { key: 'inv-1', amountCents: 1000, evidence: 'invoice #1' }
+      const input = { actorMember: ACTOR, key: 'inv-1', amountCents: 1000, evidence: 'invoice #1' }
       const first = await store.recordRevenue(g, input, LIMITS)
       const again = await store.recordRevenue(g, input, LIMITS)
       expect(first).toMatchObject({ ok: true, created: true })
@@ -75,7 +76,11 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       const g = await newGuild()
       for (const amountCents of [0, -5, 1.5]) {
         expect(
-          await store.recordRevenue(g, { key: 'k', amountCents, evidence: 'e' }, LIMITS)
+          await store.recordRevenue(
+            g,
+            { actorMember: ACTOR, key: 'k', amountCents, evidence: 'e' },
+            LIMITS
+          )
         ).toEqual({ ok: false, reason: 'invalid_amount' })
       }
     })
@@ -182,7 +187,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         await request(store, g, 'b', 500)
         const waiting = await request(store, g, 'c', 800)
         expect(waiting.status).toBe('pending_approval')
-        const approved = await store.approveSpend(g, waiting.id)
+        const approved = await store.approveSpend(g, waiting.id, ACTOR)
         expect(approved).toMatchObject({
           ok: true,
           spend: { status: 'reserved', approvedBy: 'guild_master' },
@@ -198,7 +203,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         const waiting = await request(store, g, 'w', 600)
         const loose = { ...LIMITS, treasurerLimitCents: 100_000, dailyCapCents: 100_000 }
         await store.requestSpend(g, spend('drain', 6800), loose)
-        expect(await store.approveSpend(g, waiting.id)).toEqual({
+        expect(await store.approveSpend(g, waiting.id, ACTOR)).toEqual({
           ok: false,
           reason: 'insufficient_funds',
         })
@@ -210,19 +215,19 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         const g = await newGuild()
         const reserved = await request(store, g, 'r', 100)
         const waiting = await request(store, g, 'w', 900)
-        expect(await store.approveSpend(g, reserved.id)).toEqual({
+        expect(await store.approveSpend(g, reserved.id, ACTOR)).toEqual({
           ok: false,
           reason: 'wrong_state',
         })
-        expect(await store.denySpend(g, waiting.id)).toMatchObject({
+        expect(await store.denySpend(g, waiting.id, ACTOR)).toMatchObject({
           ok: true,
           spend: { status: 'denied' },
         })
-        expect(await store.approveSpend(g, waiting.id)).toEqual({
+        expect(await store.approveSpend(g, waiting.id, ACTOR)).toEqual({
           ok: false,
           reason: 'wrong_state',
         })
-        expect(await store.approveSpend(g, crypto.randomUUID())).toEqual({
+        expect(await store.approveSpend(g, crypto.randomUUID(), ACTOR)).toEqual({
           ok: false,
           reason: 'not_found',
         })
@@ -233,13 +238,13 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         const { store, newGuild } = await make()
         const g = await newGuild()
         const reserved = await request(store, g, 'r', 500)
-        const settled = await store.settleSpend(g, reserved.id, 320)
+        const settled = await store.settleSpend(g, reserved.id, 320, ACTOR)
         expect(settled).toMatchObject({ ok: true, spend: { status: 'settled', settledCents: 320 } })
         const snap = await store.snapshot(g, LIMITS)
         expect(snap.balances.operating).toBe(6680)
         expect(snap.spentTodayCents).toBe(320)
-        expect(await store.settleSpend(g, reserved.id, 320)).toMatchObject({ ok: true })
-        expect(await store.settleSpend(g, reserved.id, 100)).toEqual({
+        expect(await store.settleSpend(g, reserved.id, 320, ACTOR)).toMatchObject({ ok: true })
+        expect(await store.settleSpend(g, reserved.id, 100, ACTOR)).toEqual({
           ok: false,
           reason: 'wrong_state',
         })
@@ -251,15 +256,15 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         const g = await newGuild()
         const reserved = await request(store, g, 'r', 500)
         const waiting = await request(store, g, 'w', 900)
-        expect(await store.settleSpend(g, reserved.id, 501)).toEqual({
+        expect(await store.settleSpend(g, reserved.id, 501, ACTOR)).toEqual({
           ok: false,
           reason: 'exceeds_reserved',
         })
-        expect(await store.settleSpend(g, waiting.id, 100)).toEqual({
+        expect(await store.settleSpend(g, waiting.id, 100, ACTOR)).toEqual({
           ok: false,
           reason: 'wrong_state',
         })
-        expect(await store.settleSpend(g, reserved.id, -1)).toEqual({
+        expect(await store.settleSpend(g, reserved.id, -1, ACTOR)).toEqual({
           ok: false,
           reason: 'invalid_amount',
         })
@@ -269,17 +274,20 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         const { store, newGuild } = await make()
         const g = await newGuild()
         const reserved = await request(store, g, 'r', 500)
-        expect(await store.releaseSpend(g, reserved.id)).toMatchObject({
+        expect(await store.releaseSpend(g, reserved.id, ACTOR)).toMatchObject({
           ok: true,
           spend: { status: 'released' },
         })
-        expect(await store.releaseSpend(g, reserved.id)).toMatchObject({ ok: true })
+        expect(await store.releaseSpend(g, reserved.id, ACTOR)).toMatchObject({ ok: true })
         const snap = await store.snapshot(g, LIMITS)
         expect(snap).toMatchObject({ spentTodayCents: 0 })
         expect(snap.balances.operating).toBe(7000)
         const other = await request(store, g, 's', 100)
-        await store.settleSpend(g, other.id, 100)
-        expect(await store.releaseSpend(g, other.id)).toEqual({ ok: false, reason: 'wrong_state' })
+        await store.settleSpend(g, other.id, 100, ACTOR)
+        expect(await store.releaseSpend(g, other.id, ACTOR)).toEqual({
+          ok: false,
+          reason: 'wrong_state',
+        })
       })
     })
 
@@ -287,7 +295,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       test('the reserve moves to operating only by an explicit release, once per key', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
-        const input = { key: 'r1', amountCents: 1000 }
+        const input = { actorMember: ACTOR, key: 'r1', amountCents: 1000 }
         expect(await store.releaseReserve(g, input, LIMITS)).toMatchObject({
           ok: true,
           created: true,
@@ -306,11 +314,15 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       test('a release above the reserve, or of a non-positive amount, is refused', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
-        expect(await store.releaseReserve(g, { key: 'a', amountCents: 3001 }, LIMITS)).toEqual({
+        expect(
+          await store.releaseReserve(g, { actorMember: ACTOR, key: 'a', amountCents: 3001 }, LIMITS)
+        ).toEqual({
           ok: false,
           reason: 'insufficient_funds',
         })
-        expect(await store.releaseReserve(g, { key: 'b', amountCents: 0 }, LIMITS)).toEqual({
+        expect(
+          await store.releaseReserve(g, { actorMember: ACTOR, key: 'b', amountCents: 0 }, LIMITS)
+        ).toEqual({
           ok: false,
           reason: 'invalid_amount',
         })
@@ -332,7 +344,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
           if (!r.ok) {
             throw new Error('refused')
           }
-          await store.releaseSpend(g, r.spend.id)
+          await store.releaseSpend(g, r.spend.id, ACTOR)
         }
         expect((await store.snapshot(g, LIMITS)).spentTodayCents).toBe(0)
         const results = []
@@ -392,8 +404,8 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
           throw new Error('refused')
         }
         const [a, b] = await Promise.all([
-          store.settleSpend(g, r.spend.id, 100),
-          store.releaseSpend(g, r.spend.id),
+          store.settleSpend(g, r.spend.id, 100, ACTOR),
+          store.releaseSpend(g, r.spend.id, ACTOR),
         ])
         expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
         const operating = (await store.snapshot(g, LIMITS)).balances.operating
@@ -405,7 +417,11 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       test('the hash chain verifies, and altering any entry breaks it at that entry', async () => {
         const { store, newGuild, tamper } = await make()
         const g = await newGuild()
-        await store.recordRevenue(g, { key: 'r', amountCents: 1000, evidence: 'inv' }, LIMITS)
+        await store.recordRevenue(
+          g,
+          { actorMember: ACTOR, key: 'r', amountCents: 1000, evidence: 'inv' },
+          LIMITS
+        )
         await store.requestSpend(
           g,
           { key: 's', amountCents: 100, purpose: 'p', requestedBy: 't' },
@@ -420,7 +436,11 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       test('entries are listed oldest first in pages, each carrying its chain hash', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
-        await store.recordRevenue(g, { key: 'r', amountCents: 1000, evidence: 'inv' }, LIMITS)
+        await store.recordRevenue(
+          g,
+          { actorMember: ACTOR, key: 'r', amountCents: 1000, evidence: 'inv' },
+          LIMITS
+        )
         const seen: number[] = []
         let after: number | undefined
         for (let pages = 0; pages < 10; pages++) {
@@ -472,7 +492,7 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
         }
         await store.snapshot(b, LIMITS)
         expect(await store.getSpend(b, r.spend.id)).toBeNull()
-        expect(await store.settleSpend(b, r.spend.id, 1)).toEqual({
+        expect(await store.settleSpend(b, r.spend.id, 1, ACTOR)).toEqual({
           ok: false,
           reason: 'not_found',
         })
