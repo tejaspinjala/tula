@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import postgres from 'postgres'
-import { TEST_APP_PASSWORD, testDbUrl } from '../testing/test-db'
+import { TEST_APP_PASSWORD, testDbUrl, withClusterDdlLock } from '../testing/test-db'
 
 async function runCli(env: Record<string, string>) {
   const proc = Bun.spawn(['bun', new URL('./migrate-cli.ts', import.meta.url).pathname], {
@@ -12,15 +12,18 @@ async function runCli(env: Record<string, string>) {
   return { code, err: await new Response(proc.stderr).text() }
 }
 
+/** Runs the CLI under the cluster DDL lock: it sets the cluster-wide app role password. */
+const runCliLocked = (env: Record<string, string>) => withClusterDdlLock(() => runCli(env))
+
 describe('db:migrate entry', () => {
   test('fails with a clear message when APP_DB_PASSWORD is missing', async () => {
-    const { code, err } = await runCli({ DATABASE_URL: testDbUrl() })
+    const { code, err } = await runCliLocked({ DATABASE_URL: testDbUrl() })
     expect(code).not.toBe(0)
     expect(err).toContain('APP_DB_PASSWORD')
   })
 
   test('needs only DATABASE_URL and APP_DB_PASSWORD, and the app role can then log in', async () => {
-    const { code, err } = await runCli({
+    const { code, err } = await runCliLocked({
       DATABASE_URL: testDbUrl(),
       APP_DB_PASSWORD: TEST_APP_PASSWORD,
     })
