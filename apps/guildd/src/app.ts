@@ -895,7 +895,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   async function barRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
-    const who = scope === 'guild' ? await guildMasterSessionFor(c) : await anyGuildMasterSession(c)
+    const who = scope === 'guild' ? await guildMasterSessionFor(c) : await operatorSession(c)
     if ('res' in who) {
       return who.res
     }
@@ -911,6 +911,9 @@ export function createApp(deps: AppDeps): Hono {
     if (!isGuildMaster(check.principal)) {
       return c.json({ error: 'forbidden' }, 403)
     }
+    if (scope === 'global' && !deps.platformOperators.includes(check.principal.memberId)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
     if (scope === 'guild' && c.req.param('id') !== check.guildId) {
       return c.json({ error: 'not_found' }, 404)
     }
@@ -921,8 +924,8 @@ export function createApp(deps: AppDeps): Hono {
     return lifted ? c.json({ scope, barred: false }) : c.json({ error: 'not_barred' }, 404)
   }
 
-  /** A session whose principal is a Guild Master, whatever `:id` says; for the global bar. */
-  async function anyGuildMasterSession(
+  /** A session whose principal is a Guild Master and a platform operator (env `PLATFORM_OPERATORS`); for the global bar. */
+  async function operatorSession(
     c: Context
   ): Promise<{ guild: string; member: string } | { res: Response }> {
     const token = bearerToken(c.req.header('authorization'))
@@ -930,7 +933,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!session) {
       return { res: c.json({ error: 'unauthenticated' }, 401) }
     }
-    return isGuildMaster(session)
+    return isGuildMaster(session) && deps.platformOperators.includes(session.memberId)
       ? { guild: session.guildId, member: session.memberId }
       : { res: c.json({ error: 'forbidden' }, 403) }
   }
