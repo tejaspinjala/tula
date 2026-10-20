@@ -13,6 +13,7 @@ import {
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
+  parkTransition,
   pickClaimable,
   type Quest,
   QuestError,
@@ -126,6 +127,8 @@ export class MemoryQuestQueue implements QuestQueue {
       round: 0,
       roundLimit: parsed.roundLimit,
       blockedBy: parsed.blockedBy,
+      waitingOn: [],
+      waitMode: 'all',
       attempts: 0,
       maxAttempts: parsed.maxAttempts,
       leaseExpiresAt: null,
@@ -235,13 +238,17 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   async park(
-    _guildId: string,
-    _id: string,
-    _attempt: number,
-    _waitingOn: readonly string[],
-    _mode: WaitMode
+    guildId: string,
+    id: string,
+    attempt: number,
+    waitingOn: readonly string[],
+    mode: WaitMode
   ): Promise<Quest> {
-    throw new QuestError('invalid_state')
+    const quest = this.mustFind(guildId, id)
+    if (waitingOn.some((w) => !this.guild(guildId).byId.has(w))) {
+      throw new QuestError('unknown_blocker')
+    }
+    return this.apply(guildId, parkTransition(quest, attempt, waitingOn, mode, this.clock.now()))
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

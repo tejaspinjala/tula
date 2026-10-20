@@ -600,7 +600,7 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         return claimed
       }
 
-      test('parking gives the slot back, fenced by attempt and idempotent; the parent waits for every child (all)', async () => {
+      test('parking gives the slot back and is idempotent; the parent waits for every child (all)', async () => {
         const f = await setup('all')
         expect(f.parked).toMatchObject({
           state: 'queued',
@@ -608,9 +608,6 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
           waitingOn: [f.c1.id, f.c2.id],
           waitMode: 'all',
         })
-        await expect(
-          f.queue.park(f.g, f.parent.id, 99, [f.c1.id], 'all')
-        ).rejects.toMatchObject({ code: 'stale_lease' })
         expect(
           await f.queue.park(f.g, f.parent.id, f.held.attempts, [f.c1.id, f.c2.id], 'all')
         ).toEqual(f.parked)
@@ -634,16 +631,19 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
       })
 
-      test('a dead child counts as finished, so the parent resumes to see it; a parent must be leased to park', async () => {
+      test('a dead child counts as finished, so the parent resumes to see it; parking is fenced by attempt and needs a lease', async () => {
         const f = await setup('all')
         const first = await run(f, f.c1.id)
         await f.queue.kill(f.g, first.id, first.attempts, 'timeout')
         const second = await run(f, f.c2.id)
         await f.queue.kill(f.g, second.id, second.attempts, 'timeout')
         expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
-        await expect(
-          f.queue.park(f.g, f.c1.id, 1, [f.c2.id], 'all')
-        ).rejects.toMatchObject({ code: 'invalid_state' })
+        await expect(f.queue.park(f.g, f.parent.id, 1, [f.c1.id], 'all')).rejects.toMatchObject({
+          code: 'stale_lease',
+        })
+        await expect(f.queue.park(f.g, f.c1.id, 1, [f.c2.id], 'all')).rejects.toMatchObject({
+          code: 'invalid_state',
+        })
         await expect(
           f.queue.park(f.g, f.parent.id, 2, [crypto.randomUUID()], 'all')
         ).rejects.toMatchObject({ code: 'unknown_blocker' })

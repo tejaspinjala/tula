@@ -18,6 +18,7 @@ import {
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
+  parkTransition,
   type Quest,
   QuestError,
   type QuestPage,
@@ -54,6 +55,8 @@ const questRow = z.object({
   round: z.number(),
   round_limit: z.number(),
   blocked_by: z.array(z.string()),
+  wait_on: z.array(z.string()),
+  wait_mode: z.enum(['all', 'any']),
   attempts: z.number(),
   max_attempts: z.number(),
   lease_expires_at: iso.nullable(),
@@ -81,6 +84,8 @@ export function toQuest(raw: unknown): Quest {
     round: r.round,
     roundLimit: r.round_limit,
     blockedBy: r.blocked_by,
+    waitingOn: r.wait_on,
+    waitMode: r.wait_mode,
     attempts: r.attempts,
     maxAttempts: r.max_attempts,
     leaseExpiresAt: r.lease_expires_at,
@@ -137,7 +142,8 @@ export class PgQuestQueue implements QuestQueue {
     await tx`
       update quests set state = ${q.state}, round = ${q.round}, attempts = ${q.attempts},
         lease_expires_at = ${q.leaseExpiresAt === null ? null : new Date(q.leaseExpiresAt)},
-        not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError}
+        not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError},
+        wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
   }
@@ -242,6 +248,15 @@ export class PgQuestQueue implements QuestQueue {
             select 1 from hall_pauses hp
             where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
           and (${only}::uuid is null or q.quest_id = ${only}::uuid)
+          and (cardinality(q.wait_on) = 0
+            or not exists (
+              select 1 from quests w
+              where w.guild_id = q.guild_id and w.quest_id = any (q.wait_on)
+                and w.state not in ('done', 'dead'))
+            or (q.wait_mode = 'any' and exists (
+              select 1 from quests w
+              where w.guild_id = q.guild_id and w.quest_id = any (q.wait_on)
+                and w.state = 'done')))
           and (
             select count(*) from quests b
             where b.guild_id = q.guild_id and b.quest_id = any (q.blocked_by) and b.state = 'done'
@@ -315,13 +330,24 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   async park(
-    _guildId: string,
-    _id: string,
-    _attempt: number,
-    _waitingOn: readonly string[],
-    _mode: WaitMode
+    guildId: string,
+    id: string,
+    attempt: number,
+    waitingOn: readonly string[],
+    mode: WaitMode
   ): Promise<Quest> {
-    throw new QuestError('invalid_state')
+    const ids = [...new Set(waitingOn)]
+    return this.db.withGuild(guildId, async (tx) => {
+      const before = await this.load(tx, guildId, id)
+      const [found] = await tx`
+        select count(*)::int as n from quests
+        where guild_id = ${guildId} and quest_id = any (${`{${ids.join(',')}}`}::uuid[])`
+      if (z.object({ n: z.number() }).parse(found).n !== ids.length) {
+        throw new QuestError('unknown_blocker')
+      }
+      const t = parkTransition(before, attempt, ids, mode, this.clock.now())
+      return t.quest === before ? before : this.save(tx, guildId, t)
+    })
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

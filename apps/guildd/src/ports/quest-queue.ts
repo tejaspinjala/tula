@@ -65,6 +65,10 @@ export interface Quest {
   round: number
   roundLimit: number
   blockedBy: string[]
+  /** Sub-Quests this Quest is parked on (see {@link QuestQueue.park}); empty unless it is waiting. */
+  waitingOn: string[]
+  /** How the wait is met; meaningful only while `waitingOn` is not empty. */
+  waitMode: WaitMode
   /** Deliveries so far; each claim, including a reclaim after a lease expired, is one. */
   attempts: number
   maxAttempts: number
@@ -286,6 +290,7 @@ export function claimTransition(quest: Quest, now: Date, leaseMs: number): Trans
       state: 'active',
       attempts: quest.attempts + 1,
       leaseExpiresAt: new Date(now.getTime() + leaseMs).toISOString(),
+      waitingOn: [],
     },
     event: 'quest.claimed',
   }
@@ -403,6 +408,44 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
   }
 }
 
+/** Parks a claimed Quest on its sub-Quests; a repeat for the same delivery is a no-op. */
+export function parkTransition(
+  quest: Quest,
+  attempt: number,
+  waitingOn: readonly string[],
+  mode: WaitMode,
+  now: Date
+): Transition {
+  if (quest.state === 'queued' && quest.attempts === attempt && quest.waitingOn.length > 0) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      waitingOn: [...new Set(waitingOn)],
+      waitMode: mode,
+      notBefore: now.toISOString(),
+    },
+    event: null,
+  }
+}
+
+/**
+ * Whether a parked Quest's wait is over: `all` once every sub-Quest is done or dead; `any` once
+ * one is done, or all have finished. A Quest that waits on nothing is always ready.
+ */
+export function waitMet(quest: Quest, byId: ReadonlyMap<string, Quest>): boolean {
+  if (quest.waitingOn.length === 0) {
+    return true
+  }
+  const states = quest.waitingOn.map((id) => byId.get(id)?.state)
+  const finished = (s: QuestState | undefined) => s === 'done' || s === 'dead'
+  return states.every(finished) || (quest.waitMode === 'any' && states.some((s) => s === 'done'))
+}
+
 /** Dead-letters a claimed Quest with a coded reason; a repeat for the same delivery is a no-op. */
 export function killTransition(quest: Quest, attempt: number, reason: string): Transition {
   if (quest.state === 'dead' && quest.attempts === attempt) {
@@ -496,8 +539,10 @@ export function pickClaimable(
     return null
   }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
+  const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&
     q.blockedBy.every((id) => doneIds.has(id)) &&

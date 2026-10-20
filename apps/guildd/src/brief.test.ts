@@ -18,6 +18,8 @@ const quest: Quest = {
   round: 0,
   roundLimit: 2,
   blockedBy: [],
+  waitingOn: [],
+  waitMode: 'all',
   attempts: 1,
   maxAttempts: 3,
   leaseExpiresAt: null,
