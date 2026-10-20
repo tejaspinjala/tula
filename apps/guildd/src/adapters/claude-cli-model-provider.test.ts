@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { ProviderSecret } from '../ports/model-provider'
+import { ModelProviderError, ProviderSecret } from '../ports/model-provider'
 import { ClaudeCliModelProvider } from './claude-cli-model-provider'
 
 const FAKE = `${import.meta.dir}/../testing/fake-claude.ts`
@@ -17,6 +17,53 @@ const echo = z.object({
   argv: z.array(z.string()),
   env: z.record(z.string(), z.string()),
   stdin: z.string(),
+})
+
+async function codeOf(p: Promise<unknown>): Promise<string> {
+  try {
+    await p
+  } catch (e) {
+    if (e instanceof ModelProviderError) {
+      return e.code
+    }
+    throw e
+  }
+  return 'resolved'
+}
+
+describe('ClaudeCliModelProvider failures', () => {
+  const provider = new ClaudeCliModelProvider({
+    bin: FAKE,
+    timeoutMs: 400,
+    maxStdoutBytes: 100_000,
+  })
+
+  test('is_error, with or without a non-zero exit, is unavailable', async () => {
+    expect(await codeOf(provider.complete(secret, call('error')))).toBe('unavailable')
+    expect(await codeOf(provider.complete(secret, call('error0')))).toBe('unavailable')
+  })
+
+  test('a non-zero exit with no output is unavailable', async () => {
+    expect(await codeOf(provider.complete(secret, call('exit3')))).toBe('unavailable')
+  })
+
+  test('a usage-limit message is subscription_limit', async () => {
+    expect(await codeOf(provider.complete(secret, call('limit')))).toBe('subscription_limit')
+  })
+
+  test('garbage output is invalid_response', async () => {
+    expect(await codeOf(provider.complete(secret, call('garbage')))).toBe('invalid_response')
+  })
+
+  test('a hung child is killed at the timeout', async () => {
+    const started = Date.now()
+    expect(await codeOf(provider.complete(secret, call('hang')))).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
+  test('output past the cap kills the child and is invalid_response', async () => {
+    expect(await codeOf(provider.complete(secret, call('big')))).toBe('invalid_response')
+  })
 })
 
 describe('ClaudeCliModelProvider', () => {
