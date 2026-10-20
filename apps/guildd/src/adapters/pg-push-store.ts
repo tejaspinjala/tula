@@ -47,6 +47,7 @@ export class PgPushStore implements PushStore {
     if (!row) {
       return 'conflict'
     }
+    await this.db.registerPushGuild(guildId)
     return z.object({ inserted: z.boolean() }).parse(row).inserted ? 'added' : 'updated'
   }
 
@@ -194,18 +195,33 @@ export class PgPushStore implements PushStore {
   }
 
   async acquireDispatchLease(
-    _guildId: string,
-    _holder: string,
-    _lease: { now: Date; leaseMs: number }
+    guildId: string,
+    holder: string,
+    lease: { now: Date; leaseMs: number }
   ): Promise<boolean> {
-    throw new Error('not implemented')
+    const until = new Date(lease.now.getTime() + lease.leaseMs)
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        insert into push_dispatch_leases (guild_id, holder, until)
+        values (${guildId}, ${holder}, ${until})
+        on conflict (guild_id) do update set holder = excluded.holder, until = excluded.until
+          where push_dispatch_leases.holder = excluded.holder
+            or push_dispatch_leases.until <= ${lease.now}
+        returning 1 as ok`
+    )
+    return rows.length === 1
   }
 
-  async releaseDispatchLease(_guildId: string, _holder: string): Promise<void> {
-    throw new Error('not implemented')
+  async releaseDispatchLease(guildId: string, holder: string): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        delete from push_dispatch_leases where guild_id = ${guildId} and holder = ${holder}`
+    )
   }
 
-  async guildsWithDevices(_after: string | undefined, _limit: number): Promise<string[]> {
-    throw new Error('not implemented')
+  guildsWithDevices(after: string | undefined, limit: number): Promise<string[]> {
+    return this.db.pushGuilds(after, limit)
   }
 }
