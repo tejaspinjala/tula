@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import { FoundGuildPanel } from './FoundGuildPanel'
 import {
@@ -77,6 +77,13 @@ export function SignInPanel({
     }
   }
 
+  const olderField = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (mode === 'older') {
+      olderField.current?.focus()
+    }
+  }, [mode])
+
   const guild = guildId.trim()
   const items = [
     { id: 'continue', label: 'Continue' },
@@ -112,6 +119,7 @@ export function SignInPanel({
         <div className="title-form">
           <label htmlFor={guildInput}>Guild id</label>
           <input
+            ref={olderField}
             id={guildInput}
             name="guild-id"
             className="mono"

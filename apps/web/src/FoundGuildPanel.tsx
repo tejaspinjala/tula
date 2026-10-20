@@ -1,4 +1,4 @@
-import { type FormEvent, useId, useState } from 'react'
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import {
   foundGuild,
@@ -35,6 +35,9 @@ export function FoundGuildPanel({
   onSession: (session: Session) => void
 }) {
   const nameId = useId()
+  const nameField = useRef<HTMLInputElement>(null)
+  // The form replaces the title menu, so keyboard focus moves to its first field.
+  useEffect(() => nameField.current?.focus(), [])
   const goalId = useId()
   const [name, setName] = useState('')
   const [goal, setGoal] = useState('')
@@ -70,6 +73,7 @@ export function FoundGuildPanel({
       <form onSubmit={submit} className="title-form">
         <label htmlFor={nameId}>Guild name</label>
         <input
+          ref={nameField}
           id={nameId}
           name="guild-name"
           required
