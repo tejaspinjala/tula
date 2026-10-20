@@ -138,7 +138,7 @@ export async function compose(
     learning:
       overrides.learning ??
       new LearningEngine({
-        store: overrides.suggestions ?? new PgSuggestionStore(db, clock),
+        store: overrides.suggestions ?? new PgSuggestionStore(db, keys, clock),
         envoy:
           overrides.githubEnvoy ??
           new GitHubRestEnvoy({

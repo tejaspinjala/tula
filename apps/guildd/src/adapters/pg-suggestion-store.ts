@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Db } from '../db/client'
 import type { Clock } from '../ports/clock'
+import type { KeyProvider } from '../ports/key-provider'
 import type {
   DecideResult,
   NewSuggestion,
@@ -52,6 +53,7 @@ function toSuggestion(raw: unknown): Suggestion {
 export class PgSuggestionStore implements SuggestionStore {
   constructor(
     private readonly db: Db,
+    private readonly keys: KeyProvider,
     private readonly clock: Clock
   ) {}
 
