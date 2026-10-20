@@ -125,8 +125,9 @@ export async function releaseStale(
 }
 
 /** The Seal id a push notification deep-linked to (`?seal=<id>`), or null when absent or malformed. */
-export function sealIdFromSearch(_search: string): string | null {
-  return null
+export function sealIdFromSearch(search: string): string | null {
+  const parsed = z.uuid().safeParse(new URLSearchParams(search).get('seal'))
+  return parsed.success ? parsed.data : null
 }
 
 /** One Seal by id, for a deep link from a push notification. */
