@@ -1,11 +1,11 @@
-/** Stub: not implemented yet. */
+/** True when the user asked for reduced motion; no `matchMedia` means no preference. */
 export function prefersReducedMotion(
-  _matchMedia: ((query: string) => { matches: boolean }) | undefined
+  matchMedia: ((query: string) => { matches: boolean }) | undefined
 ): boolean {
-  return true
+  return matchMedia ? matchMedia('(prefers-reduced-motion: reduce)').matches : false
 }
 
-/** Stub: not implemented yet. */
-export function scrollBehavior(_reduced: boolean): 'auto' | 'smooth' {
-  return 'smooth'
+/** The scroll behavior for scripted scrolling: instant under reduced motion. */
+export function scrollBehavior(reduced: boolean): 'auto' | 'smooth' {
+  return reduced ? 'auto' : 'smooth'
 }
