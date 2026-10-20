@@ -114,6 +114,23 @@ export interface IdentityProvider {
     challengeId: string,
     response: AuthenticationResponseJSON
   ): Promise<IdentitySession>
+  /**
+   * Starts a usernameless passkey sign-in: options with an empty `allowCredentials` (the
+   * authenticator offers its discoverable credentials) and a stored single-use challenge.
+   */
+  beginDiscoverableSignIn(): Promise<{
+    challengeId: string
+    options: PublicKeyCredentialRequestOptionsJSON
+  }>
+  /**
+   * Resolves the guild from the asserted credential id, then verifies exactly as {@link finishSignIn}
+   * and opens the same session. An unknown credential, a spent challenge and an expired challenge
+   * are refused with the same failure shape (`verification_failed` / `invalid_challenge`).
+   */
+  finishDiscoverableSignIn(
+    challengeId: string,
+    response: AuthenticationResponseJSON
+  ): Promise<IdentitySession>
   /** Starts re-authentication for the session's guild; throws `unauthenticated` without a live session. */
   beginReauth(
     sessionToken: string

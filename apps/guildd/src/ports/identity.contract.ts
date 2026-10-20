@@ -598,5 +598,94 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         ).toBe('invalid_challenge')
       })
     })
+    describe('usernameless (discoverable) sign-in', () => {
+      async function discoverable(s: Awaited<ReturnType<typeof registered>>) {
+        const begin = await s.identity.beginDiscoverableSignIn()
+        return { begin, response: await s.key.assert(begin.options) }
+      }
+
+      test('registration asks for a resident key', async () => {
+        const subject = await make()
+        const guildId = await subject.newGuild()
+        const { token } = await subject.identity.issueFoundingToken(guildId)
+        const begin = await subject.identity.beginRegistration(guildId, { foundingToken: token })
+        expect(begin.options.authenticatorSelection?.residentKey).toBe('required')
+      })
+
+      test('begin offers no credential list; finish opens the credential holder guild session', async () => {
+        const s = await registered()
+        const { begin, response } = await discoverable(s)
+        expect(begin.options.allowCredentials ?? []).toEqual([])
+        const session = await s.identity.finishDiscoverableSignIn(begin.challengeId, response)
+        expect(session.guildId).toBe(s.guildId)
+        const principal = await s.identity.resolveSession(session.token)
+        expect(principal?.guildId).toBe(s.guildId)
+        expect(principal?.role).toBe('guild_master')
+      })
+
+      test('a credential of one guild signs in to that guild only, never another', async () => {
+        const s = await registered()
+        const other = await s.newGuild()
+        const otherKey = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const { token } = await s.identity.issueFoundingToken(other)
+        const reg = await s.identity.beginRegistration(other, { foundingToken: token })
+        await s.identity.finishRegistration(
+          other,
+          reg.challengeId,
+          await otherKey.register(reg.options)
+        )
+        const begin = await s.identity.beginDiscoverableSignIn()
+        const session = await s.identity.finishDiscoverableSignIn(
+          begin.challengeId,
+          await otherKey.assert(begin.options)
+        )
+        expect(session.guildId).toBe(other)
+        const perGuild = await s.identity.beginSignIn(s.guildId)
+        expect(
+          await failure(
+            s.identity.finishSignIn(
+              s.guildId,
+              perGuild.challengeId,
+              await otherKey.assert(perGuild.options)
+            )
+          )
+        ).toBe('unknown_credential')
+      })
+
+      test('an unknown credential is refused like a bad signature', async () => {
+        const s = await registered()
+        const stranger = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const begin = await s.identity.beginDiscoverableSignIn()
+        expect(
+          await failure(
+            s.identity.finishDiscoverableSignIn(
+              begin.challengeId,
+              await stranger.assert(begin.options)
+            )
+          )
+        ).toBe('verification_failed')
+      })
+
+      test('a replayed challenge is refused', async () => {
+        const s = await registered()
+        const { begin, response } = await discoverable(s)
+        await s.identity.finishDiscoverableSignIn(begin.challengeId, response)
+        expect(
+          await failure(s.identity.finishDiscoverableSignIn(begin.challengeId, response))
+        ).toBe('invalid_challenge')
+      })
+
+      test('an expired or never-issued challenge is refused', async () => {
+        const s = await registered()
+        const { begin, response } = await discoverable(s)
+        s.clock.advance(CHALLENGE_TTL_MS + 1)
+        expect(
+          await failure(s.identity.finishDiscoverableSignIn(begin.challengeId, response))
+        ).toBe('invalid_challenge')
+        expect(
+          await failure(s.identity.finishDiscoverableSignIn(crypto.randomUUID(), response))
+        ).toBe('invalid_challenge')
+      })
+    })
   })
 }

@@ -225,6 +225,20 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return { token, guildId, expiresAt }
   }
 
+  async beginDiscoverableSignIn(): Promise<{
+    challengeId: string
+    options: Awaited<ReturnType<typeof generateAuthenticationOptions>>
+  }> {
+    throw new Error('not implemented')
+  }
+
+  async finishDiscoverableSignIn(
+    _challengeId: string,
+    _response: AuthenticationResponseJSON
+  ): Promise<IdentitySession> {
+    throw new Error('not implemented')
+  }
+
   async beginReauth(sessionToken: string) {
     const live = await this.liveSession(sessionToken)
     if (!live) {
