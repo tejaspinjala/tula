@@ -8,6 +8,8 @@ import { App } from './App'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
+import { GatesPanel } from './GatesPanel'
+import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import { QuestBoardPanel } from './QuestBoardPanel'
@@ -46,6 +48,18 @@ const history = {
   next: null,
 }
 
+const suggestion = {
+  id: 's1',
+  sourceId: 'src1',
+  repo: 'acme/app',
+  kind: 'pr',
+  title: 'Cache the roster',
+  body: 'Merged pull request',
+  url: 'https://github.com/acme/app/pull/1',
+  status: 'pending',
+  noteId: null,
+}
+
 // react-dom reads the DOM's capabilities when it loads, so the DOM is registered first.
 GlobalRegistrator.register()
 const { createRoot } = await import('react-dom/client')
@@ -55,9 +69,16 @@ beforeAll(() => {
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request) => {
       const url = String(input instanceof Request ? input.url : input)
-      return url.includes('/events/history')
-        ? Response.json(history)
-        : Response.json({ error: 'down' }, { status: 503 })
+      if (url.includes('/events/history')) {
+        return Response.json(history)
+      }
+      if (url.endsWith('/gates')) {
+        return Response.json({ guild: true, global: false })
+      }
+      if (url.includes('/learning/suggestions')) {
+        return Response.json({ suggestions: [suggestion], next: null })
+      }
+      return Response.json({ error: 'down' }, { status: 503 })
     },
     { preconnect: realFetch.preconnect }
   )
@@ -108,6 +129,8 @@ const panels: Array<[string, ReactElement]> = [
   ['Quest Board', <QuestBoardPanel key="q" session={session} />],
   ['Costs', <CostTablePanel key="c" session={session} />],
   ['Timeline', <TimelinePanel key="tl" session={session} />],
+  ['Gates', <GatesPanel key="g" session={session} />],
+  ['Learning', <LearningPanel key="l" session={session} />],
 ]
 
 describe('axe: no serious or critical violations', () => {
