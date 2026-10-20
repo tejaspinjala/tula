@@ -115,7 +115,12 @@ export class SealEngine {
     text: string,
     effect: () => Promise<void>
   ): Promise<SealResult> {
-    throw new Error('not implemented')
+    const held = await this.store.reserve(guildId, id, text)
+    if (!held.ok) {
+      return held
+    }
+    await effect()
+    return this.store.consume(guildId, id, { text, token: held.token })
   }
 
   /** Consumes the reservation held by `token` for exactly `text`; a Seal is single-use. */
