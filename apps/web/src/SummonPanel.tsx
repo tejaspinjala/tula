@@ -4,7 +4,7 @@ import { describeSummon, loadSummon, type SummonStatus, startSummon } from './su
 
 /** What each Summon step means, shown beside its tick in the panel. */
 export const STEP_LABELS = {
-  provider: 'A provider with an API key is chosen',
+  provider: 'A model provider is chosen: an API key or your Claude subscription',
   test_quest: 'The test Quest passed on the worker',
 } as const
 
