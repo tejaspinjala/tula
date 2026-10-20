@@ -30,3 +30,47 @@ self.addEventListener('fetch', (event) => {
     )
   )
 })
+
+// Web push. The payload carries ids only (never Seal text); the ledger fetches the Seal after the tap.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function sealIds(data) {
+  if (data && typeof data === 'object' && UUID.test(data.sealId) && UUID.test(data.guildId)) {
+    return { sealId: data.sealId, guildId: data.guildId }
+  }
+  return null
+}
+
+self.addEventListener('push', (event) => {
+  let ids = null
+  try {
+    ids = sealIds(event.data ? event.data.json() : null)
+  } catch {
+    ids = null
+  }
+  if (!ids) {
+    return
+  }
+  event.waitUntil(
+    self.registration.showNotification('A Seal awaits your stamp', {
+      body: 'Open the ledger to review it.',
+      tag: ids.sealId,
+      data: ids,
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const ids = sealIds(event.notification.data)
+  const target = ids ? `/?seal=${ids.sealId}#seals-heading` : '/'
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin)
+      if (open) {
+        return open.navigate(target).then(() => open.focus())
+      }
+      return self.clients.openWindow(target)
+    })
+  )
+})

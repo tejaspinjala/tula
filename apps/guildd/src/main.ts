@@ -11,6 +11,13 @@ if (env.OBJECT_STORE_CREATE_BUCKET && adapters.objectStore instanceof S3ObjectSt
   await adapters.objectStore.ensureBucket()
 }
 
+// Seal requests push the Guild Master's devices; a failed dispatch is retried at the next wake.
+await adapters.pushRelay.start((error) => {
+  process.stderr.write(
+    `seal push dispatch failed: ${error instanceof Error ? error.name : 'unknown'}\n`
+  )
+})
+
 // Bun rejects larger bodies before the app sees them; the slack covers non-artifact JSON bodies.
 export default {
   port: env.PORT,

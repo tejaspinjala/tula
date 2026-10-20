@@ -26,6 +26,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'gateway-call': { client: NO_LIMIT },
   mcp: { client: NO_LIMIT },
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
+  'push-subscribe': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */
@@ -49,6 +50,10 @@ export interface HarnessOptions {
       | 'tripwires'
       | 'treasury'
       | 'streamTickets'
+      | 'pushStore'
+      | 'pushNotifier'
+      | 'vapidPublicKey'
+      | 'pushAllowedHosts'
       | 'gateway'
       | 'modelProvider'
       | 'objectStore'
@@ -118,6 +123,9 @@ export async function createHarness(options: HarnessOptions = {}) {
       tripwires: composed.tripwires,
       treasury: composed.treasury,
       streamTickets: composed.streamTickets,
+      pushStore: composed.pushStore,
+      pushNotifier: composed.pushNotifier,
+      pushRelay: composed.pushRelay,
       gateway: composed.gateway,
       classifier: composed.classifier,
       routingLog: composed.routingLog,

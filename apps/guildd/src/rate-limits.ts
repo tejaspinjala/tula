@@ -19,6 +19,7 @@ export type RateRoute =
   | 'gateway-call'
   | 'mcp'
   | 'proposal-post'
+  | 'push-subscribe'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -72,6 +73,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
     unknown: { limit: 120, windowMs: MINUTE },
   },
   'proposal-post': writeLimits(60, 300),
+  // A person registers a handful of devices; each call is a dispatch scan and a database write.
+  'push-subscribe': writeLimits(20, 60),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
