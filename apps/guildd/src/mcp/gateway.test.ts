@@ -1570,7 +1570,7 @@ describe('member.activity', () => {
   const ARGS: Record<string, (hash: string) => Record<string, unknown>> = {
     read_brief: () => ({}),
     read_archive: () => ({}),
-    write_archive: () => ({ title: 'T', body: 'SECRET-BODY', claim: 'fact' }),
+    write_archive: () => ({ title: 'T', body: 'SECRET-BODY', claim: 'assumption' }),
     get_artifact: (hash) => ({ hash }),
     put_artifact: () => ({ contentBase64: Buffer.from('SECRET-ART').toString('base64') }),
     submit_proposal: () => ({ text: 'SECRET-PROPOSAL', evidenceLinks: [] }),
@@ -1608,9 +1608,21 @@ describe('member.activity', () => {
   for (const [tool, name] of MAPPED) {
     test(`${tool} emits ${name} once, with ids only`, async () => {
       const { s, activity, l } = await withActivity()
-      await callTool(s.transport, tool, { lease: l, ...ARGS[tool]?.('a'.repeat(64)) })
-      expect(activity.emittedEvents).toHaveLength(1)
-      expect(activity.emittedEvents[0]).toMatchObject({
+      // Tools that only succeed after a first step get it first.
+      let hash = 'a'.repeat(64)
+      if (tool === 'get_artifact') {
+        hash = await put(s)(l, 'stored')
+      }
+      if (tool === 'await_children' || tool === 'child_results') {
+        await callTool(s.transport, 'spawn_subquest', { lease: l, ...ARGS.spawn_subquest?.(hash) })
+      }
+      s.clock.advance(60_000)
+      const before = activity.emittedEvents.length
+      const out = await callTool(s.transport, tool, { lease: l, ...ARGS[tool]?.(hash) })
+      expect(out.isError).toBe(false)
+      const emitted = activity.emittedEvents.slice(before)
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toMatchObject({
         guildId: s.guild,
         questId: l.questId,
         memberId: 'heralds-member-2',
@@ -1662,7 +1674,7 @@ describe('member.activity', () => {
     }
     const kid = await take((await spawn(l, 'a')).data.childId)
     const grand = await take((await spawn(kid, 'b')).data.childId)
-    s.clock.advance(60_000)
+    s.clock.advance(6000)
     const before = activity.emittedEvents.length
     expect(await spawn(grand, 'c')).toMatchObject({ data: { error: 'depth_cap' } })
     expect(activity.emittedEvents).toHaveLength(before)

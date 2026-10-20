@@ -380,7 +380,16 @@ export class McpGateway {
     const lease = z.object({ lease: leaseHandle }).parse(args).lease
     const caller = await this.fromLease(lease, false)
     await this.expose(caller, name)
-    await this.noteActivity(caller, name)
+    const reply = await this.dispatch(caller, name, args)
+    // Only work the tool did shows: a refused call (cap, missing Seal, not found) is no activity.
+    if (!reply.isError) {
+      await this.noteActivity(caller, name)
+    }
+    return reply
+  }
+
+  /** Runs one leased tool. */
+  private async dispatch(caller: Caller, name: string, args: unknown): Promise<ToolReply> {
     switch (name) {
       case 'read_brief':
         readBriefArgs.parse(args)
