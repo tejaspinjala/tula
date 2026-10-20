@@ -140,10 +140,11 @@ export class PgSealStore implements SealStore {
 
   async list(
     guildId: string,
-    page: { after?: string; limit: number; status?: SealStatus }
+    page: { after?: string; limit: number; status?: SealStatus; decidedSince?: string }
   ): Promise<SealPage> {
     const now = this.clock.now()
     const after = page.after ?? null
+    const since = page.decidedSince ?? null
     return this.db.withGuild(guildId, async (tx) => {
       // One indexed query: the time-derived states are predicates, not post-filters.
       const status = page.status
@@ -159,6 +160,7 @@ export class PgSealStore implements SealStore {
         select ${tx.unsafe(COLUMNS)} from seals
         where guild_id = ${guildId} and ${wanted}
           and (${after}::uuid is null or seal_id > ${after}::uuid)
+          and (${since}::timestamptz is null or decided_at >= ${since}::timestamptz)
         order by seal_id limit ${page.limit + 1}`
       const seals = rows.map((r) => toSeal(row.parse(r), now))
       const items = seals.slice(0, page.limit)
