@@ -262,6 +262,48 @@ ul[aria-label] {
   align-items: center;
 }
 
+/* The talk dialog: a native modal <dialog> over the Guild Hall canvas. */
+.talk-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: var(--space-4);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.talk-dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+.talk-dialog h2,
+.talk-dialog h3 {
+  margin: 0 0 var(--space-2);
+}
+.talk-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+.talk-facts dd {
+  margin: 0;
+}
+.talk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.talk-field {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.talk-prompt {
+  margin-top: var(--space-2);
+}
+
 .muted {
   color: var(--muted);
 }
