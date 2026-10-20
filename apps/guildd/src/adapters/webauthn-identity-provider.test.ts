@@ -16,8 +16,9 @@ identityContract('embedded WebAuthn (Postgres)', async () => {
   const clock = new MemoryClock(new Date())
   const origin = 'http://localhost:5173'
   const keys = new MemoryKeyProvider()
+  const store = new PgIdentityStore(db, keys)
   return {
-    identity: new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
+    identity: new WebAuthnIdentityProvider(store, {
       clock,
       keys,
       rpId: 'localhost',
@@ -26,6 +27,7 @@ identityContract('embedded WebAuthn (Postgres)', async () => {
     }),
     clock,
     newGuild: () => foundTestGuild(db, { name: 'Identity', goal: 'Sign in' }),
+    guildMaster: (guildId: string) => store.guildMaster(guildId),
     events: (guildId: string) => db.withGuild(guildId, (tx) => eventsAfter(tx, 0)),
     rpId: 'localhost',
     origin,

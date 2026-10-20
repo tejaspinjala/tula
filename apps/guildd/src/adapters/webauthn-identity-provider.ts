@@ -18,6 +18,7 @@ import {
   IdentityError,
   type IdentityProvider,
   type IdentitySession,
+  type Principal,
   REAUTH_TTL_MS,
   type ReauthProof,
   SESSION_TTL_MS,
@@ -208,10 +209,12 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     const token = `${guildId}.${randomToken()}`
     const expiresAt = new Date(this.config.clock.now().getTime() + SESSION_TTL_MS)
     const sessionId = crypto.randomUUID()
+    const master = await this.store.guildMaster(guildId)
     await this.store.saveSession(
       guildId,
       {
         id: sessionId,
+        memberId: master.memberId,
         tokenHash: await hashOf(token),
         expiresAt,
         reauthHash: null,
@@ -350,9 +353,18 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     }
   }
 
-  async resolveSession(sessionToken: string): Promise<{ guildId: string } | null> {
+  async resolveSession(sessionToken: string): Promise<Principal | null> {
     const live = await this.liveSession(sessionToken)
-    return live ? { guildId: live.guildId } : null
+    if (!live) {
+      return null
+    }
+    // The role is read from the server's member record, never from the session or the request.
+    const member = await this.store.findMember(live.guildId, live.session.memberId)
+    return member ? { guildId: live.guildId, memberId: member.memberId, role: member.role } : null
+  }
+
+  async findMember(guildId: string, memberId: string) {
+    return this.store.findMember(guildId, memberId)
   }
 
   async checkReauth(sessionToken: string, proof: string): Promise<boolean> {
