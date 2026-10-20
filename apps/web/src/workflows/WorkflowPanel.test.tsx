@@ -68,6 +68,15 @@ function world(options: Options = {}) {
       const errors = options.errors ?? []
       return Response.json({ valid: errors.length === 0, errors })
     }
+    if (url === `${base}/w/runs?limit=20`) {
+      return Response.json({
+        instances: [
+          { id: 'r0', version: 1, createdAt: '2026-10-19T00:00:00Z' },
+          { id: 'r1', version: 1, createdAt: '2026-10-20T00:00:00Z' },
+        ],
+        next: null,
+      })
+    }
     if (url === `${base}/w/runs` && method === 'POST') {
       return Response.json({ instance: { id: 'r1' }, quests: [] }, { status: 201 })
     }
@@ -227,5 +236,10 @@ test('on a phone the graph is read only: no palette or save, but Run and the ove
   expect(host.querySelector('.workflow-palette')).toBeNull()
   expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Save')).toBe(false)
   await click(host, 'Run')
+  expect(host.querySelector('[data-node-id="start"]')?.textContent).toContain('Running')
+})
+
+test('opening a Workflow shows the overlay of its newest run, so leaving and coming back keeps it', async () => {
+  const host = await mount(world(), true)
   expect(host.querySelector('[data-node-id="start"]')?.textContent).toContain('Running')
 })
