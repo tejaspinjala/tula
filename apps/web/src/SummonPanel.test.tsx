@@ -101,6 +101,9 @@ test('summoning refreshes the panel to complete without navigating away', async 
   )
   await act(async () => {
     submit?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 150))
   })
   expect(host.textContent).toContain('Your first member is summoned')
