@@ -11,7 +11,7 @@ afterAll(async () => {
 
 async function show(value: number, max: number) {
   const m = await mount(<Meter label="Treasury" value={value} max={max} />)
-  const meter = m.host.querySelector('[role="meter"]')
+  const meter = m.host.querySelector('meter')
   if (!meter) {
     throw new Error('no meter')
   }
@@ -37,8 +37,8 @@ test('the fill level is grass above half, warn from 20 to 50 percent, danger bel
     [10, 52],
     [0, 52],
   ] as const) {
-    const { m, meter } = await show(value, max)
-    levels.push(meter.getAttribute('data-level') ?? '')
+    const { m } = await show(value, max)
+    levels.push(m.host.querySelector('.px-meter')?.getAttribute('data-level') ?? '')
     await m.unmount()
   }
   expect(levels).toEqual(['ok', 'warn', 'danger', 'danger'])

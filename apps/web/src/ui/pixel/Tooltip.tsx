@@ -12,8 +12,17 @@ export interface TooltipProps {
   name: string
   category: string
   stats?: readonly TooltipStat[]
-  /** Renders the trigger; set the argument on it as `aria-describedby`. */
-  children: (describedBy: string | undefined) => ReactNode
+  /** Renders the trigger; spread the argument onto the focusable element. */
+  children: (trigger: TooltipTriggerProps) => ReactNode
+}
+
+/** The props a Tooltip trigger must carry: they open it on hover and focus and link it for assistive tech. */
+export interface TooltipTriggerProps {
+  'aria-describedby': string | undefined
+  onMouseOver: () => void
+  onMouseOut: () => void
+  onFocus: () => void
+  onBlur: () => void
 }
 
 /**
@@ -54,21 +63,20 @@ export function Tooltip({ name, category, stats = [], children }: TooltipProps) 
   }, [open])
 
   return (
-    <span
-      className="px-tooltip-anchor"
-      role="group"
-      onMouseOver={() => {
-        setDismissed(false)
-        setHovered(true)
-      }}
-      onMouseOut={() => setHovered(false)}
-      onFocus={() => {
-        setDismissed(false)
-        setFocused(true)
-      }}
-      onBlur={() => setFocused(false)}
-    >
-      {children(open ? id : undefined)}
+    <span className="px-tooltip-anchor">
+      {children({
+        'aria-describedby': open ? id : undefined,
+        onMouseOver: () => {
+          setDismissed(false)
+          setHovered(true)
+        },
+        onMouseOut: () => setHovered(false),
+        onFocus: () => {
+          setDismissed(false)
+          setFocused(true)
+        },
+        onBlur: () => setFocused(false),
+      })}
       {open && (
         <div className="px-tooltip" role="tooltip" id={id} ref={tip}>
           <Frame variant="paper">

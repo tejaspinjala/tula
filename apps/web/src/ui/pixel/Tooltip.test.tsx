@@ -19,8 +19,8 @@ async function show() {
         { label: 'Uses', value: '12' },
       ]}
     >
-      {(describedBy) => (
-        <button type="button" aria-describedby={describedBy}>
+      {(trigger) => (
+        <button type="button" {...trigger}>
           Quill
         </button>
       )}

@@ -30,22 +30,24 @@ export function Meter({ label, value, max }: MeterProps) {
   }, [ratio])
 
   return (
-    <div
-      className="px-meter"
-      role="meter"
-      aria-label={label}
-      aria-valuenow={now}
-      aria-valuemin={0}
-      aria-valuemax={max}
-      data-level={meterLevel(ratio)}
-    >
+    <div className="px-meter" data-level={meterLevel(ratio)}>
+      <meter
+        className="sr-only"
+        aria-label={label}
+        aria-valuenow={now}
+        aria-valuemin={0}
+        aria-valuemax={max}
+        value={now}
+        min={0}
+        max={max}
+      />
       <span className="px-meter-plate" aria-hidden="true">
         {label}
       </span>
       <span className="px-meter-track" aria-hidden="true">
         <span className="px-meter-fill" ref={fill} />
       </span>
-      <span className="px-meter-number">{`${now}/${max}`}</span>
+      <span className="px-meter-number" aria-hidden="true">{`${now}/${max}`}</span>
     </div>
   )
 }
