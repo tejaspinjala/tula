@@ -254,8 +254,12 @@ export class PgQuestQueue implements QuestQueue {
     )
   }
 
-  async findByJobKey(_guildId: string, _jobKey: string): Promise<Quest | null> {
-    throw new Error('not implemented')
+  async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select * from quests where guild_id = ${guildId} and job_key = ${jobKey}`
+      return row ? toQuest(row) : null
+    })
   }
 
   async get(guildId: string, id: string): Promise<Quest | null> {

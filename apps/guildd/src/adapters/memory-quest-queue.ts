@@ -160,8 +160,10 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
-  async findByJobKey(_guildId: string, _jobKey: string): Promise<Quest | null> {
-    throw new Error('not implemented')
+  async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
+    const g = this.guild(guildId)
+    const id = g.byKey.get(jobKey)
+    return (id === undefined ? undefined : g.byId.get(id)) ?? null
   }
 
   async get(guildId: string, id: string): Promise<Quest | null> {
