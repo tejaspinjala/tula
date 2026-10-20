@@ -220,8 +220,11 @@ export type PageTransport = (request: PageTransportRequest) => Promise<Response>
 
 const NO_BODY = new Set([101, 204, 205, 304])
 
-/** The real transport: `node:https` with a `lookup` that can only answer the validated address. */
-export function createHttpsTransport(_options: { ca?: string } = {}): PageTransport {
+/**
+ * The real transport: `node:https` with a `lookup` that can only answer the validated address.
+ * `ca` adds a trusted certificate authority; production passes none, tests pass a local one.
+ */
+export function createHttpsTransport(options: { ca?: string } = {}): PageTransport {
   return (req) =>
     new Promise<Response>((resolve, reject) => {
       const url = new URL(req.url)
@@ -234,7 +237,13 @@ export function createHttpsTransport(_options: { ca?: string } = {}): PageTransp
           method: 'GET',
           headers: { accept: 'text/html,text/plain;q=0.9', 'accept-encoding': 'identity' },
           servername: isIP(host) === 0 ? host : '',
-          lookup: (_name, _options, callback) => callback(null, req.address, req.family),
+          // Node asks for every address (`all: true`) when it auto-selects the family; answer
+          // in the shape it asked for, and only ever with the validated address.
+          lookup: (_name, lookupOptions, callback) =>
+            lookupOptions.all
+              ? callback(null, [{ address: req.address, family: req.family }])
+              : callback(null, req.address, req.family),
+          ...(options.ca === undefined ? {} : { ca: options.ca }),
           signal: req.signal,
         },
         (res) => {
