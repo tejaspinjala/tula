@@ -19,17 +19,17 @@ const LOCK_NAMESPACE = 35
 
 /**
  * Net cents spent on a UTC day. A refund (settle or release) counts against the day its spend
- * was RESERVED on, so a refund after UTC midnight can never open headroom in the new day's cap.
+ * was RESERVED on (the query starts from that day's reservations and follows `spend_id` through
+ * the `treasury_ledger_by_spend` index, so old spends are never scanned), so a refund after UTC midnight can never open headroom in the new day's cap.
  * Parameters: `$1` guild id, `$2` day.
  */
 export const SPENT_ON_SQL = `
   select coalesce(-sum(l.amount_cents), 0) as spent
-  from treasury_ledger l
-  left join treasury_ledger r
-    on r.guild_id = l.guild_id and r.spend_id = l.spend_id and r.kind = 'spend_reserve'
-  where l.guild_id = $1 and l.bucket = 'operating'
-    and l.kind in ('spend_reserve', 'spend_settle', 'spend_release')
-    and (case when l.kind = 'spend_reserve' then l.day else r.day end) = $2::date`
+  from treasury_ledger r
+  join treasury_ledger l on l.guild_id = r.guild_id and l.spend_id = r.spend_id
+  where r.guild_id = $1 and r.kind = 'spend_reserve' and r.day = $2::date
+    and l.bucket = 'operating'
+    and l.kind in ('spend_reserve', 'spend_settle', 'spend_release')`
 
 const iso = z.coerce.date().transform((d) => d.toISOString())
 
