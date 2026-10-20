@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -156,47 +157,58 @@ export class ClaudeCliModelProvider implements ModelProvider {
     args: string[],
     prompt: string
   ): Promise<{ text: string; exitCode: number }> {
-    const proc = Bun.spawn([this.bin, ...args], {
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'ignore',
-      env: this.env,
+    // Its own process group, so one signal to the group takes the whole subtree (a grandchild
+    // included) down. argv array, no shell; the prompt goes on stdin; the env is the allowlist.
+    const child = spawn(this.bin, args, {
       cwd,
+      env: this.env,
+      detached: true,
+      stdio: ['pipe', 'pipe', 'ignore'],
     })
-    const reader = proc.stdout.getReader()
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve())
+      child.once('error', () => resolve())
+    })
     let timer: ReturnType<typeof setTimeout> | undefined
     // The deadline is raced against the read: a grandchild holding stdout open cannot outlast it.
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new ModelProviderError('timeout')), this.timeoutMs)
     })
-    const collect = async (): Promise<{ text: string; exitCode: number }> => {
-      proc.stdin.write(prompt)
-      await proc.stdin.end()
-      const chunks: Uint8Array[] = []
+    const collect = new Promise<{ text: string; exitCode: number }>((resolve, reject) => {
+      const chunks: Buffer[] = []
       let size = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) {
-          break
-        }
-        size += value.byteLength
+      child.once('error', () => reject(new ModelProviderError('unavailable')))
+      child.stdout.on('data', (chunk: Buffer) => {
+        size += chunk.byteLength
         if (size > this.maxStdoutBytes) {
-          throw new ModelProviderError('invalid_response')
+          reject(new ModelProviderError('invalid_response'))
+          return
         }
-        chunks.push(value)
-      }
-      return { text: Buffer.concat(chunks).toString('utf8'), exitCode: await proc.exited }
-    }
+        chunks.push(chunk)
+      })
+      child.once('close', (code) =>
+        resolve({ text: Buffer.concat(chunks).toString('utf8'), exitCode: code ?? -1 })
+      )
+      // A child that exits without reading its prompt closes the pipe: not an error here.
+      child.stdin.on('error', () => undefined)
+      child.stdin.end(prompt)
+    })
     try {
-      return await Promise.race([collect(), deadline])
+      return await Promise.race([collect, deadline])
     } catch (e) {
       throw e instanceof ModelProviderError ? e : new ModelProviderError('unavailable')
     } finally {
       clearTimeout(timer)
-      // Whatever happened, the child is dead and reaped before the concurrency slot is freed.
-      proc.kill('SIGKILL')
-      await reader.cancel().catch(() => undefined)
-      await proc.exited
+      // Whatever happened, the whole group is dead and the child reaped before the slot is freed.
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {
+          // The group is already gone.
+        }
+      }
+      child.stdout.destroy()
+      await exited
     }
   }
 
