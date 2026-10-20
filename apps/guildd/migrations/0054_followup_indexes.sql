@@ -3,3 +3,6 @@
 
 -- Seals decided in a window (gate denials in the last hour): SealStore.list(decidedSince).
 create index seals_guild_decided on seals (guild_id, decided_at) where decided_at is not null;
+
+-- A Hall's usage per day (token burn per Hall): ModelLedger.hallDayTotals.
+create index model_usage_hall_day on model_usage (guild_id, hall_id, day);

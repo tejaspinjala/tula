@@ -215,11 +215,21 @@ export class MemoryModelLedger implements ModelLedger {
   }
 
   async hallDayTotals(
-    _guildId: string,
-    _hallId: string,
-    _range: { from: string; to: string }
+    guildId: string,
+    hallId: string,
+    range: { from: string; to: string }
   ): Promise<HallDayTotals[]> {
-    throw new Error('not implemented')
+    const days = new Map<string, HallDayTotals>()
+    for (const u of this.state(guildId).usage.values()) {
+      if (u.hallId !== hallId || u.day < range.from || u.day > range.to) {
+        continue
+      }
+      const row = days.get(u.day) ?? { day: u.day, tokens: 0, costMicros: 0 }
+      row.tokens += u.inputTokens + u.outputTokens
+      row.costMicros += u.costMicros ?? 0
+      days.set(u.day, row)
+    }
+    return [...days.values()].sort((a, b) => (a.day < b.day ? -1 : 1))
   }
 
   async report(
