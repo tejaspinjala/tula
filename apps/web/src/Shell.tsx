@@ -3,6 +3,7 @@ import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
+import { GamePanel } from './GamePanel'
 import { GatesPanel } from './GatesPanel'
 import { HomePanel } from './HomePanel'
 import { LearningPanel } from './LearningPanel'
@@ -33,6 +34,8 @@ function ViewBody({
   switch (view) {
     case 'home':
       return <HomePanel session={session} navigate={navigate} />
+    case 'hall':
+      return <GamePanel session={session} navigate={navigate} />
     case 'quests':
       return <QuestBoardPanel session={session} />
     case 'seals':

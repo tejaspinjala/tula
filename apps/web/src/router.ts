@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 /** The ledger's views, in navigation order. */
 export const VIEWS = [
   { id: 'home', path: '/', label: 'Home' },
+  { id: 'hall', path: '/hall', label: 'Guild Hall' },
   { id: 'quests', path: '/quests', label: 'Quest Board' },
   { id: 'seals', path: '/seals', label: 'Seals' },
   { id: 'archive', path: '/archive', label: 'Archive' },
