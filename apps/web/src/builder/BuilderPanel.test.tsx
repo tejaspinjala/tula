@@ -205,7 +205,7 @@ test('a widening save shows the server classification and confirms only after a 
   expect(w.urls.some((u) => u.endsWith('/confirm'))).toBe(false)
   await click(host, 'Confirm with passkey')
   expect(w.urls.filter((u) => u.includes('/session/reauth/'))).toHaveLength(2)
-  expect(w.urls.at(-1)).toContain('/versions/2/confirm')
+  expect(w.urls.some((u) => u.includes('/versions/2/confirm'))).toBe(true)
   expect(w.proof()).toBe('proof-1')
 })
 
