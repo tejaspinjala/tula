@@ -62,6 +62,14 @@ describe('selfhostPlan', () => {
     expect(plan.guildd.HOST).toBe('127.0.0.1')
   })
 
+  test('PUBLIC_ORIGIN forces the dev guild header off, so a public guildd never trusts x-guild-id', () => {
+    const plan = selfhostPlan(
+      { ...source, PUBLIC_ORIGIN: 'https://guild.example.com', DEV_GUILD_HEADER: 'true' },
+      '/repo'
+    )
+    expect(plan.guildd.DEV_GUILD_HEADER).toBe('false')
+  })
+
   test('without PUBLIC_ORIGIN the proxy is not trusted', () => {
     expect(selfhostPlan(source, '/repo').guildd.TRUST_PROXY).toBeUndefined()
   })
