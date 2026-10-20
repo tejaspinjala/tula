@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +8,30 @@ import { ModelProviderError, ProviderSecret } from '../ports/model-provider'
 import { ClaudeCliModelProvider } from './claude-cli-model-provider'
 
 const FAKE = `${import.meta.dir}/../testing/fake-claude.ts`
+
+/**
+ * Whether `pid` is gone within `ms`. Right after SIGKILL a process can linger as a zombie until
+ * it is reaped (Linux CI); a zombie runs nothing, so it counts as gone.
+ */
+async function processGone(pid: number, ms = 2000): Promise<boolean> {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return true
+    }
+    try {
+      if (/^\d+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8'))) {
+        return true
+      }
+    } catch {
+      // No /proc (macOS): rely on kill(pid, 0) alone.
+    }
+    await Bun.sleep(20)
+  }
+  return false
+}
 const secret = new ProviderSecret('')
 
 const call = (mode: string) => ({
@@ -92,7 +116,7 @@ describe('ClaudeCliModelProvider cleanup', () => {
       expect(await codeOf(provider.complete(secret, call(`grandchild:${pidFile}`)))).toBe('timeout')
       expect(Date.now() - started).toBeLessThan(3000)
       pid = Number(await Bun.file(pidFile).text())
-      expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/)
+      expect(await processGone(pid)).toBe(true)
     } finally {
       if (pid > 0) {
         try {
@@ -125,7 +149,7 @@ describe('ClaudeCliModelProvider abort', () => {
       expect(await pending).toBe('aborted')
       expect(Date.now() - started).toBeLessThan(3000)
       pid = Number(await Bun.file(pidFile).text())
-      expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/)
+      expect(await processGone(pid)).toBe(true)
     } finally {
       if (pid > 0) {
         try {
