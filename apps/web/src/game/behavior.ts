@@ -95,6 +95,11 @@ const stop = (spot: Spot, anim: Anim, extra: Partial<Stop> = {}): Stop => ({
   ...extra,
 })
 
+/** A plan that keeps someone at a spot all day (the Steward at their desk). */
+export function stayAt(spot: Spot, key: string): Plan {
+  return { key, stops: [stop(spot, 'idle')] }
+}
+
 type RoutineKind = 'desk' | 'wander' | 'browse' | 'chat'
 
 /** The routine kind of a Member in a slot: weighted, from the seed. */

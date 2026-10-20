@@ -41,6 +41,16 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
   if (forced.success) {
     scene.setPhase(forced.data)
   }
+  // `?slot=N` (0-143, ten minutes each) pins the routine slot, for run-checks.
+  const slot = z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(143)
+    .safeParse(new URLSearchParams(window.location.search).get('slot'))
+  if (slot.success) {
+    scene.setSlot(slot.data)
+  }
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
