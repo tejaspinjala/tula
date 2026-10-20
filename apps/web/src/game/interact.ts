@@ -26,19 +26,47 @@ export const initialTalk: TalkState = { near: null, open: null, form: 'view' }
 
 /** True when two targets are the same Member or both the Seal desk. */
 export function sameTarget(a: Target | null, b: Target | null): boolean {
-  return a === b
+  if (a === null || b === null) {
+    return a === b
+  }
+  if (a.kind === 'member' && b.kind === 'member') {
+    return a.id === b.id
+  }
+  return a.kind === b.kind
 }
 
 /** The next interaction state. */
-export function talkReducer(state: TalkState, _action: TalkAction): TalkState {
-  return state
+export function talkReducer(state: TalkState, action: TalkAction): TalkState {
+  switch (action.type) {
+    case 'near':
+      return sameTarget(state.near, action.target) ? state : { ...state, near: action.target }
+    case 'interact':
+      return state.open !== null || state.near === null
+        ? state
+        : { ...state, open: state.near, form: 'view' }
+    case 'assign':
+      return state.open?.kind === 'member' ? { ...state, form: 'assign' } : state
+    case 'back':
+      return { ...state, form: 'view' }
+    case 'close':
+      return { ...state, open: null, form: 'view' }
+  }
 }
 
 /** The closest target within `reach` tiles of the player, or null. */
 export function nearestTarget(
-  _player: Vec,
-  _targets: readonly { target: Target; at: Vec }[],
-  _reach: number
+  player: Vec,
+  targets: readonly { target: Target; at: Vec }[],
+  reach: number
 ): Target | null {
-  return null
+  let best: Target | null = null
+  let bestGap = reach
+  for (const { target, at } of targets) {
+    const gap = Math.hypot(at.x - player.x, at.y - player.y)
+    if (gap <= bestGap) {
+      best = target
+      bestGap = gap
+    }
+  }
+  return best
 }
