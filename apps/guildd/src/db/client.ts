@@ -16,14 +16,8 @@ const GUILD_ID = z.uuid()
 /** A transaction on which tenant context is already set; the only handle that reaches tenant tables. */
 export type TenantTx = TransactionSql
 
-/** The app's database access: founding and tenant-scoped transactions, nothing else. */
+/** The app's database access: chained founding and tenant-scoped transactions, nothing else. */
 export interface Db {
-  /**
-   * Founds a guild. Founding has no tenant yet, so this calls the owner-side `found_guild`
-   * function (security definer) rather than inserting under a tenant context.
-   * @returns the new guild's id.
-   */
-  foundGuild(input: { name: string; goal: string }): Promise<string>
   /**
    * Founds a guild and chains its `guild.founded` event in ONE transaction, so a failure (for
    * example the KeyProvider being down) leaves no guild, event or chain entry behind.
@@ -90,10 +84,6 @@ export function createDb(
       return outcome.value
     }
   return {
-    async foundGuild({ name, goal }) {
-      const [row] = await sql`select found_guild(${name}, ${goal}) as id`
-      return String(row?.id)
-    },
     async foundGuildChained({ name, goal }, keys, inFounding) {
       let id: string | undefined
       await sql.begin(async (tx) => {

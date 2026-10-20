@@ -2,6 +2,7 @@ import { afterAll } from 'bun:test'
 import { createDb } from '../db/client'
 import { eventsAfter } from '../events'
 import { identityContract } from '../ports/identity.contract'
+import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
@@ -22,7 +23,7 @@ identityContract('embedded WebAuthn (Postgres)', async () => {
       origin,
     }),
     clock,
-    newGuild: () => db.foundGuild({ name: 'Identity', goal: 'Sign in' }),
+    newGuild: () => foundTestGuild(db, { name: 'Identity', goal: 'Sign in' }),
     events: (guildId: string) => db.withGuild(guildId, (tx) => eventsAfter(tx, 0)),
     rpId: 'localhost',
     origin,

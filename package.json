@@ -15,7 +15,8 @@
     "backup": "bun scripts/backup.ts",
     "restore": "bun scripts/restore.ts",
     "db:migrate": "bun run --cwd apps/guildd db:migrate",
-    "repo:setup": "bun scripts/repo-setup.ts"
+    "repo:setup": "bun scripts/repo-setup.ts",
+    "test:db:prune": "bun scripts/drop-test-dbs.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

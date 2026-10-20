@@ -74,3 +74,19 @@ test('with create disabled an existing key file still opens', async () => {
   const data = new Uint8Array([7])
   expect(await again.mac(id, 'audit', data)).toBe(await first.mac(id, 'audit', data))
 })
+
+test('a failed write leaves no temp file behind', async () => {
+  const dir = await freshDir()
+  const path = join(dir, 'master.key')
+  await expect(
+    FileKeyProvider.open(path, { writeKey: () => Promise.reject(new Error('disk full')) })
+  ).rejects.toThrow('disk full')
+  expect(await readdir(dir)).toEqual([])
+})
+
+test('an existing key directory looser than 0700 is rejected and nothing is created in it', async () => {
+  const dir = await freshDir()
+  await chmod(dir, 0o755)
+  await expect(FileKeyProvider.open(join(dir, 'master.key'))).rejects.toThrow(/0700|directory/i)
+  expect(await readdir(dir)).toEqual([])
+})

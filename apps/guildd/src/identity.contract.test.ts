@@ -89,7 +89,7 @@ describe('passkey sign-in over HTTP', () => {
   test('a session cannot act on another guild', async () => {
     const { guildId, key } = await foundWithPasskey()
     const { token } = await signIn(guildId, key)
-    const other = await harness.adapters.db.foundGuild({ name: 'Other-secret', goal: 'g' })
+    const other = await harness.foundGuild({ name: 'Other-secret', goal: 'g' })
     const res = await harness.request(`/guilds/${other}`, {
       headers: { authorization: `Bearer ${token}` },
     })

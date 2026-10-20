@@ -2,6 +2,7 @@ import { afterAll, expect, test } from 'bun:test'
 import postgres from 'postgres'
 import { createDb } from '../db/client'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
+import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import type { StoredChallenge } from './identity-store'
 import { MemoryKeyProvider } from './memory-key-provider'
@@ -35,7 +36,7 @@ async function rows(guildId: string): Promise<number> {
 }
 
 test("saving a challenge deletes the guild's expired ones", async () => {
-  const guildId = await db.foundGuild({ name: 'Sweep', goal: 'g' })
+  const guildId = await foundTestGuild(db, { name: 'Sweep', goal: 'g' })
   await store.saveChallenge(guildId, challenge(1000), T0)
   await store.saveChallenge(guildId, challenge(2000), T0)
   expect(await rows(guildId)).toBe(2)
@@ -44,7 +45,7 @@ test("saving a challenge deletes the guild's expired ones", async () => {
 })
 
 test('outstanding challenges per guild are capped, keeping the newest', async () => {
-  const guildId = await db.foundGuild({ name: 'Cap', goal: 'g' })
+  const guildId = await foundTestGuild(db, { name: 'Cap', goal: 'g' })
   const oldest = challenge(10_000)
   await store.saveChallenge(guildId, oldest, T0)
   for (let i = 1; i <= MAX_OUTSTANDING_CHALLENGES; i++) {
@@ -71,7 +72,7 @@ async function count(guildId: string, table: string): Promise<number> {
 }
 
 test('a failing event append rolls back saveSession, setReauth, issueFounding and foundCredential', async () => {
-  const guildId = await db.foundGuild({ name: 'Atomic', goal: 'g' })
+  const guildId = await foundTestGuild(db, { name: 'Atomic', goal: 'g' })
   const session = {
     id: crypto.randomUUID(),
     tokenHash: 'th',
@@ -108,7 +109,7 @@ test('a failing event append rolls back saveSession, setReauth, issueFounding an
 })
 
 test('setReauth for an unknown session appends no event', async () => {
-  const guildId = await db.foundGuild({ name: 'NoSession', goal: 'g' })
+  const guildId = await foundTestGuild(db, { name: 'NoSession', goal: 'g' })
   const before = await count(guildId, 'events')
   await expect(
     store.setReauth(guildId, crypto.randomUUID(), 'rh', new Date(T0.getTime() + 1000), note)

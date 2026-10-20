@@ -5,6 +5,7 @@ import { MemoryObjectStore } from '../adapters/memory-object-store'
 import { type AppDeps, websocket } from '../app'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
+import { foundTestGuild } from './found-guild'
 import { testDbUrl } from './test-db'
 
 /** Options for {@link createHarness}. */
@@ -74,6 +75,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       notes: composed.notes,
       keys,
     },
+    /** Founds a guild through the chained path with the harness's keys (see `foundTestGuild`). */
+    foundGuild: (input: { name: string; goal: string }) => foundTestGuild(db, input, keys),
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */
