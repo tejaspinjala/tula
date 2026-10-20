@@ -181,7 +181,7 @@ describe('Treasury routes', () => {
     const body = { key: 'rr', amountCents: 1000 }
     expect((await send('POST', path, who.auth, body)).status).toBe(403)
     const res = await send('POST', path, { ...who.auth, 'x-reauth-proof': await who.proof() }, body)
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(201)
     expect((await view(g, who.auth)).balances).toEqual({
       operating: 8000,
       reserve: 2000,
