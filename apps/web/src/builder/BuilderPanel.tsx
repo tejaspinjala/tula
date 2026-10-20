@@ -195,7 +195,14 @@ export function BuilderPanel({
         Guild builder
       </h2>
       <p className="muted">Steward, Halls, Captains and Members. Version {version} is in force.</p>
-      {!wide && <Outline config={draft} overlays={overlays} issues={issueMap} />}
+      {!wide && (
+        <>
+          <p className="muted" role="note">
+            This is a read-only outline of the guild. To change it, edit on a desktop.
+          </p>
+          <Outline config={draft} overlays={overlays} issues={issueMap} />
+        </>
+      )}
       {wide && (
         <>
           <fieldset className="actions builder-palette">

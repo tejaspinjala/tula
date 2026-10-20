@@ -822,6 +822,13 @@ thead th {
   padding-left: var(--space-4);
 }
 
+.builder-outline,
+.outline {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
 .outline-name[aria-pressed="true"] {
   outline: 2px solid var(--focus);
 }
