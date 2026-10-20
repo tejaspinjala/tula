@@ -1,3 +1,6 @@
+import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
+import { questConcurrency } from './guild-config'
+import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
 import { GatewayError, type ModelGateway } from './model-gateway'
@@ -192,4 +195,99 @@ async function openRun(
     }
     throw error
   }
+}
+
+/** Collaborators of {@link dispatch}. */
+export type DispatchDeps = RoutingDeps &
+  StartRunDeps &
+  PendingSealDeps &
+  HallWatchDeps & {
+    quests: QuestQueue
+    config: Pick<ConfigStore, 'current'>
+  }
+
+/** What one {@link dispatch} pass did. */
+export type DispatchOutcome =
+  | { status: 'barred' }
+  | { status: 'idle' }
+  | {
+      status: 'blocked'
+      questId: string
+      reason: BlockReason
+      disposition: 'killed' | 'retry_scheduled'
+    }
+  | { status: 'started'; questId: string; profileId: string }
+  | { status: 'failed'; questId: string; error: StartRunError }
+
+/** How long a dispatched Quest's lease lasts: the worker's whole run. */
+const DISPATCH_LEASE_MS = 10 * 60_000
+
+/**
+ * One pass of the dispatcher for a guild: refuses while the Gates are barred, settles finished
+ * Seals, requests the Seals that are due, then claims at most one Quest, routes it and starts its
+ * worker. Deterministic code; idempotent, so a rerun or two workers at once do no harm.
+ */
+export async function dispatch(deps: DispatchDeps, guildId: string): Promise<DispatchOutcome> {
+  if (await deps.gates.isBarred(guildId)) {
+    return { status: 'barred' }
+  }
+  await reconcileSeals({ quests: deps.quests, seals: deps.sealStore }, guildId)
+  await requestPendingSeals(deps, guildId)
+  // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
+  await watchHalls(deps, guildId)
+  const { config } = await deps.config.current(guildId)
+  const claimed = await deps.quests.claim(guildId, {
+    leaseMs: DISPATCH_LEASE_MS,
+    maxActive: questConcurrency(config),
+  })
+  if (claimed === null) {
+    return { status: 'idle' }
+  }
+  const routed = await routeClaimed(deps, guildId, claimed)
+  if (routed.status === 'blocked') {
+    return {
+      status: 'blocked',
+      questId: claimed.id,
+      reason: routed.reason,
+      disposition: routed.disposition,
+    }
+  }
+  const started = await startRun(deps, guildId, claimed, routed.profileId)
+  return started.ok
+    ? { status: 'started', questId: claimed.id, profileId: routed.profileId }
+    : { status: 'failed', questId: claimed.id, error: started.error }
+}
+
+/** The dispatcher bound to its collaborators; what the app and the job hook call. */
+export class Dispatcher {
+  constructor(private readonly deps: DispatchDeps) {}
+
+  /** Runs one {@link dispatch} pass for the guild. */
+  dispatch(guildId: string): Promise<DispatchOutcome> {
+    return dispatch(this.deps, guildId)
+  }
+}
+
+/**
+ * The job hook: one dispatch pass for each guild given, in order, keeping no cron state (the
+ * caller supplies the guilds and the schedule). A failing guild does not stop the rest; its error
+ * is returned beside the outcomes.
+ */
+export async function dispatchAll(
+  dispatcher: Pick<Dispatcher, 'dispatch'>,
+  guildIds: readonly string[]
+): Promise<
+  Array<{ guildId: string; outcome: DispatchOutcome } | { guildId: string; error: unknown }>
+> {
+  const results: Array<
+    { guildId: string; outcome: DispatchOutcome } | { guildId: string; error: unknown }
+  > = []
+  for (const guildId of guildIds) {
+    try {
+      results.push({ guildId, outcome: await dispatcher.dispatch(guildId) })
+    } catch (error) {
+      results.push({ guildId, error })
+    }
+  }
+  return results
 }

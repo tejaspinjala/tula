@@ -9,7 +9,9 @@ import {
   verifyChain,
   verifyFrom,
 } from './audit-chain'
+import { costPerPost } from './cost-per-post'
 import type { Db } from './db/client'
+import type { Dispatcher } from './dispatch'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
@@ -25,6 +27,7 @@ import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-s
 import type { GitHubEnvoy } from './ports/github-envoy'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
 import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
@@ -36,6 +39,7 @@ import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
+import type { SealStore } from './ports/seal-store'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
@@ -101,6 +105,12 @@ export interface AppDeps {
   sandboxes: SandboxRunner
   /** "Summon your first member": the test Quest that proves the worker and provider run end to end. */
   summon: Summon
+  /** The dispatcher: claims, routes and starts one Quest per pass; reached by the route and the job hook. */
+  dispatcher: Dispatcher
+  /** The Seal store, read by the dispatcher to reconcile Quests with their Seals. */
+  sealStore: SealStore
+  /** The model ledger: per-run metering, the source of usage reports and cost per post. */
+  modelLedger: ModelLedger
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
@@ -269,6 +279,10 @@ const usageQuery = z.object({
   after: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
 })
+const costPerPostQuery = z.object({
+  after: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_USAGE_PAGE).default(50),
+})
 /** HTTP status for a refused gateway call. */
 function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 {
   switch (code) {
@@ -404,6 +418,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/summon', limited('summon'))
+  app.post('/guilds/:id/dispatch', limited('dispatch'))
+  app.get('/guilds/:id/cost-per-post', limited('cost-per-post'))
   app.get('/guilds/:id/summon', limited('summon-status'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
@@ -971,6 +987,53 @@ export function createApp(deps: AppDeps): Hono {
     const status =
       started.error === 'gates_barred' ? 409 : started.error === 'sandbox_unavailable' ? 502 : 422
     return c.json({ error: started.error }, status)
+  })
+
+  // Cost per accepted post: metered spend of the Quests whose Seal was posted, per Campaign.
+  app.get('/guilds/:id/cost-per-post', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const query = costPerPostQuery.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!query.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await costPerPost(
+        { ledger: deps.modelLedger, quests: deps.quests, sealStore: deps.sealStore },
+        who.guild,
+        {
+          limit: query.data.limit,
+          ...(query.data.after === undefined ? {} : { after: query.data.after }),
+        }
+      )
+    )
+  })
+
+  // One dispatcher pass: settles Seals, then claims, routes and starts at most one Quest.
+  app.post('/guilds/:id/dispatch', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const done = await deps.dispatcher.dispatch(who.guild)
+    const status =
+      done.status === 'started'
+        ? 202
+        : done.status === 'barred'
+          ? 409
+          : done.status === 'failed'
+            ? done.error === 'gates_barred'
+              ? 409
+              : done.error === 'sandbox_unavailable'
+                ? 502
+                : 422
+            : 200
+    return c.json(done, status)
   })
 
   /** Whether the member is a platform operator; ids compare case-insensitively. */

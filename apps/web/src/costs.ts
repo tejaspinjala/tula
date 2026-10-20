@@ -11,6 +11,17 @@ const row = z.object({
 })
 const page = z.object({ rows: z.array(row), next: z.string().nullable() })
 
+const postCost = z.object({
+  posts: z.number(),
+  costMicros: z.number(),
+  costPerPostMicros: z.number(),
+})
+const costPerPostPage = z.object({
+  overall: postCost,
+  campaigns: z.array(postCost.extend({ campaignId: z.string().nullable() })),
+  next: z.string().nullable(),
+})
+
 /** What the cost table groups spend by. */
 export type CostGroup = 'day' | 'run' | 'quest' | 'hall'
 /** One row of the cost table. */
@@ -46,6 +57,52 @@ export async function loadCosts(
     after = body.next
   }
   throw new Error('cost table has too many pages')
+}
+
+/** Accepted posts and what they cost, in millionths of a dollar. */
+export interface PostCost {
+  posts: number
+  costMicros: number
+  costPerPostMicros: number
+}
+
+/** The cost of one Campaign's accepted posts; a null Campaign groups Quests outside any. */
+export interface CampaignPostCost extends PostCost {
+  campaignId: string | null
+}
+
+/** Cost per accepted post: overall and per Campaign. */
+export interface CostPerPost {
+  overall: PostCost
+  campaigns: CampaignPostCost[]
+}
+
+/** Loads cost per accepted post, following the server's page cursors. */
+export async function loadCostPerPost(
+  session: Session,
+  fetcher: Fetcher,
+  limit = 50
+): Promise<CostPerPost> {
+  const campaigns: CampaignPostCost[] = []
+  let after: string | null = null
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const query: string = `limit=${limit}${after === null ? '' : `&after=${encodeURIComponent(after)}`}`
+    const res = await fetcher(`/api/guilds/${session.guildId}/cost-per-post?${query}`, {
+      headers: { authorization: `Bearer ${session.token}` },
+    })
+    const data: unknown = await res.json().catch(() => null)
+    if (!res.ok) {
+      const code = z.object({ error: z.string() }).safeParse(data)
+      throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+    }
+    const body = costPerPostPage.parse(data)
+    campaigns.push(...body.campaigns)
+    if (body.next === null) {
+      return { overall: body.overall, campaigns }
+    }
+    after = body.next
+  }
+  throw new Error('cost per post has too many pages')
 }
 
 /** Formats millionths of a dollar: cents when exact, else up to six places; integer maths only. */

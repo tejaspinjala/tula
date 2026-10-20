@@ -5,7 +5,10 @@ import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
-import { routeClaimed } from './dispatch'
+import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
+import { MemorySealStore } from './adapters/memory-seal-store'
+import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
+import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
@@ -120,5 +123,124 @@ describe('routeClaimed', () => {
     expect(after).toMatchObject({ state: 'queued', attempts: 1, lastError: 'routing_blocked' })
     // attempt 1 backoff with jitter 0.5 is 750ms.
     expect(after?.notBefore).toBe(new Date(START.getTime() + 750).toISOString())
+  })
+})
+
+describe('dispatch', () => {
+  function world(config: GuildConfig = configWith()) {
+    const s = setup(config)
+    const sandboxes = new MemorySandboxRunner()
+    let barred = false
+    const unused = async (): Promise<never> => {
+      throw new Error('not used')
+    }
+    const deps = {
+      ...s.deps,
+      sealStore: new MemorySealStore(s.clock),
+      tripwires: new MemoryTripwireStore(s.clock),
+      proposals: { latestForQuest: async () => null, verdictFor: async () => null },
+      seals: { requestSeal: unused },
+      gates: { isBarred: async () => barred },
+      gateway: {
+        openRun: async () => ({
+          status: 'started' as const,
+          token: 'run-token',
+          expiresAt: START.toISOString(),
+        }),
+      },
+      mcp: {
+        lease: async (_g: string, q: { id: string }) => ({
+          questId: q.id,
+          attempt: 1,
+          token: 'lease',
+        }),
+      },
+      sandboxes,
+    }
+    const queue = async (over: Partial<NewQuest> = {}) =>
+      (
+        await s.quests.post(s.guild, {
+          jobKey: crypto.randomUUID(),
+          templateId: 'herald-brief',
+          hallId: 'heralds',
+          rank: 'journeyman',
+          dataClass: 'internal',
+          title: 'Brief',
+          ownerId: 'heralds-member-2',
+          doneCondition: 'A draft brief is filed',
+          roundLimit: 2,
+          ...over,
+        })
+      ).quest
+    const started = async () => (await sandboxes.list(s.guild)).map((x) => x.questId)
+    return {
+      ...s,
+      deps,
+      started,
+      queue,
+      bar: () => {
+        barred = true
+      },
+    }
+  }
+
+  test('an empty queue is idle', async () => {
+    const w = world()
+    expect(await dispatch(w.deps, w.guild)).toEqual({ status: 'idle' })
+  })
+
+  test('claims one Quest, routes it and starts its worker', async () => {
+    const w = world()
+    const first = await w.queue()
+    await w.queue()
+    expect(await dispatch(w.deps, w.guild)).toEqual({
+      status: 'started',
+      questId: first.id,
+      profileId: 'cloud-mid',
+    })
+    expect(await w.started()).toEqual([first.id])
+    expect((await w.quests.get(w.guild, first.id))?.state).toBe('active')
+  })
+
+  test('a barred guild is refused before anything is claimed', async () => {
+    const w = world()
+    const quest = await w.queue()
+    w.bar()
+    expect(await dispatch(w.deps, w.guild)).toEqual({ status: 'barred' })
+    expect((await w.quests.get(w.guild, quest.id))?.state).toBe('queued')
+  })
+
+  test('a routing block is returned and nothing is started', async () => {
+    const w = world(configWith({ caps: { dailyTokens: 0, dailySpendCents: 0 } }))
+    const quest = await w.queue()
+    expect(await dispatch(w.deps, w.guild)).toEqual({
+      status: 'blocked',
+      questId: quest.id,
+      reason: 'budget_exhausted',
+      disposition: 'retry_scheduled',
+    })
+    expect(await w.started()).toEqual([])
+  })
+})
+
+describe('dispatchAll', () => {
+  test('runs one pass per guild and isolates a failing guild', async () => {
+    const seen: string[] = []
+    const dispatcher = {
+      dispatch: async (guildId: string) => {
+        seen.push(guildId)
+        if (guildId === 'bad') {
+          throw new Error('boom')
+        }
+        return { status: 'idle' as const }
+      },
+    }
+    const results = await dispatchAll(dispatcher, ['a', 'bad', 'c'])
+    expect(seen).toEqual(['a', 'bad', 'c'])
+    expect(results.map((r) => ('outcome' in r ? r.outcome.status : 'error'))).toEqual([
+      'idle',
+      'error',
+      'idle',
+    ])
   })
 })

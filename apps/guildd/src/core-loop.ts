@@ -92,3 +92,40 @@ export async function requestQuestSeal(
   })
   return { outcome: 'requested', seal }
 }
+
+/** Collaborators of {@link requestPendingSeals}. */
+export interface PendingSealDeps extends SealRequestDeps {
+  quests: Pick<QuestQueue, 'list' | 'settleSeal'>
+  sealStore: Pick<SealStore, 'forQuest'>
+}
+
+/**
+ * Requests the Seal of every `awaiting_seal` Quest of the guild that has none for its current
+ * round (see {@link requestQuestSeal}). Quests already holding a Seal for this round are skipped,
+ * so a rerun asks for nothing twice. Returns how many Seals it requested.
+ */
+export async function requestPendingSeals(
+  deps: PendingSealDeps,
+  guildId: string
+): Promise<{ requested: number }> {
+  let requested = 0
+  let after: string | undefined
+  do {
+    const page = await deps.quests.list(guildId, {
+      limit: 100,
+      state: 'awaiting_seal',
+      ...(after === undefined ? {} : { after }),
+    })
+    for (const quest of page.quests) {
+      const seal = await deps.sealStore.forQuest(guildId, quest.id)
+      if (seal && seal.round === quest.round) {
+        continue
+      }
+      if ((await requestQuestSeal(deps, guildId, quest)).outcome === 'requested') {
+        requested += 1
+      }
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+  return { requested }
+}

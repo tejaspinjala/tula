@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { type CostGroup, type CostRow, formatDollars, loadCosts } from './costs'
+import {
+  type CostGroup,
+  type CostPerPost,
+  type CostRow,
+  formatDollars,
+  loadCostPerPost,
+  loadCosts,
+} from './costs'
 import type { Session } from './passkeys'
 
 const GROUPS: Array<{ value: CostGroup; label: string }> = [
@@ -13,6 +20,7 @@ const GROUPS: Array<{ value: CostGroup; label: string }> = [
 export function CostTablePanel({ session }: { session: Session | null }) {
   const [by, setBy] = useState<CostGroup>('day')
   const [rows, setRows] = useState<CostRow[] | null>(null)
+  const [posts, setPosts] = useState<CostPerPost | null>(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
@@ -25,6 +33,16 @@ export function CostTablePanel({ session }: { session: Session | null }) {
       .then(setRows)
       .catch(() => setFailed(true))
   }, [session, by])
+
+  useEffect(() => {
+    if (!session) {
+      setPosts(null)
+      return
+    }
+    loadCostPerPost(session, fetch)
+      .then(setPosts)
+      .catch(() => setFailed(true))
+  }, [session])
 
   return (
     <section aria-labelledby="costs-heading" className="mt-8">
@@ -72,6 +90,39 @@ export function CostTablePanel({ session }: { session: Session | null }) {
             ))}
           </tbody>
         </table>
+      )}
+      {posts && (
+        <>
+          <h3 className="mt-6 text-lg font-semibold">Cost per accepted post</h3>
+          <p className="mt-2">
+            {posts.overall.posts === 0
+              ? 'No post has been accepted yet.'
+              : `${posts.overall.posts} accepted, ${formatDollars(posts.overall.costPerPostMicros)} each.`}
+          </p>
+          {posts.campaigns.length > 0 && (
+            <table className="mt-2 w-full text-left">
+              <caption className="sr-only">Cost per accepted post by Campaign</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Campaign</th>
+                  <th scope="col">Posts</th>
+                  <th scope="col">Dollars</th>
+                  <th scope="col">Per post</th>
+                </tr>
+              </thead>
+              <tbody>
+                {posts.campaigns.map((c) => (
+                  <tr key={c.campaignId ?? 'none'}>
+                    <th scope="row">{c.campaignId ?? 'No Campaign'}</th>
+                    <td>{c.posts}</td>
+                    <td>{formatDollars(c.costMicros)}</td>
+                    <td>{formatDollars(c.costPerPostMicros)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
     </section>
   )
