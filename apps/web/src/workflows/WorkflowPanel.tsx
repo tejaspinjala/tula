@@ -25,7 +25,7 @@ import {
 import { Canvas, NODE_PIECE } from './Canvas'
 import { Inspector } from './Inspector'
 import { layout, type Place } from './layout'
-import { addNode, connect, paletteTypes, saveBody } from './model'
+import { addNode, connect, paletteTypes, saveBody, versionLine } from './model'
 import {
   errorsByNode,
   type NodeOverlay,
@@ -489,9 +489,7 @@ export function WorkflowPanel({
         </button>
       </div>
       <p className="muted">
-        {version === 0
-          ? 'Not saved yet.'
-          : `Version ${version} of ${activeVersion === null ? 'none in force' : `${activeVersion} in force`}.`}
+        {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
       </p>
       {wide && (
         <fieldset className="actions builder-palette workflow-palette">

@@ -103,9 +103,7 @@ function Field(props: {
       <label>
         {label}
         <select aria-label={label} value={text} onChange={(e) => onSet(spec.key, e.target.value)}>
-          {!others.some((n) => n.id === text) && (
-            <option value={text}>{text || 'Choose a node'}</option>
-          )}
+          {!others.some((n) => n.id === text) && <option value="">Choose a node</option>}
           {others.map((n) => (
             <option key={n.id} value={n.id}>
               {n.name ?? n.id}
@@ -241,6 +239,7 @@ export function Inspector({ graph, selected, halls, onChange, onSelect }: Inspec
         </fieldset>
       )}
       <DeleteWithConfirm
+        key={node.id}
         what={node.id}
         onConfirm={() => {
           onChange(removeNode(graph, node.id))
