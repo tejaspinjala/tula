@@ -131,6 +131,32 @@ export function Shell({
       ?.querySelector<HTMLElement>('[aria-current="page"]')
       ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [active])
+  useEffect(() => {
+    return () => {
+      document.title = 'Guildhall'
+    }
+  }, [])
+  useEffect(() => {
+    if (!moreOpen) {
+      return
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMoreOpen(false)
+      }
+    }
+    const onPointer = (event: Event) => {
+      if (event.target instanceof Node && !nav.current?.contains(event.target)) {
+        setMoreOpen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPointer)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onPointer)
+    }
+  }, [moreOpen])
   const signOut = () => {
     navigate('/')
     onSession(null)
@@ -171,7 +197,7 @@ export function Shell({
               data-active-inside={activeIndex >= PHONE_TABS ? 'true' : undefined}
               onClick={() => setMoreOpen((open) => !open)}
             >
-              More
+              {moreOpen ? 'Close' : 'More'}
             </button>
           </li>
         </ul>
