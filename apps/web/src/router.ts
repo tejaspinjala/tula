@@ -1,19 +1,54 @@
 import { useCallback, useEffect, useState } from 'react'
 
-/** The Bag's pages, in menu order. */
-export const BAG_PAGES = [] as const
+/** The Bag's pages, in menu order. Each opens over the world at its path. */
+export const BAG_PAGES = [
+  { id: 'quests', path: '/quests', label: 'Quest Board' },
+  { id: 'seals', path: '/seals', label: 'Seals' },
+  { id: 'treasury', path: '/treasury', label: 'Treasury' },
+  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds' },
+  { id: 'guild', path: '/guild', label: 'Guild builder' },
+  { id: 'workflows', path: '/workflows', label: 'Workflows' },
+  { id: 'missives', path: '/missives', label: 'Missives' },
+  { id: 'gates', path: '/gates', label: 'Gates' },
+  { id: 'settings', path: '/vault', label: 'Settings' },
+] as const
 
 /** The id of one Bag page. */
-export type PageId = never
+export type PageId = (typeof BAG_PAGES)[number]['id']
 
-/** Which Bag page a location opens, or null for the bare world. */
-export function pageFor(_pathname: string, _search: string): PageId | null {
-  return null
+/** Older ledger paths (bookmarks, push links) and the page that now holds them. */
+const ALIASES: Record<string, PageId | null> = {
+  '/': null,
+  '/hall': null,
+  '/archive': 'ledger',
+  '/roster': 'guild',
+}
+
+function trimmed(pathname: string): string {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
+}
+
+/**
+ * Which Bag page a location opens, or null for the bare world. A tapped Seal push link
+ * (`/?seal=<id>`) opens the Seals page; an explicit page path wins over it.
+ */
+export function pageFor(pathname: string, search: string): PageId | null {
+  const path = trimmed(pathname)
+  const found = BAG_PAGES.find((page) => page.path === path)
+  if (found) {
+    return found.id
+  }
+  const alias = Object.hasOwn(ALIASES, path) ? ALIASES[path] : null
+  if (alias) {
+    return alias
+  }
+  return new URLSearchParams(search).has('seal') ? 'seals' : null
 }
 
 /** Whether `pathname` is the world or a Bag page path; anything else redirects to `/`. */
-export function isKnownPath(_pathname: string): boolean {
-  return true
+export function isKnownPath(pathname: string): boolean {
+  const path = trimmed(pathname)
+  return Object.hasOwn(ALIASES, path) || BAG_PAGES.some((page) => page.path === path)
 }
 
 /** The open Bag page (null while the world is bare) and a `navigate` that changes the path without a page load. */
