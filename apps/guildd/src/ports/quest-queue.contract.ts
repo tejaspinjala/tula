@@ -11,6 +11,8 @@ export interface QuestQueueFixture {
   events: (guildId: string) => Promise<string[]>
   /** Pauses (or resumes) a Hall through the TripwireStore the queue was built with. */
   setHallPaused: (guildId: string, hallId: string, paused: boolean) => Promise<void>
+  /** Bars (or lifts) the guild, or every guild, through the GateStore the queue was built with. */
+  setBarred: (guildId: string, scope: 'guild' | 'global', barred: boolean) => Promise<void>
 }
 
 const LEASE = { leaseMs: 60_000, maxActive: 10 }
@@ -46,6 +48,37 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(await queue.claim(g, { ...LEASE, questId: held.id })).toBeNull()
       await setHallPaused(g, 'heralds', false)
       expect((await queue.claim(g, LEASE))?.id).toBe(held.id)
+    })
+
+    test('a barred guild has no Quest claimed; another guild still claims; lifting restores', async () => {
+      const { queue, newGuild, setBarred } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      const { quest: held } = await queue.post(a, quest())
+      const { quest: free } = await queue.post(b, quest())
+      await setBarred(a, 'guild', true)
+      try {
+        expect(await queue.claim(a, LEASE)).toBeNull()
+        expect(await queue.claim(a, { ...LEASE, questId: held.id })).toBeNull()
+        expect((await queue.claim(b, LEASE))?.id).toBe(free.id)
+      } finally {
+        await setBarred(a, 'guild', false)
+      }
+      expect((await queue.claim(a, LEASE))?.id).toBe(held.id)
+    })
+
+    test('a global bar stops claims in every guild until it is lifted', async () => {
+      const { queue, newGuild, setBarred } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      const { quest: q } = await queue.post(b, quest())
+      await setBarred(a, 'global', true)
+      try {
+        expect(await queue.claim(b, LEASE)).toBeNull()
+      } finally {
+        await setBarred(a, 'global', false)
+      }
+      expect((await queue.claim(b, LEASE))?.id).toBe(q.id)
     })
 
     test("another guild's pause does not stop this guild's claims", async () => {

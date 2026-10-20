@@ -7,6 +7,7 @@ import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
+import { PgGateStore } from './pg-gate-store'
 import { PgQuestQueue } from './pg-quest-queue'
 import { PgTripwireStore } from './pg-tripwire-store'
 
@@ -32,6 +33,11 @@ questQueueContract('postgres', async () => {
     clock,
     newGuild,
     events,
+    setBarred: async (guildId: string, scope: 'guild' | 'global', barred: boolean) => {
+      const gates = new PgGateStore(db, new MemoryKeyProvider())
+      const actor = { guildId, memberId: crypto.randomUUID() }
+      await (barred ? gates.bar(actor, scope) : gates.lift(actor, scope))
+    },
     setHallPaused: async (guildId: string, hallId: string, paused: boolean) => {
       const tripwires = new PgTripwireStore(db, new MemoryKeyProvider(), clock)
       if (paused) {
