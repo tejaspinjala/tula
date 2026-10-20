@@ -96,8 +96,8 @@ export const contentPolicy = z.object({
 })
 
 /** The guild's effective content policy for Verdicts. */
-export function guildContentPolicy(_config: GuildConfig): ContentPolicy {
-  return DEFAULT_POLICY
+export function guildContentPolicy(config: GuildConfig): ContentPolicy {
+  return config.contentPolicy ?? DEFAULT_POLICY
 }
 
 /** The guild's effective Treasury envelope limits. */
@@ -330,6 +330,19 @@ function treasuryNoWider(prev: TreasuryLimits, next: TreasuryLimits): boolean {
   )
 }
 
+function policyNoWider(prev: ContentPolicy, next: ContentPolicy): boolean {
+  const covers = (more: readonly string[], fewer: readonly string[]) => {
+    const have = new Set(more.map((t) => t.toLowerCase()))
+    return fewer.every((t) => have.has(t.toLowerCase()))
+  }
+  return (
+    next.maxLength <= prev.maxLength &&
+    covers(next.bannedTerms, prev.bannedTerms) &&
+    covers(next.requiredTerms, prev.requiredTerms) &&
+    othersSame(prev, next, ['maxLength', 'bannedTerms', 'requiredTerms'])
+  )
+}
+
 /** True only when `next` is provably no riskier than `prev`, field by field; anything else fails closed. */
 function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
@@ -352,6 +365,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&
     tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&
     treasuryNoWider(guildTreasury(prev), guildTreasury(next)) &&
+    policyNoWider(guildContentPolicy(prev), guildContentPolicy(next)) &&
     removedHallsOk &&
     next.halls.every((h) => {
       const before = prevHalls.get(h.id)
@@ -368,6 +382,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'tripwires',
       'treasury',
       'learningRepos',
+      'contentPolicy',
     ])
   )
 }
@@ -406,6 +421,7 @@ export function classifyChange(prev: GuildConfig, next: GuildConfig): ChangeKind
       tripwires: guildTripwires(c),
       treasury: guildTreasury(c),
       learningRepos: learningRepoAllowlist(c),
+      contentPolicy: guildContentPolicy(c),
     })
   return same(effective(prev), effective(next)) ? 'neutral' : 'tightening'
 }
