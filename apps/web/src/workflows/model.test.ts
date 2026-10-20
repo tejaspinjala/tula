@@ -1,7 +1,16 @@
 import { expect, test } from 'bun:test'
 import { QUEST_TEMPLATES } from '../../../guildd/src/quests'
 import { type WorkflowGraph, workflowNode } from '../../../guildd/src/workflows/graph'
-import { addNode, connect, fieldsFor, paletteTypes, removeNode, saveBody, setField } from './model'
+import {
+  addNode,
+  connect,
+  fieldsFor,
+  paletteTypes,
+  removeNode,
+  saveBody,
+  setField,
+  versionLine,
+} from './model'
 
 const start: WorkflowGraph = { nodes: [{ id: 'trigger', type: 'trigger.manual' }], edges: [] }
 
@@ -81,4 +90,24 @@ test('a new agent node uses a Quest template that requires a Seal, so a gate aft
   const template = QUEST_TEMPLATES.find((t) => agent?.type === 'agent' && t.id === agent.templateId)
   expect(template?.requiresSeal).toBe(true)
   expect(agent?.type === 'agent' ? agent.hallId : null).toBe(template?.hallId ?? null)
+})
+
+test('deleting a node clears the binding of every node that judged it', () => {
+  const graph: WorkflowGraph = {
+    nodes: [
+      { id: 'start', type: 'trigger.manual' },
+      { id: 'verify', type: 'verify', of: 'draft' },
+      { id: 'seal', type: 'approval', of: 'verify' },
+    ],
+    edges: [],
+  }
+  const next = removeNode(graph, 'verify')
+  const seal = next.nodes.find((n) => n.id === 'seal')
+  expect(seal && 'of' in seal ? seal.of : 'missing').toBe('')
+})
+
+test('a new Workflow reads plainly, not as "of none in force"', () => {
+  expect(versionLine(1, null)).toBe('Version 1, not yet in force.')
+  expect(versionLine(3, 2)).toBe('Version 3 of 2 in force.')
+  expect(versionLine(0, null)).toBe('Not saved yet.')
 })

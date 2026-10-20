@@ -4,7 +4,7 @@ import { act } from 'react'
 
 GlobalRegistrator.register()
 const { createRoot } = await import('react-dom/client')
-const { Canvas, NODE_PIECE } = await import('./Canvas')
+const { Canvas, FIT_VIEW_OPTIONS, NODE_PIECE } = await import('./Canvas')
 
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
@@ -55,4 +55,9 @@ test('a palette piece dropped onto an existing node still adds a node', async ()
     node?.dispatchEvent(event)
   })
   expect(dropped).toEqual(['verify'])
+})
+
+test('the initial fit keeps padding and a readable minimum zoom', () => {
+  expect(FIT_VIEW_OPTIONS.padding).toBeGreaterThanOrEqual(0.15)
+  expect(FIT_VIEW_OPTIONS.minZoom).toBeGreaterThanOrEqual(0.6)
 })

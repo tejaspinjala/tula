@@ -270,7 +270,11 @@ export function validateWorkflow(
     const target = byId.get(n.of)
     if (target?.type !== want) {
       if (report) {
-        add('bad_binding', `${n.type} ${n.id} must be bound to a ${want} node`, n.id)
+        add(
+          'bad_binding',
+          `${n.type} ${n.id} must be bound to ${/^[aeiou]/.test(want) ? 'an' : 'a'} ${want} node`,
+          n.id
+        )
       }
       return null
     }
