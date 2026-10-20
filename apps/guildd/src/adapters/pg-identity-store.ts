@@ -259,6 +259,22 @@ export class PgIdentityStore implements IdentityStore {
     }
   }
 
+  async endSession(
+    guildId: string,
+    sessionId: string,
+    at: Date,
+    event: IdentityEvent
+  ): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      const ended =
+        await tx`update identity_sessions set expires_at = ${at}, reauth_hash = null, reauth_expires_at = null
+           where guild_id = ${guildId} and session_id = ${sessionId} returning 1`
+      if (ended.length > 0) {
+        await this.append(tx, event)
+      }
+    })
+  }
+
   async setReauth(
     guildId: string,
     sessionId: string,

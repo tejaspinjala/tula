@@ -40,6 +40,8 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'Passkey registered'
     case 'identity.signed_in':
       return 'Guild Master signed in'
+    case 'identity.signed_out':
+      return 'Guild Master signed out'
     case 'identity.reauthenticated':
       return 'Guild Master re-authenticated'
     case 'config.seeded':

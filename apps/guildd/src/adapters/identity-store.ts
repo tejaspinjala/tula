@@ -118,6 +118,8 @@ export interface IdentityStore {
   saveSession(guildId: string, session: StoredSession, event: IdentityEvent): Promise<void>
   /** Finds a session by the hash of its token. */
   findSession(guildId: string, tokenHash: string): Promise<StoredSession | null>
+  /** Ends the session at `at` (expiry set, proof cleared), appending `event` in the same transaction. Unknown ids are ignored. */
+  endSession(guildId: string, sessionId: string, at: Date, event: IdentityEvent): Promise<void>
   /** Replaces the session's current re-authentication proof hash, appending `event` in the same transaction. */
   setReauth(
     guildId: string,
