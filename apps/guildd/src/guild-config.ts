@@ -93,6 +93,8 @@ export const caps = z.object({
   maxSpawnDepth: z.number().int().min(0).max(5).optional(),
   /** Board Quests a Captain may post under one Campaign; {@link DEFAULT_MAX_QUESTS_PER_CAMPAIGN} when absent. Counts board Quests only (Sub-Quests are bounded by the spawn caps). Raising it widens risk. */
   maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
+  /** Missives one Quest may send; {@link DEFAULT_MAX_MISSIVES_PER_QUEST} when absent. Raising it widens risk. */
+  maxMissivesPerQuest: z.number().int().min(0).max(200).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -125,6 +127,14 @@ export const DEFAULT_MAX_QUESTS_PER_CAMPAIGN = 10
 /** The guild's cap on Quests posted to the Quest Board under one Campaign. */
 export function campaignQuestCap(config: GuildConfig): number {
   return config.caps.maxQuestsPerCampaign ?? DEFAULT_MAX_QUESTS_PER_CAMPAIGN
+}
+
+/** Missives one Quest may send when the config sets no cap. */
+export const DEFAULT_MAX_MISSIVES_PER_QUEST = 20
+
+/** The guild's cap on Missives one Quest may send (all its attempts). */
+export function missiveCap(config: GuildConfig): number {
+  return config.caps.maxMissivesPerQuest === -1 ? DEFAULT_MAX_MISSIVES_PER_QUEST : 0
 }
 
 /** Concurrent Members of a Hall when its cap is unset: no limit beyond the guild's Quest concurrency. */
