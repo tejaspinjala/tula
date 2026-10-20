@@ -140,6 +140,8 @@ export function Bag({
     }
     if (visible && !node.open) {
       node.showModal()
+      // A real browser focuses the first control (Close); the ▶ cursor belongs on the menu.
+      node.querySelector<HTMLElement>('[role="option"][tabindex="0"]')?.focus()
     } else if (!visible && node.open) {
       node.close()
     }

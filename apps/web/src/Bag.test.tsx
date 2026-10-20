@@ -166,3 +166,10 @@ test('closing the Bag hands keyboard focus back to the world', async () => {
   expect(c.focus).toBe(1)
   await m.unmount()
 })
+
+test('opening the Bag puts the ▶ cursor on the first row, not on the Close button', async () => {
+  const m = await mount(bag({ visible: false }, calls()))
+  await m.rerender(bag({ visible: true }, calls()))
+  expect(document.activeElement).toBe(options(m.host)[0] as HTMLElement)
+  await m.unmount()
+})
