@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgNoteStore } from './adapters/pg-note-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -50,6 +51,7 @@ export async function compose(
     keys,
     config: overrides.config ?? new PgConfigStore(db, keys),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
+    notes: overrides.notes ?? new PgNoteStore(db, keys),
   }
   return { app: createApp(adapters), adapters }
 }

@@ -51,6 +51,7 @@ describe('websocket backpressure', () => {
       identity: harness.adapters.identity,
       secrets: harness.adapters.secrets,
       config: harness.adapters.config,
+      notes: harness.adapters.notes,
       keys,
       devGuildHeader: true,
       eventPollMs: 600_000,

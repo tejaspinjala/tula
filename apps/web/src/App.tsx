@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { PasskeyPanel } from './PasskeyPanel'
 import type { Session } from './passkeys'
@@ -28,6 +29,7 @@ export function App() {
           <a href="#artifact-heading">Artifacts</a>
           <a href="#vault-heading">Vault</a>
           <a href="#roster-heading">Roster</a>
+          <a href="#archive-heading">Archive</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -36,6 +38,7 @@ export function App() {
         <ArtifactViewer session={session} />
         <VaultPanel session={session} />
         <RosterPanel session={session} />
+        <ArchivePanel session={session} />
       </main>
     </>
   )
