@@ -160,6 +160,9 @@ export type FoundingState = 'open' | 'closed' | 'busy'
 export async function foundingOpen(fetcher: Fetcher): Promise<FoundingState> {
   try {
     const res = await fetcher('/api/founding')
+    if (res.status === 429) {
+      return 'busy'
+    }
     const parsed = z.object({ open: z.boolean() }).safeParse(await res.json().catch(() => null))
     return res.ok && parsed.success && parsed.data.open ? 'open' : 'closed'
   } catch {
