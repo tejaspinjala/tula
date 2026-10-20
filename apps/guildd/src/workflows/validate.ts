@@ -150,8 +150,8 @@ export function validateWorkflow(
     out
   )
   for (const n of byId.values()) {
-    if (n.type === 'agent' && afterTeam.has(n.id)) {
-      add('agent_after_team', `agent ${n.id} runs after a team node`, n.id)
+    if (startsQuests(n) && afterTeam.has(n.id)) {
+      add('node_after_team', `${n.type} ${n.id} runs after a team node`, n.id)
     }
   }
   if (hasCycle([...known], out)) {

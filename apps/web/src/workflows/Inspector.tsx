@@ -13,7 +13,8 @@ export interface InspectorProps {
   onSelect: (id: string | null) => void
 }
 
-const LABELS: Record<string, string> = {
+/** The inspector's field labels by schema key. */
+export const FIELD_LABELS: Record<string, string> = {
   name: 'Name',
   hallId: 'Hall',
   templateId: 'Quest template',
@@ -61,7 +62,7 @@ function Field(props: {
   onTemplate: (templateId: string) => void
 }) {
   const { spec, value, onSet } = props
-  const label = LABELS[spec.key] ?? spec.key
+  const label = FIELD_LABELS[spec.key] ?? spec.key
   const text = value === undefined ? '' : Array.isArray(value) ? value.join('\n') : String(value)
   if (spec.key === 'hallId') {
     const ids = new Set(props.halls.map((h) => h.id))
