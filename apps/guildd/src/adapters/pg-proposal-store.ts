@@ -175,7 +175,7 @@ export class PgProposalStore implements ProposalStore {
         select ${tx.unsafe(SELECT)} from proposals p
         join verdicts v on v.guild_id = p.guild_id and v.proposal_hash = p.content_hash
         where p.guild_id = ${guildId} and p.quest_id = ${questId}
-        order by p.created_at desc, p.proposal_id desc limit 1`
+        order by p.seq desc limit 1`
       return found ? toProposal(row.parse(found)) : null
     })
   }
