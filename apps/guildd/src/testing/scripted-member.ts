@@ -53,6 +53,8 @@ export interface Script {
   output: (brief: string) => string
   goal: string
   openItems?: string[]
+  /** Runs once the artifact is filed and before the Quest is completed (e.g. to file a Proposal). */
+  afterArtifact?: (artifactHash: string) => Promise<void>
 }
 
 /** The result of a full scripted run. */
@@ -87,6 +89,24 @@ export class ScriptedMember {
       throw new Error(`claim refused: ${claim.rpcError ?? JSON.stringify(claim.data)}`)
     }
     const { lease, brief } = claimedData.parse(claim.data)
+    return this.work(lease, brief)
+  }
+
+  /**
+   * Runs read Brief, put artifact, complete for a Quest the dispatcher already claimed: the
+   * caller supplies the lease handle from the sandbox spec and the Brief. @throws Error if a step is refused.
+   */
+  async runLeased(
+    lease: { questId: string; attempt: number; token: string },
+    brief: string
+  ): Promise<ScriptedRun> {
+    return this.work(lease, brief)
+  }
+
+  private async work(
+    lease: { questId: string; attempt: number; token: string },
+    brief: string
+  ): Promise<ScriptedRun> {
     const doneCondition = /^Done when: (.+)$/m.exec(brief)?.[1]
     if (!doneCondition) {
       throw new Error('the Brief names no done-condition')
@@ -94,6 +114,7 @@ export class ScriptedMember {
     const content = Buffer.from(this.script.output(brief), 'utf8').toString('base64')
     const put = await callTool(this.transport, 'put_artifact', { lease, contentBase64: content })
     const artifactHash = z.string().parse(put.data.hash)
+    await this.script.afterArtifact?.(artifactHash)
     const handoff: Handoff = {
       goal: this.script.goal,
       doneCondition,
