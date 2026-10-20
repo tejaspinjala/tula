@@ -182,6 +182,16 @@ export type QuestEventType =
   | 'quest.done'
   | 'quest.retry_scheduled'
   | 'quest.dead'
+  | 'campaign.started'
+  | 'campaign.finished'
+
+/** Ids-only payload of a Quest transition's event; a claim also names the Member and the Hall. */
+export function questEventPayload(t: Transition, attempt: number): Record<string, string | number> {
+  const base = { questId: t.quest.id, hallId: t.quest.hallId, attempt }
+  return t.event === 'quest.claimed'
+    ? { ...base, memberId: t.quest.ownerId, hall: t.quest.hallId }
+    : base
+}
 
 /** The result of a transition: the Quest after it, and the event to append (null for an idempotent no-op). */
 export interface Transition {
@@ -638,6 +648,17 @@ export function cascadeDeadTransitions(quests: readonly Quest[], deadId: string)
 
 const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']
 
+/** True when `campaignId` has Quests and none is still in flight (the Campaign has finished). */
+export function campaignFinished(quests: readonly Quest[], campaignId: string): boolean {
+  const mine = quests.filter((q) => q.campaignId === campaignId)
+  return mine.length > 0 && !mine.some((q) => IN_FLIGHT.includes(q.state))
+}
+
+/** The cap a board post would break, or null: `campaign_cap` when the Campaign already holds `maxQuests` board Quests. */
+export function boardRefusal(boardCount: number, maxQuests: number): 'campaign_cap' | null {
+  return boardCount >= maxQuests ? 'campaign_cap' : null
+}
+
 /**
  * Picks the Quest `claim` should lease from `quests` (every Quest of one guild), or null.
  * Pure: used by the memory adapter; the Postgres adapter expresses the same rules in SQL.
@@ -653,15 +674,24 @@ export function pickClaimable(
   if (quests.filter((q) => hasLiveLease(q, now)).length >= options.maxActive) {
     return null
   }
+  const hallFull = (hallId: string): boolean => {
+    const cap = options.hallCaps?.[hallId]
+    return (
+      cap !== undefined &&
+      quests.filter((q) => q.hallId === hallId && hasLiveLease(q, now)).length >= cap
+    )
+  }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    !hallFull(q.hallId) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&
     q.blockedBy.every((id) => doneIds.has(id)) &&
     (q.campaignId === null ||
+      q.board ||
       !quests.some(
         (o) => o.campaignId === q.campaignId && o.seq < q.seq && IN_FLIGHT.includes(o.state)
       ))

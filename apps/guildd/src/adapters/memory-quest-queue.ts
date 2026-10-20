@@ -3,7 +3,9 @@ import {
   assertHeld,
   type BoardRequest,
   type BoardResult,
+  boardRefusal,
   type ClaimOptions,
+  campaignFinished,
   cascadeDeadTransitions,
   claimTransition,
   completeTransition,
@@ -24,6 +26,7 @@ import {
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
+  questEventPayload,
   releaseClaimTransition,
   renewTransition,
   retryDelayMs,
@@ -85,25 +88,41 @@ export class MemoryQuestQueue implements QuestQueue {
 
   private apply(guildId: string, t: Transition): Quest {
     this.record(guildId, t)
+    const settled = new Set<string>()
+    if (t.event === 'quest.dead' || t.event === 'quest.done') {
+      if (t.quest.campaignId !== null) {
+        settled.add(t.quest.campaignId)
+      }
+    }
     if (t.event === 'quest.dead') {
       for (const dependent of cascadeDeadTransitions(
         [...this.guild(guildId).byId.values()],
         t.quest.id
       )) {
         this.record(guildId, dependent)
+        if (dependent.quest.campaignId !== null) {
+          settled.add(dependent.quest.campaignId)
+        }
       }
     }
+    this.finishCampaigns(guildId, settled)
     return t.quest
   }
 
   private record(guildId: string, t: Transition): void {
     this.guild(guildId).byId.set(t.quest.id, t.quest)
     if (t.event) {
-      this.onEvent(guildId, t.event, {
-        questId: t.quest.id,
-        hallId: t.quest.hallId,
-        attempt: t.quest.attempts,
-      })
+      this.onEvent(guildId, t.event, questEventPayload(t, t.quest.attempts))
+    }
+  }
+
+  /** Appends `campaign.finished` for each of `campaignIds` whose Quests are all settled. */
+  private finishCampaigns(guildId: string, campaignIds: ReadonlySet<string>): void {
+    const all = [...this.guild(guildId).byId.values()]
+    for (const campaignId of campaignIds) {
+      if (campaignFinished(all, campaignId)) {
+        this.onEvent(guildId, 'campaign.finished', { campaignId })
+      }
     }
   }
 
@@ -123,6 +142,9 @@ export class MemoryQuestQueue implements QuestQueue {
     if (parsed.blockedBy.some((id) => !g.byId.has(id))) {
       throw new QuestError('unknown_blocker')
     }
+    const startsCampaign =
+      parsed.campaignId !== undefined &&
+      ![...g.byId.values()].some((q) => q.campaignId === parsed.campaignId)
     g.seq += 1
     const now = this.clock.now().toISOString()
     const quest: Quest = {
@@ -154,6 +176,9 @@ export class MemoryQuestQueue implements QuestQueue {
     g.byId.set(quest.id, quest)
     g.byKey.set(quest.jobKey, quest.id)
     this.onEvent(guildId, 'quest.posted', { questId: quest.id, hallId: quest.hallId, attempt: 0 })
+    if (startsCampaign) {
+      this.onEvent(guildId, 'campaign.started', { campaignId: parsed.campaignId })
+    }
     return { quest, created: true }
   }
 
@@ -313,8 +338,28 @@ export class MemoryQuestQueue implements QuestQueue {
     return { ok: true, quest, link, created: true }
   }
 
-  async postBoard(_guildId: string, _request: BoardRequest): Promise<BoardResult> {
-    return { ok: false, error: 'campaign_cap' }
+  async postBoard(guildId: string, request: BoardRequest): Promise<BoardResult> {
+    const g = this.guild(guildId)
+    assertHeld(this.mustFind(guildId, request.parentId), request.attempt)
+    const existingId = g.byKey.get(request.jobKey)
+    const existing = existingId === undefined ? undefined : g.byId.get(existingId)
+    if (existing) {
+      return { ok: true, quest: existing, created: false }
+    }
+    const onBoard = [...g.byId.values()].filter(
+      (q) => q.board && q.campaignId === request.campaignId
+    ).length
+    const refusal = boardRefusal(onBoard, request.maxQuests)
+    if (refusal) {
+      return { ok: false, error: refusal }
+    }
+    const { quest, created } = this.postNow(guildId, {
+      ...request.quest,
+      jobKey: request.jobKey,
+      campaignId: request.campaignId,
+      board: true,
+    })
+    return { ok: true, quest, created }
   }
 
   async children(guildId: string, parentId: string): Promise<QuestLink[]> {

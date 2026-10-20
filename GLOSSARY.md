@@ -55,7 +55,7 @@ One run of a pinned Workflow version. Its Quests share one Campaign, the instanc
 _Avoid_: job
 
 **Quest Board**:
-The kanban of a Hall's Quests.
+The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests onto it under a Campaign (`post_to_board`), and the Hall's Members claim them in parallel, up to the Hall's `maxConcurrentMembers`. A Campaign holds at most `maxQuestsPerCampaign` board Quests.
 _Avoid_: backlog
 
 **Missive**:
@@ -214,6 +214,12 @@ Event types appended to the chained event log by Bar the Gates and by the Quest,
 
 **gates.barred** / **gates.lifted**:
 The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and the acting member id in the acting guild's own chain only). A global bar or lift is also told to every other guild's chain with the bar id and scope only, never who acted.
+
+**quest.claimed**:
+A Member's Quest was leased (payload: quest id, hall id, attempt, member id, and `hall`, the Hall again under the name the Quest Board shows; ids and a number only).
+
+**campaign.started** / **campaign.finished**:
+The first Quest of a Campaign was posted / the last in-flight Quest of a Campaign settled, done or dead (payload: campaign id only).
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).
