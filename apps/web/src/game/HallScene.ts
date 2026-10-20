@@ -83,7 +83,15 @@ export class HallScene extends Phaser.Scene {
       collision?.setCollisionByExclusion([-1])
     }
     this.drawFixtures()
-    this.scale.on('resize', () => this.fit())
+    // Refit only when the canvas really changed size: Phaser also emits `resize` after a zoom.
+    let size = `${this.scale.width}x${this.scale.height}`
+    this.scale.on('resize', () => {
+      const next = `${this.scale.width}x${this.scale.height}`
+      if (next !== size) {
+        size = next
+        this.fit()
+      }
+    })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (pointer.isDown) {
         const cam = this.cameras.main

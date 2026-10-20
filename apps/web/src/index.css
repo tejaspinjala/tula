@@ -245,6 +245,11 @@ ul[aria-label] {
   overflow: hidden;
   touch-action: none;
 }
+@media (max-width: 640px) {
+  .game-frame {
+    height: 340px;
+  }
+}
 .game-controls {
   display: flex;
   flex-wrap: wrap;
