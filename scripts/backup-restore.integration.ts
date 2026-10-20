@@ -7,11 +7,12 @@ import { FileKeyProvider } from '../apps/guildd/src/adapters/file-key-provider'
 import { MemoryCheckpointAnchor } from '../apps/guildd/src/adapters/memory-checkpoint-anchor'
 import { S3ObjectStore } from '../apps/guildd/src/adapters/s3-object-store'
 import { SystemClock } from '../apps/guildd/src/adapters/system-clock'
-import { verifyChain } from '../apps/guildd/src/audit-chain'
+import { signCheckpoint, verifyChain, verifyFrom } from '../apps/guildd/src/audit-chain'
 import { createDb } from '../apps/guildd/src/db/client'
 import { migrate, provisionAppRole } from '../apps/guildd/src/db/migrate'
 import { appendEvent, headSeq } from '../apps/guildd/src/events'
 import { hashBytes } from '../apps/guildd/src/ports/object-store'
+import { hashProposal } from '../apps/guildd/src/ports/seal-store'
 import { TEST_APP_PASSWORD } from '../apps/guildd/src/testing/test-db'
 import { backup, backupKey, removeBucket, restore, restoreKey, type Target } from './backup-restore'
 
@@ -56,6 +57,16 @@ afterAll(async () => {
   await rm(work, { recursive: true, force: true })
 })
 
+const SEAL_STATUSES = [
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'reserved',
+  'consumed',
+  'released',
+] as const
+
 describe('backup and restore drill', () => {
   test('a restored scratch stack matches the backed-up guild', async () => {
     // Seed: a migrated source database, a guild with events and an artifact.
@@ -71,7 +82,7 @@ describe('backup and restore drill', () => {
     const keys = await FileKeyProvider.open(keyPath)
     const witness = {
       anchor: new MemoryCheckpointAnchor(),
-      identity: { verifyCheckpointAssertion: async () => false },
+      identity: { verifyCheckpointAssertion: async () => true },
       clock: new SystemClock(),
     }
     const store = new S3ObjectStore({
@@ -94,6 +105,27 @@ describe('backup and restore drill', () => {
         size: bytes.byteLength,
       })
       await appendEvent(tx, keys, 'quest.noted', { note: 'known note' })
+      // One Seal in every status, a Quest and a signed checkpoint (with a stub passkey assertion).
+      for (const status of SEAL_STATUSES) {
+        const text = `proposal ${status}`
+        await tx`insert into seals (guild_id, quest_id, requested_by, kind, text, evidence, action_hash,
+            status, requested_at, expires_at, reservation_token_hash)
+          values (${guild}, ${crypto.randomUUID()}, 'herald-1', 'post', ${text}, 'e',
+            ${await hashProposal(text)}, ${status}, now(), now() + interval '1 hour', ${status === 'reserved' ? 'c'.repeat(64) : null})`
+      }
+      await tx`insert into quests (guild_id, job_key, template_id, hall_id, rank, data_class, title,
+          owner_id, done_condition, state, round_limit, max_attempts, not_before)
+        values (${guild}, 'drill', 'herald-brief', 'heralds', 'journeyman', 'internal', 't',
+          'heralds-member-2', 'c', 'queued', 1, 3, now())`
+      const reached = (await verifyFrom(tx, keys, witness)).position
+      const stub = {
+        credentialId: 'stub',
+        authenticatorData: 'stub',
+        clientDataJSON: 'stub',
+        signature: 'stub',
+      }
+      const signed = await signCheckpoint(tx, keys, witness, { expect: reached, assertion: stub })
+      expect(signed.ok).toBe(true)
       return { events: await headSeq(tx), verdict: await verifyChain(tx, keys, witness) }
     })
     expect(before.verdict.intact).toBe(true)
@@ -131,6 +163,21 @@ describe('backup and restore drill', () => {
       expect(after.events).toBe(before.events)
       expect(after.verdict).toEqual(before.verdict)
       expect(after.notes.map((n) => n.payload)).toEqual([{ note: 'known note' }])
+      const counts = await restoredDb.withGuild(guild, async (tx) => ({
+        seals: await tx`select status from seals order by status`,
+        quests: await tx`select 1 from quests`,
+        checkpoints: await tx`select 1 from audit_checkpoints`,
+      }))
+      expect(counts.seals.map((r) => r.status)).toEqual([...SEAL_STATUSES].sort())
+      expect(counts.quests).toHaveLength(1)
+      expect(counts.checkpoints).toHaveLength(1)
+      // The restore carried the Seal guard trigger: a consumed Seal cannot be moved again.
+      await expect(
+        restoredDb.withGuild(
+          guild,
+          (tx) => tx`update seals set status = 'requested' where status = 'consumed'`
+        )
+      ).rejects.toThrow('seals: ')
       const restored = await restoredStore.get(guild, hash)
       expect(restored).not.toBeNull()
       expect(restored ? hashBytes(restored) : null).toBe(hash)

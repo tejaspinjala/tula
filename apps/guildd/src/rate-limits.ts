@@ -12,6 +12,10 @@ export type RateRoute =
   | 'founding'
   | 'reauth'
   | 'stream-ticket'
+  | 'checkpoint-begin'
+  | 'checkpoint-finish'
+  | 'quest-post'
+  | 'seal-posted'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -46,6 +50,12 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
     unknown: { limit: 10, windowMs: MINUTE },
     guild: { limit: 60, windowMs: MINUTE },
   },
+  // Signed-in writes. They are cheap to call and expensive to serve (a chain read and a
+  // signature ceremony, a database insert), so each is bounded per client and per guild.
+  'checkpoint-begin': writeLimits(10, 30),
+  'checkpoint-finish': writeLimits(10, 30),
+  'quest-post': writeLimits(60, 300),
+  'seal-posted': writeLimits(30, 120),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
@@ -59,6 +69,15 @@ function ceremonyLimits(): RouteLimits {
     client: { limit: 30, windowMs: MINUTE },
     unknown: { limit: 10, windowMs: MINUTE },
     guild: { limit: 120, windowMs: MINUTE },
+  }
+}
+
+/** Per-minute limits for a signed-in write route: `client` per address, `guild` across all clients. */
+function writeLimits(client: number, guild: number): RouteLimits {
+  return {
+    client: { limit: client, windowMs: MINUTE },
+    unknown: { limit: Math.max(1, Math.floor(client / 3)), windowMs: MINUTE },
+    guild: { limit: guild, windowMs: MINUTE },
   }
 }
 

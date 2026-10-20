@@ -229,6 +229,10 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
+  app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
+  app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
+  app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -580,9 +584,9 @@ export function createApp(deps: AppDeps): Hono {
   // Quests. Posting and every transition is an event appended by the QuestQueue. Like the
   // Archive, a guild that is not the caller's is indistinguishable from one that does not exist.
   app.post('/guilds/:id/quests', async (c) => {
-    const who = await archiveCaller(c)
-    if (who instanceof Response) {
-      return who
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
     }
     const body = postQuestInput.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
@@ -631,9 +635,9 @@ export function createApp(deps: AppDeps): Hono {
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
   app.post('/guilds/:id/events/ticket', async (c) => {
-    const who = await archiveCaller(c)
-    if (who instanceof Response) {
-      return who
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
     }
     return c.json(await deps.streamTickets.issue(who.guild))
   })

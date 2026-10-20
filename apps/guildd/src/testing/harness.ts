@@ -19,6 +19,10 @@ export const UNLIMITED_RATE_LIMITS = {
   founding: { client: NO_LIMIT },
   reauth: { client: NO_LIMIT },
   'stream-ticket': { client: NO_LIMIT, guild: NO_LIMIT },
+  'checkpoint-begin': { client: NO_LIMIT, guild: NO_LIMIT },
+  'checkpoint-finish': { client: NO_LIMIT, guild: NO_LIMIT },
+  'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
+  'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */

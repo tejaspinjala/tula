@@ -157,3 +157,22 @@ test('listing a rare status among many Seals is one query', async () => {
   expect(page.seals).toHaveLength(1)
   expect(queries).toBe(1)
 })
+
+test('several Seals expiring together emit their events in seal id order', async () => {
+  const { clock, guild, store } = await setup()
+  for (let i = 0; i < 2; i++) {
+    await store.request(guild, {
+      questId: crypto.randomUUID(),
+      requestedBy: 'herald-1',
+      kind: 'post',
+      text: `t${i}`,
+      evidence: 'e',
+    })
+  }
+  clock.advance(SEAL_TTL_MS)
+  expect(await store.expireDue(guild)).toBe(3)
+  const events = await owner`
+    select payload from events where guild_id = ${guild} and type = 'seal.expired' order by seq`
+  const ids = events.map((e) => String(e.payload.sealId))
+  expect(ids).toEqual([...ids].sort())
+})

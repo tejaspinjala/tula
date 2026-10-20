@@ -9,6 +9,7 @@ import {
   completeTransition,
   dataClass,
   expireTransition,
+  failReason,
   failTransition,
   isExhausted,
   MAX_QUEST_PAGE,
@@ -75,7 +76,7 @@ function toQuest(raw: unknown): Quest {
     maxAttempts: r.max_attempts,
     leaseExpiresAt: r.lease_expires_at,
     notBefore: r.not_before,
-    lastError: r.last_error,
+    lastError: r.last_error === null ? null : failReason(r.last_error),
     createdAt: r.created_at,
   }
 }
@@ -189,7 +190,7 @@ export class PgQuestQueue implements QuestQueue {
       const lapsed = await tx`
         select * from quests
         where guild_id = ${guildId} and state = 'active' and lease_expires_at <= ${now}
-          and attempts >= max_attempts for update`
+          and attempts >= max_attempts order by seq for update`
       for (const raw of lapsed) {
         const quest = toQuest(raw)
         if (isExhausted(quest, now)) {
