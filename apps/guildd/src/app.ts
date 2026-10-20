@@ -27,6 +27,8 @@ import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
+import type { PushNotifier } from './ports/push-notifier'
+import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
@@ -43,6 +45,7 @@ import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
+import type { SealPushRelay } from './seal-push'
 import { GUILD_MASTER_ID, type SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import { readBufferedAmount } from './ws-support'
@@ -83,6 +86,14 @@ export interface AppDeps {
   modelProvider?: ModelProvider
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
+  /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
+  pushStore: PushStore
+  /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
+  pushNotifier: PushNotifier
+  /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
+  pushRelay: SealPushRelay
+  /** VAPID public key a browser subscribes with, or null when push is not configured. */
+  vapidPublicKey: string | null
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
