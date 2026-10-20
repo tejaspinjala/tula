@@ -14,8 +14,34 @@ export interface CoreLoopDeps {
  * a rerun, or two workers at once, change nothing. Returns how many Quests it settled.
  */
 export async function reconcileSeals(
-  _deps: CoreLoopDeps,
-  _guildId: string
+  deps: CoreLoopDeps,
+  guildId: string
 ): Promise<{ settled: number }> {
-  throw new Error('not implemented')
+  let settled = 0
+  let after: string | undefined
+  do {
+    const page = await deps.quests.list(guildId, {
+      limit: 100,
+      state: 'awaiting_seal',
+      ...(after === undefined ? {} : { after }),
+    })
+    for (const quest of page.quests) {
+      const seal = await deps.seals.forQuest(guildId, quest.id)
+      if (!seal || seal.round !== quest.round) {
+        continue
+      }
+      const outcome =
+        seal.status === 'consumed'
+          ? 'posted'
+          : seal.status === 'denied' || seal.status === 'expired'
+            ? 'rejected'
+            : null
+      if (outcome !== null) {
+        await deps.quests.settleSeal(guildId, quest.id, outcome)
+        settled += 1
+      }
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+  return { settled }
 }
