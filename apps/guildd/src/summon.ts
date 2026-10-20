@@ -49,7 +49,7 @@ export interface SummonDeps {
   gates: Pick<GateStore, 'isBarred'>
   gateway: Pick<ModelGateway, 'openRun'>
   mcp: Pick<McpGateway, 'lease'>
-  sandboxes: Pick<SandboxRunner, 'start'>
+  sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
   clock: Clock
 }
 
