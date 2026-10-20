@@ -15,6 +15,7 @@ import { appendEvent, headSeq } from './events'
 import { guildConfig } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
+import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import { IdentityError, type IdentityProvider } from './ports/identity'
@@ -22,6 +23,7 @@ import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import type { RateLimiter } from './ports/rate-limiter'
+import type { RoutingLog } from './ports/routing-log'
 import {
   MAX_SECRET_PAGE,
   SecretExistsError,
@@ -49,6 +51,10 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** Routing step 1 for free-text goals; the deterministic adapter until a cheap model is wired. */
+  classifier: Classifier
+  /** Routing decision log (insert-only), read by the future Oracle. */
+  routingLog: RoutingLog
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */

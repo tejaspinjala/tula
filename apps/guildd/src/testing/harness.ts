@@ -94,6 +94,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       secrets: composed.secrets,
       config: composed.config,
       notes: composed.notes,
+      classifier: composed.classifier,
+      routingLog: composed.routingLog,
       keys,
       anchor,
       witness: { anchor, identity: composed.identity, clock },
