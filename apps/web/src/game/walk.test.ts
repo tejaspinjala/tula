@@ -1,6 +1,17 @@
 import { expect, test } from 'bun:test'
 import { hallLayout } from './layout'
-import { direction, findPath, followPath, HALF, moveBy, roomAt, stick, type Vec } from './walk'
+import {
+  announceRoom,
+  direction,
+  findPath,
+  followPath,
+  HALF,
+  moveBy,
+  roomAt,
+  stick,
+  teleportTile,
+  type Vec,
+} from './walk'
 
 const layout = hallLayout()
 const open = () => true
@@ -89,6 +100,24 @@ test('following a path moves toward the next tile centre and consumes reached ti
   const c = followPath({ x: 0.5, y: 0.5 }, path, 9)
   expect(c.pos).toEqual({ x: 2.5, y: 0.5 })
   expect(c.path).toEqual([])
+})
+
+test('teleporting puts the Guild Master on a walkable tile inside that room', () => {
+  layout.rooms.forEach((_room, slot) => {
+    const tile = teleportTile(layout.rooms, slot, layout.walkable)
+    expect(tile).not.toBeNull()
+    if (tile) {
+      expect(layout.walkable(tile.x, tile.y)).toBe(true)
+      expect(roomAt(layout.rooms, { x: tile.x + 0.5, y: tile.y + 0.5 })).toBe(slot)
+    }
+  })
+  expect(teleportTile(layout.rooms, 99, layout.walkable)).toBeNull()
+})
+
+test('the announcement names the Hall, the empty room, or the hallway', () => {
+  expect(announceRoom('Research', true)).toBe('You are in the Research Hall.')
+  expect(announceRoom(undefined, true)).toBe('You are in an empty room.')
+  expect(announceRoom(null, false)).toBe('You are in the hallway.')
 })
 
 test('roomAt names the room the position is in, and null in the corridor', () => {

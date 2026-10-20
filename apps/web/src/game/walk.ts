@@ -156,6 +156,25 @@ export function followPath(
   return { pos: at, path: rest }
 }
 
+/** A walkable tile just inside a room's doorway, or null. Not implemented. */
+export function teleportTile(
+  rooms: readonly { x: number; y: number; w: number; h: number }[],
+  slot: number,
+  walkable: Walkable
+): Vec | null {
+  void rooms
+  void slot
+  void walkable
+  return null
+}
+
+/** What the live region says about where the Guild Master is. Not implemented. */
+export function announceRoom(hallName: string | null | undefined, inRoom: boolean): string {
+  void hallName
+  void inRoom
+  return ''
+}
+
 /** The index of the room rectangle holding a position, or null in the corridors. */
 export function roomAt(
   rooms: readonly { x: number; y: number; w: number; h: number }[],
