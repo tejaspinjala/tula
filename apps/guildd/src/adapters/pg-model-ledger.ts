@@ -92,7 +92,7 @@ export class PgModelLedger implements ModelLedger {
       guildId,
       (tx) => tx`
         update model_runs set state = 'active', token_hash = ${tokenHash}, expires_at = ${expiresAt}
-        where guild_id = ${guildId} and run_id = ${runId} and state = 'queued'
+        where guild_id = ${guildId} and run_id = ${runId} and state in ('queued', 'revoked')
         returning run_id`
     )
     return rows.length === 1

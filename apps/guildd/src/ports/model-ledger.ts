@@ -105,7 +105,10 @@ export interface UsagePage {
 export interface ModelLedger {
   /** Opens a run; a repeated `runId` is a no-op that reports `exists`. */
   openRun(guildId: string, run: NewRun): Promise<'created' | 'exists'>
-  /** Moves a queued run to active with a fresh token; false if it was not queued. */
+  /**
+   * Moves a queued or revoked run to active with a fresh token (a revoked run is reissued after
+   * its Hall resumes); false if it was already active or is unknown.
+   */
   activate(guildId: string, runId: string, tokenHash: string, expiresAt: string): Promise<boolean>
   /** The run holding the token with this hash, or null. */
   findByTokenHash(guildId: string, tokenHash: string): Promise<RunRecord | null>

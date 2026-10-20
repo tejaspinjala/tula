@@ -365,7 +365,7 @@ describe('reservations and idempotency', () => {
   })
 
   test('a run revoked by a Hall pause is reissued on the same live attempt once the Hall resumes', async () => {
-    const { gateway, tripwires, open } = await setup()
+    const { provider, gateway, tripwires, open } = await setup()
     const first = await started(open())
     const pause = { hallId: 'heralds', tripwire: 'manual', observed: 0, threshold: 0 } as const
     await tripwires.pause(GUILD, pause)
@@ -374,8 +374,9 @@ describe('reservations and idempotency', () => {
     await tripwires.resume(GUILD, 'heralds')
     const second = await started(open())
     expect(second.token).not.toBe(first.token)
-    expect(await codeOf(gateway.complete(first.token, message))).toBe('token_revoked')
-    expect((await gateway.complete(second.token, message)).text).toBeString()
+    expect(await codeOf(gateway.complete(first.token, message))).toBe('invalid_token')
+    provider.script({ ok: true, text: 'again', usage: { inputTokens: 5, outputTokens: 5 } })
+    expect((await gateway.complete(second.token, message)).text).toBe('again')
     expect(await open()).toEqual({ status: 'exists' })
   })
 

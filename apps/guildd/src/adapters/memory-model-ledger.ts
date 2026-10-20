@@ -77,7 +77,7 @@ export class MemoryModelLedger implements ModelLedger {
     expiresAt: string
   ): Promise<boolean> {
     const found = this.state(guildId).runs.get(runId)
-    if (found?.state !== 'queued') {
+    if (!found || found.state === 'active') {
       return false
     }
     found.state = 'active'
