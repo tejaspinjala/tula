@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
@@ -12,7 +13,7 @@ describe('founding a guild', () => {
       body: JSON.stringify({ name: 'Ember Guild', goal: 'Ship a weekly newsletter' }),
     })
     expect(res.status).toBe(201)
-    const { id } = (await res.json()) as { id: string }
+    const { id } = z.object({ id: z.string() }).parse(await res.json())
     expect(id).toMatch(/^[0-9a-f-]{36}$/)
 
     const got = await harness.request(`/guilds/${id}`, { headers: { 'x-guild-id': id } })

@@ -5,6 +5,7 @@
  */
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 /** Repository settings the git-flow in docs/REPO-SETUP.md depends on. */
 export const REPO_SETTINGS = {
@@ -24,16 +25,20 @@ export const REPO_SETTINGS = {
 export const RULESETS_DIR = join(import.meta.dir, '..', '.github', 'rulesets')
 
 /** A ruleset file's contents; only `name` is read here, the rest is sent to GitHub as-is. */
-export interface RulesetFile {
-  name: string
-  [key: string]: unknown
-}
+export const RulesetFileSchema = z.looseObject({ name: z.string() })
+export type RulesetFile = z.infer<typeof RulesetFileSchema>
+
+const ExistingRulesetsSchema = z.array(z.object({ id: z.number(), name: z.string() }))
 
 /** Reads every ruleset JSON file in {@link RULESETS_DIR}. */
 export async function loadRulesets(): Promise<RulesetFile[]> {
   const files = readdirSync(RULESETS_DIR).filter((f) => f.endsWith('.json'))
   return Promise.all(
-    files.map((f) => Bun.file(join(RULESETS_DIR, f)).json() as Promise<RulesetFile>)
+    files.map((f) =>
+      Bun.file(join(RULESETS_DIR, f))
+        .json()
+        .then((json) => RulesetFileSchema.parse(json))
+    )
   )
 }
 
@@ -59,10 +64,7 @@ async function main(): Promise<void> {
   gh(['api', '--method', 'PATCH', `repos/${repo}`, '--input', '-'], JSON.stringify(REPO_SETTINGS))
   console.log(`settings applied to ${repo}`)
 
-  const existing = JSON.parse(gh(['api', `repos/${repo}/rulesets`])) as {
-    id: number
-    name: string
-  }[]
+  const existing = ExistingRulesetsSchema.parse(JSON.parse(gh(['api', `repos/${repo}/rulesets`])))
   for (const ruleset of await loadRulesets()) {
     const match = existing.find((r) => r.name === ruleset.name)
     const [method, path] = match

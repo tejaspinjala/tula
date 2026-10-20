@@ -7,6 +7,9 @@ import {
   type ObjectStore,
 } from '../ports/object-store'
 
+/** The slice of `fetch` this adapter needs; narrower than `typeof fetch`, so tests can fake it. */
+export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
 /** Connection settings for {@link S3ObjectStore}. */
 export interface S3ObjectStoreOptions {
   endpoint: string
@@ -14,7 +17,7 @@ export interface S3ObjectStoreOptions {
   accessKeyId: string
   secretAccessKey: string
   /** Fetch implementation for bucket creation; defaults to the global one (a seam for tests). */
-  fetch?: typeof fetch
+  fetch?: Fetcher
 }
 
 const REGION = 'us-east-1'

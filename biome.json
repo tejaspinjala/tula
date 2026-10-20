@@ -20,8 +20,13 @@
     "rules": {
       "preset": "recommended",
       "correctness": { "noUnusedVariables": "error", "noUnusedImports": "error" },
-      "suspicious": { "noExplicitAny": "error", "noConsole": "error" },
-      "style": { "useBlockStatements": "error", "useImportType": "error" }
+      "suspicious": { "noExplicitAny": "error", "noTsIgnore": "error", "noConsole": "error" },
+      "complexity": { "noBannedTypes": "error" },
+      "style": {
+        "useBlockStatements": "error",
+        "useImportType": "error",
+        "noNonNullAssertion": "error"
+      }
     }
   },
   "javascript": {

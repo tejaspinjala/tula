@@ -8,11 +8,10 @@ const options = {
   secretAccessKey: 's',
 }
 
-const respond = (status: number, code?: string) =>
-  (async () =>
-    new Response(code ? `<Error><Code>${code}</Code></Error>` : '', {
-      status,
-    })) as unknown as typeof fetch
+const respond = (status: number, code?: string) => async () =>
+  new Response(code ? `<Error><Code>${code}</Code></Error>` : '', {
+    status,
+  })
 
 describe('S3ObjectStore.ensureBucket', () => {
   test('a 409 BucketAlreadyOwnedByYou is success', async () => {

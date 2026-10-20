@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { appendEvent, eventsAfter } from './events'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
@@ -90,7 +91,13 @@ describe('event stream route', () => {
   })
 })
 
-type Frame = { type: string; head?: number; seq?: number; event?: { seq: number } }
+const FrameSchema = z.object({
+  type: z.string(),
+  head: z.number().optional(),
+  seq: z.number().optional(),
+  event: z.object({ seq: z.number() }).optional(),
+})
+type Frame = z.infer<typeof FrameSchema>
 
 /** Opens the stream and collects frames until `until` says enough. */
 function stream(base: string, guild: string, lastSeq: number, until: (f: Frame[]) => boolean) {
@@ -98,10 +105,10 @@ function stream(base: string, guild: string, lastSeq: number, until: (f: Frame[]
     const frames: Frame[] = []
     const ws = new WebSocket(`${base}/guilds/${guild}/events?last_seq=${lastSeq}`, {
       headers: { 'x-guild-id': guild },
-    } as never)
+    })
     const timer = setTimeout(() => reject(new Error(`timeout: ${JSON.stringify(frames)}`)), 3000)
     ws.onmessage = (m) => {
-      frames.push(JSON.parse(String(m.data)) as Frame)
+      frames.push(FrameSchema.parse(JSON.parse(String(m.data))))
       if (until(frames)) {
         clearTimeout(timer)
         ws.close()

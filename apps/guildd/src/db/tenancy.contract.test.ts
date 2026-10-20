@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { readdir } from 'node:fs/promises'
 import postgres from 'postgres'
+import { z } from 'zod'
 import { expectGuildIsolation } from '../testing/cross-guild'
 import { createHarness } from '../testing/harness'
 import { InvalidGuildIdError } from './client'
@@ -74,7 +75,7 @@ describe('hardening', () => {
   test('the app role has statement and idle-in-transaction timeouts', async () => {
     const [row] = await harness.owner`
       select rolconfig from pg_roles where rolname = 'guildhall_app'`
-    const config = (row?.rolconfig ?? []) as string[]
+    const config = z.array(z.string()).parse(row?.rolconfig ?? [])
     expect(config.some((c) => c.startsWith('statement_timeout='))).toBe(true)
     expect(config.some((c) => c.startsWith('idle_in_transaction_session_timeout='))).toBe(true)
   })

@@ -1,3 +1,6 @@
+/** The slice of `fetch` used here; narrower than `typeof fetch`, so tests can fake it. */
+export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
 /** An artifact opened from guildd. */
 export interface OpenedArtifact {
   hash: string
@@ -20,7 +23,7 @@ export type ArtifactResult =
 export async function openArtifact(
   hash: string,
   guildId: string,
-  fetcher: typeof fetch = fetch
+  fetcher: Fetcher = fetch
 ): Promise<ArtifactResult> {
   const res = await fetcher(`/api/artifacts/${encodeURIComponent(hash)}`, {
     headers: { 'x-guild-id': guildId },

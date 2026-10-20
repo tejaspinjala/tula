@@ -1,4 +1,7 @@
 import { expect } from 'bun:test'
+import { z } from 'zod'
+
+const IdBody = z.object({ id: z.string() })
 
 type Requester = { request: (path: string, init?: RequestInit) => Promise<Response> }
 
@@ -16,7 +19,7 @@ async function found(harness: Requester, name: string): Promise<string> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name, goal: `${name} goal` }),
   })
-  return ((await res.json()) as { id: string }).id
+  return IdBody.parse(await res.json()).id
 }
 
 /**

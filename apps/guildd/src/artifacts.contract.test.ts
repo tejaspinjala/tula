@@ -115,12 +115,14 @@ describe('artifact limits', () => {
           controller.enqueue(chunk)
         },
       })
-      const res = await capped.request('/artifacts?class=report', {
+      // `duplex` is required for streamed bodies but missing from the DOM RequestInit type.
+      const init: RequestInit & { duplex: 'half' } = {
         method: 'PUT',
         headers: { 'x-guild-id': guild },
         body,
         duplex: 'half',
-      } as RequestInit)
+      }
+      const res = await capped.request('/artifacts?class=report', init)
       expect(res.status).toBe(413)
       expect(capped.adapters.memoryStore.size).toBe(0)
     } finally {
@@ -162,7 +164,7 @@ describe('artifact events reach live streams', () => {
       const guild = await live.adapters.db.foundGuild({ name: 'Live', goal: 'g' })
       const ws = new WebSocket(`${live.listen()}/guilds/${guild}/events`, {
         headers: { 'x-guild-id': guild },
-      } as never)
+      })
       const types: string[] = []
       const seen = new Promise<void>((resolve) => {
         ws.onmessage = (m) => {
