@@ -185,5 +185,5 @@ export async function postQuest(
     const code = z.object({ error: z.string() }).safeParse(data)
     throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
   }
-  return questBody.parse(data)
+  return { ...questBody.parse(data), parentId: null }
 }
