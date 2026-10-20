@@ -140,6 +140,17 @@ export function postCostReaderContract(name: string, make: () => Promise<PostCos
       expect(third.overall).toEqual(first.overall)
     })
 
+    test('a cursor past the last Campaign returns no Campaigns but the full overall', async () => {
+      const f = await make()
+      const g = await f.newGuild()
+      await meterQuest(f, g, 'a', 'spring', 3000, 'posted')
+      await meterQuest(f, g, 'd', undefined, 600, 'posted')
+      const report = await f.reader.byCampaign(g, { limit: 1, after: 'zzzz' })
+      expect(report.campaigns).toEqual([])
+      expect(report.next).toBeNull()
+      expect(report.overall).toEqual({ posts: 2, costMicros: 3600, costPerPostMicros: 1800 })
+    })
+
     test("another guild's posts are not counted", async () => {
       const f = await make()
       const g = await f.newGuild()
