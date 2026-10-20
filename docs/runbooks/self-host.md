@@ -62,6 +62,11 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `CLAUDE_CLI_BIN` | `claude` | n/a (self-host only) | The `claude` executable the subscription provider runs. |
 | `CLAUDE_CLI_TIMEOUT_MS` | `120000` | n/a (self-host only) | Milliseconds before a `claude` child is killed (1 to 3600000). |
 | `CLAUDE_CLI_MAX_CONCURRENT` | `2` | n/a (self-host only) | Most `claude` children at once (1 to 32). |
+| `RESEARCH_PROVIDER` | none (research off) | optional | `brave` turns on the `research` tool (ADR-0010); `memory` is development and run-checks only and is refused in production. A guild still needs `maxResearchPerQuest` above 0, which is a widening change. |
+| `BRAVE_SEARCH_API_KEY` | none | with `brave` | Brave Search API token (secret). |
+| `RESEARCH_PRIVATE_ELIGIBLE` | `false` | optional | `true` lets private-class Quests send queries to the provider; leave `false` unless your agreement with it allows that. |
+| `RESEARCH_CALL_COST_CENTS` | `1` | optional | Paper cents the Treasury charges per research call (0 to 10000). |
+| `RESEARCH_MEMORY_SEED` | none | with `memory` | JSON `{results, pages}` the memory provider serves. |
 
 ### Migrations (`apps/guildd/src/db/migrate-cli.ts`)
 
