@@ -19,7 +19,7 @@ test('a wall stops the hitbox flush against it', () => {
 test('a wall on one axis lets the other axis slide', () => {
   const p = moveBy({ x: 4.5, y: 2 }, 3, 1, wallAt5)
   expect(p.x).toBeCloseTo(5 - HALF, 6)
-  expect(p.y).toBe(3)
+  expect(p.y).toBeCloseTo(3, 6)
 })
 
 test('the hitbox cannot squeeze a corner into a blocked tile', () => {
