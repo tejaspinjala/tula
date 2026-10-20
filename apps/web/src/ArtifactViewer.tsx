@@ -9,7 +9,9 @@ export function ArtifactViewer() {
 
   return (
     <section className="mt-8">
-      <h2 className="text-xl font-semibold">Artifact viewer</h2>
+      <h2 id="artifact-heading" className="text-xl font-semibold">
+        Artifact viewer
+      </h2>
       <form
         className="mt-4 flex flex-col gap-2"
         onSubmit={(event) => {
