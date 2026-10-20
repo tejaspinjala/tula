@@ -130,6 +130,15 @@ export function hallMemberCap(hall: Pick<Hall, 'maxConcurrentMembers'>): number 
   return hall.maxConcurrentMembers ?? DEFAULT_MAX_CONCURRENT_MEMBERS
 }
 
+/** The per-Hall live-lease caps a claim enforces: only Halls that set `maxConcurrentMembers` appear. */
+export function hallCaps(config: GuildConfig): Record<string, number> {
+  return Object.fromEntries(
+    config.halls.flatMap((h) =>
+      h.maxConcurrentMembers === undefined ? [] : [[h.id, h.maxConcurrentMembers]]
+    )
+  )
+}
+
 /** The Quest concurrency cap of a config that does not set one. */
 export const DEFAULT_CONCURRENT_QUESTS = 4
 
