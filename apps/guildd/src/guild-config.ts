@@ -134,7 +134,7 @@ export const DEFAULT_MAX_MISSIVES_PER_QUEST = 20
 
 /** The guild's cap on Missives one Quest may send (all its attempts). */
 export function missiveCap(config: GuildConfig): number {
-  return config.caps.maxMissivesPerQuest === -1 ? DEFAULT_MAX_MISSIVES_PER_QUEST : 0
+  return config.caps.maxMissivesPerQuest ?? DEFAULT_MAX_MISSIVES_PER_QUEST
 }
 
 /** Concurrent Members of a Hall when its cap is unset: no limit beyond the guild's Quest concurrency. */
@@ -445,6 +445,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     spawnChildrenCap(next) <= spawnChildrenCap(prev) &&
     spawnDepthCap(next) <= spawnDepthCap(prev) &&
     campaignQuestCap(next) <= campaignQuestCap(prev) &&
+    missiveCap(next) <= missiveCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -453,6 +454,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxChildrenPerQuest',
       'maxSpawnDepth',
       'maxQuestsPerCampaign',
+      'maxMissivesPerQuest',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
