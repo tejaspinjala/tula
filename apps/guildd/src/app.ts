@@ -124,6 +124,13 @@ const foundGuildBody = z.object({
   goal: z.string().trim().min(1).max(2000),
 })
 
+const pushEndpoint = z.url({ protocol: /^https$/ }).max(2048)
+const pushSubscribeBody = z.object({
+  endpoint: pushEndpoint,
+  keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
+})
+const pushUnsubscribeBody = z.object({ endpoint: pushEndpoint })
+
 const uuid = z.uuid()
 const verifyQuery = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
@@ -297,6 +304,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
+  app.post('/guilds/:id/push/subscriptions', limited('push-subscribe'))
+  app.delete('/guilds/:id/push/subscriptions', limited('push-subscribe'))
   app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
   app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
   // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
@@ -816,6 +825,51 @@ export function createApp(deps: AppDeps): Hono {
     return (await deps.tripwires.resume(check.guildId, hallId.data))
       ? c.json({ hallId: hallId.data, paused: false })
       : c.json({ error: 'not_paused' }, 404)
+  })
+
+  // Web push for the Guild Master's installed PWA. A device subscribes with the browser's
+  // PushSubscription; the push for a Seal request carries ids only (see `seal-push.ts`).
+  app.get('/guilds/:id/push/key', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return deps.vapidPublicKey
+      ? c.json({ publicKey: deps.vapidPublicKey })
+      : c.json({ error: 'push_not_configured' }, 404)
+  })
+
+  app.post('/guilds/:id/push/subscriptions', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = pushSubscribeBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_subscription' }, 400)
+    }
+    // Catch the log up first so Seals requested before this device existed are never pushed to it.
+    await deps.pushRelay.dispatch(who.guild)
+    await deps.pushStore.add(who.guild, {
+      endpoint: body.data.endpoint,
+      p256dh: body.data.keys.p256dh,
+      auth: body.data.keys.auth,
+    })
+    return c.json({ endpoint: body.data.endpoint }, 201)
+  })
+
+  app.delete('/guilds/:id/push/subscriptions', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = pushUnsubscribeBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_subscription' }, 400)
+    }
+    return (await deps.pushStore.remove(who.guild, body.data.endpoint))
+      ? c.body(null, 204)
+      : c.json({ error: 'not_found' }, 404)
   })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
