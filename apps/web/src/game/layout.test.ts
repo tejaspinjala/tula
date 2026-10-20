@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
+import { bubbleCentreY, fitZoom, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
 
 const layout = hallLayout()
 
@@ -90,4 +90,11 @@ test('the fit zoom fills the frame; a phone opens at a readable zoom of one', ()
   expect(fitZoom(10, 10, 640, 400)).toBe(0.25)
   expect(openZoom(358, 340, 640, 400)).toBe(1)
   expect(openZoom(940, 587, 640, 400)).toBe(1.46)
+})
+
+test('a speech bubble drops below its speaker when above would cover the room label', () => {
+  const rooms = [{ x: 2, y: 2, w: 10, h: 8 }]
+  expect(bubbleCentreY(rooms, 16, 100, 50)).toBe(76)
+  expect(bubbleCentreY(rooms, 16, 100, 150)).toBe(124)
+  expect(bubbleCentreY(rooms, 16, 400, 50)).toBe(24)
 })

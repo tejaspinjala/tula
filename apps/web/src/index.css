@@ -79,7 +79,7 @@
 
 /* Anything scrolled into view (a focused control, a tapped link) clears the sticky header and the phone tab bar. */
 html {
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 6rem;
   scroll-padding-bottom: calc(var(--touch) + var(--space-8));
 }
 
@@ -251,6 +251,14 @@ ul[aria-label] {
   overflow: hidden;
   touch-action: none;
 }
+/* On a wide screen the frame has the hall's own proportions, so the hall fills its card. */
+@media (min-width: 641px) {
+  .game-frame {
+    height: auto;
+    aspect-ratio: 8 / 5;
+    max-height: 80vh;
+  }
+}
 @media (max-width: 640px) {
   .game-frame {
     height: 340px;
@@ -276,6 +284,7 @@ ul[aria-label] {
 }
 .game-scrub {
   display: flex;
+  white-space: nowrap;
   gap: 0.5rem;
   align-items: center;
 }

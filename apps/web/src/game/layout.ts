@@ -140,10 +140,21 @@ export function withClosedDoors(
 
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */
 export function fitZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
-  return 0
+  const fill = Math.min(frameW / worldW, frameH / worldH)
+  return Math.max(0.25, Math.floor(fill * 100) / 100)
 }
 
 /** The zoom the hall opens at: the fit, but never below a readable one. */
 export function openZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
-  return 0
+  return Math.max(1, fitZoom(frameW, frameH, worldW, worldH))
+}
+
+/** Where a speech bubble centres for a speaker at pixel `(x, y)`: above, unless that covers a room label. */
+export function bubbleCentreY(
+  rooms: readonly TileRect[],
+  tileSize: number,
+  x: number,
+  y: number
+): number {
+  return y - 26
 }

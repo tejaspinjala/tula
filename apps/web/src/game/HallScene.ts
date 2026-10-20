@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { type HallLayout, hallLayout, seatsIn, withClosedDoors } from './layout'
+import { fitZoom, type HallLayout, hallLayout, openZoom, seatsIn, withClosedDoors } from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -154,6 +154,7 @@ export class HallScene extends Phaser.Scene {
     this.createPlayer()
     this.ready = true
     this.fit()
+    this.openReadable()
     if (this.pending) {
       this.render(this.pending)
     }
@@ -401,13 +402,25 @@ export class HallScene extends Phaser.Scene {
     cam.setSize(this.scale.width, this.scale.height)
     const worldW = px(this.layout.width, this.layout.tileSize)
     const worldH = px(this.layout.height, this.layout.tileSize)
-    const fitZoom = Math.min(this.scale.width / worldW, this.scale.height / worldH)
-    this.zoomLevel = fitZoom >= 1 ? Math.floor(fitZoom) : fitZoom >= 0.5 ? 0.5 : 0.25
+    this.zoomLevel = fitZoom(this.scale.width, this.scale.height, worldW, worldH)
     if (keepFollow && this.chasing) {
       this.zoomLevel = Math.max(1, this.zoomLevel)
     }
     cam.setZoom(this.zoomLevel)
     this.centre()
+  }
+
+  /** A phone opens at a readable zoom on the Guild Master, not at the whole hall in miniature; Fit hall still shows it all. */
+  private openReadable(): void {
+    const cam = this.cameras.main
+    const worldW = px(this.layout.width, this.layout.tileSize)
+    const worldH = px(this.layout.height, this.layout.tileSize)
+    const zoom = openZoom(this.scale.width, this.scale.height, worldW, worldH)
+    if (zoom > this.zoomLevel) {
+      this.zoomLevel = zoom
+      cam.setZoom(zoom)
+      cam.centerOn(this.at.x * this.layout.tileSize, this.at.y * this.layout.tileSize)
+    }
   }
 
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
