@@ -18,6 +18,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly discoverable = new Map<string, StoredDiscoverableChallenge>()
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
+  private readonly enrolments = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly events = new Map<string, IdentityEvent[]>()
   private readonly masters = new Map<string, StoredMember>()
 
@@ -106,6 +107,38 @@ export class MemoryIdentityStore implements IdentityStore {
     }
     this.founding.delete(guildId)
     this.credentials.set(guildId, [credential])
+    this.record(guildId, ...events)
+    return true
+  }
+
+  async issueEnrolment(guildId: string, tokenHash: string, expiresAt: Date, event: IdentityEvent) {
+    this.found(guildId)
+    this.enrolments.set(guildId, { tokenHash, expiresAt })
+    this.record(guildId, event)
+  }
+
+  async hasEnrolment(guildId: string, tokenHash: string, now: Date) {
+    const held = this.enrolments.get(guildId)
+    return held !== undefined && held.tokenHash === tokenHash && held.expiresAt > now
+  }
+
+  // No await between the checks and the writes, so this is atomic within the process.
+  async enrolCredential(
+    guildId: string,
+    credential: StoredCredential,
+    tokenHash: string,
+    now: Date,
+    events: IdentityEvent[]
+  ) {
+    const held = this.enrolments.get(guildId)
+    if (held === undefined || held.tokenHash !== tokenHash || held.expiresAt <= now) {
+      return false
+    }
+    this.enrolments.delete(guildId)
+    const list = this.credentials.get(guildId) ?? []
+    if (!list.some((c) => c.id === credential.id)) {
+      this.credentials.set(guildId, [...list, credential])
+    }
     this.record(guildId, ...events)
     return true
   }
