@@ -57,11 +57,16 @@ export interface TreasuryTx {
 
 const isCents = (n: number): boolean => Number.isSafeInteger(n) && n > 0
 
-/** The hash an entry must carry: SHA-256 over the previous hash and every field of the entry. */
-export function entryHash(_guildId: string, e: Omit<LedgerEntry, 'hash'>): string {
+/**
+ * The hash an entry must carry: SHA-256 over the guild, the previous hash and every field of the
+ * entry (so an entry cannot be replayed into another guild's chain). The chain detects altered,
+ * removed or reordered entries; truncating the tail needs an external anchor, as audit checkpoints do (#31).
+ */
+export function entryHash(guildId: string, e: Omit<LedgerEntry, 'hash'>): string {
   return createHash('sha256')
     .update(
       JSON.stringify([
+        guildId,
         e.prevHash,
         e.seq,
         e.id,
