@@ -146,7 +146,21 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
   }
 
   const server = createServer(forward)
-  server.maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS
+  const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS
+  // Defence in depth only: the runtime's own cap is not reliably enforced everywhere (Bun on Linux).
+  server.maxConnections = maxConnections
+  let live = 0
+  // Prepended so the cap runs before the HTTP parser reads a byte; a refused socket dials nothing.
+  server.prependListener('connection', (socket: net.Socket) => {
+    if (live >= maxConnections) {
+      socket.destroy()
+      return
+    }
+    live += 1
+    socket.once('close', () => {
+      live -= 1
+    })
+  })
   server.on('connect', (req: IncomingMessage, socket: net.Socket, head: Buffer) => {
     const to = tunnelTarget(req.url ?? '')
     if (to === null || !permits(to)) {

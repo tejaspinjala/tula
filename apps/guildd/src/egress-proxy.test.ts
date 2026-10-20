@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createServer, type Server } from 'node:http'
+import { createServer } from 'node:http'
 import net from 'node:net'
 import { createEgressProxy, type EgressProxyOptions } from './egress-proxy'
 
@@ -10,7 +10,7 @@ afterEach(() => {
   }
 })
 
-function listen(server: Server): Promise<number> {
+function listen(server: net.Server): Promise<number> {
   open.push(server)
   return new Promise((resolve, reject) => {
     server.once('error', reject)
@@ -163,21 +163,39 @@ describe('egress proxy', () => {
     expect(implicit).not.toContain('403')
   })
 
-  test('refuses connection N+1 beyond maxConnections', async () => {
-    const target = await upstream()
-    const proxy = await proxyFor([target], { maxConnections: 1 })
-    const held = net.connect(proxy, '127.0.0.1')
-    await new Promise((r) => held.once('connect', r))
-    open.push({ close: () => held.destroy() })
-    const second = await new Promise<string>((resolve) => {
-      const s = net.connect(proxy, '127.0.0.1')
-      s.on('error', () => resolve('refused'))
-      s.on('close', () => resolve('refused'))
-      s.on('data', () => resolve('served'))
-      s.write(get('127.0.0.1', target))
-      setTimeout(() => resolve('served'), 1500)
+  test('refuses connection N+1 beyond maxConnections without dialling upstream', async () => {
+    const dialled: net.Socket[] = []
+    const target = await listen(
+      net.createServer((s) => {
+        dialled.push(s)
+        s.on('error', () => {})
+      })
+    )
+    const proxy = await proxyFor([target], { maxConnections: 2 })
+    const tunnel = `CONNECT 127.0.0.1:${target} HTTP/1.1\r\nHost: x\r\n\r\n`
+    // Hold N tunnels open: each is answered 200 and keeps its upstream connection.
+    for (let i = 0; i < 2; i++) {
+      const held = net.connect(proxy, '127.0.0.1')
+      held.on('error', () => {})
+      open.push({ close: () => held.destroy() })
+      const head = await new Promise<string>((resolve) => {
+        held.once('data', (chunk) => resolve(chunk.toString('utf8')))
+        held.write(tunnel)
+      })
+      expect(head.startsWith('HTTP/1.1 200')).toBe(true)
+    }
+    expect(dialled.length).toBe(2)
+    const extra = net.connect(proxy, '127.0.0.1')
+    let received = ''
+    extra.on('data', (chunk) => {
+      received += chunk.toString('utf8')
     })
-    expect(second).toBe('refused')
+    extra.on('error', () => {})
+    const closed = new Promise<void>((resolve) => extra.once('close', () => resolve()))
+    extra.write(tunnel)
+    await closed
+    expect(received).toBe('')
+    expect(dialled.length).toBe(2)
   })
 
   test('closes a tunnel that goes idle', async () => {
