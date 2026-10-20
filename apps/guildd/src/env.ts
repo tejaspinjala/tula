@@ -237,7 +237,7 @@ export function loadSandboxEnv(
     .object({
       SANDBOX_IMAGE: z
         .string()
-        .regex(/@sha256:[0-9a-f]{64}$/, 'SANDBOX_IMAGE must be pinned by digest'),
+        .regex(/(^|@)sha256:[0-9a-f]{64}$/, 'SANDBOX_IMAGE must be pinned by digest'),
       SANDBOX_NETWORK: z.string().min(1),
       SANDBOX_SCOPE: z.string().min(1).default('default'),
       EGRESS_PROXY_URL: z.url(),
