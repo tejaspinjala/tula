@@ -1,10 +1,12 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
+import { verifyChain } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import type { Clock } from './ports/clock'
+import type { KeyProvider } from './ports/key-provider'
 import type { ObjectStore } from './ports/object-store'
 import { readBufferedAmount } from './ws-support'
 
@@ -13,6 +15,8 @@ export interface AppDeps {
   clock: Clock
   db: Db
   objectStore: ObjectStore
+  /** Custody of the audit chain's MAC key; never the database. */
+  keys: KeyProvider
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
@@ -107,7 +111,8 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
     }
-    return c.json({ id: await deps.db.foundGuild(body.data) }, 201)
+    const id = await deps.db.foundGuildChained(body.data, deps.keys)
+    return c.json({ id }, 201)
   })
 
   /**
@@ -143,6 +148,19 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ id: row.guild_id, name: row.name, goal: row.goal })
   })
 
+  // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
+  // the caller's is indistinguishable from one that does not exist.
+  app.get('/guilds/:id/audit/verify', async (c) => {
+    const caller = callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    return c.json(await deps.db.withGuild(caller, (tx) => verifyChain(tx, deps.keys)))
+  })
+
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row
   // records hash, size and class. Idempotent: the same bytes again change nothing.
   app.on(['PUT', 'POST'], '/artifacts', async (c) => {
@@ -170,7 +188,7 @@ export function createApp(deps: AppDeps): Hono {
         on conflict (guild_id, hash) do nothing
         returning hash`
       if (inserted.length > 0) {
-        await appendEvent(tx, 'artifact.stored', {
+        await appendEvent(tx, deps.keys, 'artifact.stored', {
           hash,
           class: cls.data,
           size: bytes.byteLength,

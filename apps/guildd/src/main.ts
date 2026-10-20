@@ -6,7 +6,7 @@ import { assertBackpressureSupported } from './ws-support'
 
 const env = loadEnv()
 await assertBackpressureSupported()
-const { app, adapters } = compose()
+const { app, adapters } = await compose()
 if (env.OBJECT_STORE_CREATE_BUCKET && adapters.objectStore instanceof S3ObjectStore) {
   await adapters.objectStore.ensureBucket()
 }

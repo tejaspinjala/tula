@@ -1,4 +1,5 @@
 import type { Hono } from 'hono'
+import { FileKeyProvider } from './adapters/file-key-provider'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
 import { type AppDeps, createApp } from './app'
@@ -7,34 +8,42 @@ import { loadEnv } from './env'
 
 /**
  * The single composition root: wires adapters into the app.
- * Overrides swap adapters; tests pass a clock, an object store and a Db on a throwaway database,
- * production none. The Db has no memory adapter by design: tenancy is enforced by Postgres, so
+ * Overrides swap adapters; tests pass a clock, an object store, a KeyProvider and a Db on a
+ * throwaway database, production none (the key comes from the local key file). The Db has no memory adapter by design: tenancy is enforced by Postgres, so
  * contract tests run against real Postgres.
  */
-export function compose(overrides: Partial<AppDeps> = {}): { app: Hono; adapters: AppDeps } {
-  const { db, devGuildHeader, objectStore } =
-    overrides.db && overrides.devGuildHeader !== undefined && overrides.objectStore
+export async function compose(
+  overrides: Partial<AppDeps> = {}
+): Promise<{ app: Hono; adapters: AppDeps }> {
+  const { db, devGuildHeader, objectStore, keys } =
+    overrides.db &&
+    overrides.devGuildHeader !== undefined &&
+    overrides.objectStore &&
+    overrides.keys
       ? {
           db: overrides.db,
           devGuildHeader: overrides.devGuildHeader,
           objectStore: overrides.objectStore,
+          keys: overrides.keys,
         }
-      : fromEnv(overrides)
+      : await fromEnv(overrides)
   const adapters: AppDeps = {
     clock: new SystemClock(),
     ...overrides,
     db,
     devGuildHeader,
     objectStore,
+    keys,
   }
   return { app: createApp(adapters), adapters }
 }
 
-function fromEnv(
+async function fromEnv(
   overrides: Partial<AppDeps>
-): Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore'> {
+): Promise<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys'>> {
   const env = loadEnv()
   return {
+    keys: overrides.keys ?? (await FileKeyProvider.open(env.KEY_FILE)),
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
     objectStore:

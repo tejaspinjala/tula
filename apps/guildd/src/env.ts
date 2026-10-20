@@ -18,6 +18,8 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** Local file holding the audit-chain master key (created 0600 if missing); never in Postgres. */
+  KEY_FILE: z.string().min(1).default('.guildhall/master.key'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
