@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { createECDH } from 'node:crypto'
 import { Glob } from 'bun'
 import {
   loadEnv,
@@ -9,13 +8,13 @@ import {
   loadVapidEnv,
   loadWebauthnEnv,
 } from './env'
+import { vapidKeys } from './testing/vapid-keys'
 
-const vapidPair = createECDH('prime256v1')
-vapidPair.generateKeys()
+const vapidPair = vapidKeys()
 const vapid = {
-  VAPID_PUBLIC_KEY: vapidPair.getPublicKey().toString('base64url'),
-  VAPID_PRIVATE_KEY: vapidPair.getPrivateKey().toString('base64url'),
-  VAPID_SUBJECT: 'mailto:ops@guild.example',
+  VAPID_PUBLIC_KEY: vapidPair.publicKey,
+  VAPID_PRIVATE_KEY: vapidPair.privateKey,
+  VAPID_SUBJECT: vapidPair.subject,
 }
 
 const base = {
