@@ -1633,6 +1633,41 @@ describe('member.activity', () => {
     expect(activity.emittedEvents).toHaveLength(2)
   })
 
+  test('a call with bad arguments emits nothing', async () => {
+    const { s, activity, l } = await withActivity()
+    const out = await callTool(s.transport, 'read_archive', { lease: l, limit: 0 })
+    expect(out.rpcError ?? out.isError).toBeTruthy()
+    expect(activity.emittedEvents).toHaveLength(0)
+  })
+
+  test('a spawn refused by the depth cap emits nothing', async () => {
+    const { s, activity, l } = await withActivity()
+    const spawn = (lz: unknown, title: string) =>
+      callTool(s.transport, 'spawn_subquest', {
+        lease: lz,
+        title,
+        brief: `brief ${title}`,
+        template: 'herald-brief',
+      })
+    const take = async (id: unknown) => {
+      const claimed = await s.quests.claim(s.guild, {
+        leaseMs: 60_000,
+        maxActive: 10,
+        questId: z.string().parse(id),
+      })
+      if (!claimed) {
+        throw new Error('expected the child claim')
+      }
+      return lease.parse(await s.gateway.lease(s.guild, claimed))
+    }
+    const kid = await take((await spawn(l, 'a')).data.childId)
+    const grand = await take((await spawn(kid, 'b')).data.childId)
+    s.clock.advance(60_000)
+    const before = activity.emittedEvents.length
+    expect(await spawn(grand, 'c')).toMatchObject({ data: { error: 'depth_cap' } })
+    expect(activity.emittedEvents).toHaveLength(before)
+  })
+
   test('claiming a Quest emits no activity', async () => {
     const activity = new MemoryActivityLog()
     const s = await setup({ activity })
