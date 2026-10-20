@@ -167,10 +167,10 @@ test('Assign a Quest posts to the governed route with the Member as owner and sa
   })
   expect(await violations(run.host)).toEqual([])
   await click(run.host, 'Post Quest')
-  expect(run.calls).toHaveLength(1)
-  expect(run.calls[0]?.url).toBe(`/api/guilds/${session.guildId}/quests`)
-  expect(run.calls[0]?.init?.method).toBe('POST')
-  const sent = JSON.parse(String(run.calls[0]?.init?.body))
+  const posts = run.calls.filter((c) => c.init?.method === 'POST')
+  expect(posts).toHaveLength(1)
+  expect(posts[0]?.url).toBe(`/api/guilds/${session.guildId}/quests`)
+  const sent = JSON.parse(String(posts[0]?.init?.body))
   expect(sent).toMatchObject({
     templateId: 'herald-brief',
     title: 'Write the launch post',
@@ -194,7 +194,7 @@ test('a refusal is shown and nothing else is posted', async () => {
   })
   await click(run.host, 'Post Quest')
   expect(run.host.querySelector('[role="alert"]')?.textContent).toContain('paused')
-  expect(run.calls).toHaveLength(1)
+  expect(run.calls.filter((c) => c.init?.method === 'POST')).toHaveLength(1)
   await run.unmount()
 })
 

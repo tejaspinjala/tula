@@ -4,6 +4,7 @@ import { assignQuest, templatesFor } from './assign'
 import type { TalkAction, TalkState } from './game/interact'
 import type { SceneMember, SceneQuest, SceneState } from './game/scene'
 import { hallTitle } from './game/walk'
+import { type HallMissive, loadMissives, missivesOf } from './missives'
 import type { Session } from './passkeys'
 
 /** What the dialog needs from the page. */
@@ -135,6 +136,8 @@ function MemberCard({
   const room = scene.rooms.find((r) => r.hallId === member.hallId)
   const quest = member.questId === null ? undefined : quests.find((q) => q.id === member.questId)
   const status = quest?.state ? (STATE_WORDS[quest.state] ?? quest.state) : member.status
+  const messages = useRecentMissives(session, fetcher, member)
+  const nameOf = (id: string): string => scene.members[id]?.name ?? id
   return (
     <>
       <h2 id="talk-title">{member.name}</h2>
@@ -157,7 +160,18 @@ function MemberCard({
       ) : (
         <>
           <h3>Recent messages</h3>
-          <p className="muted">No messages yet.</p>
+          {messages.length === 0 ? (
+            <p className="muted">No messages yet.</p>
+          ) : (
+            <ul aria-label="Recent messages">
+              {messages.map((m) => (
+                <li key={m.id} data-testid="missive">
+                  <strong>{nameOf(m.from)}</strong> to {m.to === 'hall' ? 'the Hall' : nameOf(m.to)}
+                  : {m.text}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="talk-actions">
             <button type="button" className="btn" onClick={() => dispatch({ type: 'assign' })}>
               Assign a Quest
@@ -173,6 +187,34 @@ function MemberCard({
       )}
     </>
   )
+}
+
+/** Most Missives the dialog lists. */
+const RECENT_MISSIVES = 5
+
+/**
+ * The Missives this Member sent or received, newest first. They are other Members' text, so they
+ * are only ever rendered as text. A failed read is the same as no messages.
+ */
+function useRecentMissives(
+  session: Session,
+  fetcher: Fetcher,
+  member: SceneMember
+): readonly HallMissive[] {
+  const [messages, setMessages] = useState<readonly HallMissive[]>([])
+  useEffect(() => {
+    let live = true
+    loadMissives(session, fetcher, member.hallId, { limit: 50 })
+      .then(
+        (page) =>
+          live && setMessages(missivesOf(page.missives, member.id).slice(0, RECENT_MISSIVES))
+      )
+      .catch(() => live && setMessages([]))
+    return () => {
+      live = false
+    }
+  }, [session, fetcher, member.hallId, member.id])
+  return messages
 }
 
 function AssignForm({
