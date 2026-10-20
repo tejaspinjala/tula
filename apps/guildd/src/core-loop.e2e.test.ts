@@ -5,6 +5,7 @@ import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryHandoffStore } from './adapters/memory-handoff-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryMissiveStore } from './adapters/memory-missive-store'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryNoteStore } from './adapters/memory-note-store'
@@ -18,7 +19,7 @@ import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { MemoryWorkflowStore } from './adapters/memory-workflow-store'
-import { coreLoopEndToEnd, type E2eWorld } from './core-loop.e2e'
+import { coreLoopEndToEnd, type E2eWorld, hallsFor } from './core-loop.e2e'
 import { Dispatcher } from './dispatch'
 import { Gates } from './gates'
 import { defaultConfig, guildConfig } from './guild-config'
@@ -60,12 +61,14 @@ async function memoryWorld(): Promise<E2eWorld> {
     gates: gateStore,
   })
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
+  const handoffs = new MemoryHandoffStore()
   const mcp = new McpGateway({
     quests,
     config,
     notes: new MemoryNoteStore(),
+    missives: new MemoryMissiveStore(),
     objectStore: new MemoryObjectStore(),
-    handoffs: new MemoryHandoffStore(),
+    handoffs,
     toolsets: new MemoryToolsetStore(),
     proposals,
     keys,
@@ -122,6 +125,7 @@ async function memoryWorld(): Promise<E2eWorld> {
       tripwires,
       proposals,
       seals: sealStore,
+      handoffs,
     }),
     dispatcher,
     gateway,
@@ -137,6 +141,7 @@ async function memoryWorld(): Promise<E2eWorld> {
       await config.seed(guildId)
       const next = guildConfig.parse({
         ...defaultConfig(),
+        halls: hallsFor(options),
         ...(options.caps ? { caps: options.caps } : {}),
         ...(options.contentPolicy ? { contentPolicy: options.contentPolicy } : {}),
         providers: [{ id: 'cloud', auth: 'api_key' }],

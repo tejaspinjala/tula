@@ -1,8 +1,19 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
-import { type HallLayout, hallLayout, seatsIn } from './layout'
-import { lookFor } from './look'
+import { nearestTarget, REACH, sameTarget, type Target } from './interact'
+import {
+  apprenticeSeats,
+  bubbleCentreY,
+  fitZoom,
+  type HallLayout,
+  hallLayout,
+  openZoom,
+  questBoardIn,
+  seatsIn,
+  withClosedDoors,
+} from './layout'
+import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
   direction,
@@ -28,7 +39,13 @@ const FRAME = { doorClosed: 32, doorOpen: 37, scroll: 899, coin: 1025 } as const
 /** How long a speech bubble stays up, in ms. */
 const BUBBLE_MS = 4500
 /** Longest Quest title a bubble shows before it is cut. */
-const BUBBLE_CHARS = 24
+const BUBBLE_CHARS = 60
+/** Width a bubble wraps at, in px. */
+const BUBBLE_WRAP = 120
+/** Most scrolls drawn on a Quest Board; the rest are a count. */
+const BOARD_SCROLLS = 4
+/** How long a Member takes to walk to the Quest Board and back to their desk, in ms. */
+const WALK_MS = 600
 /** Most scrolls drawn on the Seal desk; the rest are a count. */
 const MAX_SCROLLS = 5
 
@@ -40,12 +57,16 @@ export interface HallOptions {
   onOpenSeal: (questId: string) => void
   /** Called when the Guild Master enters a room (its slot) or leaves to the hallway (null). */
   onRoom: (slot: number | null) => void
+  /** Called when who the Guild Master could talk to changes (null: nobody in reach). */
+  onNear: (target: Target | null) => void
+  /** Called when the Guild Master presses E: talk to whoever is in reach. */
+  onInteract: () => void
 }
 
 /** Where the Guild Master enters the hall: just inside the gate, in tiles. */
 const ENTRANCE: Vec = { x: 38.5, y: 12.5 }
-/** The Guild Master's own look: a fixed id so the sprite is the same every visit. */
-const GUILD_MASTER = 'guild-master'
+/** The Guild Master's sprite name; its look is the saved one, or the one this id seeds. */
+const GUILD_MASTER = GUILD_MASTER_ID
 /** Longest a pointer may travel and still count as a tap, in px. */
 const TAP_SLOP = 8
 
@@ -55,7 +76,18 @@ interface MemberView {
   bubbleTimer: Phaser.Time.TimerEvent | null
   /** The last bubble seq drawn, so a bubble shows once. */
   bubbleSeq: number
+  /** The last claim seq acted on, so a claim walks to the Quest Board once. */
+  claimSeq: number
+  /** Where the sprite is headed (px), so a repeated render does not restart its walk. */
+  tx: number
+  ty: number
   mode: 'idle' | 'working' | null
+}
+
+/** An apprentice: a Sub-Quest's helper standing in its parent's room until the child settles. */
+interface ApprenticeView {
+  root: Phaser.GameObjects.Container
+  hallId: string
 }
 
 /** Keys that walk the Guild Master (lower-case `KeyboardEvent.key`). */
@@ -80,20 +112,30 @@ const px = (tiles: number, size: number) => tiles * size
  */
 export class HallScene extends Phaser.Scene {
   private readonly layout: HallLayout = hallLayout()
+  /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
+  private walkable: (x: number, y: number) => boolean = this.layout.walkable
+  private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
   private dynamic: Phaser.GameObjects.GameObject[] = []
   private pending: SceneState | null = null
   private ready = false
-  private baselineSeq: number | null = null
+  private readonly apprentices = new Map<string, ApprenticeView>()
+  /** True until the first state is drawn: what already happened is shown, not animated. */
+  private seeding = true
   private gateSprites: Phaser.GameObjects.Image[] = []
   private zoomLevel = 1
   private followed: string | null = null
   private player: Phaser.GameObjects.Container | null = null
+  private playerLayers: Phaser.GameObjects.Image[] = []
+  private playerLook: LookChoice | null = null
   private at: Vec = { ...ENTRANCE }
   private path: Vec[] = []
   private chasing = false
   private room: number | null = null
+  /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
+  private talkable = new Set<string>()
+  private near: Target | null = null
   private readonly keys: Keys = { left: false, right: false, up: false, down: false }
   private detachKeys: (() => void) | null = null
 
@@ -141,6 +183,7 @@ export class HallScene extends Phaser.Scene {
     this.createPlayer()
     this.ready = true
     this.fit()
+    this.openReadable()
     if (this.pending) {
       this.render(this.pending)
     }
@@ -151,9 +194,22 @@ export class HallScene extends Phaser.Scene {
     return this.player
   }
 
+  /** Dresses the Guild Master in a look (safe before the scene has loaded; the latest look wins). */
+  setPlayerLook(look: LookChoice): void {
+    this.playerLook = look
+    const frames = framesOf(look)
+    const [body, outfit, hair] = this.playerLayers
+    body?.setFrame(frames.body)
+    outfit?.setFrame(frames.outfit)
+    hair?.setFrame(frames.hair)
+  }
+
   /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
   teleport(slot: number | null): void {
-    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.layout.walkable)
+    if (slot !== null && this.lockedSlots.has(slot)) {
+      return
+    }
+    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.walkable)
     this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
     this.path = []
     this.chasing = true
@@ -163,6 +219,17 @@ export class HallScene extends Phaser.Scene {
 
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
   override update(_time: number, delta: number): void {
+    for (const view of this.members.values()) {
+      const height = view.bubble?.getData('height')
+      if (view.bubble && typeof height === 'number') {
+        // Above the speaker, or below when that would cover a room label; a tall (wrapped) bubble
+        // moves away from the speaker by its extra height.
+        const { x, y } = view.root
+        const centre = bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y)
+        const extra = (height - 20) / 2
+        view.bubble.setPosition(x, centre < y ? centre - extra : centre + extra)
+      }
+    }
     if (!this.player) {
       return
     }
@@ -170,12 +237,7 @@ export class HallScene extends Phaser.Scene {
     const dir = direction(this.keys)
     if (dir.x !== 0 || dir.y !== 0) {
       this.path = []
-      this.at = moveBy(
-        this.at,
-        dir.x * SPEED * seconds,
-        dir.y * SPEED * seconds,
-        this.layout.walkable
-      )
+      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, this.walkable)
       this.chase(false)
     } else if (this.path.length > 0) {
       const next = followPath(this.at, this.path, SPEED * seconds)
@@ -184,13 +246,60 @@ export class HallScene extends Phaser.Scene {
       this.chase(false)
     }
     this.syncPlayer()
+    this.updateNear()
+  }
+
+  /** Reports who is in reach (a Member, or the Seal desk) whenever that changes. */
+  private updateNear(): void {
+    const s = this.layout.tileSize
+    const targets: { target: Target; at: Vec }[] = []
+    for (const id of this.talkable) {
+      const root = this.members.get(id)?.root
+      if (root) {
+        targets.push({ target: { kind: 'member', id }, at: { x: root.x / s, y: root.y / s } })
+      }
+    }
+    // The desk is a rectangle: reach its nearest edge, not its middle.
+    const desk = this.layout.sealDesk
+    targets.push({
+      target: { kind: 'sealDesk' },
+      at: {
+        x: Math.min(desk.x + desk.w - 0.5, Math.max(desk.x + 0.5, this.at.x)),
+        y: Math.min(desk.y + desk.h - 0.5, Math.max(desk.y + 0.5, this.at.y)),
+      },
+    })
+    const now = nearestTarget(this.at, targets, REACH)
+    if (!sameTarget(now, this.near)) {
+      this.near = now
+      this.options.onNear(now)
+    }
+  }
+
+  /** A small gold crown over the head: the one thing that tells the Guild Master from a Member. */
+  private crown(): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics()
+    g.fillStyle(0xffd23f, 1)
+    g.lineStyle(1, 0x5b4200, 1)
+    const points = [
+      [-4, -5],
+      [-4, -11],
+      [-2, -8],
+      [0, -12],
+      [2, -8],
+      [4, -11],
+      [4, -5],
+    ].map(([x, y]) => new Phaser.Math.Vector2(x, y))
+    g.fillPoints(points, true)
+    g.strokePoints(points, true)
+    return g
   }
 
   private createPlayer(): void {
-    const look = lookFor(GUILD_MASTER)
-    const layers = [look.body, look.outfit, look.hair].map((frame) =>
+    const look = lookFor(GUILD_MASTER, this.playerLook ?? undefined)
+    this.playerLayers = [look.body, look.outfit, look.hair].map((frame) =>
       this.add.image(0, 0, CHARS, frame)
     )
+    const layers: Phaser.GameObjects.GameObject[] = [...this.playerLayers, this.crown()]
     this.player = this.add.container(0, 0, layers).setDepth(16)
     this.player.setName(GUILD_MASTER)
     this.syncPlayer()
@@ -216,7 +325,7 @@ export class HallScene extends Phaser.Scene {
       const s = this.layout.tileSize
       const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
       const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
-      const route = findPath(this.layout.walkable, from, to)
+      const route = findPath(this.walkable, from, to)
       if (route) {
         this.path = route
         this.chase(false)
@@ -225,19 +334,36 @@ export class HallScene extends Phaser.Scene {
   }
 
   private onKey(event: KeyboardEvent, pressed: boolean): void {
+    const name = KEY_NAMES[event.key.toLowerCase()]
+    // A key is always released, even if focus moved into a dialog while it was held.
+    if (!pressed) {
+      if (name) {
+        this.keys[name] = false
+      }
+      return
+    }
     const target = event.target
     if (
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
       (target instanceof HTMLElement &&
-        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
+        (target.isContentEditable ||
+          target.closest('dialog') !== null ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
     ) {
       return
     }
-    const name = KEY_NAMES[event.key.toLowerCase()]
+    if (event.key.toLowerCase() === 'e') {
+      if (!event.repeat && this.near !== null) {
+        this.releaseKeys()
+        this.options.onInteract()
+        event.preventDefault()
+      }
+      return
+    }
     if (name) {
-      this.keys[name] = pressed
+      this.keys[name] = true
       event.preventDefault()
     }
   }
@@ -286,11 +412,12 @@ export class HallScene extends Phaser.Scene {
     if (!this.ready) {
       return
     }
-    if (this.baselineSeq === null) {
-      this.baselineSeq = state.appliedSeq
-    }
+    this.walkable = withClosedDoors(this.layout, state.rooms)
+    this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
     this.drawMembers(state)
+    this.drawApprentices(state)
+    this.seeding = false
   }
 
   /** Zooms the camera by a step (clamped), keeping the hall centred. */
@@ -314,13 +441,25 @@ export class HallScene extends Phaser.Scene {
     cam.setSize(this.scale.width, this.scale.height)
     const worldW = px(this.layout.width, this.layout.tileSize)
     const worldH = px(this.layout.height, this.layout.tileSize)
-    const fitZoom = Math.min(this.scale.width / worldW, this.scale.height / worldH)
-    this.zoomLevel = fitZoom >= 1 ? Math.floor(fitZoom) : fitZoom >= 0.5 ? 0.5 : 0.25
+    this.zoomLevel = fitZoom(this.scale.width, this.scale.height, worldW, worldH)
     if (keepFollow && this.chasing) {
       this.zoomLevel = Math.max(1, this.zoomLevel)
     }
     cam.setZoom(this.zoomLevel)
     this.centre()
+  }
+
+  /** A phone opens at a readable zoom on the Guild Master, not at the whole hall in miniature; Fit hall still shows it all. */
+  private openReadable(): void {
+    const cam = this.cameras.main
+    const worldW = px(this.layout.width, this.layout.tileSize)
+    const worldH = px(this.layout.height, this.layout.tileSize)
+    const zoom = openZoom(this.scale.width, this.scale.height, worldW, worldH)
+    if (zoom > this.zoomLevel) {
+      this.zoomLevel = zoom
+      cam.setZoom(zoom)
+      cam.centerOn(this.at.x * this.layout.tileSize, this.at.y * this.layout.tileSize)
+    }
   }
 
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
@@ -393,6 +532,33 @@ export class HallScene extends Phaser.Scene {
             ? `${hall.name} (paused)`
             : hall.name
         add(this.label(room.x * s + 4, room.y * s + 2, tag.slice(0, 22), 16))
+      }
+      if (hall && !hall.locked) {
+        // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
+        const spot = questBoardIn(this.layout, room)
+        add(
+          this.add
+            .rectangle(spot.x * s + 8, spot.y * s + 8, s, s, 0x7a4b24, 1)
+            .setStrokeStyle(1, 0x3b2410)
+            .setDepth(4)
+        )
+        const shown = Math.min(hall.board, BOARD_SCROLLS)
+        for (let i = 0; i < shown; i++) {
+          add(
+            this.add
+              .image(
+                spot.x * s + 3 + (i % 2) * 7,
+                spot.y * s + 4 + Math.floor(i / 2) * 7,
+                TILES,
+                FRAME.scroll
+              )
+              .setScale(0.45)
+              .setDepth(5)
+          )
+        }
+        if (hall.board > BOARD_SCROLLS) {
+          add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
+        }
       }
       if (door && (!hall || hall.locked)) {
         for (let dx = 0; dx < door.w; dx++) {
@@ -475,11 +641,17 @@ export class HallScene extends Phaser.Scene {
           x: slot.x + 1 + (n % Math.max(1, slot.w - 2)),
           y: slot.y + 2,
         }
-        this.placeMember(member, member.status === 'working' ? work : seat, s)
+        this.placeMember(
+          member,
+          member.status === 'working' ? work : seat,
+          s,
+          questBoardIn(this.layout, slot)
+        )
       })
     })
     // The Steward sits at their desk.
     const stew = this.layout.stewardDesk
+    this.talkable = new Set(live)
     live.add(state.stewardId)
     this.placeMember(
       {
@@ -489,7 +661,8 @@ export class HallScene extends Phaser.Scene {
         rank: 'steward',
         status: 'idle',
         questId: null,
-        bubble: null,
+        bubble: state.members[state.stewardId]?.bubble ?? null,
+        claimSeq: null,
       },
       { x: stew.x + 1, y: stew.y + stew.h },
       s
@@ -503,26 +676,133 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  private placeMember(member: SceneMember, tile: { x: number; y: number }, s: number): void {
+  /**
+   * Apprentices: one small helper per in-flight Sub-Quest, walking in from its parent's seat when
+   * spawned and fading out when the child settles. Reduced motion swaps them in and out.
+   */
+  private drawApprentices(state: SceneState): void {
+    const s = this.layout.tileSize
+    const live = new Set<string>()
+    state.rooms.forEach((room, index) => {
+      const slot = this.layout.rooms[index]
+      const crew = state.apprentices.filter((a) => a.hallId === room.hallId)
+      if (!slot || crew.length === 0) {
+        return
+      }
+      const seats = apprenticeSeats(this.layout, slot, crew.length)
+      crew.forEach((apprentice, n) => {
+        const seat = seats[n]
+        if (!seat) {
+          return
+        }
+        live.add(apprentice.childId)
+        const x = seat.x * s + s / 2
+        const y = seat.y * s + s / 2
+        const found = this.apprentices.get(apprentice.childId)
+        if (found) {
+          if (!this.tweens.isTweening(found.root)) {
+            found.root.setPosition(x, y)
+          }
+          return
+        }
+        const look = lookFor(apprentice.childId)
+        const layers = [look.body, look.outfit, look.hair].map((frame) =>
+          this.add.image(0, 0, CHARS, frame)
+        )
+        // The parent Quest's owner is the Member working it; the apprentice walks in from them.
+        const owner = Object.values(state.members).find((m) => m.questId === apprentice.parentId)
+        const parent = owner ? this.members.get(owner.id)?.root : undefined
+        const animate = !this.options.reducedMotion && !this.seeding
+        const root = this.add
+          .container(animate && parent ? parent.x : x, animate && parent ? parent.y : y, layers)
+          .setScale(0.75)
+          .setDepth(14)
+        root.setName(`apprentice:${apprentice.childId}`)
+        if (animate) {
+          root.setAlpha(0)
+          this.tweens.add({ targets: root, x, y, alpha: 1, duration: WALK_MS, ease: 'Linear' })
+        }
+        this.apprentices.set(apprentice.childId, { root, hallId: room.hallId })
+      })
+    })
+    for (const [id, view] of this.apprentices) {
+      if (live.has(id)) {
+        continue
+      }
+      this.apprentices.delete(id)
+      this.tweens.killTweensOf(view.root)
+      if (this.options.reducedMotion) {
+        view.root.destroy()
+      } else {
+        this.tweens.add({
+          targets: view.root,
+          alpha: 0,
+          duration: WALK_MS,
+          onComplete: () => view.root.destroy(),
+        })
+      }
+    }
+  }
+
+  /** The apprentice's game object, by child Quest id (null when none is drawn). */
+  apprenticeObject(childId: string): Phaser.GameObjects.Container | null {
+    return this.apprentices.get(childId)?.root ?? null
+  }
+
+  private placeMember(
+    member: SceneMember,
+    tile: { x: number; y: number },
+    s: number,
+    board?: { x: number; y: number }
+  ): void {
     let view = this.members.get(member.id)
     const x = tile.x * s + s / 2
     const y = tile.y * s + s / 2
     if (!view) {
-      const look = lookFor(member.id)
+      const look = lookFor(member.id, member.look)
       const layers = [look.body, look.outfit, look.hair].map((frame) =>
         this.add.image(0, 0, CHARS, frame)
       )
       const root = this.add.container(x, y, layers).setDepth(15)
       root.setName(member.id)
-      view = { root, bubble: null, bubbleTimer: null, bubbleSeq: 0, mode: null }
+      view = {
+        root,
+        bubble: null,
+        bubbleTimer: null,
+        bubbleSeq: member.bubble?.seq ?? 0,
+        claimSeq: member.claimSeq ?? 0,
+        tx: x,
+        ty: y,
+        mode: null,
+      }
       this.members.set(member.id, view)
       root.setPosition(x, y)
-    } else if (view.root.x !== x || view.root.y !== y) {
-      if (this.options.reducedMotion) {
-        view.root.setPosition(x, y)
-      } else {
+    } else {
+      // A new claim walks the Member to their Hall's Quest Board first; reduced motion swaps.
+      const claimed = member.claimSeq !== null && member.claimSeq > view.claimSeq
+      view.claimSeq = member.claimSeq ?? 0
+      if (view.tx !== x || view.ty !== y || claimed) {
+        view.tx = x
+        view.ty = y
         this.tweens.killTweensOf(view.root)
-        this.tweens.add({ targets: view.root, x, y, duration: 700, ease: 'Linear' })
+        if (this.options.reducedMotion || this.seeding) {
+          view.root.setPosition(x, y)
+        } else if (claimed && board) {
+          const bx = board.x * s + s / 2
+          const by = board.y * s + s / 2
+          const root = view.root
+          this.tweens.add({
+            targets: root,
+            x: bx,
+            y: by,
+            duration: WALK_MS,
+            ease: 'Linear',
+            onComplete: () =>
+              this.tweens.add({ targets: root, x, y, duration: WALK_MS, ease: 'Linear' }),
+          })
+        } else {
+          this.tweens.add({ targets: view.root, x, y, duration: 700, ease: 'Linear' })
+        }
       }
     }
     if (view.mode !== member.status) {
@@ -534,7 +814,12 @@ export class HallScene extends Phaser.Scene {
 
   private showBubble(member: SceneMember, view: MemberView, x: number, y: number): void {
     const bubble = member.bubble
-    if (!bubble || bubble.seq <= view.bubbleSeq || bubble.seq <= (this.baselineSeq ?? 0)) {
+    if (!bubble) {
+      // Scrubbing back past a bubble lets the same event speak again when replayed forward.
+      view.bubbleSeq = 0
+      return
+    }
+    if (bubble.seq === view.bubbleSeq) {
       return
     }
     view.bubbleSeq = bubble.seq
@@ -542,10 +827,18 @@ export class HallScene extends Phaser.Scene {
     view.bubbleTimer?.remove()
     const text =
       bubble.text.length > BUBBLE_CHARS ? `${bubble.text.slice(0, BUBBLE_CHARS - 1)}~` : bubble.text
-    const label = this.add.bitmapText(0, 0, FONT, text, 16).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
+    const label = this.add
+      .bitmapText(0, 0, FONT, text, 16)
+      .setTint(0x1a1a2a)
+      .setOrigin(0.5, 0.5)
+      .setMaxWidth(BUBBLE_WRAP)
+      .setCenterAlign()
     const w = label.width + 8
-    const back = this.add.rectangle(0, 0, w, 20, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 26, [back, label]).setDepth(30)
+    const h = label.height + 4
+    const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    const root = this.add.container(x, y, [back, label]).setDepth(30)
+    // The bubble rides with the sprite (a Member walking to the Quest Board), so `update` places it.
+    root.setData('height', h)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()

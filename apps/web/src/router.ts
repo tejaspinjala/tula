@@ -10,6 +10,7 @@ export const VIEWS = [
   { id: 'treasury', path: '/treasury', label: 'Treasury and Costs' },
   { id: 'roster', path: '/roster', label: 'Roster and Summon' },
   { id: 'guild', path: '/guild', label: 'Guild' },
+  { id: 'workflows', path: '/workflows', label: 'Workflows' },
   { id: 'gates', path: '/gates', label: 'Gates' },
   { id: 'timeline', path: '/timeline', label: 'Timeline' },
   { id: 'vault', path: '/vault', label: 'Vault and Settings' },
@@ -45,7 +46,7 @@ export function useRoute(): { view: ViewId; navigate: (path: string) => void } {
   useEffect(() => {
     const sync = () => {
       if (!isKnownPath(window.location.pathname)) {
-        window.history.replaceState({}, '', '/')
+        window.history.replaceState({}, '', `/${window.location.search}`)
       }
       setView(viewFor(window.location.pathname, window.location.search))
     }

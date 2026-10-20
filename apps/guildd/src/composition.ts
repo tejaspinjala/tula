@@ -10,8 +10,10 @@ import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgGateStore } from './adapters/pg-gate-store'
+import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgMissiveStore } from './adapters/pg-missive-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgPostCostReader } from './adapters/pg-post-cost-reader'
@@ -86,6 +88,7 @@ export async function compose(
   const config = overrides.config ?? new PgConfigStore(db, keys)
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
+  const missives = overrides.missives ?? new PgMissiveStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
@@ -141,16 +144,20 @@ export async function compose(
   const proposals =
     overrides.proposals ??
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
+  const workflowStore = new PgWorkflowStore(db, keys, clock)
+  const handoffs = new PgHandoffStore(db, keys)
   const mcp =
     overrides.mcp ??
     new McpGateway({
       quests,
       config,
       notes,
+      missives,
       objectStore,
-      handoffs: new PgHandoffStore(db, keys),
+      handoffs,
       toolsets: new PgToolsetStore(db),
       proposals,
+      workflows: workflowStore,
       keys,
       clock,
       tripwires,
@@ -165,6 +172,7 @@ export async function compose(
   const adapters: AppDeps = {
     ...overrides,
     subscriptionEnabled: subscriptionProvider !== undefined,
+    guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
     pushStore,
     pushNotifier,
     pushRelay:
@@ -191,14 +199,16 @@ export async function compose(
     workflows:
       overrides.workflows ??
       new WorkflowEngine({
-        store: new PgWorkflowStore(db, keys, clock),
+        store: workflowStore,
         config,
         quests,
         tripwires,
         proposals,
         seals: sealStore,
+        handoffs,
       }),
     notes,
+    missives,
     quests,
     mcp,
     tripwires,

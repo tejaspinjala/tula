@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Fetcher } from './artifacts'
 import { type PasskeyBrowser, PasskeyRequestError, reauthenticate, type Session } from './passkeys'
 
-const statusBody = z.object({ guild: z.boolean(), global: z.boolean() })
+const statusBody = z.object({ guild: z.boolean(), global: z.boolean(), operator: z.boolean() })
 const barBody = z.object({
   barId: z.string(),
   scope: z.enum(['guild', 'global']),
@@ -79,7 +79,7 @@ export async function liftGates(
 }
 
 /** One sentence describing the bars. */
-export function describeGates(status: GatesStatus): string {
+export function describeGates(status: Pick<GatesStatus, 'guild' | 'global'>): string {
   if (status.global) {
     return 'The Gates are barred for every guild.'
   }

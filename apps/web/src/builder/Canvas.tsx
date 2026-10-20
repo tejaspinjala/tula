@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react'
 import { type DragEvent, useCallback, useEffect, useState } from 'react'
 import { Badge } from '../Badge'
+import { capBadge } from './caps'
 import {
   type BuilderNode,
   buildGraph,
@@ -54,6 +55,7 @@ function HallNode({ data, selected }: NodeProps & { data: HallData }) {
       <Handle type="target" position={Position.Top} isConnectable={false} />
       <strong>{data.hall.name}</strong>
       <div className="flow-badges">
+        <Badge tone="neutral">{`Members ${capBadge(data.claimed, data.hall)}`}</Badge>
         {data.hall.locked && <Badge tone="neutral">Locked</Badge>}
         {data.paused && <Badge tone="warn">Hall paused</Badge>}
         {data.barred && <Badge tone="danger">Gates barred</Badge>}
@@ -103,7 +105,7 @@ export interface CanvasProps {
 }
 
 function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiece }: CanvasProps) {
-  const { getIntersectingNodes, screenToFlowPosition } = useReactFlow<BuilderNode>()
+  const { fitView, getIntersectingNodes, screenToFlowPosition } = useReactFlow<BuilderNode>()
   const [nodes, setNodes] = useState<BuilderNode[]>([])
   const [edges, setEdges] = useState(() => buildGraph(config, overlays, issues).edges)
 
@@ -114,6 +116,14 @@ function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiec
     setEdges(graph.edges)
   }, [config, overlays, issues, selected])
   useEffect(relayout, [relayout])
+
+  // A Hall, Captain or Member that was just added may sit outside the view: bring everything in.
+  const count = nodes.length
+  useEffect(() => {
+    if (count > 0) {
+      fitView({ duration: 0 })
+    }
+  }, [count, fitView])
 
   const onNodesChange = useCallback(
     (changes: NodeChange<BuilderNode>[]) =>
@@ -168,6 +178,7 @@ function Flow({ config, overlays, issues, selected, onSelect, onMove, onDropPiec
         onDrop={onDrop}
         nodesConnectable={false}
         elementsSelectable
+        elevateNodesOnSelect={false}
         fitView
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}

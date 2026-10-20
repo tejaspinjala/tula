@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { deriveScene } from './scene'
-import { readEventFrame, sceneSummary } from './text'
+import { readEventFrame, sceneSummary, teleportLabel } from './text'
 
 test('readEventFrame reads an event frame and ignores snapshots and junk', () => {
   const frame = JSON.stringify({
@@ -61,4 +61,9 @@ test('sceneSummary uses the singular for one Quest awaiting a Seal', () => {
   expect(sceneSummary(scene)).toBe(
     'Guild hall. 1 Quest awaits a Seal: Write notice. Treasury spend: $0.00.'
   )
+})
+
+test('the teleport menu marks a locked room', () => {
+  expect(teleportLabel({ name: 'Health', locked: true })).toBe('Health (locked)')
+  expect(teleportLabel({ name: 'Heralds Hall', locked: false })).toBe('Heralds Hall')
 })

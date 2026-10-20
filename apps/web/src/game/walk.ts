@@ -182,12 +182,18 @@ export function teleportTile(
   return best
 }
 
+/** A Hall's name as a title: "Research" is "Research Hall", "Heralds Hall" stays as it is. */
+export function hallTitle(name: string): string {
+  const trimmed = name.trim()
+  return /\bhall$/i.test(trimmed) ? trimmed : `${trimmed} Hall`
+}
+
 /** What the live region says about where the Guild Master is. */
 export function announceRoom(hallName: string | null | undefined, inRoom: boolean): string {
   if (!inRoom) {
     return 'You are in the hallway.'
   }
-  return hallName ? `You are in the ${hallName} Hall.` : 'You are in an empty room.'
+  return hallName ? `You are in the ${hallTitle(hallName)}.` : 'You are in an empty room.'
 }
 
 /** The index of the room rectangle holding a position, or null in the corridors. */

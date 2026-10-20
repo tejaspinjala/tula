@@ -102,6 +102,39 @@ describe('POST /guilds/:id/dispatch', () => {
     expect(await harness.adapters.sandboxes.list(g)).toEqual([])
   })
 
+  test('parallel dispatch passes never run more than a Hall`s member cap; the excess waits queued', async () => {
+    const { g, auth } = await found()
+    const { config: current } = await harness.adapters.config.current(g)
+    const capped = {
+      ...current,
+      halls: current.halls.map((h) => (h.id === 'heralds' ? { ...h, maxConcurrentMembers: 2 } : h)),
+    }
+    const proposed = await harness.adapters.config.propose(g, capped)
+    if (proposed.status === 'pending') {
+      await harness.adapters.config.confirm(g, proposed.version)
+    }
+    for (const n of [1, 2, 3, 4]) {
+      await harness.adapters.quests.post(g, {
+        jobKey: `more-${n}`,
+        templateId: 'herald-brief',
+        hallId: 'heralds',
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: `More ${n}`,
+        ownerId: 'heralds-member-2',
+        doneCondition: 'A draft brief is filed',
+        roundLimit: 2,
+      })
+    }
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map(async () => outcome.parse(await (await dispatch(g, auth)).json()))
+    )
+    expect(results.filter((r) => r.status === 'started')).toHaveLength(2)
+    expect(await harness.adapters.sandboxes.list(g)).toHaveLength(2)
+    const queued = await harness.adapters.quests.list(g, { limit: 50, state: 'queued' })
+    expect(queued.quests).toHaveLength(3)
+  })
+
   test('needs a session', async () => {
     const { g } = await found()
     expect((await dispatch(g, {})).status).toBe(401)

@@ -1,7 +1,11 @@
 import type { Clock } from '../ports/clock'
 import {
   assertHeld,
+  type BoardRequest,
+  type BoardResult,
+  boardRefusal,
   type ClaimOptions,
+  campaignFinished,
   cascadeDeadTransitions,
   claimTransition,
   completeTransition,
@@ -22,6 +26,7 @@ import {
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
+  questEventPayload,
   releaseClaimTransition,
   renewTransition,
   retryDelayMs,
@@ -83,25 +88,41 @@ export class MemoryQuestQueue implements QuestQueue {
 
   private apply(guildId: string, t: Transition): Quest {
     this.record(guildId, t)
+    const settled = new Set<string>()
+    if (t.event === 'quest.dead' || t.event === 'quest.done') {
+      if (t.quest.campaignId !== null) {
+        settled.add(t.quest.campaignId)
+      }
+    }
     if (t.event === 'quest.dead') {
       for (const dependent of cascadeDeadTransitions(
         [...this.guild(guildId).byId.values()],
         t.quest.id
       )) {
         this.record(guildId, dependent)
+        if (dependent.quest.campaignId !== null) {
+          settled.add(dependent.quest.campaignId)
+        }
       }
     }
+    this.finishCampaigns(guildId, settled)
     return t.quest
   }
 
   private record(guildId: string, t: Transition): void {
     this.guild(guildId).byId.set(t.quest.id, t.quest)
     if (t.event) {
-      this.onEvent(guildId, t.event, {
-        questId: t.quest.id,
-        hallId: t.quest.hallId,
-        attempt: t.quest.attempts,
-      })
+      this.onEvent(guildId, t.event, questEventPayload(t, t.quest.attempts))
+    }
+  }
+
+  /** Appends `campaign.finished` for each of `campaignIds` whose Quests are all settled. */
+  private finishCampaigns(guildId: string, campaignIds: ReadonlySet<string>): void {
+    const all = [...this.guild(guildId).byId.values()]
+    for (const campaignId of campaignIds) {
+      if (campaignFinished(all, campaignId)) {
+        this.onEvent(guildId, 'campaign.finished', { campaignId })
+      }
     }
   }
 
@@ -128,6 +149,7 @@ export class MemoryQuestQueue implements QuestQueue {
       seq: g.seq,
       jobKey: parsed.jobKey,
       campaignId: parsed.campaignId ?? null,
+      board: parsed.board,
       templateId: parsed.templateId,
       hallId: parsed.hallId,
       rank: parsed.rank,
@@ -310,6 +332,34 @@ export class MemoryQuestQueue implements QuestQueue {
     return { ok: true, quest, link, created: true }
   }
 
+  async postBoard(guildId: string, request: BoardRequest): Promise<BoardResult> {
+    const g = this.guild(guildId)
+    assertHeld(this.mustFind(guildId, request.parentId), request.attempt)
+    const existingId = g.byKey.get(request.jobKey)
+    const existing = existingId === undefined ? undefined : g.byId.get(existingId)
+    if (existing) {
+      return { ok: true, quest: existing, created: false }
+    }
+    const onBoard = [...g.byId.values()].filter(
+      (q) => q.board && q.campaignId === request.campaignId
+    ).length
+    const refusal = boardRefusal(onBoard, request.maxQuests)
+    if (refusal) {
+      return { ok: false, error: refusal }
+    }
+
+    const { quest, created } = this.postNow(guildId, {
+      ...request.quest,
+      jobKey: request.jobKey,
+      campaignId: request.campaignId,
+      board: true,
+    })
+    if (created && onBoard === 0) {
+      this.onEvent(guildId, 'campaign.started', { campaignId: request.campaignId })
+    }
+    return { ok: true, quest, created }
+  }
+
   async children(guildId: string, parentId: string): Promise<QuestLink[]> {
     const g = this.guild(guildId)
     return [...g.links.values()]
@@ -343,7 +393,12 @@ export class MemoryQuestQueue implements QuestQueue {
     const after = paging.after === undefined ? 0 : Number(paging.after)
     const limit = Math.min(paging.limit, MAX_QUEST_PAGE)
     const rows = [...this.guild(guildId).byId.values()]
-      .filter((q) => q.seq > after && (paging.state === undefined || q.state === paging.state))
+      .filter(
+        (q) =>
+          q.seq > after &&
+          (paging.state === undefined || q.state === paging.state) &&
+          (paging.campaignId === undefined || q.campaignId === paging.campaignId)
+      )
       .sort((a, b) => a.seq - b.seq)
     const quests = rows.slice(0, limit)
     const last = quests.at(-1)

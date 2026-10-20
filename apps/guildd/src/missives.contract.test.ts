@@ -1,0 +1,96 @@
+import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
+import { WHOLE_HALL } from './ports/missive-store'
+import { expectGuildIsolation } from './testing/cross-guild'
+import { createHarness } from './testing/harness'
+
+const harness = await createHarness({ devGuildHeader: true })
+const strict = await createHarness({ devGuildHeader: false })
+afterAll(async () => {
+  await harness.close()
+  await strict.close()
+})
+
+const pageBody = z.object({
+  missives: z.array(
+    z.object({ id: z.string(), from: z.string(), to: z.string(), text: z.string() })
+  ),
+  next: z.number().nullable(),
+})
+
+async function found(): Promise<string> {
+  const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
+  await harness.adapters.config.seed(g)
+  return g
+}
+
+const base = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/missives`
+const headers = (g: string) => ({ 'x-guild-id': g })
+
+async function sendSome(g: string, texts: string[], hallId = 'heralds') {
+  const questId = crypto.randomUUID()
+  for (const text of texts) {
+    await harness.adapters.missives.send(g, {
+      hallId,
+      questId,
+      attempt: 1,
+      from: 'heralds-member-2',
+      to: WHOLE_HALL,
+      text,
+      maxPerQuest: 100,
+      at: new Date(),
+    })
+  }
+}
+
+describe('Hall missives route', () => {
+  test('the Guild Master reads a Hall’s Missives newest first, in pages', async () => {
+    const g = await found()
+    await sendSome(g, ['m1', 'm2', 'm3'])
+    await sendSome(g, ['elsewhere'], 'scribes')
+    const first = pageBody.parse(
+      await (await harness.request(`${base(g)}?limit=2`, { headers: headers(g) })).json()
+    )
+    expect(first.missives.map((m) => m.text)).toEqual(['m3', 'm2'])
+    expect(first.next).not.toBeNull()
+    const second = pageBody.parse(
+      await (
+        await harness.request(`${base(g)}?limit=2&after=${first.next}`, { headers: headers(g) })
+      ).json()
+    )
+    expect(second.missives.map((m) => m.text)).toEqual(['m1'])
+    expect(second.next).toBeNull()
+  })
+
+  test('the text comes back as the sender wrote it, unframed', async () => {
+    const g = await found()
+    await sendSome(g, ['<b>hello</b> & more'])
+    const page = pageBody.parse(
+      await (await harness.request(base(g), { headers: headers(g) })).json()
+    )
+    expect(page.missives[0]?.text).toBe('<b>hello</b> & more')
+  })
+
+  test('a bad page, or a Hall the guild does not have, is refused', async () => {
+    const g = await found()
+    const get = (path: string) => harness.request(path, { headers: headers(g) })
+    expect((await get(`${base(g)}?limit=0`)).status).toBe(400)
+    expect((await get(`${base(g)}?limit=101`)).status).toBe(400)
+    expect((await get(`${base(g)}?after=abc`)).status).toBe(400)
+    expect((await get(base(g, 'no-such-hall'))).status).toBe(404)
+  })
+
+  test('without a session the route answers 401', async () => {
+    const g = await strict.foundGuild({ name: 'Missives', goal: 'g' })
+    await strict.adapters.config.seed(g)
+    const res = await strict.request(base(g), { headers: { 'x-guild-id': g } })
+    expect(res.status).toBe(401)
+  })
+
+  test('cross-guild probe: another guild looks like a missing one', async () => {
+    await expectGuildIsolation(harness, {
+      build: (caller, target) => [base(target), { headers: headers(caller) }],
+      snapshot: (g) => harness.adapters.missives.list(g, { hallId: 'heralds', limit: 100 }),
+    })
+  })
+})
