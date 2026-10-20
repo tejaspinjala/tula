@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
-import { decideSeal, type InboxSeal, listSeals, markPosted } from './seals'
+import { decideSeal, type InboxSeal, listSeals, markPosted, releaseStale } from './seals'
 
 /**
  * The Seal inbox: each pending Seal shows its exact text, evidence and hash. The Guild Master
@@ -26,7 +26,12 @@ export function SealPanel({ session }: { session: Session | null }) {
     }
   }
 
-  const refresh = async (current: Session) => setSeals((await listSeals(current, fetch)).seals)
+  const refresh = async (current: Session) => {
+    const waiting = (await listSeals(current, fetch)).seals
+    const approved = (await listSeals(current, fetch, 20, 'approved')).seals
+    const reserved = (await listSeals(current, fetch, 20, 'reserved')).seals
+    setSeals([...waiting, ...approved, ...reserved.filter((s) => s.stale)])
+  }
 
   function replace(updated: InboxSeal) {
     setSeals((all) => all.map((s) => (s.id === updated.id ? updated : s)))
@@ -106,6 +111,37 @@ export function SealPanel({ session }: { session: Session | null }) {
                     </div>
                   </div>
                 ) : null}
+                {seal.stale ? (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <p className="text-sm">
+                      A publish started and never finished. Release only if nothing was posted.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="min-h-11 flex-1 rounded border p-2"
+                        onClick={() =>
+                          run('Release stale', async (current) =>
+                            replace(await releaseStale(current, seal, fetch, webAuthnBrowser))
+                          )
+                        }
+                      >
+                        Release (nothing posted)
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-11 flex-1 rounded bg-black p-2 text-white"
+                        onClick={() =>
+                          run('Mark posted', async (current) =>
+                            replace(await markPosted(current, seal, fetch, webAuthnBrowser))
+                          )
+                        }
+                      >
+                        Mark posted
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {seal.status === 'approved' ? (
                   <div className="mt-2 flex gap-2">
                     <button
@@ -120,7 +156,7 @@ export function SealPanel({ session }: { session: Session | null }) {
                       className="min-h-11 flex-1 rounded bg-black p-2 text-white"
                       onClick={() =>
                         run('Mark posted', async (current) =>
-                          replace(await markPosted(current, seal, fetch))
+                          replace(await markPosted(current, seal, fetch, webAuthnBrowser))
                         )
                       }
                     >

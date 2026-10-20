@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { eventsAfter } from './events'
-import { hashProposal } from './ports/seal-store'
+import { hashProposal, SEAL_RESERVATION_MS } from './ports/seal-store'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
@@ -87,7 +87,7 @@ async function signedIn() {
     const headers = withProof ? { ...auth, 'x-reauth-proof': await proof() } : auth
     return post(`/guilds/${guildId}/seals/${sealId}/${verb}`, body, headers)
   }
-  return { guildId, auth, request, act }
+  return { guildId, auth, request, act, proof }
 }
 
 describe('Seal inbox over HTTP', () => {
@@ -167,12 +167,38 @@ describe('Seal inbox over HTTP', () => {
     const seal = await who.request('post me')
     await who.act(seal.id, 'approve', { actionHash: seal.actionHash })
     const path = `/guilds/${who.guildId}/seals/${seal.id}/posted`
-    const done = await post(path, { actionHash: seal.actionHash }, who.auth)
+    const wrong = await post(path, { text: 'post me, edited' }, who.auth)
+    expect(wrong.status).toBe(409)
+    expect(await wrong.json()).toEqual({ error: 'hash_mismatch' })
+    const done = await post(path, { text: 'post me' }, who.auth)
     expect(sealBody.parse(await done.json()).status).toBe('consumed')
-    expect((await post(path, { actionHash: seal.actionHash }, who.auth)).status).toBe(409)
+    expect((await post(path, { text: 'post me' }, who.auth)).status).toBe(409)
     const events = await harness.adapters.db.withGuild(who.guildId, (tx) => eventsAfter(tx, 0, 100))
     expect(events.map((e) => e.type)).toContain('post.published_manually')
     expect(JSON.stringify(events)).not.toContain('post me')
+  })
+
+  test('a stale reservation is resolved only with a fresh re-authentication', async () => {
+    const who = await signedIn()
+    const seal = await who.request('post me')
+    await who.act(seal.id, 'approve', { actionHash: seal.actionHash })
+    await harness.adapters.seals.reserve(who.guildId, seal.id, 'post me')
+    harness.adapters.clock.advance(SEAL_RESERVATION_MS)
+    const base = `/guilds/${who.guildId}/seals/${seal.id}`
+    // Not usable by a bare session, and a live reservation could not be resolved at all.
+    expect((await post(`${base}/posted`, { text: 'post me' }, who.auth)).status).toBe(403)
+    expect((await post(`${base}/release-stale`, {}, who.auth)).status).toBe(403)
+    const freed = await who.act(seal.id, 'release-stale', {})
+    expect(sealBody.parse(await freed.json()).status).toBe('released')
+    // A second stale reservation can instead be marked posted, again with re-auth.
+    await harness.adapters.seals.reserve(who.guildId, seal.id, 'post me')
+    harness.adapters.clock.advance(SEAL_RESERVATION_MS)
+    const posted = await post(
+      `${base}/posted`,
+      { text: 'post me' },
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect(sealBody.parse(await posted.json()).status).toBe('consumed')
   })
 
   test('another guild cannot see or stamp a Seal', async () => {

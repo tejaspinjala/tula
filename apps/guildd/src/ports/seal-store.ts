@@ -29,7 +29,7 @@ export async function hashProposal(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Input to {@link SealStore.request}. */
+/** Input to {@link SealStore.request}. The store derives the bound hash from `text` itself. */
 export interface NewSeal {
   questId: string
   /** The agent or member asking; it can never decide its own request. */
@@ -40,14 +40,16 @@ export interface NewSeal {
   text: string
   /** The evidence shown beside the text. */
   evidence: string
-  /** Hash of `text`; the engine computes it, the store only binds it. */
-  actionHash: string
 }
 
-/** A Seal as stored, with `status` already read at the store's current time. */
+/** A Seal as read now; never carries a reservation token or its hash. */
 export interface Seal extends NewSeal {
   id: string
+  /** SHA-256 of `text`, computed by the store; the only payload this Seal can authorise. */
+  actionHash: string
   status: SealStatus
+  /** True for a `reserved` Seal whose reservation has lapsed: unresolved, not reusable. */
+  stale: boolean
   requestedAt: string
   expiresAt: string
   decidedAt: string | null
@@ -71,14 +73,21 @@ export type SealRefusal =
   | 'not_approved'
   | 'not_reserved'
   | 'not_authorised'
+  | 'bad_token'
+  | 'not_stale'
 
 /** Outcome of a Seal transition: the Seal after it, or why nothing changed. */
 export type SealResult = { ok: true; seal: Seal } | { ok: false; reason: SealRefusal }
 
+/** Outcome of {@link SealStore.reserve}: the holder's one-time token, shown only here. */
+export type ReserveResult =
+  | { ok: true; seal: Seal; token: string }
+  | { ok: false; reason: SealRefusal }
+
 /**
  * Port for Seals. Every transition is atomic (one winner among same-tick callers), appends its
  * event with ids and hashes only, and reads `requested` as `expired` once past its expiry and
- * `reserved` as `approved` once the reservation has lapsed. Authority is the engine's job.
+ * `reserved` as stale once the reservation has lapsed. Authority is the engine's job.
  */
 export interface SealStore {
   /** Requests a Seal. Idempotent per quest and hash: a retry returns the existing Seal. */
@@ -96,14 +105,23 @@ export interface SealStore {
     id: string,
     decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
   ): Promise<SealResult>
-  /** Reserves an approved (or released, or lapsed-reserved) Seal for one action with this hash. */
-  reserve(guildId: string, id: string, hash: string): Promise<SealResult>
-  /** Consumes a live reservation for this hash; a Seal can be consumed once. */
-  consume(guildId: string, id: string, hash: string): Promise<SealResult>
-  /** Gives a live reservation back without using it. */
-  release(guildId: string, id: string, hash: string): Promise<SealResult>
-  /** Records `post.published_manually` and consumes the Seal; the Quest completes on that event. */
-  markPosted(guildId: string, id: string, hash: string): Promise<SealResult>
-  /** Persists `expired` on every lapsed requested Seal (emitting `seal.expired`); returns how many. */
+  /**
+   * Reserves an approved (or released) Seal for publishing `text`, which must hash to the sealed
+   * hash. Returns a random token (stored only as a hash) that `consume` and `release` require.
+   * A lapsed reservation is stale, not free: it cannot be reserved again.
+   */
+  reserve(guildId: string, id: string, text: string): Promise<ReserveResult>
+  /** Consumes the reservation held by `token` for exactly `text`; works once, even when stale. */
+  consume(guildId: string, id: string, use: { text: string; token: string }): Promise<SealResult>
+  /** Gives the reservation held by `token` back unused. */
+  release(guildId: string, id: string, use: { token: string }): Promise<SealResult>
+  /** Guild Master only: releases a stale reservation (nothing was published) without its token. */
+  releaseStale(guildId: string, id: string): Promise<SealResult>
+  /**
+   * Records `post.published_manually` for exactly `text` and consumes the Seal. Allowed from
+   * approved, released, or a stale reservation (Guild Master resolution), never a live one.
+   */
+  markPosted(guildId: string, id: string, text: string): Promise<SealResult>
+  /** Persists `expired` on up to 100 lapsed requested Seals (emitting `seal.expired`); returns how many. */
   expireDue(guildId: string): Promise<number>
 }

@@ -10,6 +10,7 @@ const sealBody = z.object({
   text: z.string(),
   evidence: z.string(),
   actionHash: z.string(),
+  stale: z.boolean(),
   status: z.enum([
     'requested',
     'approved',
@@ -53,9 +54,14 @@ async function call<T>(
   return schema.parse(data)
 }
 
-/** The first page of Seals waiting for the Guild Master. */
-export function listSeals(session: Session, fetcher: Fetcher, limit = 20) {
-  return call(session, fetcher, `?status=requested&limit=${limit}`, pageBody)
+/** The first page of Seals in `status`: waiting for the Guild Master by default. */
+export function listSeals(
+  session: Session,
+  fetcher: Fetcher,
+  limit = 20,
+  status: 'requested' | 'approved' | 'reserved' = 'requested'
+) {
+  return call(session, fetcher, `?status=${status}&limit=${limit}`, pageBody)
 }
 
 /**
@@ -84,14 +90,36 @@ export async function decideSeal(
   )
 }
 
-/** Records that the Guild Master posted the approved text by hand. */
-export function markPosted(
+/**
+ * Records that the Guild Master posted the approved text by hand. The server hashes `text` and
+ * compares it with the sealed hash. A stale reservation needs a fresh passkey re-authentication.
+ */
+export async function markPosted(
   session: Session,
-  seal: Pick<InboxSeal, 'id' | 'actionHash'>,
-  fetcher: Fetcher
+  seal: Pick<InboxSeal, 'id' | 'text' | 'stale'>,
+  fetcher: Fetcher,
+  browser?: PasskeyBrowser
 ) {
+  const proof =
+    seal.stale && browser ? await reauthenticate(session.token, fetcher, browser) : undefined
   return call(session, fetcher, `/${seal.id}/posted`, sealBody, {
     method: 'POST',
-    body: { actionHash: seal.actionHash },
+    body: { text: seal.text },
+    ...(proof === undefined ? {} : { proof }),
+  })
+}
+
+/** Frees a stale reservation (nothing was published) after a fresh passkey re-authentication. */
+export async function releaseStale(
+  session: Session,
+  seal: Pick<InboxSeal, 'id'>,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
+) {
+  const proof = await reauthenticate(session.token, fetcher, browser)
+  return call(session, fetcher, `/${seal.id}/release-stale`, sealBody, {
+    method: 'POST',
+    body: {},
+    proof,
   })
 }

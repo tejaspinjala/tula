@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { type PasskeyBrowser, PasskeyRequestError } from './passkeys'
-import { decideSeal, listSeals, markPosted } from './seals'
+import { decideSeal, listSeals, markPosted, releaseStale } from './seals'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -13,6 +13,7 @@ const seal = {
   text: 'Ship it',
   evidence: 'verdict: pass',
   actionHash: hash,
+  stale: false,
   status: 'requested',
   requestedAt: '2026-01-01T00:00:00.000Z',
   expiresAt: '2026-01-04T00:00:00.000Z',
@@ -103,11 +104,32 @@ test('a refused stamp surfaces the server error code', async () => {
   expect(failure).toMatchObject({ code: 'hash_mismatch' })
 })
 
-test('marking posted sends the hash without a re-authentication', async () => {
+test('marking posted sends the exact text without a re-authentication', async () => {
   const path = `/api/guilds/${guild}/seals/${seal.id}/posted`
   const { seen, fetcher } = fakes({ [path]: { body: { ...seal, status: 'consumed' } } })
   const done = await markPosted(session, seal, fetcher)
   expect(done.status).toBe('consumed')
   expect(seen).toHaveLength(1)
-  expect(seen[0]?.body).toEqual({ actionHash: hash })
+  expect(seen[0]?.body).toEqual({ text: 'Ship it' })
+})
+
+test('marking a stale reservation posted re-authenticates first', async () => {
+  const path = `/api/guilds/${guild}/seals/${seal.id}/posted`
+  const { seen, fetcher, browser } = fakes({
+    ...reauth,
+    [path]: { body: { ...seal, status: 'consumed' } },
+  })
+  await markPosted(session, { ...seal, stale: true }, fetcher, browser)
+  expect(seen.at(-1)?.headers.get('x-reauth-proof')).toBe('p1')
+})
+
+test('releasing a stale reservation re-authenticates first', async () => {
+  const path = `/api/guilds/${guild}/seals/${seal.id}/release-stale`
+  const { seen, fetcher, browser } = fakes({
+    ...reauth,
+    [path]: { body: { ...seal, status: 'released' } },
+  })
+  const done = await releaseStale(session, seal, fetcher, browser)
+  expect(done.status).toBe('released')
+  expect(seen.at(-1)?.headers.get('x-reauth-proof')).toBe('p1')
 })

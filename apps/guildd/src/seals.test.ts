@@ -3,7 +3,7 @@ import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { hashProposal, SEAL_TTL_MS } from './ports/seal-store'
-import { SealEngine } from './seals'
+import { GUILD_MASTER_ID, SealEngine } from './seals'
 
 async function engine() {
   const clock = new MemoryClock(new Date('2026-01-01T00:00:00.000Z'))
@@ -15,7 +15,7 @@ async function engine() {
 }
 
 const proposal = { questId: crypto.randomUUID(), requestedBy: 'herald-1', kind: 'post' }
-const master = { role: 'guild_master', id: 'gm' } as const
+const master = { role: 'guild_master', id: GUILD_MASTER_ID } as const
 
 describe('SealEngine', () => {
   test('requestSeal binds the Seal to the hash of the exact text', async () => {
@@ -30,6 +30,28 @@ describe('SealEngine', () => {
     await expect(
       seals.requestSeal(crypto.randomUUID(), { ...proposal, text: 'x', evidence: 'e' })
     ).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  test('a requester using the Guild Master id is refused at requestSeal', async () => {
+    const { seals, guild } = await engine()
+    for (const requestedBy of [GUILD_MASTER_ID, ` ${GUILD_MASTER_ID.toUpperCase()} `]) {
+      await expect(
+        seals.requestSeal(guild, { ...proposal, requestedBy, text: 'x', evidence: 'e' })
+      ).rejects.toMatchObject({ code: 'requester_reserved' })
+    }
+  })
+
+  test('a distinct agent requester can be approved by the Guild Master', async () => {
+    const { seals, guild } = await engine()
+    const seal = await seals.requestSeal(guild, { ...proposal, text: 'hello', evidence: 'pass' })
+    expect(
+      await seals.decide(
+        guild,
+        seal.id,
+        { verdict: 'approved', expectedHash: seal.actionHash },
+        master
+      )
+    ).toMatchObject({ ok: true })
   })
 
   test('only the Guild Master decides; the requester and other agents are ignored', async () => {
@@ -63,7 +85,11 @@ describe('SealEngine', () => {
       { verdict: 'approved', expectedHash: seal.actionHash },
       master
     )
-    expect(await seals.reserve(guild, seal.id, other)).toEqual({
+    expect(await seals.reserve(guild, seal.id, 'hello, but different')).toEqual({
+      ok: false,
+      reason: 'hash_mismatch',
+    })
+    expect(await seals.markPosted(guild, seal.id, 'hello, but different')).toEqual({
       ok: false,
       reason: 'hash_mismatch',
     })
@@ -77,10 +103,7 @@ describe('SealEngine', () => {
       await seals.decide(
         guild,
         seal.id,
-        {
-          verdict: 'approved',
-          expectedHash: seal.actionHash,
-        },
+        { verdict: 'approved', expectedHash: seal.actionHash },
         master
       )
     ).toEqual({ ok: false, reason: 'expired' })

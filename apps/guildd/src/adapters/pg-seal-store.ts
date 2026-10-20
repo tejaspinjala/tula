@@ -4,7 +4,9 @@ import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import {
+  hashProposal,
   type NewSeal,
+  type ReserveResult,
   SEAL_RESERVATION_MS,
   SEAL_STATUSES,
   SEAL_TTL_MS,
@@ -14,6 +16,7 @@ import {
   type SealStatus,
   type SealStore,
 } from '../ports/seal-store'
+import { newReservationToken } from './memory-seal-store'
 
 const date = z.date().transform((d) => d.toISOString())
 const row = z.object({
@@ -31,20 +34,25 @@ const row = z.object({
   decision_note: z.string().nullable(),
   reserved_until: date.nullable(),
   consumed_at: date.nullable(),
+  reservation_token_hash: z.string().nullable().optional(),
 })
 type Row = z.infer<typeof row>
 
+const EXPIRE_BATCH = 100
 const COLUMNS =
   'seal_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, reserved_until, consumed_at'
 
 function toSeal(r: Row, now: Date): Seal {
   let status: SealStatus = r.status
-  let reservedUntil = r.reserved_until
+  let stale = false
   if (status === 'requested' && Date.parse(r.expires_at) <= now.getTime()) {
     status = 'expired'
-  } else if (status === 'reserved' && reservedUntil && Date.parse(reservedUntil) <= now.getTime()) {
-    status = 'approved'
-    reservedUntil = null
+  } else if (
+    status === 'reserved' &&
+    r.reserved_until &&
+    Date.parse(r.reserved_until) <= now.getTime()
+  ) {
+    stale = true
   }
   return {
     id: r.seal_id,
@@ -55,11 +63,12 @@ function toSeal(r: Row, now: Date): Seal {
     evidence: r.evidence,
     actionHash: r.action_hash,
     status,
+    stale,
     requestedAt: r.requested_at,
     expiresAt: r.expires_at,
     decidedAt: r.decided_at,
     decisionNote: r.decision_note,
-    reservedUntil,
+    reservedUntil: r.reserved_until,
     consumedAt: r.consumed_at,
   }
 }
@@ -68,7 +77,8 @@ function toSeal(r: Row, now: Date): Seal {
  * Postgres {@link SealStore}: every call runs in `Db.withGuild` (RLS scopes it to one guild) and
  * transitions lock the row, so concurrent callers serialise and exactly one wins. Each transition
  * appends its event (`seal.*`, `post.published_manually`) in the same transaction, with ids and
- * hashes only. Time comes from the injected {@link Clock}.
+ * hashes only. Time comes from the injected {@link Clock}. Reservation tokens are stored only as
+ * SHA-256 hashes.
  */
 export class PgSealStore implements SealStore {
   constructor(
@@ -80,12 +90,13 @@ export class PgSealStore implements SealStore {
   async request(guildId: string, input: NewSeal): Promise<Seal> {
     const now = this.clock.now()
     const expires = new Date(now.getTime() + SEAL_TTL_MS)
+    const actionHash = await hashProposal(input.text)
     return this.db.withGuild(guildId, async (tx) => {
       const [inserted] = await tx`
         insert into seals (guild_id, quest_id, requested_by, kind, text, evidence, action_hash,
           requested_at, expires_at)
         values (${guildId}, ${input.questId}, ${input.requestedBy}, ${input.kind}, ${input.text},
-          ${input.evidence}, ${input.actionHash}, ${now}, ${expires})
+          ${input.evidence}, ${actionHash}, ${now}, ${expires})
         on conflict (guild_id, quest_id, action_hash) do nothing
         returning ${tx.unsafe(COLUMNS)}`
       if (inserted) {
@@ -96,7 +107,7 @@ export class PgSealStore implements SealStore {
       const [existing] = await tx`
         select ${tx.unsafe(COLUMNS)} from seals
         where guild_id = ${guildId} and quest_id = ${input.questId}
-          and action_hash = ${input.actionHash}`
+          and action_hash = ${actionHash}`
       return toSeal(row.parse(existing), now)
     })
   }
@@ -117,26 +128,22 @@ export class PgSealStore implements SealStore {
     const now = this.clock.now()
     const after = page.after ?? null
     return this.db.withGuild(guildId, async (tx) => {
-      // Effective status depends on time, so filter after reading and fetch in id order.
-      const seals: Seal[] = []
-      let cursor = after
-      while (seals.length <= page.limit) {
-        const rows = await tx`
-          select ${tx.unsafe(COLUMNS)} from seals
-          where guild_id = ${guildId} and (${cursor}::uuid is null or seal_id > ${cursor}::uuid)
-          order by seal_id limit ${page.limit + 1}`
-        for (const r of rows) {
-          const seal = toSeal(row.parse(r), now)
-          if (page.status === undefined || seal.status === page.status) {
-            seals.push(seal)
-          }
-        }
-        const lastRow = rows.at(-1)
-        if (rows.length <= page.limit || !lastRow) {
-          break
-        }
-        cursor = row.parse(lastRow).seal_id
-      }
+      // One indexed query: the time-derived states are predicates, not post-filters.
+      const status = page.status
+      const wanted =
+        status === undefined
+          ? tx`true`
+          : status === 'requested'
+            ? tx`(status = 'requested' and expires_at > ${now})`
+            : status === 'expired'
+              ? tx`(status = 'expired' or (status = 'requested' and expires_at <= ${now}))`
+              : tx`status = ${status}`
+      const rows = await tx`
+        select ${tx.unsafe(COLUMNS)} from seals
+        where guild_id = ${guildId} and ${wanted}
+          and (${after}::uuid is null or seal_id > ${after}::uuid)
+        order by seal_id limit ${page.limit + 1}`
+      const seals = rows.map((r) => toSeal(row.parse(r), now))
       const items = seals.slice(0, page.limit)
       const last = items.at(-1)
       return { seals: items, next: seals.length > page.limit && last ? last.id : null }
@@ -150,10 +157,11 @@ export class PgSealStore implements SealStore {
   ): Promise<SealResult> {
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
-      const current = await this.lock(tx, guildId, id, now)
-      if (!current) {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
         return { ok: false, reason: 'not_found' }
       }
+      const current = locked.seal
       if (current.status === 'expired') {
         await this.persistExpiry(tx, guildId, current)
         return { ok: false, reason: 'expired' }
@@ -176,14 +184,18 @@ export class PgSealStore implements SealStore {
     })
   }
 
-  async reserve(guildId: string, id: string, hash: string): Promise<SealResult> {
+  async reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {
     const now = this.clock.now()
     const until = new Date(now.getTime() + SEAL_RESERVATION_MS)
+    const hash = await hashProposal(text)
+    const token = newReservationToken()
+    const tokenHash = await hashProposal(token)
     return this.db.withGuild(guildId, async (tx) => {
-      const current = await this.lock(tx, guildId, id, now)
-      if (!current) {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
         return { ok: false, reason: 'not_found' }
       }
+      const current = locked.seal
       if (current.status !== 'approved' && current.status !== 'released') {
         return { ok: false, reason: 'not_approved' }
       }
@@ -195,37 +207,33 @@ export class PgSealStore implements SealStore {
         guildId,
         id,
         now,
-        tx`status = 'reserved', reserved_until = ${until}`
+        tx`status = 'reserved', reserved_until = ${until}, reservation_token_hash = ${tokenHash}`
       )
       await this.emit(tx, 'seal.reserved', seal)
-      return { ok: true, seal }
+      return { ok: true, seal, token }
     })
   }
 
-  consume(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.finishReservation(guildId, id, hash, 'consumed')
-  }
-
-  release(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.finishReservation(guildId, id, hash, 'released')
-  }
-
-  private async finishReservation(
+  async consume(
     guildId: string,
     id: string,
-    hash: string,
-    to: 'consumed' | 'released'
+    use: { text: string; token: string }
   ): Promise<SealResult> {
+    const hash = await hashProposal(use.text)
+    const tokenHash = await hashProposal(use.token)
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
-      const current = await this.lock(tx, guildId, id, now)
-      if (!current) {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
         return { ok: false, reason: 'not_found' }
       }
-      if (current.status !== 'reserved') {
+      if (locked.seal.status !== 'reserved') {
         return { ok: false, reason: 'not_reserved' }
       }
-      if (current.actionHash !== hash) {
+      if (locked.tokenHash !== tokenHash) {
+        return { ok: false, reason: 'bad_token' }
+      }
+      if (locked.seal.actionHash !== hash) {
         return { ok: false, reason: 'hash_mismatch' }
       }
       const seal = await this.update(
@@ -233,23 +241,68 @@ export class PgSealStore implements SealStore {
         guildId,
         id,
         now,
-        to === 'consumed'
-          ? tx`status = 'consumed', reserved_until = null, consumed_at = ${now}`
-          : tx`status = 'released', reserved_until = null`
+        tx`status = 'consumed', reserved_until = null, reservation_token_hash = null, consumed_at = ${now}`
       )
-      await this.emit(tx, to === 'consumed' ? 'seal.consumed' : 'seal.released', seal)
+      await this.emit(tx, 'seal.consumed', seal)
       return { ok: true, seal }
     })
   }
 
-  async markPosted(guildId: string, id: string, hash: string): Promise<SealResult> {
+  async release(guildId: string, id: string, use: { token: string }): Promise<SealResult> {
+    const tokenHash = await hashProposal(use.token)
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
-      const current = await this.lock(tx, guildId, id, now)
-      if (!current) {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
         return { ok: false, reason: 'not_found' }
       }
-      if (current.status !== 'approved' && current.status !== 'released') {
+      if (locked.seal.status !== 'reserved') {
+        return { ok: false, reason: 'not_reserved' }
+      }
+      if (locked.tokenHash !== tokenHash) {
+        return { ok: false, reason: 'bad_token' }
+      }
+      return { ok: true, seal: await this.releaseLocked(tx, guildId, id, now) }
+    })
+  }
+
+  async releaseStale(guildId: string, id: string): Promise<SealResult> {
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
+        return { ok: false, reason: 'not_found' }
+      }
+      if (!locked.seal.stale) {
+        return { ok: false, reason: 'not_stale' }
+      }
+      return { ok: true, seal: await this.releaseLocked(tx, guildId, id, now) }
+    })
+  }
+
+  private async releaseLocked(tx: TenantTx, guildId: string, id: string, now: Date) {
+    const seal = await this.update(
+      tx,
+      guildId,
+      id,
+      now,
+      tx`status = 'released', reserved_until = null, reservation_token_hash = null`
+    )
+    await this.emit(tx, 'seal.released', seal)
+    return seal
+  }
+
+  async markPosted(guildId: string, id: string, text: string): Promise<SealResult> {
+    const hash = await hashProposal(text)
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
+        return { ok: false, reason: 'not_found' }
+      }
+      const current = locked.seal
+      const usable = current.status === 'approved' || current.status === 'released' || current.stale
+      if (!usable) {
         return { ok: false, reason: 'not_approved' }
       }
       if (current.actionHash !== hash) {
@@ -260,7 +313,7 @@ export class PgSealStore implements SealStore {
         guildId,
         id,
         now,
-        tx`status = 'consumed', reserved_until = null, consumed_at = ${now}`
+        tx`status = 'consumed', reserved_until = null, reservation_token_hash = null, consumed_at = ${now}`
       )
       await this.emit(tx, 'seal.consumed', seal)
       await this.emit(tx, 'post.published_manually', seal)
@@ -271,9 +324,13 @@ export class PgSealStore implements SealStore {
   async expireDue(guildId: string): Promise<number> {
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
+      // Bounded: at most EXPIRE_BATCH per call, so a read never does unbounded writes.
       const rows = await tx`
         update seals set status = 'expired'
-        where guild_id = ${guildId} and status = 'requested' and expires_at <= ${now}
+        where guild_id = ${guildId} and seal_id in (
+          select seal_id from seals
+          where guild_id = ${guildId} and status = 'requested' and expires_at <= ${now}
+          order by seal_id limit ${EXPIRE_BATCH})
         returning ${tx.unsafe(COLUMNS)}`
       for (const r of rows) {
         await this.emit(tx, 'seal.expired', toSeal(row.parse(r), now))
@@ -283,11 +340,20 @@ export class PgSealStore implements SealStore {
   }
 
   /** Locks the Seal's row (serialising concurrent transitions) and reads it at `now`. */
-  private async lock(tx: TenantTx, guildId: string, id: string, now: Date): Promise<Seal | null> {
+  private async lock(
+    tx: TenantTx,
+    guildId: string,
+    id: string,
+    now: Date
+  ): Promise<{ seal: Seal; tokenHash: string | null } | null> {
     const [found] = await tx`
-      select ${tx.unsafe(COLUMNS)} from seals
+      select ${tx.unsafe(`${COLUMNS}, reservation_token_hash`)} from seals
       where guild_id = ${guildId} and seal_id = ${id} for update`
-    return found ? toSeal(row.parse(found), now) : null
+    if (!found) {
+      return null
+    }
+    const parsed = row.parse(found)
+    return { seal: toSeal(parsed, now), tokenHash: parsed.reservation_token_hash ?? null }
   }
 
   private async update(
@@ -310,7 +376,7 @@ export class PgSealStore implements SealStore {
     await this.emit(tx, 'seal.expired', seal)
   }
 
-  /** Events carry ids and hashes only, never the Proposal text or evidence. */
+  /** Events carry ids and hashes only, never the Proposal text, evidence or reservation tokens. */
   private async emit(tx: TenantTx, type: string, seal: Seal): Promise<void> {
     await appendEvent(tx, this.keys, type, {
       sealId: seal.id,

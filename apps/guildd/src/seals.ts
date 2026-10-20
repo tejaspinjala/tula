@@ -1,12 +1,26 @@
 import type { ConfigStore } from './ports/config-store'
-import {
-  hashProposal,
-  type Seal,
-  type SealPage,
-  type SealResult,
-  type SealStatus,
-  type SealStore,
+import type {
+  ReserveResult,
+  Seal,
+  SealPage,
+  SealResult,
+  SealStatus,
+  SealStore,
 } from './ports/seal-store'
+
+/**
+ * The reserved principal id of the Guild Master. An agent can never be requester under this id,
+ * so the requester-cannot-decide rule can never be sidestepped by naming the Guild Master.
+ */
+export const GUILD_MASTER_ID = 'guild-master'
+
+/** Thrown by {@link SealEngine.requestSeal} when the requester id is reserved for the Guild Master. */
+export class SealRequestError extends Error {
+  constructor(readonly code: 'requester_reserved') {
+    super(code)
+    this.name = 'SealRequestError'
+  }
+}
 
 /** Who is trying to decide a Seal. Only `guild_master` can; the id is checked against the requester. */
 export interface SealDecider {
@@ -44,11 +58,11 @@ export class SealEngine {
    * quest and text. Reads the guild's Seal Policy first (throws `ConfigError` for an unseeded guild).
    */
   async requestSeal(guildId: string, input: SealRequest): Promise<Seal> {
+    if (input.requestedBy.trim().toLowerCase() === GUILD_MASTER_ID) {
+      throw new SealRequestError('requester_reserved')
+    }
     await this.config.current(guildId)
-    return this.store.request(guildId, {
-      ...input,
-      actionHash: await hashProposal(input.text),
-    })
+    return this.store.request(guildId, input)
   }
 
   /**
@@ -71,24 +85,29 @@ export class SealEngine {
     return this.store.decide(guildId, id, decision)
   }
 
-  /** Reserves an approved Seal for an action with this hash. */
-  reserve(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.store.reserve(guildId, id, hash)
+  /** Reserves an approved Seal for publishing `text`; returns the holder's one-time token. */
+  reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {
+    return this.store.reserve(guildId, id, text)
   }
 
-  /** Consumes the reservation; a Seal is single-use. */
-  consume(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.store.consume(guildId, id, hash)
+  /** Consumes the reservation held by `token` for exactly `text`; a Seal is single-use. */
+  consume(guildId: string, id: string, use: { text: string; token: string }): Promise<SealResult> {
+    return this.store.consume(guildId, id, use)
   }
 
-  /** Gives a reservation back unused. */
-  release(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.store.release(guildId, id, hash)
+  /** Gives the reservation held by `token` back unused. */
+  release(guildId: string, id: string, use: { token: string }): Promise<SealResult> {
+    return this.store.release(guildId, id, use)
   }
 
-  /** The Guild Master posted the approved text by hand: emits `post.published_manually`. */
-  markPosted(guildId: string, id: string, hash: string): Promise<SealResult> {
-    return this.store.markPosted(guildId, id, hash)
+  /** Guild Master only (the caller must have spent a fresh re-auth): frees a stale reservation. */
+  releaseStale(guildId: string, id: string): Promise<SealResult> {
+    return this.store.releaseStale(guildId, id)
+  }
+
+  /** The Guild Master posted exactly `text` by hand: emits `post.published_manually`. */
+  markPosted(guildId: string, id: string, text: string): Promise<SealResult> {
+    return this.store.markPosted(guildId, id, text)
   }
 
   /** One Seal, or null. */

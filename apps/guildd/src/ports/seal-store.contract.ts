@@ -11,17 +11,28 @@ export interface SealStoreFixture {
 
 const TEXT = 'Ship the launch post: hello world'
 
+async function approve(store: SealStore, guild: string, id: string) {
+  const seal = await store.get(guild, id)
+  return store.decide(guild, id, { verdict: 'approved', expectedHash: seal?.actionHash ?? '' })
+}
+
+async function reserveToken(store: SealStore, guild: string, id: string): Promise<string> {
+  const held = await store.reserve(guild, id, TEXT)
+  if (!held.ok) {
+    throw new Error(`reserve refused: ${held.reason}`)
+  }
+  return held.token
+}
+
 async function seed(store: SealStore, guild: string, text = TEXT) {
-  const actionHash = await hashProposal(text)
   const seal = await store.request(guild, {
     questId: crypto.randomUUID(),
     requestedBy: 'herald-1',
     kind: 'post',
     text,
     evidence: 'verdict: pass',
-    actionHash,
   })
-  return { seal, hash: actionHash }
+  return { seal, hash: await hashProposal(text) }
 }
 
 /** The SealStore contract, run against every adapter. `make` returns a fresh store. */
@@ -46,7 +57,6 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
         kind: seal.kind,
         text: seal.text,
         evidence: seal.evidence,
-        actionHash: seal.actionHash,
       })
       expect(again.id).toBe(seal.id)
     })
@@ -119,96 +129,177 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect(await store.expireDue(g)).toBe(0)
     })
 
+    test('the store binds the hash of the text itself: a Seal reports sha256(text)', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      expect(seal.actionHash).toBe(hash)
+      expect(hash).toBe('5a5c58ae0fd5dc61f8f155e8ceb59bb792841a8c4c334fb0e6bbc04e395d8c88')
+    })
+
     test('reserve then consume works once; a second consume is refused', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      expect(await store.reserve(g, seal.id, hash)).toEqual({ ok: false, reason: 'not_approved' })
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
-      expect(await store.reserve(g, seal.id, hash)).toMatchObject({
-        ok: true,
-        seal: { status: 'reserved' },
-      })
-      expect(await store.consume(g, seal.id, hash)).toMatchObject({
+      const { seal } = await seed(store, g)
+      expect(await store.reserve(g, seal.id, TEXT)).toEqual({ ok: false, reason: 'not_approved' })
+      await approve(store, g, seal.id)
+      const held = await store.reserve(g, seal.id, TEXT)
+      expect(held).toMatchObject({ ok: true, seal: { status: 'reserved', stale: false } })
+      const token = held.ok ? held.token : ''
+      expect(await store.consume(g, seal.id, { text: TEXT, token })).toMatchObject({
         ok: true,
         seal: { status: 'consumed' },
       })
-      expect(await store.consume(g, seal.id, hash)).toEqual({ ok: false, reason: 'not_reserved' })
-      expect(await store.reserve(g, seal.id, hash)).toEqual({ ok: false, reason: 'not_approved' })
+      expect(await store.consume(g, seal.id, { text: TEXT, token })).toEqual({
+        ok: false,
+        reason: 'not_reserved',
+      })
+      expect(await store.reserve(g, seal.id, TEXT)).toEqual({ ok: false, reason: 'not_approved' })
     })
 
-    test('an approved Seal cannot be reserved or consumed for a different hash', async () => {
+    test('different text cannot be reserved, consumed or posted', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      const other = await hashProposal('other')
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
-      expect(await store.reserve(g, seal.id, other)).toEqual({
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      const other = 'a different payload'
+      expect(await store.reserve(g, seal.id, other)).toEqual({ ok: false, reason: 'hash_mismatch' })
+      expect(await store.markPosted(g, seal.id, other)).toEqual({
         ok: false,
         reason: 'hash_mismatch',
       })
-      await store.reserve(g, seal.id, hash)
-      expect(await store.consume(g, seal.id, other)).toEqual({
+      const token = await reserveToken(store, g, seal.id)
+      expect(await store.consume(g, seal.id, { text: other, token })).toEqual({
         ok: false,
         reason: 'hash_mismatch',
       })
       expect((await store.get(g, seal.id))?.status).toBe('reserved')
     })
 
-    test('two same-tick reservations or consumptions give exactly one success', async () => {
+    test('a wrong token cannot consume or release', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      const token = await reserveToken(store, g, seal.id)
+      expect(await store.consume(g, seal.id, { text: TEXT, token: 'nope' })).toEqual({
+        ok: false,
+        reason: 'bad_token',
+      })
+      expect(await store.release(g, seal.id, { token: 'nope' })).toEqual({
+        ok: false,
+        reason: 'bad_token',
+      })
+      expect((await store.get(g, seal.id))?.status).toBe('reserved')
+      expect(await store.release(g, seal.id, { token })).toMatchObject({
+        ok: true,
+        seal: { status: 'released' },
+      })
+    })
+
+    test('two same-tick reservations give exactly one token; same-tick consumes exactly one success', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
       const reserved = await Promise.all([
-        store.reserve(g, seal.id, hash),
-        store.reserve(g, seal.id, hash),
+        store.reserve(g, seal.id, TEXT),
+        store.reserve(g, seal.id, TEXT),
       ])
       expect(reserved.filter((r) => r.ok)).toHaveLength(1)
+      const won = reserved.find((r) => r.ok)
+      const token = won?.ok ? won.token : ''
       const consumed = await Promise.all([
-        store.consume(g, seal.id, hash),
-        store.consume(g, seal.id, hash),
+        store.consume(g, seal.id, { text: TEXT, token }),
+        store.consume(g, seal.id, { text: TEXT, token }),
       ])
       expect(consumed.filter((r) => r.ok)).toHaveLength(1)
     })
 
-    test('a lapsed reservation reads as approved and can be reserved again', async () => {
+    test('a lapsed reservation is stale: it cannot be reserved again, but its holder can still consume once', async () => {
       const { store, clock, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
-      await store.reserve(g, seal.id, hash)
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      const tokenA = await reserveToken(store, g, seal.id)
       clock.advance(SEAL_RESERVATION_MS)
-      expect((await store.get(g, seal.id))?.status).toBe('approved')
-      expect(await store.consume(g, seal.id, hash)).toEqual({ ok: false, reason: 'not_reserved' })
-      expect(await store.reserve(g, seal.id, hash)).toMatchObject({ ok: true })
+      expect(await store.get(g, seal.id)).toMatchObject({ status: 'reserved', stale: true })
+      expect(await store.reserve(g, seal.id, TEXT)).toEqual({ ok: false, reason: 'not_approved' })
+      expect(await store.consume(g, seal.id, { text: TEXT, token: tokenA })).toMatchObject({
+        ok: true,
+        seal: { status: 'consumed' },
+      })
+      expect(await store.consume(g, seal.id, { text: TEXT, token: tokenA })).toEqual({
+        ok: false,
+        reason: 'not_reserved',
+      })
+    })
+
+    test('a stale holder cannot act on a later reservation', async () => {
+      const { store, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      const tokenA = await reserveToken(store, g, seal.id)
+      clock.advance(SEAL_RESERVATION_MS)
+      expect(await store.releaseStale(g, seal.id)).toMatchObject({
+        ok: true,
+        seal: { status: 'released' },
+      })
+      const tokenB = await reserveToken(store, g, seal.id)
+      expect(await store.release(g, seal.id, { token: tokenA })).toEqual({
+        ok: false,
+        reason: 'bad_token',
+      })
+      expect(await store.consume(g, seal.id, { text: TEXT, token: tokenA })).toEqual({
+        ok: false,
+        reason: 'bad_token',
+      })
+      expect(await store.consume(g, seal.id, { text: TEXT, token: tokenB })).toMatchObject({
+        ok: true,
+      })
+    })
+
+    test('only a stale reservation can be resolved by the Guild Master', async () => {
+      const { store, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      await reserveToken(store, g, seal.id)
+      expect(await store.releaseStale(g, seal.id)).toEqual({ ok: false, reason: 'not_stale' })
+      expect(await store.markPosted(g, seal.id, TEXT)).toEqual({
+        ok: false,
+        reason: 'not_approved',
+      })
+      clock.advance(SEAL_RESERVATION_MS)
+      expect(await store.markPosted(g, seal.id, TEXT)).toMatchObject({
+        ok: true,
+        seal: { status: 'consumed' },
+      })
     })
 
     test('a released Seal can be reserved again', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
-      await store.reserve(g, seal.id, hash)
-      expect(await store.release(g, seal.id, hash)).toMatchObject({
-        ok: true,
-        seal: { status: 'released' },
-      })
-      expect(await store.reserve(g, seal.id, hash)).toMatchObject({ ok: true })
+      const { seal } = await seed(store, g)
+      await approve(store, g, seal.id)
+      const token = await reserveToken(store, g, seal.id)
+      await store.release(g, seal.id, { token })
+      expect(await store.reserve(g, seal.id, TEXT)).toMatchObject({ ok: true })
     })
 
     test('marking posted consumes an approved Seal once', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
-      const { seal, hash } = await seed(store, g)
-      expect(await store.markPosted(g, seal.id, hash)).toEqual({
+      const { seal } = await seed(store, g)
+      expect(await store.markPosted(g, seal.id, TEXT)).toEqual({
         ok: false,
         reason: 'not_approved',
       })
-      await store.decide(g, seal.id, { verdict: 'approved', expectedHash: hash })
+      await approve(store, g, seal.id)
       const posts = await Promise.all([
-        store.markPosted(g, seal.id, hash),
-        store.markPosted(g, seal.id, hash),
+        store.markPosted(g, seal.id, TEXT),
+        store.markPosted(g, seal.id, TEXT),
       ])
       expect(posts.filter((r) => r.ok)).toHaveLength(1)
       expect((await store.get(g, seal.id))?.status).toBe('consumed')

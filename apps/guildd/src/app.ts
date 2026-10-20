@@ -23,7 +23,7 @@ import {
   secretValue,
 } from './ports/secret-store'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
-import type { SealEngine } from './seals'
+import { GUILD_MASTER_ID, type SealEngine } from './seals'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
@@ -96,7 +96,7 @@ const sealDecisionBody = z.object({
   actionHash,
   note: z.string().trim().min(1).max(2000).optional(),
 })
-const sealHashBody = z.object({ actionHash })
+const sealPostedBody = z.object({ text: z.string().min(1).max(20000) })
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
@@ -872,12 +872,16 @@ export function createApp(deps: AppDeps): Hono {
           expectedHash: body.data.actionHash,
           ...(body.data.note ? { note: body.data.note } : {}),
         },
-        { role: 'guild_master', id: 'guild-master' }
+        // Only a re-authenticated Guild Master session reaches here, so the decider is the
+        // reserved Guild Master principal; requestSeal refuses that id as a requester.
+        { role: 'guild_master', id: GUILD_MASTER_ID }
       )
       return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
     })
   }
 
+  // Marking posted names the exact text that was published; the server hashes it and compares it
+  // with the sealed hash. Resolving a stale reservation this way needs a fresh re-authentication.
   app.post('/guilds/:id/seals/:sealId/posted', async (c) => {
     const who = await sessionGuildFor(c)
     if ('res' in who) {
@@ -887,11 +891,34 @@ export function createApp(deps: AppDeps): Hono {
     if (!id.success) {
       return c.json({ error: 'not_found' }, 404)
     }
-    const body = sealHashBody.safeParse(await c.req.json().catch(() => null))
+    const body = sealPostedBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    const result = await deps.seals.markPosted(who.guild, id.data, body.data.actionHash)
+    if ((await deps.seals.get(who.guild, id.data))?.stale) {
+      const check = await checkSensitive(deps.identity, c.req.raw.headers)
+      if (!check.ok) {
+        return c.json({ error: check.error }, check.status)
+      }
+      if (check.guildId !== who.guild) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+    }
+    const result = await deps.seals.markPosted(who.guild, id.data, body.data.text)
+    return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
+  // The Guild Master frees a stale reservation after confirming nothing was published.
+  app.post('/guilds/:id/seals/:sealId/release-stale', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    const id = uuid.safeParse(c.req.param('sealId'))
+    if (c.req.param('id') !== check.guildId || !id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const result = await deps.seals.releaseStale(check.guildId, id.data)
     return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
   })
 
