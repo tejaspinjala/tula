@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { clientAddress, UNKNOWN_CLIENT } from './client-ip'
 import type { RateLimiter, RateRule } from './ports/rate-limiter'
 
-/** The unauthenticated identity routes that are rate limited. */
+/** The routes that are rate limited: identity ceremonies, session writes and reads, and token-bearing calls. */
 export type RateRoute =
   | 'signin-begin'
   | 'signin-finish'
@@ -158,11 +158,13 @@ export function rateLimit(
       return refuse(byClient.retryAfterSeconds)
     }
     const guild = z.uuid().safeParse(c.req.param('id'))
-    // Session routes charge the guild bucket only once the session resolves to this very guild.
-    const chargeable =
+    // Session routes charge the guild bucket only once the session resolves to this very guild;
+    // a route with no guild rule never looks the session up.
+    if (
+      limits.guild &&
       guild.success &&
       (RATE_ROUTE_AUTH[route] === 'unauthenticated' || (await sessionGuild(c)) === guild.data)
-    if (limits.guild && guild.success && chargeable) {
+    ) {
       const byGuild = await limiter.hit(`${route}:guild:${guild.data}`, limits.guild)
       if (!byGuild.allowed) {
         return refuse(byGuild.retryAfterSeconds)
@@ -176,10 +178,11 @@ export function rateLimit(
 export type RateAuth = 'session' | 'unauthenticated'
 
 /**
- * How each limited route is reached. `unauthenticated` routes charge the per-guild bucket before
- * auth (a caller has no session yet). `session` routes charge it only after the caller's session
- * resolves to the guild in the path, so another guild's session, or none, cannot spend it.
- * Routes with no guild bucket (gateway, MCP) are token-bearing and counted per client only.
+ * How each limited route is reached. `unauthenticated` means not session-gated: the guild bucket,
+ * if any, is charged before auth (a caller has no session yet). `session` routes charge it only
+ * after the caller's session resolves to the guild in the path, so another guild's session, or
+ * none, cannot spend it. `gateway-call` and `mcp` carry tokens, not sessions, and have no guild
+ * rule, so they are counted per client only.
  */
 export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'signin-begin': 'unauthenticated',
