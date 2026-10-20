@@ -1,14 +1,12 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
-import hallMap from './hall.tiled.json'
+import { integerZoom, type Phase, phaseAt, tintFor, walkPose } from './daylight'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
   apprenticeSeats,
   bubbleCentreY,
-  fitZoom,
   type HallLayout,
   hallLayout,
-  openZoom,
   questBoardIn,
   seatsIn,
   withClosedDoors,
@@ -26,12 +24,43 @@ import {
   teleportTile,
   type Vec,
 } from './walk'
+import {
+  doorAt,
+  MAP_IDS,
+  type MapId,
+  mapData,
+  mapSource,
+  type PlaceName,
+  placeNamed,
+} from './world'
 
 /** Texture keys of the loaded art. */
 const TILES = 'tiles'
 const CHARS = 'chars'
 const FONT = 'font'
-const MAP = 'hall'
+const GLOW = 'glow'
+/** Where each map sits in the one Phaser world, in px: far apart so a camera sees only one. */
+const OFFSETS: Record<MapId, Vec> = {
+  hall: { x: 0, y: 0 },
+  plaza: { x: 0, y: 2000 },
+  archive: { x: 0, y: 4000 },
+  vault: { x: 0, y: 6000 },
+  trail: { x: 0, y: 8000 },
+}
+/** Labels drawn over a map's named places and doors, at a tile. */
+const MAP_LABELS: Record<MapId, { text: string; x: number; y: number }[]> = {
+  hall: [],
+  plaza: [
+    { text: 'GUILD HALL', x: 3, y: 8 },
+    { text: 'ARCHIVE', x: 15, y: 8 },
+    { text: 'TREASURY', x: 27, y: 8 },
+    { text: 'QUEST BOARD', x: 15, y: 9 },
+    { text: 'TRAIL', x: 32, y: 12 },
+  ],
+  archive: [{ text: 'ARCHIVE', x: 6, y: 3 }],
+  vault: [{ text: 'TREASURY', x: 5, y: 3 }],
+  trail: [{ text: 'THE WILDS', x: 23, y: 6 }],
+}
 
 /** Tile frames of the Kenney Roguelike/RPG sheet (row * 57 + column). */
 const FRAME = { doorClosed: 32, doorOpen: 37, scroll: 899, coin: 1025 } as const
@@ -61,6 +90,8 @@ export interface HallOptions {
   onNear: (target: Target | null) => void
   /** Called when the Guild Master presses E: talk to whoever is in reach. */
   onInteract: () => void
+  /** Called when the Guild Master walks through a door into another map of the town. */
+  onMap?: ((map: MapId) => void) | undefined
 }
 
 /** Where the Guild Master enters the hall: just inside the gate, in tiles. */
@@ -133,6 +164,14 @@ export class HallScene extends Phaser.Scene {
   private path: Vec[] = []
   private chasing = false
   private room: number | null = null
+  /** The map of the town the Guild Master is in. */
+  private current: MapId = 'hall'
+  private phase: Phase = phaseAt(new Date().getHours())
+  private phaseForced = false
+  private veil: Phaser.GameObjects.Rectangle | null = null
+  private lanterns: Phaser.GameObjects.Image[] = []
+  private facingLeft = false
+  private clock = 0
   /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
   private talkable = new Set<string>()
   private near: Target | null = null
@@ -151,19 +190,25 @@ export class HallScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.cache.tilemap.add(MAP, { format: Phaser.Tilemaps.Formats.TILED_JSON, data: hallMap })
-    const map = this.make.tilemap({ key: MAP })
-    const tileset = map.addTilesetImage('roguelike', TILES, 16, 16, 0, 1)
-    if (tileset) {
-      for (const name of ['floor', 'walls', 'furniture']) {
-        map.createLayer(name, tileset, 0, 0)
-      }
-      // The collision layer is kept (hidden) so a walkable player can use it later.
-      const collision = map.createLayer('collision', tileset, 0, 0)
-      collision?.setVisible(false)
-      collision?.setCollisionByExclusion([-1])
+    for (const id of MAP_IDS) {
+      this.drawMap(id)
     }
     this.drawFixtures()
+    this.makeGlow()
+    this.veil = this.add
+      .rectangle(0, 0, 1, 1, 0xffffff, 0)
+      .setOrigin(0, 0)
+      .setDepth(18)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
+    this.time.addEvent({
+      delay: 60_000,
+      loop: true,
+      callback: () => {
+        if (!this.phaseForced) {
+          this.setPhase(phaseAt(new Date().getHours()), false)
+        }
+      },
+    })
     // Refit only when the canvas really changed size: Phaser also emits `resize` after a zoom.
     let size = `${this.scale.width}x${this.scale.height}`
     this.scale.on('resize', () => {
@@ -173,17 +218,10 @@ export class HallScene extends Phaser.Scene {
         this.fit(true)
       }
     })
-    // The camera never shows past the hall: a small hall is centred, not dragged into the void.
-    this.cameras.main.setBounds(
-      0,
-      0,
-      px(this.layout.width, this.layout.tileSize),
-      px(this.layout.height, this.layout.tileSize)
-    )
     this.createPlayer()
+    this.frameMap()
+    this.setPhase(this.phase, this.phaseForced)
     this.ready = true
-    this.fit()
-    this.openReadable()
     if (this.pending) {
       this.render(this.pending)
     }
@@ -213,8 +251,112 @@ export class HallScene extends Phaser.Scene {
     this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
     this.path = []
     this.chasing = true
+    if (this.current !== 'hall') {
+      this.enter('hall', this.at)
+      return
+    }
     this.syncPlayer()
     this.chase(true)
+  }
+
+  /** Walks the Guild Master to a named place in whatever map it is in (a point for behaviour code to target). */
+  goTo(name: PlaceName): void {
+    const place = placeNamed(name)
+    this.enter(place.map, { x: place.stand.x + 0.5, y: place.stand.y + 0.5 })
+  }
+
+  /** The map of the town the Guild Master is in. */
+  currentMap(): MapId {
+    return this.current
+  }
+
+  /** Sets the time of day the world is lit for; a forced phase stops following the clock. */
+  setPhase(phase: Phase, forced = true): void {
+    this.phase = phase
+    this.phaseForced = forced
+    this.applyTint()
+  }
+
+  /** Moves the Guild Master into a map at a tile position, framing the camera on it. */
+  private enter(id: MapId, at: Vec): void {
+    this.current = id
+    this.at = { ...at }
+    this.path = []
+    this.releaseKeys()
+    this.frameMap()
+    this.applyTint()
+    this.syncPlayer()
+    this.chase(true)
+    this.options.onMap?.(id)
+  }
+
+  /** Bounds the camera to the current map, opens at a whole zoom and centres on the Guild Master. */
+  private frameMap(): void {
+    const cam = this.cameras.main
+    const { x, y } = OFFSETS[this.current]
+    const map = mapData(this.current)
+    const w = px(map.width, map.tileSize)
+    const h = px(map.height, map.tileSize)
+    // The camera never shows past the map: a small map is centred, not dragged into the void.
+    cam.setBounds(x, y, w, h)
+    this.zoomLevel = integerZoom(this.scale.width, this.scale.height, w, h)
+    cam.setZoom(this.zoomLevel)
+    cam.centerOn(x + this.at.x * map.tileSize, y + this.at.y * map.tileSize)
+  }
+
+  /** Lays the world tint over the current map only, and lights or douses its lanterns. */
+  private applyTint(): void {
+    const tint = tintFor(this.phase)
+    const { x, y } = OFFSETS[this.current]
+    const map = mapData(this.current)
+    this.veil
+      ?.setPosition(x, y)
+      .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
+      .setFillStyle(tint.color, tint.alpha)
+    for (const lantern of this.lanterns) {
+      lantern.destroy()
+    }
+    this.lanterns = []
+    if (!tint.lanterns) {
+      return
+    }
+    for (const lantern of map.lanterns) {
+      this.lanterns.push(
+        this.add
+          .image(x + (lantern.x + 0.5) * map.tileSize, y + (lantern.y + 0.5) * map.tileSize, GLOW)
+          .setDepth(19)
+          .setBlendMode(Phaser.BlendModes.ADD)
+      )
+    }
+  }
+
+  /** One of the town's maps as tile layers at its offset; the collision layer stays hidden. */
+  private drawMap(id: MapId): void {
+    const key = `map-${id}`
+    this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data: mapSource(id) })
+    const map = this.make.tilemap({ key })
+    const tileset = map.addTilesetImage('roguelike', TILES, 16, 16, 0, 1)
+    if (!tileset) {
+      return
+    }
+    const { x, y } = OFFSETS[id]
+    for (const name of ['floor', 'walls', 'furniture']) {
+      map.createLayer(name, tileset, x, y)
+    }
+    for (const label of MAP_LABELS[id]) {
+      this.label(x + label.x * 16, y + label.y * 16, label.text, 16)
+    }
+  }
+
+  /** A stepped lantern glow: four hard-edged rings of warm light, no gradient. */
+  private makeGlow(): void {
+    const g = this.add.graphics()
+    g.fillStyle(0xffc66b, 0.16)
+    for (const r of [28, 21, 14, 7]) {
+      g.fillCircle(28, 28, r)
+    }
+    g.generateTexture(GLOW, 56, 56)
+    g.destroy()
   }
 
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
@@ -235,24 +377,76 @@ export class HallScene extends Phaser.Scene {
     }
     const seconds = Math.min(delta, 100) / 1000
     const dir = direction(this.keys)
+    const walkable = this.canWalk()
+    let walking = false
     if (dir.x !== 0 || dir.y !== 0) {
       this.path = []
-      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, this.walkable)
+      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, walkable)
+      walking = true
+      if (dir.x !== 0) {
+        this.facingLeft = dir.x < 0
+      }
       this.chase(false)
     } else if (this.path.length > 0) {
+      const before = this.at.x
       const next = followPath(this.at, this.path, SPEED * seconds)
       this.at = next.pos
       this.path = next.path
+      walking = true
+      if (this.at.x !== before) {
+        this.facingLeft = this.at.x < before
+      }
       this.chase(false)
+    }
+    this.clock = walking ? this.clock + Math.min(delta, 100) : 0
+    this.pose(this.player, walkPose(this.clock, walking), this.facingLeft)
+    for (const view of this.members.values()) {
+      this.pose(view.root, walkPose(this.time.now, this.tweens.isTweening(view.root)), false)
+    }
+    const door = doorAt(mapData(this.current), Math.floor(this.at.x), Math.floor(this.at.y))
+    if (door) {
+      this.enter(door.to, { x: door.toX + 0.5, y: door.toY + 0.5 })
+      return
     }
     this.syncPlayer()
     this.updateNear()
+  }
+
+  /** The walkable test of the map the Guild Master is in (the hall's has closed doors shut). */
+  private canWalk(): (x: number, y: number) => boolean {
+    return this.current === 'hall' ? this.walkable : mapData(this.current).walkable
+  }
+
+  /** Applies a walk-cycle pose to a character's layers: a lift and a lean per frame, flipped when facing left. */
+  private pose(
+    root: Phaser.GameObjects.Container | null,
+    pose: { lift: number; lean: number },
+    flip: boolean
+  ): void {
+    if (!root) {
+      return
+    }
+    for (const child of root.list) {
+      if (child instanceof Phaser.GameObjects.Image) {
+        child.setPosition(flip ? -pose.lean : pose.lean, pose.lift)
+        child.setFlipX(flip)
+      } else if (child instanceof Phaser.GameObjects.Graphics) {
+        child.setPosition(flip ? -pose.lean : pose.lean, pose.lift)
+      }
+    }
   }
 
   /** Reports who is in reach (a Member, or the Seal desk) whenever that changes. */
   private updateNear(): void {
     const s = this.layout.tileSize
     const targets: { target: Target; at: Vec }[] = []
+    if (this.current !== 'hall') {
+      if (this.near !== null) {
+        this.near = null
+        this.options.onNear(null)
+      }
+      return
+    }
     for (const id of this.talkable) {
       const root = this.members.get(id)?.root
       if (root) {
@@ -323,9 +517,13 @@ export class HallScene extends Phaser.Scene {
         return
       }
       const s = this.layout.tileSize
-      const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
+      const { x: ox, y: oy } = OFFSETS[this.current]
+      const to = {
+        x: Math.floor((pointer.worldX - ox) / s),
+        y: Math.floor((pointer.worldY - oy) / s),
+      }
       const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
-      const route = findPath(this.walkable, from, to)
+      const route = findPath(this.canWalk(), from, to)
       if (route) {
         this.path = route
         this.chase(false)
@@ -375,8 +573,9 @@ export class HallScene extends Phaser.Scene {
   /** Puts the sprite on the Guild Master's position and reports a change of room. */
   private syncPlayer(): void {
     const s = this.layout.tileSize
-    this.player?.setPosition(this.at.x * s, this.at.y * s)
-    const now = roomAt(this.layout.rooms, this.at)
+    const { x: ox, y: oy } = OFFSETS[this.current]
+    this.player?.setPosition(ox + this.at.x * s, oy + this.at.y * s)
+    const now = this.current === 'hall' ? roomAt(this.layout.rooms, this.at) : null
     if (now !== this.room) {
       this.room = now
       this.options.onRoom(now)
@@ -420,16 +619,17 @@ export class HallScene extends Phaser.Scene {
     this.seeding = false
   }
 
-  /** Zooms the camera by a step (clamped), keeping the hall centred. */
+  /** Zooms the camera one whole step in or out (1x to 4x), keeping the map centred. */
   zoomBy(step: number): void {
-    this.zoomLevel = Math.min(4, Math.max(0.25, this.zoomLevel + step))
+    this.zoomLevel = Math.min(4, Math.max(1, this.zoomLevel + Math.sign(step)))
     this.cameras.main.setZoom(this.zoomLevel)
     this.centre()
   }
 
   /**
-   * Fits the whole hall in view: the largest whole zoom that fits, or a half step on a phone. The
-   * camera returns to the overview unless `keepFollow` (a resize) and the Guild Master is walking.
+   * Fits the map in view at the largest whole zoom that fits (never below 1x, so a phone sees part
+   * of it). The camera returns to the overview unless `keepFollow` (a resize) and the Guild Master
+   * is walking.
    */
   fit(keepFollow = false): void {
     const cam = this.cameras.main
@@ -439,27 +639,15 @@ export class HallScene extends Phaser.Scene {
       cam.stopFollow()
     }
     cam.setSize(this.scale.width, this.scale.height)
-    const worldW = px(this.layout.width, this.layout.tileSize)
-    const worldH = px(this.layout.height, this.layout.tileSize)
-    this.zoomLevel = fitZoom(this.scale.width, this.scale.height, worldW, worldH)
-    if (keepFollow && this.chasing) {
-      this.zoomLevel = Math.max(1, this.zoomLevel)
-    }
+    const map = mapData(this.current)
+    this.zoomLevel = integerZoom(
+      this.scale.width,
+      this.scale.height,
+      px(map.width, map.tileSize),
+      px(map.height, map.tileSize)
+    )
     cam.setZoom(this.zoomLevel)
     this.centre()
-  }
-
-  /** A phone opens at a readable zoom on the Guild Master, not at the whole hall in miniature; Fit hall still shows it all. */
-  private openReadable(): void {
-    const cam = this.cameras.main
-    const worldW = px(this.layout.width, this.layout.tileSize)
-    const worldH = px(this.layout.height, this.layout.tileSize)
-    const zoom = openZoom(this.scale.width, this.scale.height, worldW, worldH)
-    if (zoom > this.zoomLevel) {
-      this.zoomLevel = zoom
-      cam.setZoom(zoom)
-      cam.centerOn(this.at.x * this.layout.tileSize, this.at.y * this.layout.tileSize)
-    }
   }
 
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
@@ -477,9 +665,11 @@ export class HallScene extends Phaser.Scene {
 
   private centre(): void {
     if (this.followed === null) {
+      const map = mapData(this.current)
+      const { x, y } = OFFSETS[this.current]
       this.cameras.main.centerOn(
-        px(this.layout.width, this.layout.tileSize) / 2,
-        px(this.layout.height, this.layout.tileSize) / 2
+        x + px(map.width, map.tileSize) / 2,
+        y + px(map.height, map.tileSize) / 2
       )
     }
   }

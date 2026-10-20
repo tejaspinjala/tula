@@ -15,10 +15,10 @@ test('every named place resolves to a point on its map', () => {
   for (let slot = 0; slot < 6; slot++) {
     expected[`hall-room-${slot}`] = 'hall'
   }
-  expect([...PLACE_NAMES].sort()).toEqual(Object.keys(expected).sort())
+  expect<string[]>([...PLACE_NAMES].sort()).toEqual(Object.keys(expected).sort())
   for (const name of PLACE_NAMES) {
     const place = placeNamed(name)
-    expect(place.map).toBe(expected[name])
+    expect<string>(place.map).toBe(expected[name] ?? '')
     expect(place.w).toBeGreaterThan(0)
     expect(place.h).toBeGreaterThan(0)
   }

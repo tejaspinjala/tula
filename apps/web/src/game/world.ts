@@ -106,6 +106,11 @@ const SOURCES: Record<MapId, unknown> = {
   trail: trailMap,
 }
 
+/** The raw Tiled JSON of a map, for the renderer (validated by `mapData`). */
+export function mapSource(id: MapId): unknown {
+  return SOURCES[id]
+}
+
 function parse(id: MapId): MapData {
   const map = tiledMap.parse(SOURCES[id])
   const size = map.tilewidth
