@@ -42,7 +42,9 @@ export class MemoryQuestQueue implements QuestQueue {
     /** Receives each transition's event type and ids-only payload, as the Postgres adapter appends them. */
     private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {},
     /** Whether a Hall is paused by a Tripwire; claims skip its Quests. Synchronous to keep claim atomic. */
-    private readonly isHallPaused: (guildId: string, hallId: string) => boolean = () => false
+    private readonly isHallPaused: (guildId: string, hallId: string) => boolean = () => false,
+    /** Whether the guild, or every guild, is barred (Bar the Gates); claims return nothing. Synchronous to keep claim atomic. */
+    private readonly isGuildBarred: (guildId: string) => boolean = () => false
   ) {}
 
   private guild(guildId: string): GuildQuests {
@@ -118,6 +120,9 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {
+    if (this.isGuildBarred(guildId)) {
+      return null
+    }
     const now = this.clock.now()
     if (options.questId !== undefined) {
       const target = this.mustFind(guildId, options.questId)

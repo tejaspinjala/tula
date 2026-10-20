@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
 import { CostTablePanel } from './CostTablePanel'
+import { GatesPanel } from './GatesPanel'
+import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
+import { TimelinePanel } from './TimelinePanel'
 import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
@@ -36,11 +39,13 @@ export function App() {
           <a href="#vault-heading">Vault</a>
           <a href="#roster-heading">Roster</a>
           <a href="#archive-heading">Archive</a>
+          <a href="#learning-heading">Learnings</a>
           <a href="#proposals-heading">Proposals</a>
           <a href="#seals-heading">Seals</a>
           <a href="#quests-heading">Quest Board</a>
           <a href="#treasury-heading">Treasury</a>
           <a href="#costs-heading">Costs</a>
+          <a href="#timeline-heading">Timeline</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
@@ -50,12 +55,15 @@ export function App() {
         <VaultPanel session={session} />
         <RosterPanel session={session} />
         <ArchivePanel session={session} />
+        <LearningPanel session={session} />
         <ProposalPanel session={session} />
         <SealPanel session={session} />
+        <GatesPanel session={session} />
         <TripwirePanel session={session} />
         <TreasuryPanel session={session} />
         <QuestBoardPanel session={session} />
         <CostTablePanel session={session} />
+        <TimelinePanel session={session} />
       </main>
     </>
   )

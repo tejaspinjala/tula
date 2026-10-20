@@ -123,6 +123,16 @@ export interface ModelLedger {
   revoke(guildId: string, runId: string): Promise<boolean>
   /** Revokes every queued or active run of the Hall (`hall_paused`); returns how many. */
   revokeHallRuns(guildId: string, hallId: string): Promise<number>
+  /**
+   * Revokes every queued, active or Hall-paused run of the guild for good (`manual`, so none is
+   * ever reissued; Bar the Gates); returns how many runs changed.
+   */
+  revokeGuildRuns(guildId: string): Promise<number>
+  /**
+   * Revokes every queued, active or Hall-paused run of EVERY guild for good (`manual`), in one
+   * statement; returns how many runs changed. Only a global Bar the Gates calls it.
+   */
+  revokeAllRuns(): Promise<number>
   /** Queued runs, oldest first, at most `limit`. */
   listQueued(guildId: string, limit: number): Promise<RunRecord[]>
   /**

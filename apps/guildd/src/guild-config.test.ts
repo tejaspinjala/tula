@@ -6,6 +6,8 @@ import {
   guildConfig,
   guildTreasury,
   hallAcceptsQuests,
+  isLearningRepoAllowed,
+  learningRepoAllowlist,
   questConcurrency,
 } from './guild-config'
 
@@ -287,5 +289,31 @@ describe('Treasury limits in the config', () => {
   test('an unknown Treasury field fails closed as widening', () => {
     const sneaky = { ...base, treasury: { ...guildTreasury(base), spendAnything: true } }
     expect(classifyChange(base, sneaky as GuildConfig)).toBe('widening')
+  })
+})
+
+describe('learning repo allowlist', () => {
+  const base = defaultConfig()
+  const withRepos = (learningRepos: string[]) => ({ ...base, learningRepos })
+
+  test('holds owner/name entries only and defaults to none', () => {
+    expect(learningRepoAllowlist(base)).toEqual([])
+    expect(guildConfig.safeParse(withRepos(['tula-solutions/guildhall'])).success).toBe(true)
+    for (const bad of ['guildhall', '../x', 'a/b/c', 'o/ r', 'https://github.com/o/r', '/o/r']) {
+      expect(guildConfig.safeParse(withRepos([bad])).success).toBe(false)
+    }
+  })
+
+  test('adding a repo is widening; removing one is tightening', () => {
+    expect(classifyChange(base, withRepos(['o/r']))).toBe('widening')
+    expect(classifyChange(withRepos(['o/r']), base)).toBe('tightening')
+    expect(classifyChange(withRepos(['o/r']), withRepos(['o/r']))).toBe('neutral')
+  })
+
+  test('matching ignores case, as GitHub does', () => {
+    const config = withRepos(['Tula-Solutions/Guildhall'])
+    expect(isLearningRepoAllowed(config, 'tula-solutions/guildhall')).toBe(true)
+    expect(isLearningRepoAllowed(withRepos(['o/r']), 'o/r2')).toBe(false)
+    expect(isLearningRepoAllowed(base, 'o/r')).toBe(false)
   })
 })

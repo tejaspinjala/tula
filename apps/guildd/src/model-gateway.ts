@@ -3,6 +3,7 @@ import type { GuildConfig } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import type { GateStore } from './ports/gate-store'
 import type { ModelLedger, RunRecord, UsageGroup, UsagePage } from './ports/model-ledger'
 import {
   type ModelProvider,
@@ -23,6 +24,8 @@ export type GatewayErrorCode =
   | 'token_expired'
   | 'token_revoked'
   | 'hall_paused'
+  /** Bar the Gates is up for this guild (or all guilds). */
+  | 'gates_barred'
   | 'cap_reached'
   | 'unknown_profile'
   | 'model_unconfigured'
@@ -49,7 +52,10 @@ export type OpenRunResult =
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
   /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
-  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' }
+  | {
+      status: 'refused'
+      reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
+    }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
@@ -81,6 +87,8 @@ export interface GatewayDeps {
   quests: Pick<QuestQueue, 'get'>
   /** A paused Hall gets no new run and its live runs are refused. */
   tripwires: Pick<TripwireStore, 'isPaused'>
+  /** Bar the Gates: read first on every open and call; a barred guild is refused before any work. */
+  gates: Pick<GateStore, 'isBarred'>
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
 }
@@ -174,6 +182,9 @@ export class ModelGateway {
     guildId: string,
     input: { questId: string; attempt: number; hallId: string; profileId: string }
   ): Promise<OpenRunResult> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      return { status: 'refused', reason: 'gates_barred' }
+    }
     const quest = await this.deps.quests.get(guildId, input.questId)
     if (
       !quest ||
@@ -232,6 +243,9 @@ export class ModelGateway {
 
   /** Admits queued runs, oldest first, while the caps have room; returns the tokens issued. */
   async admitQueued(guildId: string, limit: number): Promise<AdmittedRun[]> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      return []
+    }
     const admitted: AdmittedRun[] = []
     for (const run of await this.deps.ledger.listQueued(guildId, limit)) {
       const { config } = await this.deps.config.current(guildId)
@@ -268,6 +282,16 @@ export class ModelGateway {
     return this.deps.ledger.revokeHallRuns(guildId, hallId)
   }
 
+  /** Revokes every run token of the guild for good (Bar the Gates); returns how many. */
+  revokeGuildRuns(guildId: string): Promise<number> {
+    return this.deps.ledger.revokeGuildRuns(guildId)
+  }
+
+  /** Revokes every run token of every guild for good (a global Bar the Gates); returns how many. */
+  revokeAllRuns(): Promise<number> {
+    return this.deps.ledger.revokeAllRuns()
+  }
+
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */
   revokeRun(guildId: string, runId: string): Promise<boolean> {
     return this.deps.ledger.revoke(guildId, runId)
@@ -283,6 +307,9 @@ export class ModelGateway {
   async complete(token: string, call: GatewayCall): Promise<ModelResponse> {
     const request = gatewayCall.safeParse(call)
     const guildId = this.guildOf(token)
+    if (await this.deps.gates.isBarred(guildId)) {
+      throw new GatewayError('gates_barred')
+    }
     const run = await this.deps.ledger.findByTokenHash(guildId, sha256(token))
     if (!run) {
       throw new GatewayError('invalid_token')

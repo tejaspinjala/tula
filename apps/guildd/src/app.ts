@@ -11,15 +11,18 @@ import {
 } from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
-import { appendEvent, headSeq } from './events'
+import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
+import type { Gates } from './gates'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import { GatesBarredError, type LearningEngine } from './learning-engine'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
+import type { GitHubEnvoy } from './ports/github-envoy'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
@@ -32,6 +35,7 @@ import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
+import type { SandboxRunner } from './ports/sandbox-runner'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
@@ -41,6 +45,7 @@ import {
   secretValue,
 } from './ports/secret-store'
 import type { StreamTicketStore } from './ports/stream-ticket'
+import { MAX_SUGGESTION_PAGE, type SuggestionStore } from './ports/suggestion-store'
 import { MAX_TREASURY_PAGE, type TreasuryRefusal } from './ports/treasury-store'
 import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
@@ -87,6 +92,12 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
+  platformOperators: readonly string[]
+  /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
+  gates: Gates
+  /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
+  sandboxes: SandboxRunner
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
@@ -104,6 +115,15 @@ export interface AppDeps {
    * reach it (writes need a session, approvals re-authentication); no agent-facing tool does.
    */
   treasury: Treasury
+  /**
+   * Weekly learning suggestions from allowlisted repos. Only routes (a Guild Master session) and a
+   * Schedule reach it; it never calls a model.
+   */
+  learning: LearningEngine
+  /** Composition-only: the read-only GitHub Envoy the learning engine reads through. */
+  githubEnvoy?: GitHubEnvoy
+  /** Composition-only: where suggested learnings are kept. */
+  suggestions?: SuggestionStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -233,6 +253,14 @@ const questPage = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
   state: questState.optional(),
 })
+const historyQuery = z.object({
+  after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  until: z
+    .string()
+    .refine((v) => /^\d{1,15}$/.test(v) || !Number.isNaN(Date.parse(v)))
+    .optional(),
+})
 const usageQuery = z.object({
   by: usageGroup,
   after: z.string().min(1).max(200).optional(),
@@ -353,6 +381,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
   app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
+  app.post('/guilds/:id/learning/scan', limited('learning-scan'))
+  app.get('/guilds/:id/events/history', limited('events-history'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -866,6 +896,73 @@ export function createApp(deps: AppDeps): Hono {
       : c.json({ error: 'not_paused' }, 404)
   })
 
+  // Bar the Gates, the kill switch. Barring is immediate (a session plus the Guild Master role):
+  // it only narrows what runs. Lifting widens it again, so it needs a fresh passkey
+  // re-authentication. `/guilds/:id/gates/*` acts on one guild; `/gates/*` on every guild, with
+  // the event chained in the acting Guild Master's own guild.
+  app.get('/guilds/:id/gates', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(await deps.gates.status(who.guild))
+  })
+
+  /** Whether the member is a platform operator; ids compare case-insensitively. */
+  function isOperator(memberId: string): boolean {
+    const id = memberId.toLowerCase()
+    return deps.platformOperators.some((o) => o.toLowerCase() === id)
+  }
+
+  async function barRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
+    const who = scope === 'guild' ? await guildMasterSessionFor(c) : await operatorSession(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const outcome = await deps.gates.bar({ guildId: who.guild, memberId: who.member }, scope)
+    return c.json({ ...outcome, scope }, outcome.created ? 201 : 200)
+  }
+
+  async function liftRoute(c: Context, scope: 'guild' | 'global'): Promise<Response> {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (scope === 'global' && !isOperator(check.principal.memberId)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (scope === 'guild' && c.req.param('id') !== check.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const lifted = await deps.gates.lift(
+      { guildId: check.guildId, memberId: check.principal.memberId },
+      scope
+    )
+    return lifted ? c.json({ scope, barred: false }) : c.json({ error: 'not_barred' }, 404)
+  }
+
+  /** A session whose principal is a Guild Master and a platform operator (env `PLATFORM_OPERATORS`); for the global bar. */
+  async function operatorSession(
+    c: Context
+  ): Promise<{ guild: string; member: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    return isGuildMaster(session) && isOperator(session.memberId)
+      ? { guild: session.guildId, member: session.memberId }
+      : { res: c.json({ error: 'forbidden' }, 403) }
+  }
+
+  app.post('/guilds/:id/gates/bar', (c) => barRoute(c, 'guild'))
+  app.post('/guilds/:id/gates/lift', (c) => liftRoute(c, 'guild'))
+  app.post('/gates/bar', (c) => barRoute(c, 'global'))
+  app.post('/gates/lift', (c) => liftRoute(c, 'global'))
+
   // Web push for the Guild Master's installed PWA. A device subscribes with the browser's
   // PushSubscription; the push for a Seal request carries ids only (see `seal-push.ts`).
   app.get('/guilds/:id/push/key', async (c) => {
@@ -1262,6 +1359,34 @@ export function createApp(deps: AppDeps): Hono {
       'content-type': 'application/octet-stream',
       'x-artifact-class': String(rows[0].class),
     })
+  })
+
+  /**
+   * Read-only replay page of the event log: `?after=<seq>&limit=<n>&until=<seq or ISO time>`.
+   * Session-guarded; the client folds the events into the state implied at the `until` point.
+   */
+  app.get('/guilds/:id/events/history', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const query = historyQuery.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      until: c.req.query('until'),
+    })
+    if (!query.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { after, limit, until } = query.data
+    const bound: EventBound =
+      until === undefined
+        ? null
+        : /^\d+$/.test(until)
+          ? { seq: Number(until) }
+          : { time: new Date(until).toISOString() }
+    const page = await deps.db.withGuild(who.guild, (tx) => eventsHistory(tx, after, limit, bound))
+    return c.json(page)
   })
 
   /**
@@ -1740,6 +1865,83 @@ export function createApp(deps: AppDeps): Hono {
         : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
     })
   })
+
+  // Weekly learning suggestions. Reads follow `callerGuild`; scan, accept and dismiss need a real
+  // Guild Master session (agents have none). Scanning is the hook a weekly Schedule calls (a plain
+  // call with no state in the process); no route or step here calls a model.
+  const learningPage = z.object({
+    after: z.uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(MAX_SUGGESTION_PAGE).default(50),
+    status: z.enum(['pending', 'accepted', 'dismissed']).optional(),
+  })
+
+  app.get('/guilds/:id/learning/suggestions', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = learningPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      status: c.req.query('status'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { after, limit, status } = page.data
+    return c.json(
+      await deps.learning.list(who.guild, {
+        limit,
+        ...(after === undefined ? {} : { after }),
+        ...(status === undefined ? {} : { status }),
+      })
+    )
+  })
+
+  app.post('/guilds/:id/learning/scan', async (c) => {
+    const who = await treasuryWriter(c)
+    if ('res' in who) {
+      return who.res
+    }
+    // Barred guilds are refused before anything is resolved or read (the engine checks too).
+    const gates = await deps.gates.status(who.guild)
+    if (gates.guild || gates.global) {
+      return c.json({ error: 'gates_barred' }, 409)
+    }
+    return treasuryRoute(c, async () => {
+      try {
+        return c.json(await deps.learning.scan(who.guild))
+      } catch (error) {
+        if (error instanceof GatesBarredError) {
+          return c.json({ error: 'gates_barred' }, 409)
+        }
+        throw error
+      }
+    })
+  })
+
+  for (const verb of ['accept', 'dismiss'] as const) {
+    app.post(`/guilds/:id/learning/suggestions/:suggestionId/${verb}`, async (c) => {
+      const who = await treasuryWriter(c)
+      if ('res' in who) {
+        return who.res
+      }
+      const id = uuid.safeParse(c.req.param('suggestionId'))
+      if (!id.success) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      const result =
+        verb === 'accept'
+          ? await deps.learning.accept(who.guild, id.data)
+          : await deps.learning.dismiss(who.guild, id.data)
+      if (!result.ok) {
+        return result.reason === 'not_found'
+          ? c.json({ error: 'not_found' }, 404)
+          : c.json({ error: result.reason }, 409)
+      }
+      return c.json({ suggestion: result.suggestion })
+    })
+  }
 
   return app
 }

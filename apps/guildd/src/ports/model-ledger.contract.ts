@@ -44,6 +44,30 @@ async function record(ledger: ModelLedger, g: string, entry: UsageEntry): Promis
 /** The ModelLedger contract, run against every adapter. `make` returns a fresh ledger. */
 export function modelLedgerContract(name: string, make: () => Promise<ModelLedgerFixture>) {
   describe(`ModelLedger contract: ${name}`, () => {
+    test("revoking all runs ends every guild's tokens for good, in every state, and is repeatable", async () => {
+      const { ledger, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      await ledger.openRun(a, run('ra'))
+      await ledger.openRun(b, run('rb', { state: 'queued', tokenHash: null, expiresAt: null }))
+      await ledger.openRun(b, run('rp'))
+      await ledger.revokeHallRuns(b, 'heralds')
+      expect(await ledger.revokeAllRuns()).toBeGreaterThanOrEqual(3)
+      for (const [g, id] of [
+        [a, 'ra'],
+        [b, 'rb'],
+        [b, 'rp'],
+      ] as const) {
+        expect(await ledger.getRun(g, id)).toMatchObject({
+          state: 'revoked',
+          revokeReason: 'manual',
+        })
+      }
+      expect(await ledger.activate(b, 'rb', 'hash-new', '2026-03-04T13:00:00.000Z')).toBe(false)
+      expect(await ledger.activate(b, 'rp', 'hash-new', '2026-03-04T13:00:00.000Z')).toBe(false)
+      expect(await ledger.revokeAllRuns()).toBeGreaterThanOrEqual(0)
+    })
+
     test('a run is found by its token hash; an unknown hash finds nothing', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()

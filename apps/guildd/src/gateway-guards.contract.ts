@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import type { MemoryClock } from './adapters/memory-clock'
 import type { MemoryModelProvider } from './adapters/memory-model-provider'
+import type { Gates } from './gates'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway } from './model-gateway'
 import type { ConfigStore } from './ports/config-store'
 import type { ModelLedger } from './ports/model-ledger'
 import type { Quest, QuestQueue } from './ports/quest-queue'
+import type { SandboxRunner } from './ports/sandbox-runner'
 import type { TripwireStore } from './ports/tripwire-store'
 import { callTool } from './testing/scripted-member'
 import { runTripwires } from './tripwires'
@@ -15,6 +17,9 @@ import { runTripwires } from './tripwires'
 export interface GatewayGuardsFixture {
   gateway: ModelGateway
   mcp: McpGateway
+  /** Bar the Gates over the same gateways, queue and sandboxes. */
+  gates: Gates
+  sandboxes: SandboxRunner
   tripwires: TripwireStore
   quests: QuestQueue
   config: ConfigStore
@@ -160,6 +165,143 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
       expect(second).toEqual({ status: 'refused', reason: 'hall_paused' })
       const quest = await post(f, a)
       expect((await claim(f, a, quest)).isError).toBe(false)
+    })
+
+    describe('Bar the Gates', () => {
+      const actor = (guildId: string) => ({ guildId, memberId: crypto.randomUUID() })
+      const handle = async (f: GatewayGuardsFixture, g: string, quest: Quest) =>
+        lease.parse((await claim(f, g, quest)).data.lease)
+      const put = (f: GatewayGuardsFixture, handleOf: z.infer<typeof lease>) =>
+        callTool((r) => f.mcp.handle(r), 'put_artifact', {
+          lease: handleOf,
+          contentBase64: Buffer.from('x').toString('base64'),
+        })
+
+      test('a barred guild refuses tool calls, model calls, new runs and queue claims before any work', async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        f.provider.script(OK)
+        const live = await post(f, g)
+        const held = await handle(f, g, live)
+        const token = await started(f, g, live)
+        const spare = await post(f, g)
+        const assignment = await f.mcp.assign(g, spare)
+        await f.gates.bar(actor(g), 'guild')
+        try {
+          const before = f.provider.seen.length
+          expect(await codeOf(f.gateway.complete(token, message))).toBe('gates_barred')
+          expect(f.provider.seen.length).toBe(before)
+          expect((await f.gateway.usage(g, 'run', { limit: 10 })).rows).toEqual([])
+          expect(await openRun(f, g, live)).toEqual({ status: 'refused', reason: 'gates_barred' })
+          const tool = await put(f, held)
+          expect([tool.status, tool.rpcError]).toEqual([401, 'gates_barred'])
+          const claimed = await callTool((r) => f.mcp.handle(r), 'claim_quest', { assignment })
+          expect([claimed.status, claimed.rpcError]).toEqual([401, 'gates_barred'])
+          expect(await f.quests.claim(g, { leaseMs: 60_000, maxActive: 10 })).toBeNull()
+        } finally {
+          await f.gates.lift(actor(g), 'guild')
+        }
+      })
+
+      test('barring revokes every run token for good: lifting reissues nothing', async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        f.provider.script(OK)
+        const live = await leased(f, g)
+        const token = await started(f, g, live)
+        const outcome = await f.gates.bar(actor(g), 'guild')
+        expect(outcome.revokedRuns).toBe(1)
+        await f.gates.lift(actor(g), 'guild')
+        expect(await codeOf(f.gateway.complete(token, message))).toBe('token_revoked')
+        expect(await openRun(f, g, live)).toEqual({ status: 'refused', reason: 'token_revoked' })
+      })
+
+      test("barring kills the guild's sandboxes and no other guild's", async () => {
+        const f = await make()
+        const a = await f.newGuild()
+        const b = await f.newGuild()
+        await f.sandboxes.start(a, { questId: 'q1' })
+        await f.sandboxes.start(b, { questId: 'q2' })
+        const outcome = await f.gates.bar(actor(a), 'guild')
+        try {
+          expect(outcome.killedSandboxes).toBe(1)
+          expect(await f.sandboxes.list(a)).toEqual([])
+          expect(await f.sandboxes.list(b)).toHaveLength(1)
+        } finally {
+          await f.gates.lift(actor(a), 'guild')
+        }
+      })
+
+      test("one guild's bar leaves another guild's tools, model calls and queue working", async () => {
+        const f = await make()
+        const a = await f.newGuild()
+        const b = await f.newGuild()
+        f.provider.script(OK)
+        const questB = await post(f, b)
+        const heldB = await handle(f, b, questB)
+        const tokenB = await started(f, b, questB)
+        await f.gates.bar(actor(a), 'guild')
+        try {
+          expect(await codeOf(f.gateway.complete(tokenB, message))).toBe('no error')
+          expect((await put(f, heldB)).isError).toBe(false)
+          const next = await post(f, b)
+          expect((await claim(f, b, next)).isError).toBe(false)
+        } finally {
+          await f.gates.lift(actor(a), 'guild')
+        }
+      })
+
+      test("a global bar stops every guild, revokes every guild's tokens and kills every sandbox", async () => {
+        const f = await make()
+        const a = await f.newGuild()
+        const b = await f.newGuild()
+        f.provider.script(OK)
+        const liveB = await leased(f, b)
+        const tokenB = await started(f, b, liveB)
+        await f.sandboxes.start(a, { questId: 'q1' })
+        await f.sandboxes.start(b, { questId: 'q2' })
+        try {
+          await f.gates.bar(actor(a), 'global')
+          expect(await codeOf(f.gateway.complete(tokenB, message))).toBe('gates_barred')
+          expect(await f.quests.claim(b, { leaseMs: 60_000, maxActive: 10 })).toBeNull()
+          expect(await f.sandboxes.list(a)).toEqual([])
+          expect(await f.sandboxes.list(b)).toEqual([])
+        } finally {
+          await f.gates.lift(actor(a), 'global')
+        }
+        expect(await codeOf(f.gateway.complete(tokenB, message))).toBe('token_revoked')
+      })
+
+      test('barring again re-runs the stop steps, so a partial bar can be finished', async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        await f.gates.bar(actor(g), 'guild')
+        try {
+          await f.sandboxes.start(g, { questId: 'q1' })
+          const again = await f.gates.bar(actor(g), 'guild')
+          expect(again.created).toBe(false)
+          expect(again.killedSandboxes).toBe(1)
+        } finally {
+          await f.gates.lift(actor(g), 'guild')
+        }
+      })
+
+      test('the whole bar path completes within a tight bound and calls kill', async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        f.provider.script(OK)
+        await started(f, g, await leased(f, g))
+        await f.sandboxes.start(g, { questId: 'q1' })
+        const t0 = performance.now()
+        const outcome = await f.gates.bar(actor(g), 'guild')
+        const elapsed = performance.now() - t0
+        try {
+          expect(outcome.killedSandboxes).toBe(1)
+          expect(elapsed).toBeLessThan(1_000)
+        } finally {
+          await f.gates.lift(actor(g), 'guild')
+        }
+      })
     })
 
     describe('Quest attempt binding', () => {

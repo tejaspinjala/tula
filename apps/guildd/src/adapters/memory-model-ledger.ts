@@ -130,6 +130,26 @@ export class MemoryModelLedger implements ModelLedger {
     return revoked
   }
 
+  async revokeAllRuns(): Promise<number> {
+    let revoked = 0
+    for (const guildId of this.guilds.keys()) {
+      revoked += await this.revokeGuildRuns(guildId)
+    }
+    return revoked
+  }
+
+  async revokeGuildRuns(guildId: string): Promise<number> {
+    let revoked = 0
+    for (const r of this.state(guildId).runs.values()) {
+      if (r.state !== 'revoked' || r.revokeReason === 'hall_paused') {
+        r.state = 'revoked'
+        r.revokeReason = 'manual'
+        revoked += 1
+      }
+    }
+    return revoked
+  }
+
   async listQueued(guildId: string, limit: number): Promise<RunRecord[]> {
     return [...this.state(guildId).runs.values()]
       .filter((r) => r.state === 'queued')
