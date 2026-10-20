@@ -188,3 +188,22 @@ test('several Seals expiring together emit their events in seal id order', async
   const ids = events.map((e) => String(e.payload.sealId))
   expect(ids).toEqual([...ids].sort())
 })
+
+test('list with decidedSince and a status uses the partial decided index', async () => {
+  const { guild, store } = await setup()
+  await owner`insert into seals (seal_id, guild_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at)
+    select gen_random_uuid(), ${guild}, gen_random_uuid(), 'h', 'post', 't', '', encode(sha256(convert_to('t', 'UTF8')), 'hex'), 'denied', now(), now() + interval '1 day', now() - (g || ' minutes')::interval
+    from generate_series(1, 3000) g`
+  await owner`analyze seals`
+  const scans = async (): Promise<number> => {
+    await owner`select pg_stat_force_next_flush()`
+    const [row] =
+      await owner`select coalesce(sum(idx_scan), 0)::int as n from pg_stat_user_indexes where indexrelname = 'seals_guild_decided'`
+    return Number(row?.n ?? 0)
+  }
+  const before = await scans()
+  const since = new Date(Date.now() - 5 * 60_000).toISOString()
+  const page = await store.list(guild, { limit: 10, status: 'denied', decidedSince: since })
+  expect(page.seals.length).toBeGreaterThan(0)
+  expect(await scans()).toBeGreaterThan(before)
+})
