@@ -302,6 +302,11 @@ export const guildConfig = z
     }
   })
 
+/** Wraps `write` so a message already seen is not written again (placeholder: passes everything). */
+export function warnOnce(write: (message: string) => void): (message: string) => void {
+  return write
+}
+
 /**
  * Parses a config read back from storage. Writes are strict, but a config stored before a key was
  * removed or renamed must not brick boot: unknown keys are dropped and reported through `warn`
