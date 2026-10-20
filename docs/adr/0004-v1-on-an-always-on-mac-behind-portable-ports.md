@@ -1,0 +1,3 @@
+# v1 runs on an always-on Mac, portable to cloud through ports
+
+v1 runs as the docker compose stack on the Guild Master's Mac, kept awake as a server. To move to a cloud host (e.g. EKS) as a deployment change, guildd reaches infrastructure only through ports: a `SandboxRunner` (Docker adapter now, Kubernetes Job adapter later), S3-compatible object storage (MinIO locally, S3 with Object Lock in cloud) and a `KeyProvider` for the master key (macOS Keychain or local file now, AWS KMS later). We accepted that the Mac is a dev-grade host with no off-site redundancy, rather than paying for a VPS or AWS before the Core Loop is proven.

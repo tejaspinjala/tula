@@ -1,0 +1,3 @@
+# Start fresh; do not port tula-fleet Phase 0
+
+The SPEC planned to reuse tula-fleet's Phase 0 (Zod schemas, approval state machine, hash chain, router; 704 tests), estimating a 1.5-3 week saving. That code survives only as the tag `archive/tula-fleet-v0`; Guildhall is built from scratch instead, because v1.1 was a single-owner file-based design and porting it would drag its assumptions into a multi-tenant Postgres core. SPEC section 4.1's entity list and documented behaviours (e.g. the Seal state machine in section 6.7) are the specification; every `code:` reference in the SPEC reads as "to build". The tag stays as read-only reference.

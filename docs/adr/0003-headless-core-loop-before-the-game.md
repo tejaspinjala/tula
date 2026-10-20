@@ -1,0 +1,3 @@
+# Headless Core Loop before the game client
+
+The first v1 slice is the governed core plus the Core Loop on a plain ledger view (web tables and a Seal inbox PWA); the game client comes after the Core Loop has been used daily for two weeks, rendering the same event stream. This departs from the SPEC's Phase C, which ships Game v0 with Milestone 1. We chose it because cost per accepted post is the number that decides whether the product works, the ledger view is required anyway, and art is the longest-lead, most expensive item; building the game on a proven event stream avoids redrawing sprites for events that change during the soak.
