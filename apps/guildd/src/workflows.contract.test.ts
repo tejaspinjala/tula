@@ -191,6 +191,23 @@ describe('workflow routes', () => {
     expect(await one.json()).toMatchObject({ version: { version: 2 }, activeVersion: 2 })
   })
 
+  test('a confirm checks the guild and the version before it spends the re-authentication proof', async () => {
+    const who = await signedIn()
+    const other = await signedIn()
+    await send('PUT', `${who.base}/mine`, { name: 'Mine', graph: graph() }, who.auth)
+    const headers = { ...who.auth, 'x-reauth-proof': await who.proof() }
+    const confirm = `${who.base}/mine/versions/1/confirm`
+    const foreign = `/guilds/${other.guildId}/workflows/mine/versions/1/confirm`
+    expect((await send('POST', foreign, {}, headers)).status).toBe(404)
+    expect((await send('POST', `${who.base}/mine/versions/9/confirm`, {}, headers)).status).toBe(
+      404
+    )
+    expect((await send('POST', confirm, {}, headers)).status).toBe(200)
+    const spare = { ...who.auth, 'x-reauth-proof': await who.proof() }
+    expect((await send('POST', confirm, {}, spare)).status).toBe(409)
+    expect((await send('POST', confirm, {}, spare)).status).toBe(409)
+  })
+
   test('a run creates an instance pinned to a version; its Quests share its Campaign; a retry is the same run', async () => {
     const who = await signedIn()
     await send('GET', who.base, undefined, who.auth)
