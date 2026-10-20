@@ -157,6 +157,11 @@ export interface IdentityProvider {
    * null when the session is unknown or expired. The role never comes from the request.
    */
   resolveSession(sessionToken: string): Promise<Principal | null>
+  /** A member of the guild with the role the server holds for them, or null. */
+  findMember(
+    guildId: string,
+    memberId: string
+  ): Promise<{ memberId: string; role: 'guild_master' } | null>
   /** True only for the current, unexpired proof issued to this live session; does not consume it. */
   checkReauth(sessionToken: string, proof: string): Promise<boolean>
   /** Like `checkReauth`, but a true answer also spends the proof: it works exactly once. */

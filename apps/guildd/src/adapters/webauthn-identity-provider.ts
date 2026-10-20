@@ -363,6 +363,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return member ? { guildId: live.guildId, memberId: member.memberId, role: member.role } : null
   }
 
+  async findMember(guildId: string, memberId: string) {
+    return this.store.findMember(guildId, memberId)
+  }
+
   async checkReauth(sessionToken: string, proof: string): Promise<boolean> {
     const live = await this.liveSession(sessionToken)
     return live ? this.proofMatches(live.session, proof) : false

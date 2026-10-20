@@ -1,4 +1,5 @@
 import type { ConfigStore } from './ports/config-store'
+import type { IdentityProvider } from './ports/identity'
 import type {
   ReserveResult,
   Seal,
@@ -48,8 +49,14 @@ export interface SealRequest {
 export class SealEngine {
   private readonly store: SealStore
   private readonly config: ConfigStore
+  private readonly identity: Pick<IdentityProvider, 'findMember'>
 
-  constructor(deps: { store: SealStore; config: ConfigStore }) {
+  constructor(deps: {
+    store: SealStore
+    config: ConfigStore
+    identity: Pick<IdentityProvider, 'findMember'>
+  }) {
+    this.identity = deps.identity
     this.store = deps.store
     this.config = deps.config
   }

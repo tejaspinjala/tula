@@ -60,27 +60,30 @@ export async function compose(
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
+  const identity =
+    overrides.identity ??
+    new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
+      clock,
+      keys,
+      rpId: rp.WEBAUTHN_RP_ID,
+      rpName: 'Guildhall',
+      origin: rp.WEBAUTHN_ORIGIN,
+    })
   const adapters: AppDeps = {
     ...overrides,
     clock,
     db,
     devGuildHeader,
     objectStore,
-    identity:
-      overrides.identity ??
-      new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
-        clock,
-        keys,
-        rpId: rp.WEBAUTHN_RP_ID,
-        rpName: 'Guildhall',
-        origin: rp.WEBAUTHN_ORIGIN,
-      }),
+    identity,
     keys,
     anchor,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
-    seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
+    seals:
+      overrides.seals ??
+      new SealEngine({ store: new PgSealStore(db, keys, clock), config, identity }),
     secrets,
     proposals:
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
