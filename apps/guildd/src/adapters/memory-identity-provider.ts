@@ -75,6 +75,7 @@ export class MemoryIdentityStore implements IdentityStore {
     event: IdentityEvent,
     _tx?: TenantTx
   ) {
+    this.found(guildId)
     this.founding.set(guildId, { tokenHash, expiresAt })
     this.record(guildId, event)
   }
@@ -128,17 +129,19 @@ export class MemoryIdentityStore implements IdentityStore {
     return challenge
   }
 
-  /** Founds the guild in memory (stub: the Guild Master is still minted lazily). */
-  found(_guildId: string): void {}
+  /** Founds the guild in memory: mints its Guild Master once; founding again changes nothing. */
+  found(guildId: string): void {
+    if (!this.masters.has(guildId)) {
+      this.masters.set(guildId, { memberId: crypto.randomUUID(), role: 'guild_master' })
+    }
+  }
 
   async guildMaster(guildId: string): Promise<StoredMember> {
-    const known = this.masters.get(guildId)
-    if (known) {
-      return known
+    const master = this.masters.get(guildId)
+    if (!master) {
+      throw new Error('guild has no Guild Master')
     }
-    const minted: StoredMember = { memberId: crypto.randomUUID(), role: 'guild_master' }
-    this.masters.set(guildId, minted)
-    return minted
+    return master
   }
 
   async findMember(guildId: string, memberId: string): Promise<StoredMember | null> {
