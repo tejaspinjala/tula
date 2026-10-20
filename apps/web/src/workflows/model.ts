@@ -50,9 +50,9 @@ function defaults(type: WorkflowNode['type'], id: string): WorkflowNode {
         id,
         type,
         hallId: 'heralds',
-        templateId: 'herald-brief',
+        templateId: 'herald-announcement',
         briefTemplate: 'Describe the work to do.',
-        doneCondition: 'The work is filed in the Archive',
+        doneCondition: 'An announcement draft is ready for a Seal',
         maxUsd: 1,
       }
     case 'verify':

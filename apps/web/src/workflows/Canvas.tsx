@@ -125,7 +125,9 @@ function Flow(props: CanvasProps) {
     event.preventDefault()
     const type = event.dataTransfer.getData(NODE_PIECE)
     if (type) {
-      props.onDropType(type, screenToFlowPosition({ x: event.clientX, y: event.clientY }))
+      const at = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      // Centre the new node on the cursor (a node is about 11rem by 4.5rem).
+      props.onDropType(type, { x: at.x - 88, y: at.y - 36 })
     }
   }
 
