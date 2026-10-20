@@ -12,7 +12,10 @@ const MAX_ITEMS = 50
 /** A worker agent's rank; maps to a model tier in routing, never to a model id here. */
 export const memberRank = z.enum(['apprentice', 'journeyman', 'adept'])
 
-const agent = z.object({ id: slug, name: displayName })
+/** The addressee of a Missive to a whole Hall, so no Member, Captain or Steward may carry it as an id. */
+const agentId = slug.refine((id) => id !== 'hall', { message: 'hall is a reserved id' })
+
+const agent = z.object({ id: agentId, name: displayName })
 
 /** A Member: a worker agent with a rank. */
 export const member = agent.extend({

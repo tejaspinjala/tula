@@ -472,6 +472,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/proposals', limited('proposal-post'))
   app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.get('/guilds/:id/events/history', limited('events-history'))
+  app.get('/guilds/:id/halls/:hallId/missives', limited('missives-read'))
   app.get('/guilds/:id/workflows', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
