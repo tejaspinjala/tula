@@ -2,17 +2,11 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { S3ObjectStore } from '../apps/guildd/src/adapters/s3-object-store'
-import { removeBucket } from './backup-restore'
 
 // The scheduled backup services (#33): the real `backup` profile of docker-compose.yml must produce
-// a pg_dump file and a mirrored object. They run in a throwaway compose project that joins the
-// running stack's network (no host ports are bound) and are removed with their volume afterwards.
+// a pg_dump file and a mirrored object. Everything runs in a throwaway compose project with its own
+// Postgres, MinIO and volumes (no host ports bound), removed with `down --volumes` afterwards.
 const root = resolve(import.meta.dir, '..')
-const stackNetwork = process.env.COMPOSE_STACK_NETWORK ?? 'guildhall_default'
-const endpoint = process.env.OBJECT_STORE_ENDPOINT ?? 'http://localhost:9000'
-const accessKeyId = process.env.OBJECT_STORE_ACCESS_KEY ?? 'guildhall'
-const secretAccessKey = process.env.OBJECT_STORE_SECRET_KEY ?? 'guildhall-dev-secret'
 
 const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
 const project = `guildhall-backup-test-${suffix}`
@@ -20,21 +14,12 @@ const bucket = `backup-svc-${suffix}`
 const work = await mkdtemp(join(tmpdir(), 'guildhall-backup-svc-'))
 const override = join(work, 'override.yml')
 
-// Reuse the running Postgres and MinIO by service name on their network, instead of starting more.
 const overrideYaml = `
-networks:
-  default:
-    name: ${stackNetwork}
-    external: true
 services:
-  backup-postgres:
-    depends_on: !override
-      backup-init:
-        condition: service_completed_successfully
-  backup-objects:
-    depends_on: !override
-      backup-init:
-        condition: service_completed_successfully
+  postgres:
+    ports: !override []
+  minio:
+    ports: !override []
 `
 
 async function compose(...args: string[]): Promise<{ code: number; out: string }> {
@@ -69,16 +54,41 @@ async function listing(service: string, dir: string): Promise<string> {
 
 afterAll(async () => {
   await compose('--profile', 'backup', 'down', '--volumes', '--remove-orphans', '--timeout', '1')
-  await removeBucket({ endpoint, accessKeyId, secretAccessKey, bucket })
   await rm(work, { recursive: true, force: true })
 })
 
 describe('scheduled backup services', () => {
   test('write a pg_dump file and mirror an object into the backup volume', async () => {
     await writeFile(override, overrideYaml)
-    const store = new S3ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey })
-    await store.ensureBucket()
-    await store.put(crypto.randomUUID(), new TextEncoder().encode(`object ${suffix}`))
+    const stack = await compose('--profile', 'backup', 'up', '-d', '--wait', 'postgres', 'minio')
+    expect(stack.code).toBe(0)
+    const row = await compose(
+      '--profile',
+      'backup',
+      'exec',
+      '-T',
+      'postgres',
+      'psql',
+      '-U',
+      'guildhall',
+      '-c',
+      'create table backup_probe (id int); insert into backup_probe values (1)'
+    )
+    expect(row.code).toBe(0)
+    const seed = await compose(
+      '--profile',
+      'backup',
+      'run',
+      '--rm',
+      '--no-deps',
+      '-T',
+      '--entrypoint',
+      'sh',
+      'backup-objects',
+      '-c',
+      `mc mb source/${bucket} && echo ${suffix} | mc pipe source/${bucket}/probe.txt`
+    )
+    expect(seed.code).toBe(0)
 
     const up = await compose('--profile', 'backup', 'up', '-d', 'backup-postgres', 'backup-objects')
     expect(up.code).toBe(0)
