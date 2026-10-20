@@ -23,8 +23,8 @@ import type { Quest } from '../ports/quest-queue'
 import type { SearchProvider } from '../ports/search-provider'
 import { ProposalEngine } from '../proposals'
 import { Research } from '../research'
-import { Treasury } from '../treasury'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
+import { Treasury } from '../treasury'
 import { McpGateway, type McpGatewayDeps } from './gateway'
 import { MAX_PROPOSALS_PER_QUEST, TOOL_CATALOG, type ToolDef } from './tools'
 
@@ -32,10 +32,10 @@ const SPAWN_TOOLS = ['spawn_subquest', 'await_children', 'child_results']
 const lease = z.object({ questId: z.string(), attempt: z.number(), token: z.string() })
 
 async function setup(overrides: Partial<McpGatewayDeps> = {}) {
-  const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
+  const clock = overrides.clock ?? new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const keys = new MemoryKeyProvider()
   const quests = new MemoryQuestQueue(clock, () => 0.5)
-  const config = new MemoryConfigStore(clock)
+  const config = overrides.config ?? new MemoryConfigStore(clock)
   const notes = new MemoryNoteStore()
   const missives = new MemoryMissiveStore()
   const objectStore = new MemoryObjectStore()
