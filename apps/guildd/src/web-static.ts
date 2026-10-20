@@ -95,13 +95,12 @@ function serve(path: string, method: string, immutable: boolean): Response {
 export function withWebApp(api: Hono, dist: string): Hono {
   const root = dist.replace(/[\\/]+$/, '')
   const outer = new Hono()
+  // Mounted, not re-dispatched with a rewritten Request: Bun's `server.upgrade` only accepts the
+  // original Request, so a socket under /api needs the real one to reach the handler.
+  outer.route(API_PREFIX, api)
   outer.all('*', (c) => {
     const req = c.req.raw
     const url = new URL(req.url)
-    if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
-      url.pathname = url.pathname.slice(API_PREFIX.length) || '/'
-      return api.fetch(new Request(url.toString(), req), c.env)
-    }
     if (req.method === 'GET' || req.method === 'HEAD') {
       const target = safePath(root, url.pathname === '/' ? '/index.html' : url.pathname)
       if (target === null) {
