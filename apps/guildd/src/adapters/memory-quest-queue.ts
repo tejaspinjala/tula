@@ -27,6 +27,7 @@ import {
   sealSettleTransition,
   submitTransition,
   type Transition,
+  type WaitMode,
 } from '../ports/quest-queue'
 
 interface GuildQuests {
@@ -231,6 +232,16 @@ export class MemoryQuestQueue implements QuestQueue {
 
   async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
     return this.apply(guildId, killTransition(this.mustFind(guildId, id), attempt, reason))
+  }
+
+  async park(
+    _guildId: string,
+    _id: string,
+    _attempt: number,
+    _waitingOn: readonly string[],
+    _mode: WaitMode
+  ): Promise<Quest> {
+    throw new QuestError('invalid_state')
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

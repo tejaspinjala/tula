@@ -578,6 +578,78 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(claims.filter((c) => c !== null)).toHaveLength(2)
     })
 
+    describe('a parent waiting on its children', () => {
+      const setup = async (mode: 'all' | 'any') => {
+        const f = await make()
+        const g = await f.newGuild()
+        const { quest: parent } = await f.queue.post(g, quest())
+        const held = await f.queue.claim(g, LEASE)
+        if (held?.id !== parent.id) {
+          throw new Error('expected the parent claim')
+        }
+        const { quest: c1 } = await f.queue.post(g, quest())
+        const { quest: c2 } = await f.queue.post(g, quest())
+        const parked = await f.queue.park(g, parent.id, held.attempts, [c1.id, c2.id], mode)
+        return { ...f, g, parent, held, c1, c2, parked }
+      }
+      const run = async (f: { queue: QuestQueue; g: string }, id: string) => {
+        const claimed = await f.queue.claim(f.g, { ...LEASE, questId: id })
+        if (!claimed) {
+          throw new Error('expected a claim')
+        }
+        return claimed
+      }
+
+      test('parking gives the slot back, fenced by attempt and idempotent; the parent waits for every child (all)', async () => {
+        const f = await setup('all')
+        expect(f.parked).toMatchObject({
+          state: 'queued',
+          leaseExpiresAt: null,
+          waitingOn: [f.c1.id, f.c2.id],
+          waitMode: 'all',
+        })
+        await expect(
+          f.queue.park(f.g, f.parent.id, 99, [f.c1.id], 'all')
+        ).rejects.toMatchObject({ code: 'stale_lease' })
+        expect(
+          await f.queue.park(f.g, f.parent.id, f.held.attempts, [f.c1.id, f.c2.id], 'all')
+        ).toEqual(f.parked)
+        // Nothing the parent could claim: the children are the only deliverable Quests.
+        const first = await run(f, f.c1.id)
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.c2.id)
+        await f.queue.complete(f.g, first.id, first.attempts)
+        expect(await f.queue.claim(f.g, LEASE)).toBeNull()
+        await f.queue.complete(f.g, f.c2.id, 1)
+        expect(await f.queue.claim(f.g, LEASE)).toMatchObject({
+          id: f.parent.id,
+          attempts: 2,
+          waitingOn: [],
+        })
+      })
+
+      test('with any, one finished child resumes the parent', async () => {
+        const f = await setup('any')
+        const first = await run(f, f.c1.id)
+        await f.queue.complete(f.g, first.id, first.attempts)
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
+      })
+
+      test('a dead child counts as finished, so the parent resumes to see it; a parent must be leased to park', async () => {
+        const f = await setup('all')
+        const first = await run(f, f.c1.id)
+        await f.queue.kill(f.g, first.id, first.attempts, 'timeout')
+        const second = await run(f, f.c2.id)
+        await f.queue.kill(f.g, second.id, second.attempts, 'timeout')
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
+        await expect(
+          f.queue.park(f.g, f.c1.id, 1, [f.c2.id], 'all')
+        ).rejects.toMatchObject({ code: 'invalid_state' })
+        await expect(
+          f.queue.park(f.g, f.parent.id, 2, [crypto.randomUUID()], 'all')
+        ).rejects.toMatchObject({ code: 'unknown_blocker' })
+      })
+    })
+
     test('lists are paginated in posting order and filter by state', async () => {
       const { queue, newGuild } = await make()
       const g = await newGuild()

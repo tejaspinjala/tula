@@ -43,6 +43,9 @@ export const newQuest = z.object({
 /** Input to {@link QuestQueue.post}. */
 export type NewQuest = z.input<typeof newQuest>
 
+/** How a waiting Quest's fan-in is met: every sub-Quest finished, or the first one done. */
+export type WaitMode = 'all' | 'any'
+
 /** A Quest as the queue holds it. */
 export interface Quest {
   id: string
@@ -223,6 +226,20 @@ export interface QuestQueue {
    * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
    */
   kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest>
+  /**
+   * Gives a claimed Quest's worker slot back while it waits on `waitingOn` (its sub-Quests): the
+   * Quest returns to `queued` with its lease cleared, and is not deliverable until the wait is
+   * over (`all`: every one is done or dead; `any`: one is done, or all are finished). Fenced by
+   * `attempt`; `invalid_state` unless active; `unknown_blocker` for an id the guild lacks.
+   * Idempotent: a repeat for the same delivery changes nothing. The next claim clears the wait.
+   */
+  park(
+    guildId: string,
+    id: string,
+    attempt: number,
+    waitingOn: readonly string[],
+    mode: WaitMode
+  ): Promise<Quest>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */
