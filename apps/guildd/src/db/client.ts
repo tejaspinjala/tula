@@ -60,11 +60,8 @@ export interface Db {
   /** Deletes rate-limit windows that started before `before`; a later hit starts a fresh count. */
   pruneRateLimits(before: Date): Promise<void>
   /**
-   * Records that `guildId` has a push subscription, in the `push_guilds` registry (not tenant
-   * data, see migration 0041: opaque guild ids only), so a restarted relay can find it.
-   */
-  registerPushGuild(guildId: string): Promise<void>
-  /** Guild ids in the push registry after `after`, in id order, at most `limit`. */
+   * Guild ids in the `push_guilds` registry (not tenant data, see migration 0041: opaque guild ids
+   * only; `PgPushStore.add` writes the row in the subscription's own transaction), after `after`, in id order, at most `limit`. */
   pushGuilds(after: string | undefined, limit: number): Promise<string[]>
   /** Closes the pools. */
   close(): Promise<void>
@@ -124,10 +121,6 @@ export function createDb(
     },
     async pruneRateLimits(before) {
       await sql`delete from rate_limits where window_start < ${before}`
-    },
-    async registerPushGuild(guildId) {
-      await sql`insert into push_guilds (guild_id) values (${GUILD_ID.parse(guildId)})
-        on conflict do nothing`
     },
     async pushGuilds(after, limit) {
       const rows = await sql`select guild_id from push_guilds

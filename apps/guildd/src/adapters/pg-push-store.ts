@@ -33,21 +33,24 @@ export class PgPushStore implements PushStore {
     s: PushSubscription,
     sinceSeq: number
   ): Promise<'added' | 'updated' | 'conflict'> {
-    const rows = await this.db.withGuild(
-      guildId,
-      (tx) => tx`
+    // The registry row commits with the subscription, so a restarted relay can always find it.
+    const rows = await this.db.withGuild(guildId, async (tx) => {
+      const upserted = await tx`
         insert into push_subscriptions (guild_id, endpoint, member_id, p256dh, auth, since_seq)
         values (${guildId}, ${s.endpoint}, ${memberId}, ${s.p256dh}, ${s.auth}, ${sinceSeq})
         on conflict (guild_id, endpoint) do update
           set p256dh = excluded.p256dh, auth = excluded.auth
           where push_subscriptions.member_id = excluded.member_id
         returning (xmax = 0) as inserted`
-    )
+      if (upserted.length > 0) {
+        await tx`insert into push_guilds (guild_id) values (${guildId}) on conflict do nothing`
+      }
+      return upserted
+    })
     const row = rows[0]
     if (!row) {
       return 'conflict'
     }
-    await this.db.registerPushGuild(guildId)
     return z.object({ inserted: z.boolean() }).parse(row).inserted ? 'added' : 'updated'
   }
 
