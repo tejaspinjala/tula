@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 /** One row of a CursorMenu. */
 export interface CursorMenuItem {
@@ -13,15 +13,37 @@ export interface CursorMenuProps {
   items: readonly CursorMenuItem[]
   onSelect: (id: string) => void
   onBack?: (() => void) | undefined
+  /** Index the cursor starts on (default 0). */
+  initial?: number
+  /** Moves keyboard focus to the cursor row on mount. */
+  autoFocus?: boolean
+  /** Extra key handler; return true when the key was handled. */
+  onKey?: ((key: string) => boolean) | undefined
 }
 
 /**
  * A ▶ cursor menu: a listbox with a roving tabindex. Up/Down wrap, Home/End jump, Enter selects,
  * Esc or Backspace goes back. Hovering a row moves the cursor; the selected row shows the ▶.
  */
-export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) {
-  const [cursor, setCursor] = useState(0)
+export function CursorMenu({
+  label,
+  items,
+  onSelect,
+  onBack,
+  initial = 0,
+  autoFocus = false,
+  onKey,
+}: CursorMenuProps) {
+  const [cursor, setCursor] = useState(initial)
   const rows = useRef<(HTMLDivElement | null)[]>([])
+
+  const startFocused = useRef(false)
+  useEffect(() => {
+    if (autoFocus && !startFocused.current) {
+      startFocused.current = true
+      rows.current[initial]?.focus()
+    }
+  }, [autoFocus, initial])
 
   function move(to: number, focus = true) {
     const next = (to + items.length) % items.length
@@ -39,6 +61,10 @@ export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) 
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (onKey?.(event.key)) {
+      event.preventDefault()
+      return
+    }
     switch (event.key) {
       case 'ArrowDown':
         move(cursor + 1)
