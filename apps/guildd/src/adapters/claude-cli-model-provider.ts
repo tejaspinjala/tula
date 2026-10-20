@@ -73,11 +73,18 @@ export class ClaudeCliModelProvider implements ModelProvider {
   private readonly bin: string
   private readonly env: Record<string, string>
   private readonly timeoutMs: number
+  private readonly maxConcurrent: number
+  private readonly queueTimeoutMs: number
+  /** Children running now; a per-process limiter that protects the local CLI, not durable state. */
+  private running = 0
+  private readonly waiters: Array<() => void> = []
   private readonly maxStdoutBytes: number
 
   constructor(options: ClaudeCliOptions = {}) {
     this.bin = options.bin ?? 'claude'
     this.timeoutMs = options.timeoutMs ?? 120_000
+    this.maxConcurrent = Math.max(1, options.maxConcurrent ?? 2)
+    this.queueTimeoutMs = options.queueTimeoutMs ?? this.timeoutMs
     this.maxStdoutBytes = options.maxStdoutBytes ?? 1024 * 1024
     const source = options.env ?? process.env
     const env: Record<string, string> = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }
@@ -88,6 +95,38 @@ export class ClaudeCliModelProvider implements ModelProvider {
       }
     }
     this.env = env
+  }
+
+  /** Takes a slot, waiting up to the queue deadline; rejects with `timeout` past it. */
+  private acquire(): Promise<void> {
+    if (this.running < this.maxConcurrent) {
+      this.running++
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      const grant = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(() => {
+        const at = this.waiters.indexOf(grant)
+        if (at >= 0) {
+          this.waiters.splice(at, 1)
+        }
+        reject(new ModelProviderError('timeout'))
+      }, this.queueTimeoutMs)
+      this.waiters.push(grant)
+    })
+  }
+
+  /** Frees a slot, handing it straight to the longest waiter. */
+  private release(): void {
+    const next = this.waiters.shift()
+    if (next) {
+      next()
+    } else {
+      this.running--
+    }
   }
 
   /** Runs one child to completion: killed at the timeout or when stdout passes its cap. */
@@ -151,7 +190,13 @@ export class ClaudeCliModelProvider implements ModelProvider {
       '--model',
       model,
     ]
-    const stdout = await this.run(args, promptOf(messages))
+    await this.acquire()
+    let stdout: { text: string; exitCode: number }
+    try {
+      stdout = await this.run(args, promptOf(messages))
+    } finally {
+      this.release()
+    }
     const data = cliReply.safeParse(parseJson(stdout.text))
     if (data.success && data.data.is_error && LIMIT_MESSAGE.test(data.data.result)) {
       throw new ModelProviderError('subscription_limit')
