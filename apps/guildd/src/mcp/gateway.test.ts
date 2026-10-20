@@ -11,12 +11,14 @@ import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemoryToolsetStore } from '../adapters/memory-toolset-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
+import type { GuildConfig } from '../guild-config'
 import type { Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
 import { McpGateway, type McpGatewayDeps } from './gateway'
 import { MAX_PROPOSALS_PER_QUEST, TOOL_CATALOG, type ToolDef } from './tools'
 
+const SPAWN_TOOLS = ['spawn_subquest', 'await_children', 'child_results']
 const lease = z.object({ questId: z.string(), attempt: z.number(), token: z.string() })
 
 async function setup(overrides: Partial<McpGatewayDeps> = {}) {
@@ -827,6 +829,239 @@ describe('MCP gateway', () => {
       const theirs = await callTool(s.transport, 'get_artifact', { lease: l2, hash: mine })
       expect(theirs.isError).toBe(true)
       expect(theirs.data.error).toBe('not_found')
+    })
+  })
+
+  describe('subagents', () => {
+    const brief = 'Find three primary sources on the topic'
+    const spawn = (t: Setup, l: unknown, over: Record<string, unknown> = {}) =>
+      callTool(t.transport, 'spawn_subquest', {
+        lease: l,
+        title: 'Research',
+        brief,
+        template: 'herald-brief',
+        ...over,
+      })
+    /** Applies a config edit the way the Guild Master would (confirming a widening one). */
+    const configure = async (t: Setup, edit: (c: GuildConfig) => GuildConfig) => {
+      const { config } = await t.deps.config.current(t.guild)
+      const proposed = await t.deps.config.propose(t.guild, edit(config))
+      if (proposed.status === 'pending') {
+        await t.deps.config.confirm(t.guild, proposed.version)
+      }
+    }
+    const childLease = async (t: Setup, id: string) => {
+      const claimed = await t.quests.claim(t.guild, { leaseMs: 60_000, maxActive: 10, questId: id })
+      if (!claimed) {
+        throw new Error('expected the child claim')
+      }
+      return lease.parse(await t.gateway.lease(t.guild, claimed))
+    }
+    const parentOf = async (t: Setup, over: Partial<Parameters<Setup['post']>[0]> = {}) => {
+      const { lease: l } = await t.claim(await t.post(over))
+      return lease.parse(l)
+    }
+    const childId = (out: { data: Record<string, unknown> }) => z.string().parse(out.data.childId)
+
+    test('spawns a Sub-Quest in the parent’s Hall that inherits its data class and starts at once', async () => {
+      const s = await setup()
+      const parent = await parentOf(s, { dataClass: 'private' })
+      const out = await spawn(s, parent)
+      expect(out).toMatchObject({ status: 200, isError: false, data: { depth: 1, created: true } })
+      const child = await s.quests.get(s.guild, childId(out))
+      expect(child).toMatchObject({
+        title: 'Research',
+        doneCondition: brief,
+        hallId: 'heralds',
+        ownerId: 'heralds-member-2',
+        dataClass: 'private',
+        campaignId: null,
+        state: 'queued',
+      })
+      expect((await s.quests.children(s.guild, parent.questId))[0]).toMatchObject({
+        childId: child?.id,
+        dataClass: 'private',
+      })
+    })
+
+    test('the children cap holds at its boundary, follows the config at once, and writes nothing over it', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      for (const n of [1, 2, 3]) {
+        expect((await spawn(s, parent, { brief: `${brief} ${n}` })).isError).toBe(false)
+      }
+      const over = await spawn(s, parent, { brief: `${brief} 4` })
+      expect(over).toMatchObject({ isError: true, data: { error: 'spawn_cap' } })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(4)
+      await configure(s, (c) => ({ ...c, caps: { ...c.caps, maxChildrenPerQuest: 5 } }))
+      expect((await spawn(s, parent, { brief: `${brief} 4` })).isError).toBe(false)
+      await configure(s, (c) => ({ ...c, caps: { ...c.caps, maxChildrenPerQuest: 1 } }))
+      expect(await spawn(s, parent, { brief: `${brief} 5` })).toMatchObject({
+        data: { error: 'spawn_cap' },
+      })
+    })
+
+    test('the depth cap lets a grandchild in and refuses its child', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      const kid = await childLease(s, childId(await spawn(s, parent)))
+      const grand = await spawn(s, kid)
+      expect(grand).toMatchObject({ isError: false, data: { depth: 2 } })
+      const grandLease = await childLease(s, childId(grand))
+      expect(await spawn(s, grandLease)).toMatchObject({
+        isError: true,
+        data: { error: 'depth_cap' },
+      })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(3)
+    })
+
+    test('a retried spawn returns the same Sub-Quest and writes nothing more', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      const first = await spawn(s, parent)
+      const again = await spawn(s, parent)
+      expect(childId(again)).toBe(childId(first))
+      expect(again.data.created).toBe(false)
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(2)
+    })
+
+    test('a Sub-Quest may go to another Hall only if it is unlocked, and into a private Hall only from private data', async () => {
+      const s = await setup()
+      await configure(s, (c) => ({
+        ...c,
+        halls: c.halls.map((h) =>
+          h.id === 'health'
+            ? {
+                ...h,
+                locked: false,
+                privateEligible: true,
+                members: [{ id: 'health-m', name: 'Healer', rank: 'journeyman' as const }],
+              }
+            : h
+        ),
+      }))
+      const open = await parentOf(s, { dataClass: 'internal' })
+      expect(await spawn(s, open, { hall: 'nowhere' })).toMatchObject({
+        data: { error: 'hall_not_found' },
+      })
+      expect(await spawn(s, open, { hall: 'relationships' })).toMatchObject({
+        data: { error: 'hall_locked' },
+      })
+      expect(await spawn(s, open, { hall: 'health' })).toMatchObject({
+        isError: true,
+        data: { error: 'private_hall' },
+      })
+      expect(await spawn(s, open, { template: 'unknown' })).toMatchObject({
+        data: { error: 'unknown_template' },
+      })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(1)
+      const priv = await parentOf(s, { dataClass: 'private' })
+      const allowed = await spawn(s, priv, { hall: 'health' })
+      expect(allowed.isError).toBe(false)
+      expect((await s.quests.get(s.guild, childId(allowed)))?.hallId).toBe('health')
+    })
+
+    test('await_children parks the parent until the children finish, then child_results returns each result', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      const a = childId(await spawn(s, parent, { brief: `${brief} A` }))
+      const b = childId(await spawn(s, parent, { brief: `${brief} B` }))
+      const waiting = await callTool(s.transport, 'await_children', { lease: parent })
+      expect(waiting).toMatchObject({ isError: false, data: { waiting: true } })
+      expect(await s.quests.get(s.guild, parent.questId)).toMatchObject({
+        state: 'queued',
+        leaseExpiresAt: null,
+        waitingOn: [a, b],
+      })
+      // The slot is given up: the old lease opens nothing.
+      expect((await callTool(s.transport, 'child_results', { lease: parent })).rpcError).toBe(
+        'lease_expired'
+      )
+      for (const id of [a, b]) {
+        const member = new ScriptedMember(s.transport, {
+          goal: `Sources for ${id.slice(0, 4)}`,
+          output: () => `Findings ${id}`,
+        })
+        await member.runLeased(await childLease(s, id))
+      }
+      const resumed = await s.quests.claim(s.guild, { leaseMs: 60_000, maxActive: 10 })
+      expect(resumed).toMatchObject({ id: parent.questId, attempts: 2 })
+      const again = lease.parse(await s.gateway.lease(s.guild, resumed as Quest))
+      const results = await callTool(s.transport, 'child_results', { lease: again })
+      const children = z
+        .array(
+          z.object({
+            childId: z.string(),
+            status: z.string(),
+            result: z.object({ artifact: z.string().nullable(), summary: z.string() }).nullable(),
+          })
+        )
+        .parse(results.data.children)
+      expect(children.map((c) => [c.childId, c.status])).toEqual([
+        [a, 'done'],
+        [b, 'done'],
+      ])
+      expect(children[0]?.result?.summary).toBe(`Sources for ${a.slice(0, 4)}`)
+      expect(children[0]?.result?.artifact).toMatch(/^[0-9a-f]{64}$/)
+      // Everything is in: await_children returns at once and does not park.
+      const done = await callTool(s.transport, 'await_children', { lease: again })
+      expect(done).toMatchObject({ isError: false, data: { waiting: false } })
+      expect((await s.quests.get(s.guild, parent.questId))?.state).toBe('active')
+    })
+
+    test('await_children any returns as soon as one child is done and reports the rest as pending', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      const a = childId(await spawn(s, parent, { brief: `${brief} A` }))
+      const b = childId(await spawn(s, parent, { brief: `${brief} B` }))
+      await new ScriptedMember(s.transport, { goal: 'A done', output: () => 'A' }).runLeased(
+        await childLease(s, a)
+      )
+      const out = await callTool(s.transport, 'await_children', { lease: parent, mode: 'any' })
+      expect(out).toMatchObject({ isError: false, data: { waiting: false } })
+      const children = z
+        .array(z.object({ childId: z.string(), status: z.string(), result: z.unknown() }))
+        .parse(out.data.children)
+      expect(children.map((c) => [c.childId, c.status, c.result === null])).toEqual([
+        [a, 'done', false],
+        [b, 'queued', true],
+      ])
+    })
+
+    test('await_children with no Sub-Quests is refused, and an apprentice has none of the tools', async () => {
+      const s = await setup()
+      const parent = await parentOf(s)
+      expect(await callTool(s.transport, 'await_children', { lease: parent })).toMatchObject({
+        isError: true,
+        data: { error: 'no_children' },
+      })
+      const { lease: low } = await s.claim(
+        await s.post({ rank: 'apprentice', ownerId: 'heralds-member-1' })
+      )
+      expect((await spawn(s, low)).rpcError).toBe('unknown_tool')
+    })
+
+    test('a barred guild and a forged lease spawn nothing', async () => {
+      const gates = new MemoryGateStore()
+      const s = await setup({ gates })
+      const parent = await parentOf(s)
+      expect((await spawn(s, { ...parent, token: 'nope' })).rpcError).toBe('invalid_lease')
+      await gates.bar({ guildId: s.guild, memberId: 'owner' }, 'guild')
+      expect(await spawn(s, parent)).toMatchObject({ status: 401, rpcError: 'gates_barred' })
+      expect((await s.quests.list(s.guild, { limit: 100 })).quests).toHaveLength(1)
+    })
+
+    test('a Campaign started before the tools existed never sees them', async () => {
+      const s = await setup()
+      const old = new McpGateway({
+        ...s.deps,
+        catalog: TOOL_CATALOG.filter((t) => !SPAWN_TOOLS.includes(t.name)),
+      })
+      const quest = await s.post()
+      const claimed = await callTool((r) => old.handle(r), 'claim_quest', {
+        assignment: await old.assign(s.guild, quest),
+      })
+      expect((await spawn(s, claimed.data.lease)).rpcError).toBe('unknown_tool')
     })
   })
 
