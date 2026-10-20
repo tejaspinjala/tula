@@ -47,7 +47,7 @@ test('a selected Hall stays under its Captain and Members so they can still be d
     root.render(
       <Canvas
         config={config}
-        overlays={{ pausedHalls: new Set(), barred: false }}
+        overlays={{ pausedHalls: new Set(), claimed: new Map(), barred: false }}
         issues={new Map()}
         selected="heralds"
         onSelect={() => undefined}
