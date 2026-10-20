@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
+import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import { type HallLayout, hallLayout, seatsIn } from './layout'
 import { lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
@@ -40,6 +41,10 @@ export interface HallOptions {
   onOpenSeal: (questId: string) => void
   /** Called when the Guild Master enters a room (its slot) or leaves to the hallway (null). */
   onRoom: (slot: number | null) => void
+  /** Called when who the Guild Master could talk to changes (null: nobody in reach). */
+  onNear: (target: Target | null) => void
+  /** Called when the Guild Master presses E: talk to whoever is in reach. */
+  onInteract: () => void
 }
 
 /** Where the Guild Master enters the hall: just inside the gate, in tiles. */
@@ -94,6 +99,9 @@ export class HallScene extends Phaser.Scene {
   private path: Vec[] = []
   private chasing = false
   private room: number | null = null
+  /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
+  private talkable = new Set<string>()
+  private near: Target | null = null
   private readonly keys: Keys = { left: false, right: false, up: false, down: false }
   private detachKeys: (() => void) | null = null
 
@@ -184,13 +192,60 @@ export class HallScene extends Phaser.Scene {
       this.chase(false)
     }
     this.syncPlayer()
+    this.updateNear()
+  }
+
+  /** Reports who is in reach (a Member, or the Seal desk) whenever that changes. */
+  private updateNear(): void {
+    const s = this.layout.tileSize
+    const targets: { target: Target; at: Vec }[] = []
+    for (const id of this.talkable) {
+      const root = this.members.get(id)?.root
+      if (root) {
+        targets.push({ target: { kind: 'member', id }, at: { x: root.x / s, y: root.y / s } })
+      }
+    }
+    // The desk is a rectangle: reach its nearest edge, not its middle.
+    const desk = this.layout.sealDesk
+    targets.push({
+      target: { kind: 'sealDesk' },
+      at: {
+        x: Math.min(desk.x + desk.w - 0.5, Math.max(desk.x + 0.5, this.at.x)),
+        y: Math.min(desk.y + desk.h - 0.5, Math.max(desk.y + 0.5, this.at.y)),
+      },
+    })
+    const now = nearestTarget(this.at, targets, REACH)
+    if (!sameTarget(now, this.near)) {
+      this.near = now
+      this.options.onNear(now)
+    }
+  }
+
+  /** A small gold crown over the head: the one thing that tells the Guild Master from a Member. */
+  private crown(): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics()
+    g.fillStyle(0xffd23f, 1)
+    g.lineStyle(1, 0x5b4200, 1)
+    const points = [
+      [-4, -5],
+      [-4, -11],
+      [-2, -8],
+      [0, -12],
+      [2, -8],
+      [4, -11],
+      [4, -5],
+    ].map(([x, y]) => new Phaser.Math.Vector2(x, y))
+    g.fillPoints(points, true)
+    g.strokePoints(points, true)
+    return g
   }
 
   private createPlayer(): void {
     const look = lookFor(GUILD_MASTER)
-    const layers = [look.body, look.outfit, look.hair].map((frame) =>
-      this.add.image(0, 0, CHARS, frame)
+    const layers: Phaser.GameObjects.GameObject[] = [look.body, look.outfit, look.hair].map(
+      (frame) => this.add.image(0, 0, CHARS, frame)
     )
+    layers.push(this.crown())
     this.player = this.add.container(0, 0, layers).setDepth(16)
     this.player.setName(GUILD_MASTER)
     this.syncPlayer()
@@ -225,19 +280,36 @@ export class HallScene extends Phaser.Scene {
   }
 
   private onKey(event: KeyboardEvent, pressed: boolean): void {
+    const name = KEY_NAMES[event.key.toLowerCase()]
+    // A key is always released, even if focus moved into a dialog while it was held.
+    if (!pressed) {
+      if (name) {
+        this.keys[name] = false
+      }
+      return
+    }
     const target = event.target
     if (
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
       (target instanceof HTMLElement &&
-        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
+        (target.isContentEditable ||
+          target.closest('dialog') !== null ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
     ) {
       return
     }
-    const name = KEY_NAMES[event.key.toLowerCase()]
+    if (event.key.toLowerCase() === 'e') {
+      if (!event.repeat && this.near !== null) {
+        this.releaseKeys()
+        this.options.onInteract()
+        event.preventDefault()
+      }
+      return
+    }
     if (name) {
-      this.keys[name] = pressed
+      this.keys[name] = true
       event.preventDefault()
     }
   }
@@ -480,6 +552,7 @@ export class HallScene extends Phaser.Scene {
     })
     // The Steward sits at their desk.
     const stew = this.layout.stewardDesk
+    this.talkable = new Set(live)
     live.add(state.stewardId)
     this.placeMember(
       {

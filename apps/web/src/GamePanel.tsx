@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { initialTalk, talkReducer } from './game/interact'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
 import { readEventFrame, sceneSummary } from './game/text'
@@ -9,6 +10,7 @@ import type { Session } from './passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
+import { TalkDialog } from './TalkDialog'
 
 const MAX_RECONNECT_MS = 10_000
 
@@ -26,7 +28,8 @@ export function GamePanel({
   navigate: (path: string) => void
 }) {
   const [roster, setRoster] = useState<Roster | null>(null)
-  const [quests, setQuests] = useState<SceneQuest[]>([])
+  const [quests, setQuests] = useState<(SceneQuest & { state: string })[]>([])
+  const [talk, dispatchTalk] = useReducer(talkReducer, initialTalk)
   const [events, setEvents] = useState<ReplayEvent[]>([])
   const [position, setPosition] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
@@ -58,6 +61,7 @@ export function GamePanel({
                 title: q.title,
                 hallId: q.hallId,
                 ownerId: q.ownerId,
+                state: q.state,
               }))
             )
           }
@@ -126,6 +130,7 @@ export function GamePanel({
             title: q.title,
             hallId: q.hallId,
             ownerId: q.ownerId,
+            state: q.state,
           }))
         )
         setEvents(history)
@@ -174,6 +179,8 @@ export function GamePanel({
           ),
           onOpenSeal: () => open.current('/seals'),
           onRoom: setRoomSlot,
+          onNear: (target) => dispatchTalk({ type: 'near', target }),
+          onInteract: () => dispatchTalk({ type: 'interact' }),
         })
         handle.current = started
       })
@@ -272,6 +279,28 @@ export function GamePanel({
               roomSlot !== null
             )}
           </p>
+          <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
+            {talk.near && talk.open === null && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => dispatchTalk({ type: 'interact' })}
+              >
+                {talk.near.kind === 'sealDesk'
+                  ? 'Open the Seal desk (E)'
+                  : `Talk to ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+              </button>
+            )}
+          </p>
+          <TalkDialog
+            session={session}
+            fetcher={fetch}
+            state={talk}
+            dispatch={dispatchTalk}
+            scene={scene}
+            quests={quests}
+            navigate={navigate}
+          />
           {(failed || loadError) && (
             <p role="alert" className="muted">
               The guild hall could not load everything; retrying through the stream.
