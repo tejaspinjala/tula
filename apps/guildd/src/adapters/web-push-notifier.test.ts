@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createECDH, createPublicKey, verify } from 'node:crypto'
 import { z } from 'zod'
+import { PushRejectedError } from '../ports/push-notifier'
 import { pushNotifierContract } from '../ports/push-notifier.contract'
 import { FakePushService } from '../testing/fake-push-service'
 import { WebPushNotifier } from './web-push-notifier'
@@ -23,6 +24,7 @@ function make(overrides: { timeoutMs?: number; retries?: number } = {}) {
       sleeps.push(ms)
     },
     random: () => 0.5,
+    allowedHosts: ['push.example'],
     ...overrides,
   })
   return { service, notifier, sleeps }
@@ -113,10 +115,48 @@ describe('WebPushNotifier', () => {
     const sub = service.subscribe('https://push.example/device/6')
     service.respondWith(400)
     const error = await notifier.send(sub, payload()).catch((e: unknown) => e)
-    expect(error).toBeInstanceOf(Error)
+    expect(error).toBeInstanceOf(PushRejectedError)
     const text = error instanceof Error ? `${error.message} ${error.stack}` : ''
     expect(text).not.toContain(keys.privateKey)
     expect(text).not.toContain(sub.auth)
     expect(service.requests).toHaveLength(1)
+  })
+
+  test('a redirect is a permanent failure: it is not followed and not retried', async () => {
+    const { service, notifier } = make()
+    const sub = service.subscribe('https://push.example/device/7')
+    service.respondWith(302, 201)
+    await expect(notifier.send(sub, payload())).rejects.toBeInstanceOf(PushRejectedError)
+    expect(service.requests).toHaveLength(1)
+    expect(service.requests[0]?.redirect).toBe('manual')
+  })
+
+  test('an endpoint outside the allow-list is refused before any request', async () => {
+    const { service, notifier } = make()
+    for (const endpoint of [
+      'https://169.254.169.254/x',
+      'https://127.0.0.1/',
+      'https://localhost/',
+      'https://evil.example/',
+      'http://push.example/x',
+    ]) {
+      const sub = { ...service.subscribe(endpoint) }
+      await expect(notifier.send(sub, payload())).rejects.toBeInstanceOf(PushRejectedError)
+    }
+    expect(service.requests).toEqual([])
+  })
+
+  test('the production allow-list is fixed: a test host is refused without the override', async () => {
+    const service = new FakePushService()
+    const notifier = new WebPushNotifier({ ...keys, fetch: service.fetch })
+    const sub = service.subscribe('https://push.example/device/8')
+    await expect(notifier.send(sub, payload())).rejects.toBeInstanceOf(PushRejectedError)
+  })
+
+  test('a malformed device key is a permanent failure, not a crash', async () => {
+    const { service, notifier } = make()
+    const bad = { endpoint: 'https://push.example/device/9', p256dh: 'AAAA', auth: 'AAAA' }
+    await expect(notifier.send(bad, payload())).rejects.toBeInstanceOf(PushRejectedError)
+    expect(service.requests).toEqual([])
   })
 })

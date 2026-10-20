@@ -30,6 +30,8 @@ export interface WebPushOptions {
   baseDelayMs?: number | undefined
   sleep?: ((ms: number) => Promise<void>) | undefined
   random?: (() => number) | undefined
+  /** Push service hosts a send may reach; tests only, production uses the fixed list. */
+  allowedHosts?: readonly string[] | undefined
 }
 
 const RECORD_SIZE = 4096
