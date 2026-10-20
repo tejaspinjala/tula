@@ -37,6 +37,12 @@ export interface SceneMember {
   saying?: SceneBubble | undefined
   /** The Guild Master's override of the look this Member's id seeds. */
   look?: LookChoice | undefined
+  /** What the Member is doing for the Quest in hand, and the seq of the event that said so. */
+  activity?: { name: Activity; seq: number } | undefined
+  /** True while the Member's Quest awaits a Seal (they stand at the Seal desk). */
+  awaitingSeal?: boolean | undefined
+  /** The seq of the Member's latest finished Quest (a new seq hands it in at the Quest Board). */
+  doneSeq?: number | undefined
 }
 
 /** One room: a Hall, with its Members; locked Halls are shown closed. */
@@ -142,6 +148,8 @@ export function deriveScene(input: SceneInput): SceneState {
   const spawns: { parentId: string; childId: string; seq: number }[] = []
   const campaigns = new Set<string>()
   const sayings = new Map<string, SceneBubble>()
+  const activities = new Map<string, { questId: string; name: Activity; seq: number }>()
+  const doneAt = new Map<string, number>()
   const paused = new Set<string>()
   let gateClosed = false
   let coinsCents = 0
@@ -162,6 +170,21 @@ export function deriveScene(input: SceneInput): SceneState {
         if (hall !== undefined) {
           claimHall.set(p.data.questId, hall)
         }
+      }
+    } else if (event.type === 'member.activity') {
+      const p = memberActivityPayload.safeParse(event.payload)
+      if (p.success) {
+        activities.set(p.data.memberId, {
+          questId: p.data.questId,
+          name: p.data.activity,
+          seq: event.seq,
+        })
+      }
+    } else if (event.type === 'quest.done') {
+      const p = questPayload.safeParse(event.payload)
+      const owner = p.success ? byId.get(p.data.questId)?.ownerId : undefined
+      if (owner !== undefined) {
+        doneAt.set(owner, event.seq)
       }
     } else if (event.type === 'quest.spawned') {
       const p = spawnPayload.safeParse(event.payload)
@@ -246,6 +269,22 @@ export function deriveScene(input: SceneInput): SceneState {
       member.bubble = at === undefined ? null : { text: quest.title, seq: at }
       member.claimSeq = at ?? null
       member.questTitle = quest.title
+      const doing = activities.get(member.id)
+      if (doing && doing.questId === quest.id) {
+        member.activity = { name: doing.name, seq: doing.seq }
+      }
+    }
+  }
+  for (const questId of replay.quests.awaiting_seal) {
+    const member = members[byId.get(questId)?.ownerId ?? '']
+    if (member) {
+      member.awaitingSeal = true
+    }
+  }
+  for (const [memberId, seq] of doneAt) {
+    const member = members[memberId]
+    if (member) {
+      member.doneSeq = seq
     }
   }
   for (const [memberId, saying] of sayings) {
