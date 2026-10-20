@@ -10,7 +10,7 @@ import {
   verifyFrom,
 } from './audit-chain'
 import { costPerPost } from './cost-per-post'
-import type { Db } from './db/client'
+import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
@@ -150,6 +150,8 @@ export interface AppDeps {
   rateLimiter: RateLimiter
   /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
   trustProxy?: boolean
+  /** Who may found a guild (env `FOUNDING_MODE`): `open` (default), `once` or `closed`. */
+  foundingMode?: 'open' | 'once' | 'closed'
   /** Per-route limit overrides; defaults to {@link DEFAULT_RATE_LIMITS}. */
   rateLimits?: Partial<RateLimits>
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
@@ -457,15 +459,31 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
     }
+    const mode = deps.foundingMode ?? 'open'
+    if (mode === 'closed') {
+      return c.json({ error: 'founding_closed' }, 403)
+    }
     // The founding token is issued inside the founding transaction, so a failure leaves no guild.
     // Returned once; only its hash is kept. Needed to register the guild's first passkey.
     let foundingToken = ''
-    const id = await deps.db.foundGuildChained(body.data, deps.keys, async (tx, guildId) => {
-      foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
-      // The Steward, Heralds Hall and locked Halls are seeded in the founding transaction.
-      await deps.config.seed(guildId, tx)
-    })
-    return c.json({ id, foundingToken }, 201)
+    try {
+      const id = await deps.db.foundGuildChained(
+        body.data,
+        deps.keys,
+        async (tx, guildId) => {
+          foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
+          // The Steward, Heralds Hall and locked Halls are seeded in the founding transaction.
+          await deps.config.seed(guildId, tx)
+        },
+        { once: mode === 'once' }
+      )
+      return c.json({ id, foundingToken }, 201)
+    } catch (error) {
+      if (error instanceof FoundingClosedError) {
+        return c.json({ error: 'founding_closed' }, 403)
+      }
+      throw error
+    }
   })
 
   /**

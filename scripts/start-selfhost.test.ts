@@ -38,6 +38,50 @@ describe('selfhostPlan', () => {
     expect(plan.guildd.WEBAUTHN_ORIGIN).toBe('http://localhost:9000')
   })
 
+  test('founds once unless the caller sets FOUNDING_MODE explicitly', () => {
+    expect(selfhostPlan(source, '/repo').guildd.FOUNDING_MODE).toBe('once')
+    expect(selfhostPlan({ ...source, FOUNDING_MODE: 'open' }, '/repo').guildd.FOUNDING_MODE).toBe(
+      'open'
+    )
+    expect(selfhostPlan({ ...source, FOUNDING_MODE: 'closed' }, '/repo').guildd.FOUNDING_MODE).toBe(
+      'closed'
+    )
+    expect(() => selfhostPlan({ ...source, FOUNDING_MODE: 'maybe' }, '/repo')).toThrow(
+      /FOUNDING_MODE/
+    )
+  })
+
+  test('PUBLIC_ORIGIN sets the passkey origin and RP ID, trusts the proxy and stays on loopback', () => {
+    const plan = selfhostPlan(
+      { ...source, PUBLIC_ORIGIN: 'https://guild.example.com', HOST: '0.0.0.0' },
+      '/repo'
+    )
+    expect(plan.guildd.WEBAUTHN_ORIGIN).toBe('https://guild.example.com')
+    expect(plan.guildd.WEBAUTHN_RP_ID).toBe('guild.example.com')
+    expect(plan.guildd.TRUST_PROXY).toBe('true')
+    expect(plan.guildd.HOST).toBe('127.0.0.1')
+  })
+
+  test('PUBLIC_ORIGIN forces the dev guild header off, so a public guildd never trusts x-guild-id', () => {
+    const plan = selfhostPlan(
+      { ...source, PUBLIC_ORIGIN: 'https://guild.example.com', DEV_GUILD_HEADER: 'true' },
+      '/repo'
+    )
+    expect(plan.guildd.DEV_GUILD_HEADER).toBe('false')
+  })
+
+  test('without PUBLIC_ORIGIN the proxy is not trusted', () => {
+    expect(selfhostPlan(source, '/repo').guildd.TRUST_PROXY).toBeUndefined()
+  })
+
+  test('PUBLIC_ORIGIN must be an https origin', () => {
+    for (const bad of ['http://guild.example.com', 'guild.example.com', 'ftp://x.example.com']) {
+      expect(() => selfhostPlan({ ...source, PUBLIC_ORIGIN: bad }, '/repo')).toThrow(
+        /PUBLIC_ORIGIN/
+      )
+    }
+  })
+
   test('names every missing setting instead of guessing a secret', () => {
     expect(() => selfhostPlan({}, '/repo')).toThrow(/DATABASE_URL/)
     expect(() => selfhostPlan({}, '/repo')).toThrow(/APP_DB_PASSWORD/)

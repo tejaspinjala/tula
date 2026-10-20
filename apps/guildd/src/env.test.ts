@@ -43,6 +43,13 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...base, TRUST_PROXY: 'yes' })).toThrow()
   })
 
+  test('FOUNDING_MODE defaults to open and accepts only open, once or closed', () => {
+    expect(loadEnv(base).FOUNDING_MODE).toBe('open')
+    expect(loadEnv({ ...base, FOUNDING_MODE: 'once' }).FOUNDING_MODE).toBe('once')
+    expect(loadEnv({ ...base, FOUNDING_MODE: 'closed' }).FOUNDING_MODE).toBe('closed')
+    expect(() => loadEnv({ ...base, FOUNDING_MODE: 'sometimes' })).toThrow()
+  })
+
   test('throws without object store credentials', () => {
     expect(() => loadEnv({ ...base, OBJECT_STORE_ACCESS_KEY: undefined })).toThrow()
     expect(() => loadEnv({ ...base, OBJECT_STORE_SECRET_KEY: undefined })).toThrow()

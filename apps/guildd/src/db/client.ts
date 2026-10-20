@@ -11,6 +11,14 @@ export class InvalidGuildIdError extends Error {
   }
 }
 
+/** Thrown by `foundGuildChained` with `once` when a guild already exists; nothing was written. */
+export class FoundingClosedError extends Error {
+  constructor() {
+    super('founding_closed')
+    this.name = 'FoundingClosedError'
+  }
+}
+
 const GUILD_ID = z.uuid()
 
 /** A transaction on which tenant context is already set; the only handle that reaches tenant tables. */
@@ -23,12 +31,16 @@ export interface Db {
    * example the KeyProvider being down) leaves no guild, event or chain entry behind.
    * `inFounding`, if given, runs in the same transaction after the chain is extended (tenant context
    * set), so what it writes commits or rolls back with the guild.
+   * With `options.once`, the transaction first takes a transaction-scoped advisory lock and asks the
+   * security-definer `any_guild_exists` (migration 0056); if a guild exists it throws
+   * {@link FoundingClosedError}, so two concurrent foundings cannot both pass.
    * @returns the new guild's id.
    */
   foundGuildChained(
     input: { name: string; goal: string },
     keys: KeyProvider,
-    inFounding?: (tx: TenantTx, guildId: string) => Promise<void>
+    inFounding?: (tx: TenantTx, guildId: string) => Promise<void>,
+    options?: { once?: boolean }
   ): Promise<string>
   /**
    * Runs `fn` in a transaction whose tenant context is `guildId` (`set_config(..., true)`, so it
@@ -130,9 +142,16 @@ export function createDb(
       return outcome.value
     }
   return {
-    async foundGuildChained({ name, goal }, keys, inFounding) {
+    async foundGuildChained({ name, goal }, keys, inFounding, options) {
       let id: string | undefined
       await sql.begin(async (tx) => {
+        if (options?.once) {
+          await tx`select pg_advisory_xact_lock(hashtextextended('founding-lock', 0))`
+          const [seen] = await tx`select any_guild_exists() as exists`
+          if (z.object({ exists: z.boolean() }).parse(seen).exists) {
+            throw new FoundingClosedError()
+          }
+        }
         const [row] = await tx`select found_guild(${name}, ${goal}) as id`
         const founded = String(row?.id)
         await tx`select set_config('app.guild_id', ${founded}, true)`

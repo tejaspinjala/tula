@@ -64,7 +64,7 @@ import { Treasury } from './treasury'
 export async function compose(
   overrides: Partial<AppDeps> = {}
 ): Promise<{ app: Hono; adapters: AppDeps }> {
-  const { db, devGuildHeader, objectStore, keys, trustProxy, anchor } =
+  const { db, devGuildHeader, objectStore, keys, trustProxy, anchor, foundingMode } =
     overrides.db &&
     overrides.devGuildHeader !== undefined &&
     overrides.objectStore &&
@@ -76,6 +76,7 @@ export async function compose(
           keys: overrides.keys,
           anchor: overrides.anchor ?? new MemoryCheckpointAnchor(),
           trustProxy: false,
+          foundingMode: 'open' as const,
         }
       : await fromEnv(overrides)
   const clock = overrides.clock ?? new SystemClock()
@@ -175,6 +176,7 @@ export async function compose(
     anchor,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
+    foundingMode: overrides.foundingMode ?? foundingMode,
     config,
     seals,
     sealStore,
@@ -263,7 +265,10 @@ async function fromEnv(
   overrides: Partial<AppDeps>
 ): Promise<
   Required<
-    Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys' | 'trustProxy' | 'anchor'>
+    Pick<
+      AppDeps,
+      'db' | 'devGuildHeader' | 'objectStore' | 'keys' | 'trustProxy' | 'anchor' | 'foundingMode'
+    >
   >
 > {
   const env = loadEnv()
@@ -275,6 +280,7 @@ async function fromEnv(
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
     trustProxy: overrides.trustProxy ?? env.TRUST_PROXY,
+    foundingMode: overrides.foundingMode ?? env.FOUNDING_MODE,
     objectStore:
       overrides.objectStore ??
       new S3ObjectStore({
