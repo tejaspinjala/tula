@@ -50,7 +50,7 @@ export interface SummonDeps {
   quests: QuestQueue
   tripwires: TripwireStore
   gates: Pick<GateStore, 'isBarred'>
-  gateway: Pick<ModelGateway, 'openRun'>
+  gateway: Pick<ModelGateway, 'openRun' | 'runRevoked'>
   mcp: Pick<McpGateway, 'lease'>
   sandboxes: Pick<SandboxRunner, 'start' | 'kill'>
   clock: Clock
@@ -109,8 +109,15 @@ export class Summon {
     if (!posted.ok) {
       return { ok: false, error: posted.error }
     }
-    if (posted.quest.state === 'done' || hasLiveLease(posted.quest, this.deps.clock.now())) {
+    if (posted.quest.state === 'done') {
       return { ok: true, status: await this.status(guildId) }
+    }
+    if (hasLiveLease(posted.quest, this.deps.clock.now())) {
+      // A lease whose run was revoked (a bar, a Hall pause) has no worker behind it: free it and start again.
+      if (!(await this.deps.gateway.runRevoked(guildId, posted.quest.id, posted.quest.attempts))) {
+        return { ok: true, status: await this.status(guildId) }
+      }
+      await this.deps.quests.releaseLeases(guildId, 'routing_blocked')
     }
     let claimed: Awaited<ReturnType<QuestQueue['claim']>>
     try {
