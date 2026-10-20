@@ -7,7 +7,7 @@ import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
-import { type Session, webAuthnBrowser } from './passkeys'
+import { type PasskeyBrowser, type Session, webAuthnBrowser } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { SealPanel } from './SealPanel'
@@ -18,7 +18,7 @@ import { TripwirePanel } from './TripwirePanel'
 import { VaultPanel } from './VaultPanel'
 
 /** Ledger-view shell: keyboard-navigable, with a skip link, landmarks and passkey sign-in. */
-export function App() {
+export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } = {}) {
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
 
@@ -52,9 +52,7 @@ export function App() {
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
         <p>guildd: {status}</p>
-        {!session && (
-          <FoundGuildPanel fetcher={fetch} browser={webAuthnBrowser} onSession={setSession} />
-        )}
+        {!session && <FoundGuildPanel fetcher={fetch} browser={browser} onSession={setSession} />}
         <PasskeyPanel session={session} onSession={setSession} />
         <ArtifactViewer session={session} />
         <VaultPanel session={session} />
