@@ -20,6 +20,23 @@ const questBody = z.object({
 })
 const pageBody = z.object({ quests: z.array(questBody), next: z.string().nullable() })
 
+const pageWithLinks = pageBody.extend({
+  links: z.array(z.object({ parentId: z.string(), childId: z.string(), depth: z.number() })),
+})
+const quest = (jobKey: string) => ({
+  jobKey,
+  templateId: 'herald-brief',
+  hallId: 'heralds',
+  rank: 'journeyman' as const,
+  dataClass: 'internal' as const,
+  title: 'Brief',
+  ownerId: 'heralds-member-2',
+  doneCondition: 'A draft brief is filed',
+  roundLimit: 2,
+})
+const get = (g: string, query: string) =>
+  harness.request(`${base(g)}${query}`, { headers: headers(g) })
+
 const base = (g: string) => `/guilds/${g}/quests`
 const headers = (g: string) => ({ 'content-type': 'application/json', 'x-guild-id': g })
 
@@ -93,6 +110,27 @@ describe('quest routes', () => {
     expect((await page(g, '?state=done')).quests).toEqual([])
     expect((await harness.request(`${base(g)}?limit=0`, { headers: headers(g) })).status).toBe(400)
     expect((await page(g, '', `${base(g)}/dead-letters`)).quests).toEqual([])
+  })
+
+  test('the list carries the Sub-Quest links of its page, so the Quest Board can nest children', async () => {
+    const g = await found('Q')
+    const queue = harness.adapters.quests
+    const parent = (await queue.post(g, quest('p'))).quest
+    const claimed = await queue.claim(g, { leaseMs: 60_000, maxActive: 5 })
+    const made = await queue.spawn(g, {
+      parentId: parent.id,
+      attempt: claimed?.attempts ?? 0,
+      briefHash: 'a'.repeat(64),
+      child: quest('c'),
+      maxChildren: 3,
+      maxDepth: 2,
+    })
+    const body = pageWithLinks.parse(await (await get(g, '')).json())
+    expect(body.links).toEqual([
+      { parentId: parent.id, childId: made.ok ? made.quest.id : '', depth: 1 },
+    ])
+    expect((await get(g, '?state=done')).status).toBe(200)
+    expect(pageWithLinks.parse(await (await get(g, '?state=done')).json()).links).toEqual([])
   })
 
   test('without a session or dev header the routes are 401', async () => {

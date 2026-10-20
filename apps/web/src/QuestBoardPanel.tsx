@@ -4,6 +4,7 @@ import type { Session } from './passkeys'
 import {
   BOARD_STATES,
   type BoardQuest,
+  childrenOf,
   fetchStreamTicket,
   groupByState,
   loadQuests,
@@ -125,6 +126,8 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
                       Round {quest.round} of {quest.roundLimit}
                     </div>
                     {quest.state === 'dead' && quest.lastError && <div>{quest.lastError}</div>}
+                    {quest.parentId !== null && <div>Sub-Quest</div>}
+                    <SubQuests quests={quests} parentId={quest.id} />
                   </li>
                 ))}
               </ul>
@@ -133,5 +136,25 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
         </div>
       )}
     </section>
+  )
+}
+
+/** The Sub-Quests of one Quest with their status, or nothing when it spawned none. */
+function SubQuests({ quests, parentId }: { quests: readonly BoardQuest[]; parentId: string }) {
+  const children = childrenOf(quests, parentId)
+  if (children.length === 0) {
+    return null
+  }
+  return (
+    <div>
+      <div>{`Sub-Quests (${children.length})`}</div>
+      <ul aria-label="Sub-Quests" className="mt-1 flex flex-col gap-1">
+        {children.map((child) => (
+          <li key={child.id} data-testid={`subquest-${child.id}`}>
+            {child.title} <Badge tone={questTone(child.state)}>{COLUMN_NAMES[child.state]}</Badge>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

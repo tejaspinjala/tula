@@ -17,6 +17,7 @@ import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
+import { MemoryWorkflowStore } from './adapters/memory-workflow-store'
 import { coreLoopEndToEnd, type E2eWorld } from './core-loop.e2e'
 import { Dispatcher } from './dispatch'
 import { Gates } from './gates'
@@ -24,8 +25,10 @@ import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
+import { retireRun } from './retire-run'
 import { SealEngine } from './seals'
 import { RecordingSandboxRunner } from './testing/recording-sandbox'
+import { WorkflowEngine } from './workflows/engine'
 
 /** The memory adapters wired by hand, as the gateway and MCP suites wire them. */
 async function memoryWorld(): Promise<E2eWorld> {
@@ -69,6 +72,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     clock,
     tripwires,
     gates: gateStore,
+    retireRun: retireRun({ runs: gateway, sandboxes }),
   })
   const gates = new Gates({
     store: gateStore,
@@ -111,6 +115,14 @@ async function memoryWorld(): Promise<E2eWorld> {
     sealStore,
     seals,
     proposals,
+    workflows: new WorkflowEngine({
+      store: new MemoryWorkflowStore(clock),
+      config,
+      quests,
+      tripwires,
+      proposals,
+      seals: sealStore,
+    }),
     dispatcher,
     gateway,
     mcp,

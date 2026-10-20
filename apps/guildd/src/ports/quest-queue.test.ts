@@ -17,6 +17,8 @@ const active: Quest = {
   round: 2,
   roundLimit: 2,
   blockedBy: [],
+  waitingOn: [],
+  waitMode: 'all',
   attempts: 1,
   maxAttempts: 3,
   leaseExpiresAt: '2030-01-01T00:00:00.000Z',

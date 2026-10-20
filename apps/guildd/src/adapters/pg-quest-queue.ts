@@ -4,6 +4,7 @@ import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import {
+  assertHeld,
   type ClaimOptions,
   cascadeDeadTransitions,
   claimTransition,
@@ -18,8 +19,10 @@ import {
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
+  parkTransition,
   type Quest,
   QuestError,
+  type QuestLink,
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
@@ -30,9 +33,14 @@ import {
   retryDelayMs,
   type SealOutcome,
   type SealSettleOptions,
+  type SpawnRequest,
+  type SpawnResult,
   sealSettleTransition,
+  spawnJobKey,
+  spawnRefusal,
   submitTransition,
   type Transition,
+  type WaitMode,
 } from '../ports/quest-queue'
 
 const iso = z.date().transform((d) => d.toISOString())
@@ -53,6 +61,8 @@ const questRow = z.object({
   round: z.number(),
   round_limit: z.number(),
   blocked_by: z.array(z.string()),
+  wait_on: z.array(z.string()),
+  wait_mode: z.enum(['all', 'any']),
   attempts: z.number(),
   max_attempts: z.number(),
   lease_expires_at: iso.nullable(),
@@ -60,6 +70,29 @@ const questRow = z.object({
   last_error: z.string().nullable(),
   created_at: iso,
 })
+
+const linkRow = z.object({
+  parent_id: z.string(),
+  child_id: z.string(),
+  depth: z.number(),
+  attempt: z.number(),
+  brief_hash: z.string(),
+  data_class: dataClass,
+  created_at: iso,
+})
+
+function toLink(raw: unknown): QuestLink {
+  const r = linkRow.parse(raw)
+  return {
+    parentId: r.parent_id,
+    childId: r.child_id,
+    depth: r.depth,
+    attempt: r.attempt,
+    briefHash: r.brief_hash,
+    dataClass: r.data_class,
+    createdAt: r.created_at,
+  }
+}
 
 /** Parses a `quests` row (`select *`, extra columns ignored) into a {@link Quest}. */
 export function toQuest(raw: unknown): Quest {
@@ -80,6 +113,8 @@ export function toQuest(raw: unknown): Quest {
     round: r.round,
     roundLimit: r.round_limit,
     blockedBy: r.blocked_by,
+    waitingOn: r.wait_on,
+    waitMode: r.wait_mode,
     attempts: r.attempts,
     maxAttempts: r.max_attempts,
     leaseExpiresAt: r.lease_expires_at,
@@ -136,7 +171,9 @@ export class PgQuestQueue implements QuestQueue {
     await tx`
       update quests set state = ${q.state}, round = ${q.round}, attempts = ${q.attempts},
         lease_expires_at = ${q.leaseExpiresAt === null ? null : new Date(q.leaseExpiresAt)},
-        not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError}
+        not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError},
+        wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode},
+        max_attempts = ${q.maxAttempts}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
   }
@@ -165,20 +202,14 @@ export class PgQuestQueue implements QuestQueue {
     })
   }
 
-  async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
-    const p = newQuest.parse(input)
-    return this.db.withGuild(guildId, async (tx) => {
-      await this.lock(tx, guildId)
-      const now = this.clock.now()
-      if (p.blockedBy.length > 0) {
-        const [found] = await tx`
-          select count(*)::int as n from quests
-          where guild_id = ${guildId} and quest_id = any (${`{${p.blockedBy.join(',')}}`}::uuid[])`
-        if (z.object({ n: z.number() }).parse(found).n !== new Set(p.blockedBy).size) {
-          throw new QuestError('unknown_blocker')
-        }
-      }
-      const [row] = await tx`
+  /** Inserts a Quest unless its job key exists: the row, or undefined for a repeat. The caller holds the guild lock. */
+  private async insertQuest(
+    tx: TenantTx,
+    guildId: string,
+    p: ReturnType<typeof newQuest.parse>
+  ): Promise<unknown> {
+    const now = this.clock.now()
+    const [row] = await tx`
         insert into quests (guild_id, job_key, campaign_id, template_id, hall_id, rank, data_class,
           title, owner_id, done_condition, state, round_limit, blocked_by, max_attempts,
           not_before, created_at)
@@ -187,6 +218,22 @@ export class PgQuestQueue implements QuestQueue {
           ${p.roundLimit}, ${`{${p.blockedBy.join(',')}}`}::uuid[], ${p.maxAttempts}, ${now}, ${now})
         on conflict (guild_id, job_key) do nothing
         returning *`
+    return row
+  }
+
+  async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
+    const p = newQuest.parse(input)
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      if (p.blockedBy.length > 0) {
+        const [found] = await tx`
+          select count(*)::int as n from quests
+          where guild_id = ${guildId} and quest_id = any (${`{${p.blockedBy.join(',')}}`}::uuid[])`
+        if (z.object({ n: z.number() }).parse(found).n !== new Set(p.blockedBy).size) {
+          throw new QuestError('unknown_blocker')
+        }
+      }
+      const row = await this.insertQuest(tx, guildId, p)
       if (!row) {
         const [existing] = await tx`
           select * from quests where guild_id = ${guildId} and job_key = ${p.jobKey}`
@@ -241,6 +288,15 @@ export class PgQuestQueue implements QuestQueue {
             select 1 from hall_pauses hp
             where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
           and (${only}::uuid is null or q.quest_id = ${only}::uuid)
+          and (cardinality(q.wait_on) = 0
+            or not exists (
+              select 1 from quests w
+              where w.guild_id = q.guild_id and w.quest_id = any (q.wait_on)
+                and w.state not in ('done', 'dead'))
+            or (q.wait_mode = 'any' and exists (
+              select 1 from quests w
+              where w.guild_id = q.guild_id and w.quest_id = any (q.wait_on)
+                and w.state = 'done')))
           and (
             select count(*) from quests b
             where b.guild_id = q.guild_id and b.quest_id = any (q.blocked_by) and b.state = 'done'
@@ -311,6 +367,117 @@ export class PgQuestQueue implements QuestQueue {
 
   async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
     return this.mutate(guildId, id, (q) => killTransition(q, attempt, reason))
+  }
+
+  async park(
+    guildId: string,
+    id: string,
+    attempt: number,
+    waitingOn: readonly string[],
+    mode: WaitMode
+  ): Promise<Quest> {
+    const ids = [...new Set(waitingOn)]
+    return this.db.withGuild(guildId, async (tx) => {
+      const before = await this.load(tx, guildId, id)
+      const [found] = await tx`
+        select count(*)::int as n from quests
+        where guild_id = ${guildId} and quest_id = any (${`{${ids.join(',')}}`}::uuid[])`
+      if (z.object({ n: z.number() }).parse(found).n !== ids.length) {
+        throw new QuestError('unknown_blocker')
+      }
+      const t = parkTransition(before, attempt, ids, mode, this.clock.now())
+      return t.quest === before ? before : this.save(tx, guildId, t)
+    })
+  }
+
+  async spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      const parent = await this.load(tx, guildId, request.parentId)
+      assertHeld(parent, request.attempt)
+      const [prior] = await tx`
+        select * from quest_children
+        where guild_id = ${guildId} and parent_id = ${parent.id}
+          and attempt = ${request.attempt} and brief_hash = ${request.briefHash}`
+      if (prior) {
+        const link = toLink(prior)
+        const [row] = await tx`
+          select * from quests where guild_id = ${guildId} and quest_id = ${link.childId}`
+        return { ok: true, quest: toQuest(row), link, created: false }
+      }
+      const [above] = await tx`
+        select depth from quest_children where guild_id = ${guildId} and child_id = ${parent.id}`
+      const parentDepth = above ? z.object({ depth: z.number() }).parse(above).depth : 0
+      const [count] = await tx`
+        select count(*)::int as n from quest_children
+        where guild_id = ${guildId} and parent_id = ${parent.id}`
+      const refusal = spawnRefusal(parentDepth, z.object({ n: z.number() }).parse(count).n, request)
+      if (refusal) {
+        return { ok: false, error: refusal }
+      }
+      const posted = await this.insertQuest(
+        tx,
+        guildId,
+        newQuest.parse({ ...request.child, jobKey: spawnJobKey(request), blockedBy: [] })
+      )
+      const quest = toQuest(posted)
+      const depth = parentDepth + 1
+      const [linked] = await tx`
+        insert into quest_children (guild_id, parent_id, child_id, depth, attempt, brief_hash,
+          data_class, created_at)
+        values (${guildId}, ${parent.id}, ${quest.id}, ${depth}, ${request.attempt},
+          ${request.briefHash}, ${quest.dataClass}, ${this.clock.now()})
+        returning *`
+      await this.emit(tx, { quest, event: 'quest.posted' }, 0)
+      await appendEvent(tx, this.keys, 'quest.spawned', {
+        parentId: parent.id,
+        childId: quest.id,
+        depth,
+      })
+      return { ok: true, quest, link: toLink(linked), created: true }
+    })
+  }
+
+  async children(guildId: string, parentId: string): Promise<QuestLink[]> {
+    if (!z.uuid().safeParse(parentId).success) {
+      return []
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select l.* from quest_children l
+        join quests q on q.guild_id = l.guild_id and q.quest_id = l.child_id
+        where l.guild_id = ${guildId} and l.parent_id = ${parentId}
+        order by q.seq`
+    )
+    return rows.map(toLink)
+  }
+
+  async linksFor(guildId: string, childIds: readonly string[]): Promise<QuestLink[]> {
+    const ids = childIds.filter((id) => z.uuid().safeParse(id).success)
+    if (ids.length === 0) {
+      return []
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select l.* from quest_children l
+        join quests q on q.guild_id = l.guild_id and q.quest_id = l.child_id
+        where l.guild_id = ${guildId} and l.child_id = any (${`{${ids.join(',')}}`}::uuid[])
+        order by q.seq`
+    )
+    return rows.map(toLink)
+  }
+
+  async linkOf(guildId: string, childId: string): Promise<QuestLink | null> {
+    if (!z.uuid().safeParse(childId).success) {
+      return null
+    }
+    const [row] = await this.db.withGuild(
+      guildId,
+      (tx) => tx`select * from quest_children where guild_id = ${guildId} and child_id = ${childId}`
+    )
+    return row ? toLink(row) : null
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

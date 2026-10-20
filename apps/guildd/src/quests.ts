@@ -76,12 +76,17 @@ export type PostQuestResult =
   | { ok: true; quest: Quest; created: boolean }
   | { ok: false; error: PostQuestError }
 
-function chooseOwner(
+/**
+ * The Member who owns a Quest of `rank` in `hallId`: the requested person if they belong to the
+ * Hall, else a Member of that rank, else the Captain; null when the Hall or the owner is missing.
+ */
+export function chooseHallOwner(
   config: GuildConfig,
-  template: QuestTemplate,
+  hallId: string,
+  rank: z.infer<typeof questRank>,
   requested: string | undefined
 ): string | null {
-  const hall = config.halls.find((h) => h.id === template.hallId)
+  const hall = config.halls.find((h) => h.id === hallId)
   if (!hall) {
     return null
   }
@@ -89,8 +94,16 @@ function chooseOwner(
   if (requested !== undefined) {
     return people.includes(requested) ? requested : null
   }
-  const ranked = hall.members.find((m) => m.rank === template.rank)
+  const ranked = hall.members.find((m) => m.rank === rank)
   return ranked?.id ?? hall.captain?.id ?? null
+}
+
+function chooseOwner(
+  config: GuildConfig,
+  template: QuestTemplate,
+  requested: string | undefined
+): string | null {
+  return chooseHallOwner(config, template.hallId, template.rank, requested)
 }
 
 /**
