@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { createECDH, randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
@@ -7,10 +8,11 @@ import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
 
+const HOSTS = ['push.example']
 const notifier = new MemoryPushNotifier()
 const harness = await createHarness({
   devGuildHeader: false,
-  app: { pushNotifier: notifier, vapidPublicKey: 'BPublicKeyForTests' },
+  app: { pushNotifier: notifier, vapidPublicKey: 'BPublicKeyForTests', pushAllowedHosts: HOSTS },
 })
 afterAll(() => harness.close())
 
@@ -23,10 +25,16 @@ async function found(name: string) {
   return { guild, token: await openSession(harness.adapters.identity, guild) }
 }
 
-const device = (endpoint: string) => ({
-  endpoint,
-  keys: { p256dh: 'p256dh-key', auth: 'auth-secret' },
-})
+function realKeys() {
+  const ecdh = createECDH('prime256v1')
+  ecdh.generateKeys()
+  return {
+    p256dh: ecdh.getPublicKey().toString('base64url'),
+    auth: randomBytes(16).toString('base64url'),
+  }
+}
+
+const device = (endpoint: string) => ({ endpoint, keys: realKeys() })
 
 function subscribe(guild: string, token: string | null, body: unknown, h = harness) {
   return h.request(`/guilds/${guild}/push/subscriptions`, {
@@ -93,6 +101,77 @@ describe('push routes', () => {
     }
   })
 
+  test('an endpoint that is not a public push service is a 400 (SSRF)', async () => {
+    const { guild, token } = await found('Ssrf')
+    for (const endpoint of [
+      'https://169.254.169.254/x',
+      'https://127.0.0.1/',
+      'https://localhost/',
+      'https://[::1]/',
+      'https://evil.example/',
+      'http://push.example/x',
+    ]) {
+      expect((await subscribe(guild, token, device(endpoint))).status).toBe(400)
+    }
+    expect((await harness.adapters.pushStore.list(guild, { limit: 10 })).subscriptions).toEqual([])
+  })
+
+  test('device keys must be a P-256 point and a 16-byte auth secret', async () => {
+    const { guild, token } = await found('Keys')
+    const good = realKeys()
+    for (const keys of [
+      { p256dh: 'p256dh-key', auth: good.auth },
+      { p256dh: good.p256dh, auth: 'auth-secret' },
+      { p256dh: Buffer.alloc(65, 1).toString('base64url'), auth: good.auth },
+    ]) {
+      const res = await subscribe(guild, token, { endpoint: 'https://push.example/k', keys })
+      expect(res.status).toBe(400)
+    }
+  })
+
+  test('subscribing never waits on a push service, even a hung one', async () => {
+    const hanging = await createHarness({
+      devGuildHeader: false,
+      app: {
+        pushAllowedHosts: HOSTS,
+        pushNotifier: { send: () => new Promise(() => undefined) },
+      },
+    })
+    try {
+      const guild = await hanging.foundGuild({ name: 'Hang', goal: 'g' })
+      await hanging.adapters.config.seed(guild)
+      const token = await openSession(hanging.adapters.identity, guild)
+      await subscribe(guild, token, device('https://push.example/one'), hanging)
+      await hanging.adapters.seals.requestSeal(guild, {
+        questId: crypto.randomUUID(),
+        requestedBy: 'herald-1',
+        kind: 'post',
+        text: 'seal',
+        evidence: 'verdict: pass',
+      })
+      const outcome = await Promise.race([
+        subscribe(guild, token, device('https://push.example/two'), hanging).then((r) => r.status),
+        Bun.sleep(1000).then(() => 'timeout' as const),
+      ])
+      expect(outcome).toBe(201)
+    } finally {
+      await hanging.close()
+    }
+  })
+
+  test("another member's endpoint is a 409 for both subscribe and unsubscribe", async () => {
+    const { guild, token } = await found('Owner')
+    const taken = device('https://push.example/taken')
+    await harness.adapters.pushStore.add(
+      guild,
+      crypto.randomUUID(),
+      { endpoint: taken.endpoint, ...taken.keys },
+      0
+    )
+    expect((await subscribe(guild, token, taken)).status).toBe(409)
+    expect((await unsubscribe(guild, token, taken.endpoint)).status).toBe(409)
+  })
+
   test('unsubscribing removes the device and a second try is a 404', async () => {
     const { guild, token } = await found('Bye')
     await subscribe(guild, token, device('https://push.example/gone'))
@@ -106,6 +185,7 @@ describe('push routes', () => {
       app: {
         rateLimiter: new MemoryRateLimiter(new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))),
         rateLimits: { 'push-subscribe': { client: { limit: 2, windowMs: 60_000 } } },
+        pushAllowedHosts: HOSTS,
       },
     })
     try {

@@ -52,6 +52,7 @@ export interface HarnessOptions {
       | 'pushStore'
       | 'pushNotifier'
       | 'vapidPublicKey'
+      | 'pushAllowedHosts'
       | 'gateway'
       | 'modelProvider'
       | 'objectStore'

@@ -92,6 +92,8 @@ export interface AppDeps {
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
   pushRelay: SealPushRelay
+  /** Push service hosts a subscription may name; tests only, production uses the fixed list. */
+  pushAllowedHosts?: readonly string[]
   /** VAPID public key a browser subscribes with, or null when push is not configured. */
   vapidPublicKey: string | null
   /** Whether `x-guild-id` identifies the caller (development only). */
