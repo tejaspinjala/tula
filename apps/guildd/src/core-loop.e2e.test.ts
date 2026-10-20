@@ -25,6 +25,7 @@ import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
+import { retireRun } from './retire-run'
 import { SealEngine } from './seals'
 import { RecordingSandboxRunner } from './testing/recording-sandbox'
 import { WorkflowEngine } from './workflows/engine'
@@ -71,6 +72,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     clock,
     tripwires,
     gates: gateStore,
+    retireRun: retireRun({ runs: gateway, sandboxes }),
   })
   const gates = new Gates({
     store: gateStore,

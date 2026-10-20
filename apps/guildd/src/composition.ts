@@ -48,8 +48,8 @@ import { isLearningRepoAllowed } from './guild-config'
 import { LearningEngine } from './learning-engine'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
-
 import { ProposalEngine } from './proposals'
+import { retireRun } from './retire-run'
 import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
@@ -155,6 +155,7 @@ export async function compose(
       clock,
       tripwires,
       gates: gateStore,
+      retireRun: retireRun({ runs: gateway, sandboxes }),
     })
   const seals = overrides.seals ?? new SealEngine({ store: sealStore, config, identity })
   // No cheap model is wired yet (and no model id lives in engine code): the deterministic

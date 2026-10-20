@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { MemoryClock } from '../adapters/memory-clock'
-import { type NewQuest, QuestError, type QuestQueue } from './quest-queue'
+import { type NewQuest, QuestError, type QuestQueue, type SpawnRequest } from './quest-queue'
 
 /** A queue under test, with the controllable clock it reads. Jitter is fixed at 0.5 (a 750ms first retry). */
 export interface QuestQueueFixture {
@@ -576,6 +576,259 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         Array.from({ length: 5 }, () => queue.claim(g, { leaseMs: 60_000, maxActive: 2 }))
       )
       expect(claims.filter((c) => c !== null)).toHaveLength(2)
+    })
+
+    describe('a parent waiting on its children', () => {
+      const setup = async (mode: 'all' | 'any') => {
+        const f = await make()
+        const g = await f.newGuild()
+        const { quest: parent } = await f.queue.post(g, quest())
+        const held = await f.queue.claim(g, LEASE)
+        if (held?.id !== parent.id) {
+          throw new Error('expected the parent claim')
+        }
+        const { quest: c1 } = await f.queue.post(g, quest())
+        const { quest: c2 } = await f.queue.post(g, quest())
+        const parked = await f.queue.park(g, parent.id, held.attempts, [c1.id, c2.id], mode)
+        return { ...f, g, parent, held, c1, c2, parked }
+      }
+      const run = async (f: { queue: QuestQueue; g: string }, id: string) => {
+        const claimed = await f.queue.claim(f.g, { ...LEASE, questId: id })
+        if (!claimed) {
+          throw new Error('expected a claim')
+        }
+        return claimed
+      }
+
+      test('parking gives the slot back and is idempotent; the parent waits for every child (all)', async () => {
+        const f = await setup('all')
+        expect(f.parked).toMatchObject({
+          state: 'queued',
+          leaseExpiresAt: null,
+          waitingOn: [f.c1.id, f.c2.id],
+          waitMode: 'all',
+        })
+        expect(
+          await f.queue.park(f.g, f.parent.id, f.held.attempts, [f.c1.id, f.c2.id], 'all')
+        ).toEqual(f.parked)
+        // Nothing the parent could claim: the children are the only deliverable Quests.
+        const first = await run(f, f.c1.id)
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.c2.id)
+        await f.queue.complete(f.g, first.id, first.attempts)
+        expect(await f.queue.claim(f.g, LEASE)).toBeNull()
+        await f.queue.complete(f.g, f.c2.id, 1)
+        expect(await f.queue.claim(f.g, LEASE)).toMatchObject({
+          id: f.parent.id,
+          attempts: 2,
+          waitingOn: [],
+        })
+      })
+
+      test('a park and its resume do not spend the crash-retry budget, and attempts never pass maxAttempts', async () => {
+        const { queue, clock, newGuild } = await make()
+        const g = await newGuild()
+        const { quest: parent } = await queue.post(g, quest({ maxAttempts: 2 }))
+        const { quest: c1 } = await queue.post(g, quest())
+        const { quest: c2 } = await queue.post(g, quest())
+        const claim = async (id: string) => {
+          const claimed = await queue.claim(g, { ...LEASE, questId: id })
+          if (!claimed) {
+            throw new Error('expected a claim')
+          }
+          return claimed
+        }
+        const first = await claim(parent.id)
+        await queue.park(g, parent.id, first.attempts, [c1.id], 'all')
+        await queue.complete(g, c1.id, (await claim(c1.id)).attempts)
+        const second = await claim(parent.id)
+        await queue.park(g, parent.id, second.attempts, [c2.id], 'all')
+        await queue.complete(g, c2.id, (await claim(c2.id)).attempts)
+        const third = await claim(parent.id)
+        expect(third.attempts).toBe(3)
+        // Two crashes are still allowed: the two waits did not use them up.
+        expect(await queue.fail(g, parent.id, third.attempts, 'timeout')).toMatchObject({
+          state: 'queued',
+        })
+        clock.advance(300_000)
+        const fourth = await claim(parent.id)
+        const dead = await queue.fail(g, parent.id, fourth.attempts, 'timeout')
+        expect(dead.state).toBe('dead')
+        expect(dead.attempts).toBeLessThanOrEqual(dead.maxAttempts)
+      })
+
+      test('with any, one finished child resumes the parent', async () => {
+        const f = await setup('any')
+        const first = await run(f, f.c1.id)
+        await f.queue.complete(f.g, first.id, first.attempts)
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
+      })
+
+      test('a dead child counts as finished, so the parent resumes to see it; parking is fenced by attempt and needs a lease', async () => {
+        const f = await setup('all')
+        const first = await run(f, f.c1.id)
+        await f.queue.kill(f.g, first.id, first.attempts, 'timeout')
+        const second = await run(f, f.c2.id)
+        await f.queue.kill(f.g, second.id, second.attempts, 'timeout')
+        expect((await f.queue.claim(f.g, LEASE))?.id).toBe(f.parent.id)
+        await expect(f.queue.park(f.g, f.parent.id, 1, [f.c1.id], 'all')).rejects.toMatchObject({
+          code: 'stale_lease',
+        })
+        await expect(f.queue.park(f.g, f.c1.id, 1, [f.c2.id], 'all')).rejects.toMatchObject({
+          code: 'invalid_state',
+        })
+        await expect(
+          f.queue.park(f.g, f.parent.id, 2, [crypto.randomUUID()], 'all')
+        ).rejects.toMatchObject({ code: 'unknown_blocker' })
+      })
+    })
+
+    describe('sub-Quests', () => {
+      const CAPS = { maxChildren: 3, maxDepth: 2 }
+      const child = (over: Partial<SpawnRequest['child']> = {}): SpawnRequest['child'] => {
+        const { jobKey: _jobKey, campaignId: _c, blockedBy: _b, ...rest } = quest(over)
+        return rest
+      }
+      const hash = (n: number) => n.toString(16).padStart(64, '0')
+      const setup = async () => {
+        const f = await make()
+        const g = await f.newGuild()
+        await f.queue.post(g, quest())
+        const parent = await f.queue.claim(g, LEASE)
+        if (!parent) {
+          throw new Error('expected a claim')
+        }
+        const spawn = (n: number, over: Partial<SpawnRequest> = {}) =>
+          f.queue.spawn(g, {
+            parentId: parent.id,
+            attempt: parent.attempts,
+            briefHash: hash(n),
+            child: child(),
+            ...CAPS,
+            ...over,
+          })
+        return { ...f, g, parent, spawn }
+      }
+      const spawned = <T extends { ok: boolean }>(r: T) => {
+        if (!r.ok) {
+          throw new Error('expected the spawn to be accepted')
+        }
+        return r as Extract<T, { ok: true }>
+      }
+
+      test('spawns a linked child at depth 1, deliverable at once, with a quest.spawned event', async () => {
+        const { queue, g, parent, spawn, events } = await setup()
+        const made = spawned(await spawn(1, { child: child({ dataClass: 'private' }) }))
+        expect(made.created).toBe(true)
+        expect(made.quest).toMatchObject({ state: 'queued', campaignId: null, blockedBy: [] })
+        expect(made.link).toMatchObject({
+          parentId: parent.id,
+          childId: made.quest.id,
+          depth: 1,
+          attempt: parent.attempts,
+          briefHash: hash(1),
+          dataClass: 'private',
+        })
+        expect(await queue.children(g, parent.id)).toEqual([made.link])
+        expect(await queue.linkOf(g, made.quest.id)).toEqual(made.link)
+        expect(await queue.linkOf(g, parent.id)).toBeNull()
+        expect((await queue.claim(g, LEASE))?.id).toBe(made.quest.id)
+        expect(await events(g)).toContain('quest.spawned')
+      })
+
+      test('a retry for the same parent, attempt and brief hash returns the same child, even over the cap', async () => {
+        const { queue, g, parent, spawn, events } = await setup()
+        const first = spawned(await spawn(1))
+        const again = spawned(await spawn(1, { maxChildren: 1 }))
+        expect(again).toMatchObject({ created: false, quest: { id: first.quest.id } })
+        expect(await queue.children(g, parent.id)).toHaveLength(1)
+        expect((await events(g)).filter((e) => e === 'quest.spawned')).toHaveLength(1)
+        spawned(await spawn(2, { maxChildren: 2 }))
+      })
+
+      test('the children cap holds exactly at its boundary and writes nothing over it', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        for (const n of [1, 2, 3]) {
+          spawned(await spawn(n))
+        }
+        const before = (await queue.list(g, { limit: 100 })).quests.length
+        expect(await spawn(4)).toEqual({ ok: false, error: 'spawn_cap' })
+        expect((await queue.list(g, { limit: 100 })).quests).toHaveLength(before)
+        expect(await queue.children(g, parent.id)).toHaveLength(3)
+      })
+
+      test('concurrent spawns never exceed the cap', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        const results = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => spawn(n)))
+        expect(results.filter((r) => r.ok)).toHaveLength(3)
+        expect(await queue.children(g, parent.id)).toHaveLength(3)
+      })
+
+      test('depth is capped: a grandchild is allowed at maxDepth 2 and refused at 1', async () => {
+        const { queue, g, spawn } = await setup()
+        const kid = spawned(await spawn(1))
+        const claimed = await queue.claim(g, { ...LEASE, questId: kid.quest.id })
+        if (!claimed) {
+          throw new Error('expected the child claim')
+        }
+        const grand = (n: number, maxDepth: number) =>
+          queue.spawn(g, {
+            parentId: claimed.id,
+            attempt: claimed.attempts,
+            briefHash: hash(n),
+            child: child(),
+            maxChildren: 3,
+            maxDepth,
+          })
+        expect(await grand(10, 1)).toEqual({ ok: false, error: 'depth_cap' })
+        expect(spawned(await grand(11, 2)).link.depth).toBe(2)
+        expect(await grand(12, 2)).toMatchObject({ ok: true })
+        const deepest = (await queue.children(g, claimed.id))[0]
+        expect(deepest).toBeDefined()
+        expect(
+          deepest && (await queue.claim(g, { ...LEASE, questId: deepest.childId }))
+        ).toBeTruthy()
+      })
+
+      test('only the holder of the live delivery may spawn', async () => {
+        const { queue, g, parent, spawn } = await setup()
+        await expect(spawn(1, { attempt: 99 })).rejects.toMatchObject({ code: 'stale_lease' })
+        await queue.complete(g, parent.id, parent.attempts)
+        await expect(spawn(1)).rejects.toMatchObject({ code: 'invalid_state' })
+        await expect(spawn(1, { parentId: crypto.randomUUID() })).rejects.toMatchObject({
+          code: 'not_found',
+        })
+      })
+
+      test('linksFor returns the links of the given Quests only, and none from another guild', async () => {
+        const { queue, newGuild, g, parent, spawn } = await setup()
+        const a = spawned(await spawn(1))
+        const b = spawned(await spawn(2))
+        expect(await queue.linksFor(g, [a.quest.id, parent.id])).toEqual([a.link])
+        expect(await queue.linksFor(g, [])).toEqual([])
+        expect(await queue.linksFor(g, [a.quest.id, b.quest.id, 'not-a-uuid'])).toEqual([
+          a.link,
+          b.link,
+        ])
+        expect(await queue.linksFor(await newGuild(), [a.quest.id])).toEqual([])
+      })
+
+      test('sub-Quests are invisible to another guild', async () => {
+        const { queue, newGuild, g, parent, spawn } = await setup()
+        const made = spawned(await spawn(1))
+        const other = await newGuild()
+        expect(await queue.children(other, parent.id)).toEqual([])
+        expect(await queue.linkOf(other, made.quest.id)).toBeNull()
+        await expect(
+          queue.spawn(other, {
+            parentId: parent.id,
+            attempt: parent.attempts,
+            briefHash: hash(1),
+            child: child(),
+            ...CAPS,
+          })
+        ).rejects.toMatchObject({ code: 'not_found' })
+        expect(await queue.children(g, parent.id)).toHaveLength(1)
+      })
     })
 
     test('lists are paginated in posting order and filter by state', async () => {

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import {
   type BoardQuest,
+  childrenOf,
   fetchStreamTicket,
   groupByState,
   loadQuests,
@@ -21,6 +22,7 @@ const quest = (id: string, state: BoardQuest['state']): BoardQuest => ({
   roundLimit: 2,
   attempts: 0,
   lastError: null,
+  parentId: null,
 })
 
 test('the quest list follows page cursors and sends the session token', async () => {
@@ -95,4 +97,20 @@ test('only quest events and snapshots ask the board to refresh; others just move
     seq: null,
   })
   expect(readQuestFrame('not json')).toEqual({ refresh: false, seq: null })
+})
+
+test('Sub-Quest links from the list set parentId, and childrenOf nests them under their parent', async () => {
+  const fetcher = async () =>
+    Response.json({
+      quests: [quest('p', 'queued'), quest('c1', 'done'), quest('c2', 'active')],
+      next: null,
+      links: [
+        { parentId: 'p', childId: 'c1', depth: 1 },
+        { parentId: 'p', childId: 'c2', depth: 1 },
+      ],
+    })
+  const quests = await loadQuests(session, fetcher)
+  expect(quests.map((q) => q.parentId)).toEqual([null, 'p', 'p'])
+  expect(childrenOf(quests, 'p').map((q) => q.id)).toEqual(['c1', 'c2'])
+  expect(childrenOf(quests, 'c1')).toEqual([])
 })

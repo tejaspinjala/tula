@@ -189,6 +189,9 @@ export class DockerSandboxRunner implements SandboxRunner {
         '--filter',
         `label=${SCOPE_LABEL}=${this.options.scope}`,
         ...(target === 'all' ? [] : ['--filter', `label=${GUILD_LABEL}=${target.guildId}`]),
+        ...(target !== 'all' && target.questId !== undefined
+          ? ['--filter', `label=${QUEST_LABEL}=${target.questId}`]
+          : []),
       ],
       { timeoutMs: this.timeoutMs }
     )

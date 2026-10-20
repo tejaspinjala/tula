@@ -19,6 +19,7 @@ import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
+import { retireRun } from './retire-run'
 
 const KEY = 'sk-memory-key'
 
@@ -63,6 +64,7 @@ gatewayGuardsContract('memory', async () => {
     clock,
     tripwires,
     gates: gateStore,
+    retireRun: retireRun({ runs: gateway, sandboxes }),
   }
   const mcp = new McpGateway(mcpDeps)
   const gates = new Gates({
