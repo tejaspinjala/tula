@@ -135,5 +135,23 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       await Promise.all([store.edit(g, n.id, { body: 'v2' }), store.edit(g, n.id, { body: 'v3' })])
       expect((await store.get(g, n.id))?.versions.map((v) => v.version)).toEqual([1, 2, 3])
     })
+
+    test('a note filed under one Hall is invisible to another Hall\u2019s filter, whatever its title says', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const a = await store.add(g, { ...fact, title: '[b] x', body: 'shared word' }, 'a')
+      const b = await store.add(g, { ...fact, title: 'y', body: 'shared word' }, 'b')
+      const open = await store.add(g, { ...fact, title: 'z', body: 'shared word' })
+      const page = { limit: 10 }
+      expect(
+        (await store.search(g, 'shared', { ...page, hall: 'b' })).notes.map((n) => n.id)
+      ).toEqual([b.id])
+      expect((await store.list(g, { ...page, hall: 'a' })).notes.map((n) => n.id)).toEqual([a.id])
+      expect(await store.get(g, a.id, 'b')).toBeNull()
+      expect((await store.get(g, a.id, 'a'))?.note.id).toBe(a.id)
+      expect(await store.get(g, open.id, 'a')).toBeNull()
+      // Unfiltered reads (the Guild Master\u2019s REST routes) still see everything.
+      expect((await store.list(g, page)).notes).toHaveLength(3)
+    })
   })
 }

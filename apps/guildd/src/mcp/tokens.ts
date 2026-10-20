@@ -2,7 +2,9 @@ import { z } from 'zod'
 import { safeEqual } from '../constant-time'
 import type { KeyProvider } from '../ports/key-provider'
 
-const PURPOSE = 'mcp-token'
+/** Each token kind is MAC'd under its own purpose, so a MAC for one never validates the other. */
+const purposeOf = (kind: TokenClaims['k']): string =>
+  `mcp-${kind === 'assign' ? 'assign' : 'lease'}`
 
 /** Claims of an assignment token: the right of one Member to claim one Quest, until `exp` (epoch ms). */
 const assignment = z.strictObject({
@@ -36,7 +38,7 @@ export type LeaseClaims = z.infer<typeof lease>
  */
 export async function mintToken(keys: KeyProvider, value: TokenClaims): Promise<string> {
   const payload = Buffer.from(JSON.stringify(claims.parse(value))).toString('base64url')
-  const mac = await keys.mac(value.g, PURPOSE, new TextEncoder().encode(payload))
+  const mac = await keys.mac(value.g, purposeOf(value.k), new TextEncoder().encode(payload))
   return `${payload}.${mac}`
 }
 
@@ -57,6 +59,10 @@ export async function verifyToken(keys: KeyProvider, token: string): Promise<Tok
   if (!parsed.success) {
     return null
   }
-  const expected = await keys.mac(parsed.data.g, PURPOSE, new TextEncoder().encode(payload))
+  const expected = await keys.mac(
+    parsed.data.g,
+    purposeOf(parsed.data.k),
+    new TextEncoder().encode(payload)
+  )
   return safeEqual(expected, mac) ? parsed.data : null
 }

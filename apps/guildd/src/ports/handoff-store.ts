@@ -67,7 +67,10 @@ export interface HandoffStore {
   ): Promise<{ stored: StoredHandoff; created: boolean }>
   /** The Handoff of one attempt, or null. */
   get(guildId: string, questId: string, attempt: number): Promise<StoredHandoff | null>
-  /** Notes that the Quest holds the artifact `hash` (idempotent). */
+  /**
+   * Notes that the Quest holds the artifact `hash` (idempotent). A store backed by the artifact
+   * ledger also records the guild's artifact row and `artifact.stored` event in the same step.
+   */
   attach(guildId: string, questId: string, hash: string, size: number): Promise<void>
   /** Whether the Quest holds the artifact `hash`. */
   holds(guildId: string, questId: string, hash: string): Promise<boolean>

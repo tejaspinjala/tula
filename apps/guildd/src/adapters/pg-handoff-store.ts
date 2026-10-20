@@ -10,6 +10,9 @@ import {
 } from '../ports/handoff-store'
 import type { KeyProvider } from '../ports/key-provider'
 
+/** Class of artifacts filed by a Quest; matches the REST route's class rule. */
+const ARTIFACT_CLASS = 'quest-output'
+
 const row = z.object({ member_id: z.string(), handoff_hash: z.string(), body: handoff })
 
 function toStored(r: unknown): StoredHandoff {
@@ -75,6 +78,19 @@ export class PgHandoffStore implements HandoffStore {
         returning hash`
       if (inserted.length > 0) {
         await appendEvent(tx, this.keys, 'artifact.attached', { quest_id: questId, hash })
+      }
+      // The same ledger row and event as the REST route, so the Guild Master can read it.
+      const ledger = await tx`
+        insert into artifacts (guild_id, hash, size, class)
+        values (${guildId}, ${hash}, ${size}, ${ARTIFACT_CLASS})
+        on conflict (guild_id, hash) do nothing
+        returning hash`
+      if (ledger.length > 0) {
+        await appendEvent(tx, this.keys, 'artifact.stored', {
+          hash,
+          class: ARTIFACT_CLASS,
+          size,
+        })
       }
     })
   }

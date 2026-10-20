@@ -36,4 +36,21 @@ describe('MCP tokens', () => {
     const token = await mintToken(new MemoryKeyProvider(), lease)
     expect(await verifyToken(keys, token)).toBeNull()
   })
+
+  test('a token is signed under a purpose of its own kind, so one kind cannot stand in for the other', async () => {
+    const assign = {
+      k: 'assign',
+      g: G,
+      q: Q,
+      m: 'heralds-member-2',
+      exp: 9_999_999_999_999,
+    } as const
+    const token = await mintToken(keys, assign)
+    expect(await verifyToken(keys, token)).toEqual(assign)
+    const payload = token.split('.')[0] ?? ''
+    const wrong = await keys.mac(G, 'mcp-lease', new TextEncoder().encode(payload))
+    expect(await verifyToken(keys, `${payload}.${wrong}`)).toBeNull()
+    const right = await keys.mac(G, 'mcp-assign', new TextEncoder().encode(payload))
+    expect(await verifyToken(keys, `${payload}.${right}`)).toEqual(assign)
+  })
 })

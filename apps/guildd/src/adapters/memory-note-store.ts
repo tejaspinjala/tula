@@ -7,6 +7,7 @@ import {
   type NoteDetail,
   NoteError,
   type NotePage,
+  type NotePaging,
   type NoteStore,
   type NoteVersion,
   nextVersion,
@@ -17,6 +18,7 @@ import {
 
 interface Stored {
   kind: Note['kind']
+  hall: string | null
   versions: NoteVersion[]
 }
 
@@ -33,10 +35,10 @@ export class MemoryNoteStore implements NoteStore {
     return notes
   }
 
-  async add(guildId: string, input: NewNote): Promise<Note> {
+  async add(guildId: string, input: NewNote, hallId?: string): Promise<Note> {
     const version = nextVersion(input, 1)
     const id = crypto.randomUUID()
-    this.notes(guildId).set(id, { kind: input.kind, versions: [version] })
+    this.notes(guildId).set(id, { kind: input.kind, hall: hallId ?? null, versions: [version] })
     return { id, kind: input.kind, ...version }
   }
 
@@ -51,10 +53,10 @@ export class MemoryNoteStore implements NoteStore {
     return { id, kind: stored.kind, ...version }
   }
 
-  async get(guildId: string, id: string): Promise<NoteDetail | null> {
+  async get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null> {
     const stored = this.notes(guildId).get(id)
     const current = stored?.versions.at(-1)
-    if (!stored || !current) {
+    if (!stored || !current || (hall !== undefined && stored.hall !== hall)) {
       return null
     }
     const backlinks: Backlink[] = []
@@ -72,15 +74,11 @@ export class MemoryNoteStore implements NoteStore {
     }
   }
 
-  async list(guildId: string, page: { after?: string; limit: number }): Promise<NotePage> {
+  async list(guildId: string, page: NotePaging): Promise<NotePage> {
     return this.page(guildId, page, () => true)
   }
 
-  async search(
-    guildId: string,
-    query: string,
-    page: { after?: string; limit: number }
-  ): Promise<NotePage> {
+  async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
     const terms = searchTerms(query)
     if (terms.length === 0) {
       return { notes: [], next: null }
@@ -91,15 +89,16 @@ export class MemoryNoteStore implements NoteStore {
     })
   }
 
-  private page(
-    guildId: string,
-    page: { after?: string; limit: number },
-    keep: (v: NoteVersion) => boolean
-  ): NotePage {
+  private page(guildId: string, page: NotePaging, keep: (v: NoteVersion) => boolean): NotePage {
     const matches: Note[] = []
     for (const [id, stored] of this.notes(guildId)) {
       const current = stored.versions.at(-1)
-      if (current && id > (page.after ?? '') && keep(current)) {
+      if (
+        current &&
+        id > (page.after ?? '') &&
+        (page.hall === undefined || stored.hall === page.hall) &&
+        keep(current)
+      ) {
         matches.push({ id, kind: stored.kind, ...current })
       }
     }

@@ -59,6 +59,21 @@ describe('MCP gateway over HTTP, on the real stores', () => {
     expect(bytes).not.toBeNull()
   })
 
+  test('an artifact a Member files is readable by the Guild Master over REST', async () => {
+    const { guild, quest } = await guildWithQuest()
+    const run = await new ScriptedMember(http, { goal: 'Draft', output: () => 'filed bytes' }).run(
+      await harness.adapters.mcp.assign(guild, quest)
+    )
+    const res = await harness.request(`/artifacts/${run.artifactHash}`, {
+      headers: { 'x-guild-id': guild },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('filed bytes')
+    const stored = await harness.owner`
+      select count(*)::int as n from events where guild_id = ${guild} and type = 'artifact.stored'`
+    expect(stored[0]?.n).toBe(1)
+  })
+
   test('missives carry ids and hashes only', async () => {
     const { guild, quest } = await guildWithQuest()
     const run = await new ScriptedMember(http, { goal: 'Draft', output: () => 'SECRET-BODY' }).run(

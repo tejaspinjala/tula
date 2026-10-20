@@ -263,6 +263,30 @@ describe('MCP gateway', () => {
       expect(JSON.stringify(missing.data.issues)).toContain('artifacts')
     })
 
+    test('a Handoff that is not met, or has open items, is recorded but does not complete the Quest', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: l } = await s.claim(quest)
+      const hash = await put(s)(lease.parse(l), 'x')
+      const unmet = await callTool(s.transport, 'complete_quest', {
+        lease: l,
+        handoff: { ...handoffFor(hash), met: false },
+      })
+      expect(unmet).toMatchObject({ isError: true })
+      expect(unmet.data.error).toBe('done_condition_unmet')
+      expect((await s.quests.get(s.guild, quest.id))?.state).toBe('active')
+      expect(await s.handoffs.get(s.guild, quest.id, 1)).not.toBeNull()
+      const second = await s.post()
+      const { lease: l2 } = await s.claim(second)
+      const hash2 = await put(s)(lease.parse(l2), 'y')
+      const open = await callTool(s.transport, 'complete_quest', {
+        lease: l2,
+        handoff: { ...handoffFor(hash2), openItems: ['verify the figures'] },
+      })
+      expect(open.data.error).toBe('done_condition_unmet')
+      expect((await s.quests.get(s.guild, second.id))?.state).toBe('active')
+    })
+
     test('completing twice with the same Handoff is one effect; a different one is refused', async () => {
       const s = await setup()
       const { lease: l } = await s.claim(await s.post())
@@ -296,15 +320,26 @@ describe('MCP gateway', () => {
       })
       expect(written.isError).toBe(false)
       // A note of another Hall, written straight into the store.
-      const foreign = await s.notes.add(s.guild, {
+      const foreign = await s.notes.add(
+        s.guild,
+        {
+          kind: 'text',
+          title: '[heralds] Launch diagnosis',
+          body: 'launch secrets',
+          claim: 'assumption',
+        },
+        'health'
+      )
+      // The Guild Master's own note has no Hall and is visible to no Member.
+      await s.notes.add(s.guild, {
         kind: 'text',
-        title: '[health] Launch diagnosis',
-        body: 'launch secrets',
+        title: 'Launch private',
+        body: 'launch',
         claim: 'assumption',
       })
       const found = await callTool(s.transport, 'read_archive', { lease: l, query: 'launch' })
       const titles = z.array(z.object({ title: z.string() })).parse(found.data.notes)
-      expect(titles.map((n) => n.title)).toEqual(['[heralds] Launch plan'])
+      expect(titles.map((n) => n.title)).toEqual(['Launch plan'])
       const byId = await callTool(s.transport, 'read_archive', { lease: l, noteId: foreign.id })
       expect(byId).toMatchObject({ isError: true })
       expect(byId.data.error).toBe('not_found')

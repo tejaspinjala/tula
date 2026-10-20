@@ -9,7 +9,7 @@ import { NoteError, type NoteStore } from '../ports/note-store'
 import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
-import { hallNote, hallNotes, hallPrefix } from './archive-scope'
+import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
 import {
   claimQuestArgs,
@@ -386,13 +386,17 @@ export class McpGateway {
     a: z.infer<typeof writeArchiveArgs>
   ): Promise<ToolReply> {
     try {
-      const note = await this.deps.notes.add(caller.guild, {
-        kind: 'text',
-        title: `${hallPrefix(caller.quest.hallId)}${a.title}`,
-        body: a.body,
-        claim: a.claim,
-        ...(a.evidence === undefined ? {} : { evidence: a.evidence }),
-      })
+      const note = await this.deps.notes.add(
+        caller.guild,
+        {
+          kind: 'text',
+          title: a.title,
+          body: a.body,
+          claim: a.claim,
+          ...(a.evidence === undefined ? {} : { evidence: a.evidence }),
+        },
+        caller.quest.hallId
+      )
       return ok({ id: note.id, version: note.version })
     } catch (error) {
       if (error instanceof NoteError) {
@@ -423,6 +427,10 @@ export class McpGateway {
     return ok({ hash, size: bytes.byteLength })
   }
 
+  /**
+   * Records the Handoff and finishes the Quest when it is met with no open items. Does not route
+   * through a Seal: #26 routes Seal-requiring Quests through submitForSeal.
+   */
   private async complete(caller: Caller, lease: LeaseHandle, raw: unknown): Promise<ToolReply> {
     const { guild, quest, member } = caller
     const parsed = handoff.safeParse(raw)
@@ -469,6 +477,9 @@ export class McpGateway {
     )
     if (stored.hash !== hashHandoff(parsed.data)) {
       return refuse('handoff_conflict')
+    }
+    if (!parsed.data.met || parsed.data.openItems.length > 0) {
+      return refuse('done_condition_unmet')
     }
     try {
       const done = await this.deps.quests.complete(guild, quest.id, lease.attempt)
