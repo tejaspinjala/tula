@@ -59,3 +59,8 @@ test('the cross-guild helper functions are schema-qualified, pinned and app-only
     app3: true,
   })
 })
+
+test('release_all_leases refuses a reason outside the allowed failure reasons', async () => {
+  await expect(db.releaseAllLeases('anything the caller likes')).rejects.toThrow()
+  await expect(db.releaseAllLeases('sandbox_unavailable')).resolves.toBeGreaterThanOrEqual(0)
+})
