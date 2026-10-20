@@ -2,6 +2,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 import { MAX_WORKFLOW_PAGE } from '../ports/workflow-store'
 import { checkSensitive } from '../sensitive'
+import { sessionHeaders } from '../session-cookie'
 import { isGuildMaster } from '../treasury'
 import type { RunError, WorkflowEngine } from './engine'
 import { workflowId } from './graph'
@@ -146,7 +147,7 @@ export function mountWorkflowRoutes(app: Hono, deps: WorkflowRouteDeps): void {
   })
 
   app.post(`${base}/:wid/versions/:version/confirm`, async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
     }

@@ -175,6 +175,8 @@ export interface IdentityProvider {
    * null when the session is unknown or expired. The role never comes from the request.
    */
   resolveSession(sessionToken: string): Promise<Principal | null>
+  /** Ends the session now (sign-out); its token and any re-authentication proof stop working. Unknown tokens are ignored. */
+  revokeSession(sessionToken: string): Promise<void>
   /** A member of the guild with the role the server holds for them, or null. */
   findMember(
     guildId: string,
