@@ -44,17 +44,38 @@ export type LookChoice = z.infer<typeof lookChoice>
 /** The Guild Master's own look before they customise one: a fixed id so it is the same every visit. */
 export const GUILD_MASTER_ID = 'guild-master'
 
-/** The catalogue indexes a Member id seeds (stub). */
-export function choiceFor(_id: string): LookChoice {
-  return { body: 0, outfitStyle: 0, outfitColor: 0, hairStyle: 0, hairColor: 0 }
+/** FNV-1a, so a look depends only on the id. */
+function hash(id: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0
+  }
+  return h
 }
 
-/** The sheet frames a choice draws (stub). */
-export function framesOf(_choice: LookChoice): Look {
-  return { body: 0, outfit: 0, hair: 0 }
+/** The catalogue indexes a Member id seeds: stable, so the same Member always looks the same. */
+export function choiceFor(id: string): LookChoice {
+  const h = hash(id)
+  const row = (rows: number, shift: number) => Math.floor(h / 2 ** shift) % rows
+  return {
+    body: row(LOOK_CATALOGUE.body, 0),
+    outfitStyle: row(LOOK_CATALOGUE.outfitStyle, 4),
+    outfitColor: row(LOOK_CATALOGUE.outfitColor, 8),
+    hairStyle: row(LOOK_CATALOGUE.hairStyle, 12),
+    hairColor: row(LOOK_CATALOGUE.hairColor, 14),
+  }
 }
 
-/** The frames a Member draws: its override when it has one, otherwise the look its id seeds (stub). */
-export function lookFor(_id: string, _override?: LookChoice): Look {
-  return { body: 0, outfit: 0, hair: 0 }
+/** The sheet frames a choice draws: layers are separate, so each part is chosen on its own. */
+export function framesOf(choice: LookChoice): Look {
+  return {
+    body: choice.body * CHAR_SHEET_COLUMNS,
+    outfit: choice.outfitStyle * CHAR_SHEET_COLUMNS + 6 + choice.outfitColor,
+    hair: choice.hairStyle * CHAR_SHEET_COLUMNS + 19 + choice.hairColor,
+  }
+}
+
+/** The frames a Member draws: its override when it has one, otherwise the look its id seeds. */
+export function lookFor(id: string, override?: LookChoice): Look {
+  return framesOf(override ?? choiceFor(id))
 }
