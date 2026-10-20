@@ -1,9 +1,4 @@
-import type {
-  AuthenticationResponseJSON,
-  PublicKeyCredentialCreationOptionsJSON,
-  PublicKeyCredentialRequestOptionsJSON,
-  RegistrationResponseJSON,
-} from '@simplewebauthn/server'
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { isoBase64URL, isoCBOR } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
 
@@ -88,9 +83,7 @@ export class SoftwareAuthenticator {
   }
 
   /** Answers a registration ceremony with a `none` attestation. */
-  async register(
-    options: PublicKeyCredentialCreationOptionsJSON
-  ): Promise<RegistrationResponseJSON> {
+  async register(options: { challenge: string }): Promise<RegistrationResponseJSON> {
     const cose = new Map<number, number | Uint8Array>([
       [1, 2],
       [3, -7],
@@ -134,7 +127,7 @@ export class SoftwareAuthenticator {
 
   /** Answers a sign-in or re-authentication ceremony; `origin` overrides it to simulate phishing. */
   async assert(
-    options: PublicKeyCredentialRequestOptionsJSON,
+    options: { challenge: string },
     origin?: string
   ): Promise<AuthenticationResponseJSON> {
     this.counter += 1

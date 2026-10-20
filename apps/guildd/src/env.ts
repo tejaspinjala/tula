@@ -18,6 +18,10 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** WebAuthn relying-party id: the domain passkeys are scoped to. */
+  WEBAUTHN_RP_ID: z.string().min(1).default('localhost'),
+  /** Exact origin the ledger view is served from. */
+  WEBAUTHN_ORIGIN: z.url().default('http://localhost:5173'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 })
 
@@ -27,4 +31,11 @@ export type Env = z.infer<typeof schema>
 /** Parses the environment, throwing at boot on anything invalid. */
 export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
   return schema.parse(source)
+}
+
+const webauthnSchema = schema.pick({ WEBAUTHN_RP_ID: true, WEBAUTHN_ORIGIN: true })
+
+/** Parses only the WebAuthn relying-party settings (both have development defaults). */
+export function loadWebauthnEnv(source: Record<string, string | undefined> = process.env) {
+  return webauthnSchema.parse(source)
 }

@@ -33,7 +33,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   const clock = new MemoryClock(options.now ?? new Date('2026-01-01T00:00:00.000Z'))
   const memoryStore = new MemoryObjectStore()
   const objectStore = options.app?.objectStore ?? memoryStore
-  const { app } = compose({
+  const { app, adapters: composed } = compose({
     clock,
     db,
     ...options.app,
@@ -45,7 +45,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   return {
     /** Connection URL of the non-owner app role on the central test database. */
     appUrl,
-    adapters: { clock, db, objectStore, memoryStore },
+    adapters: { clock, db, objectStore, memoryStore, identity: composed.identity },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */
