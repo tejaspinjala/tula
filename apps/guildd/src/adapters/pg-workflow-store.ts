@@ -103,6 +103,14 @@ export class PgWorkflowStore implements WorkflowStore {
     })
   }
 
+  async seedVersion(
+    guildId: string,
+    workflowId: string,
+    input: NewWorkflowVersion
+  ): Promise<WorkflowVersion | null> {
+    return this.saveVersion(guildId, workflowId, input)
+  }
+
   async getVersion(
     guildId: string,
     workflowId: string,

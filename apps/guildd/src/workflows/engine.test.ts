@@ -18,16 +18,25 @@ async function setup() {
   const quests = new MemoryQuestQueue(clock, () => 0.5)
   const guild = crypto.randomUUID()
   await config.seed(guild)
+  // A Tripwire store whose Hall pauses after `pauseAfter` checks, to fail a run part-way.
+  const tripwires = Object.assign(Object.create(new MemoryTripwireStore(clock)), {
+    pauseAfter: Number.POSITIVE_INFINITY,
+    calls: 0,
+    async isPaused(): Promise<boolean> {
+      this.calls += 1
+      return this.calls > this.pauseAfter
+    },
+  })
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const engine = new WorkflowEngine({
     store: new MemoryWorkflowStore(clock),
     config,
     quests,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     proposals,
     seals: new MemorySealStore(clock),
   })
-  return { engine, quests, config, guild, proposals }
+  return { engine, quests, config, guild, proposals, tripwires }
 }
 
 /** Two agents in a row (a plain brief, then the sealed announcement), then the gate. */
@@ -202,4 +211,52 @@ test('the seeded template is saved once, active, and runs', async () => {
   const run = await engine.run(guild, 'learning-to-linkedin', {})
   expect(run).toMatchObject({ ok: true })
   expect(await engine.validate(guild, LEARNING_TO_LINKEDIN)).toEqual([])
+})
+
+test('a pending widening version is not a baseline: an equal follow-up save stays pending and cannot run', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const wider = chain()
+  const research = wider.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.maxUsd = 2
+  const v2 = await mustSave(engine, guild, 'chain', wider)
+  const v3 = await mustSave(engine, guild, 'chain', wider)
+  expect(v2).toMatchObject({ status: 'pending', version: { version: 2 } })
+  expect(v3).toMatchObject({
+    status: 'pending',
+    version: { version: 3, classification: 'widening' },
+  })
+  expect(await engine.run(guild, 'chain', { version: 3 })).toMatchObject({
+    ok: false,
+    error: 'version_not_active',
+  })
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
+})
+
+test('a retry after a failed post resumes the same run and posts only the missing Quest', async () => {
+  const { engine, quests, guild, tripwires } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  tripwires.pauseAfter = 1
+  const failed = await engine.run(guild, 'chain', {})
+  expect(failed).toMatchObject({ ok: false, error: 'hall_paused', nodeId: 'draft' })
+  if (failed.ok) {
+    return
+  }
+  expect(typeof failed.runKey).toBe('string')
+  expect((await quests.list(guild, { limit: 10 })).quests).toHaveLength(1)
+  tripwires.pauseAfter = Number.POSITIVE_INFINITY
+  const retry = await engine.run(guild, 'chain', { runKey: failed.runKey ?? 'missing' })
+  expect(retry).toMatchObject({ ok: true, created: false })
+  expect((await quests.list(guild, { limit: 10 })).quests).toHaveLength(2)
+})
+
+test('two concurrent seeds leave exactly one version', async () => {
+  const { engine, guild } = await setup()
+  await Promise.all([engine.seedTemplates(guild), engine.seedTemplates(guild)])
+  expect((await engine.get(guild, 'learning-to-linkedin'))?.version.version).toBe(1)
 })

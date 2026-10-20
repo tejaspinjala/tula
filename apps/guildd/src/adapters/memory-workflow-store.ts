@@ -51,6 +51,14 @@ export class MemoryWorkflowStore implements WorkflowStore {
     return structuredClone(saved)
   }
 
+  async seedVersion(
+    guildId: string,
+    workflowId: string,
+    input: NewWorkflowVersion
+  ): Promise<WorkflowVersion | null> {
+    return this.saveVersion(guildId, workflowId, input)
+  }
+
   async getVersion(
     guildId: string,
     workflowId: string,

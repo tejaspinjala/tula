@@ -73,6 +73,15 @@ export interface WorkflowStore {
     workflowId: string,
     input: NewWorkflowVersion
   ): Promise<WorkflowVersion>
+  /**
+   * Saves version 1 only when the Workflow has no version at all, atomically; returns it, or null
+   * when one already exists. Used to seed templates without a check-then-write race.
+   */
+  seedVersion(
+    guildId: string,
+    workflowId: string,
+    input: NewWorkflowVersion
+  ): Promise<WorkflowVersion | null>
   /** The given version, or the latest of any status when `version` is omitted; null when absent. */
   getVersion(guildId: string, workflowId: string, version?: number): Promise<WorkflowVersion | null>
   /** The newest `active` version, or null. */

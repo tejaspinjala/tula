@@ -79,6 +79,18 @@ export function workflowStoreContract(name: string, make: () => Promise<Workflow
       expect(second.next).toBeNull()
     })
 
+    test('seeding inserts only when no version exists, even for same-tick calls', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const seeded = await Promise.all([
+        store.seedVersion(g, 'seed', version()),
+        store.seedVersion(g, 'seed', version()),
+      ])
+      expect(seeded.filter((s) => s !== null)).toHaveLength(1)
+      expect((await store.versions(g, 'seed', { limit: 10 })).versions).toHaveLength(1)
+      expect(await store.seedVersion(g, 'seed', version())).toBeNull()
+    })
+
     test('versions list newest first, paged', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

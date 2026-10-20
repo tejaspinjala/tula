@@ -49,7 +49,7 @@ export type RunResult =
       created: boolean
       quests: { nodeId: string; questId: string }[]
     }
-  | { ok: false; error: RunError; nodeId?: string; errors?: WorkflowError[] }
+  | { ok: false; error: RunError; nodeId?: string; errors?: WorkflowError[]; runKey?: string }
 
 /** One node's status in a run. */
 export type NodeStatus =

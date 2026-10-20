@@ -1,6 +1,5 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
-import type { IdentityProvider } from '../ports/identity'
 import { MAX_WORKFLOW_PAGE } from '../ports/workflow-store'
 import { checkSensitive } from '../sensitive'
 import type { RunError, WorkflowEngine } from './engine'
@@ -9,7 +8,10 @@ import { workflowId } from './graph'
 /** What the routes need from the app: the engine, the identity port and the app's session guards. */
 export interface WorkflowRouteDeps {
   workflows: WorkflowEngine
-  identity: IdentityProvider
+  identity: {
+    resolveSession(sessionToken: string): Promise<{ guildId: string; role: string } | null>
+    consumeReauth(sessionToken: string, proof: string): Promise<boolean>
+  }
   /** The calling session when it belongs to `:id`, else a ready response (401/404). */
   sessionGuildFor: (c: Context) => Promise<{ guild: string } | { res: Response }>
   /** {@link sessionGuildFor}, then only the Guild Master passes (403 otherwise). */

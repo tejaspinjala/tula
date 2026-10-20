@@ -153,4 +153,19 @@ describe('validateWorkflow', () => {
       'budget_exceeded'
     )
   })
+
+  test('an agent downstream of a verify or approval is refused (agent_after_gate)', () => {
+    const g = clone()
+    g.nodes.push({
+      id: 'more',
+      type: 'agent',
+      hallId: 'heralds',
+      templateId: 'herald-brief',
+      briefTemplate: 'Follow up',
+      doneCondition: 'Done',
+      maxUsd: 0,
+    })
+    g.edges.push({ from: 'check', to: 'more' }, { from: 'more', to: 'publish' })
+    expect(codes(g)).toContain('agent_after_gate:more')
+  })
 })
