@@ -288,6 +288,19 @@ test('a passkey the browser cannot offer for this address has its own line, apar
   expect(cancelled).not.toContain('address')
 })
 
+test('signing in fades the title into the world, and the fade is decoration only', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  const { host, root } = await mount()
+  expect(host.querySelector('.scene-fade')).toBeNull()
+  await click(option(host, 'Continue'))
+  const fade = host.querySelector('.scene-fade')
+  expect(fade).not.toBeNull()
+  expect(fade?.getAttribute('aria-hidden')).toBe('true')
+  expect(host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
+  await act(async () => root.unmount())
+})
+
 async function signedIn(path = '/') {
   foundingIsOpen = false
   signInStatus = 200
