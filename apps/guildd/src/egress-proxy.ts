@@ -10,21 +10,28 @@ import net from 'node:net'
 
 /** Settings of the egress proxy. */
 export interface EgressProxyOptions {
-  /** Hosts a sandbox may reach: the model gateway and the MCP gateway, nothing else. */
+  /**
+   * The `host:port` pairs a sandbox may reach: the model gateway and the MCP gateway, nothing
+   * else. Any other host, or the same host on another port, is refused.
+   */
   allowedHosts: readonly string[]
   /** Longest an upstream connection may take to open, in ms. Defaults to 5000. */
   connectTimeoutMs?: number
-  /** Most simultaneous client connections. */
+  /** Most simultaneous client connections. Defaults to 256. */
   maxConnections?: number
-  /** A tunnel with no traffic for this long is closed, in ms. */
+  /** A tunnel with no traffic for this long is closed, in ms. Defaults to 120000. */
   tunnelIdleMs?: number
-  /** A tunnel is closed after this long however busy, in ms. */
+  /** A tunnel is closed after this long however busy, in ms. Defaults to 900000. */
   tunnelMaxMs?: number
-  /** Longest wait for an upstream response (a slow model reply), in ms. */
+  /** Longest wait for an upstream response (a slow model reply), in ms. Defaults to 120000. */
   responseIdleMs?: number
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
+const DEFAULT_MAX_CONNECTIONS = 256
+const DEFAULT_TUNNEL_IDLE_MS = 120_000
+const DEFAULT_TUNNEL_MAX_MS = 900_000
+const DEFAULT_RESPONSE_IDLE_MS = 120_000
 
 /** The host and port a proxy request names, or null when it does not parse. */
 function target(raw: string, fallbackPort: number): { host: string; port: number } | null {
@@ -58,14 +65,20 @@ function withoutHopHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
 
 /**
  * Builds the allowlisting egress proxy: the only way out of a sandbox. A request is forwarded
- * only when its host exactly equals an allowed host (no suffix or wildcard match, no userinfo);
- * anything else is answered `403` and never connects. It speaks plain HTTP forwarding and
- * CONNECT tunnels (for TLS), and holds no state. The allowlist is deterministic configuration,
- * never a model decision.
+ * only when its host and port exactly equal an allowed `host:port` (no suffix or wildcard match,
+ * no userinfo); anything else is answered `403` and never connects. The upstream `Host` header is
+ * always the allowed authority, whatever the client sent. It speaks plain HTTP forwarding and
+ * CONNECT tunnels (for TLS), bounds connections, tunnel idle time and tunnel lifetime, and holds
+ * no state. The allowlist is deterministic configuration, never a model decision.
  */
 export function createEgressProxy(options: EgressProxyOptions): Server {
   const allowed = new Set(options.allowedHosts.map((h) => h.toLowerCase()))
-  const timeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
+  const permits = (to: { host: string; port: number }): boolean =>
+    allowed.has(`${to.host}:${to.port}`)
+  const connectMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
+  const responseMs = options.responseIdleMs ?? DEFAULT_RESPONSE_IDLE_MS
+  const idleMs = options.tunnelIdleMs ?? DEFAULT_TUNNEL_IDLE_MS
+  const maxMs = options.tunnelMaxMs ?? DEFAULT_TUNNEL_MAX_MS
 
   const deny = (res: ServerResponse): void => {
     res.writeHead(403, { 'content-type': 'text/plain', connection: 'close' })
@@ -74,25 +87,38 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
 
   const forward = (req: IncomingMessage, res: ServerResponse): void => {
     const to = target(req.url ?? '', 80)
-    if (to === null || !allowed.has(to.host)) {
+    if (to === null || !permits(to)) {
       deny(res)
       return
     }
+    const url = new URL(req.url ?? '')
     const upstream = request(
       {
         host: to.host,
         port: to.port,
         method: req.method,
-        path: new URL(req.url ?? '').pathname + new URL(req.url ?? '').search,
-        headers: withoutHopHeaders(req.headers),
-        timeout: timeoutMs,
+        path: url.pathname + url.search,
+        headers: { ...withoutHopHeaders(req.headers), host: `${to.host}:${to.port}` },
       },
       (reply) => {
         res.writeHead(reply.statusCode ?? 502, withoutHopHeaders(reply.headers))
         reply.pipe(res)
       }
     )
-    upstream.on('timeout', () => upstream.destroy())
+    // Opening the connection is bounded tightly; waiting for the reply (a model call) much longer.
+    const connectTimer = setTimeout(() => upstream.destroy(), connectMs)
+    upstream.on('socket', (socket) => {
+      const opened = () => {
+        clearTimeout(connectTimer)
+        socket.setTimeout(responseMs, () => upstream.destroy())
+      }
+      if (socket.connecting) {
+        socket.once('connect', opened)
+      } else {
+        opened()
+      }
+    })
+    upstream.on('close', () => clearTimeout(connectTimer))
     upstream.on('error', () => {
       if (res.headersSent) {
         res.destroy()
@@ -101,18 +127,26 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
       res.writeHead(502, { connection: 'close' })
       res.end('egress_unreachable')
     })
+    res.on('close', () => upstream.destroy())
     req.pipe(upstream)
   }
 
   const server = createServer(forward)
+  server.maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS
   server.on('connect', (req: IncomingMessage, socket: net.Socket, head: Buffer) => {
     const to = target(`http://${req.url ?? ''}`, 443)
-    if (to === null || !allowed.has(to.host)) {
+    if (to === null || !permits(to)) {
       socket.end('HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n')
       return
     }
-    const upstream = net.connect({ host: to.host, port: to.port, timeout: timeoutMs }, () => {
-      upstream.setTimeout(0)
+    const upstream = net.connect({ host: to.host, port: to.port, timeout: connectMs }, () => {
+      upstream.setTimeout(idleMs)
+      socket.setTimeout(idleMs)
+      const lifetime = setTimeout(() => {
+        upstream.destroy()
+        socket.destroy()
+      }, maxMs)
+      upstream.on('close', () => clearTimeout(lifetime))
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
       if (head.length > 0) {
         upstream.write(head)
@@ -120,8 +154,16 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
       upstream.pipe(socket)
       socket.pipe(upstream)
     })
-    upstream.on('timeout', () => upstream.destroy())
+    upstream.on('timeout', () => {
+      upstream.destroy()
+      socket.destroy()
+    })
+    socket.on('timeout', () => {
+      upstream.destroy()
+      socket.destroy()
+    })
     upstream.on('error', () => socket.end('HTTP/1.1 502 Bad Gateway\r\nconnection: close\r\n\r\n'))
+    upstream.on('close', () => socket.destroy())
     socket.on('error', () => upstream.destroy())
     socket.on('close', () => upstream.destroy())
   })

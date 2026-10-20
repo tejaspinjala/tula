@@ -141,7 +141,7 @@ export async function startEgressStack(nets: TestNetworks): Promise<EgressStack>
     '--network',
     nets.egress,
     '--env',
-    `EGRESS_ALLOWED_HOSTS=${gateway}`,
+    `EGRESS_ALLOWED_HOSTS=${gateway}:8080`,
     image,
   ])
   await dockerOk(['network', 'connect', nets.sandbox, proxy])

@@ -107,6 +107,13 @@ describe('sandbox egress', () => {
     expect(via.stdout).toBe('gateway-ok')
   })
 
+  test('the allowed host on any other port is refused by the proxy', async () => {
+    const refused = await inside(
+      `const r = await fetch('http://${stack.gatewayHost}:8081/', { signal: AbortSignal.timeout(8000) }); console.log(r.status)`
+    )
+    expect(refused.stdout).toBe('403')
+  })
+
   test('a host off the allowlist is refused by the proxy', async () => {
     const refused = await inside(
       "const r = await fetch('http://example.com/', { signal: AbortSignal.timeout(8000) }); console.log(r.status)"
