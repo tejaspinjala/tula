@@ -209,3 +209,57 @@ test('the Seal desk dialog lists waiting Seals and Review Seal opens the Seal in
   expect(run.calls).toHaveLength(0)
   await run.unmount()
 })
+
+const exchange = {
+  missives: [
+    {
+      id: 'm2',
+      from: 'ana',
+      to: 'bo',
+      text: 'On it, drafting now.',
+      sentAt: '2026-01-01T00:02:00.000Z',
+    },
+    {
+      id: 'm1',
+      from: 'bo',
+      to: 'ana',
+      text: '<img src=x onerror=alert(1)> please draft the brief',
+      sentAt: '2026-01-01T00:01:00.000Z',
+    },
+    {
+      id: 'm0',
+      from: 'bo',
+      to: 'cy',
+      text: 'a note for someone else',
+      sentAt: '2026-01-01T00:00:00.000Z',
+    },
+  ],
+  next: null,
+}
+
+test('a Member dialog lists the Missives they sent and received, newest first, as plain text', async () => {
+  const run = await show(ana, Response.json(exchange))
+  expect(run.calls[0]?.url).toBe(`/api/guilds/${session.guildId}/halls/heralds/missives?limit=50`)
+  const dialog = run.host.querySelector('dialog')
+  const items = [...(dialog?.querySelectorAll('[data-testid="missive"]') ?? [])].map(
+    (li) => li.textContent ?? ''
+  )
+  expect(items).toHaveLength(2)
+  expect(items[0]).toContain('Ana')
+  expect(items[0]).toContain('On it, drafting now.')
+  expect(items[1]).toContain('<img src=x onerror=alert(1)> please draft the brief')
+  expect(dialog?.querySelector('img')).toBeNull()
+  expect(dialog?.textContent).not.toContain('a note for someone else')
+  expect(dialog?.textContent).not.toContain('No messages yet')
+  expect(await violations(run.host)).toEqual([])
+  await run.unmount()
+})
+
+test('a Member with no Missives, or a failed read, still says there are none', async () => {
+  const none = await show(ana, Response.json({ missives: [], next: null }))
+  expect(none.host.textContent).toContain('No messages yet')
+  await none.unmount()
+  const failed = await show(ana, Response.json({ error: 'unauthenticated' }, { status: 401 }))
+  expect(failed.host.textContent).toContain('No messages yet')
+  await failed.unmount()
+})
