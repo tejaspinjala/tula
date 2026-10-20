@@ -1,17 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
+import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
+import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
+import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
-import { runIdFor } from './model-gateway'
+import { GatewayError, ModelGateway, runIdFor } from './model-gateway'
 import { ConfigError } from './ports/config-store'
 import type { NewQuest } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
@@ -353,6 +357,90 @@ describe('dispatch', () => {
     const stuck = await w.queue()
     await dispatch(deps, w.guild)
     expect(revoked).toEqual([runIdFor(stuck.id, 1)])
+  })
+
+  test('a run opened after the start deadline is refused before the Quest is released', async () => {
+    const w = world()
+    const secrets = new MemorySecretStore(new MemoryKeyProvider())
+    await secrets.add(w.guild, 'cloud', 'sk-key')
+    let openLedger: () => void = () => {}
+    const ledgerGate = new Promise<void>((resolve) => {
+      openLedger = resolve
+    })
+    class SlowOpenLedger extends MemoryModelLedger {
+      override async openRun(...args: Parameters<MemoryModelLedger['openRun']>) {
+        await ledgerGate
+        return super.openRun(...args)
+      }
+    }
+    const config = configWith({
+      routingProfiles: [
+        {
+          id: 'cloud-mid',
+          provider: 'cloud',
+          tier: 'mid',
+          model: 'm',
+          price: { inputMicrosPerMTok: 1, outputMicrosPerMTok: 1 },
+        },
+      ],
+    })
+    const gateway = new ModelGateway({
+      activity: new MemoryActivityLog(),
+      ledger: new SlowOpenLedger(),
+      secrets,
+      config: { current: async () => ({ version: 1, config }) },
+      provider: new MemoryModelProvider(),
+      clock: w.clock,
+      tripwires: new MemoryTripwireStore(w.clock),
+      gates: new MemoryGateStore(),
+      quests: w.quests,
+    })
+    const tokens: string[] = []
+    let finishRelease: () => void = () => {}
+    const releaseGate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const quests = Object.create(w.quests, {
+      fail: {
+        value: async (...args: Parameters<typeof w.quests.fail>) => {
+          await releaseGate
+          return w.quests.fail(...args)
+        },
+      },
+    })
+    const deps = {
+      ...w.deps,
+      quests,
+      sandboxStartTimeoutMs: 20,
+      gateway: {
+        openRun: async (...args: Parameters<ModelGateway['openRun']>) => {
+          const out = await gateway.openRun(...args)
+          if (out.status === 'started') {
+            tokens.push(out.token)
+          }
+          return out
+        },
+        revokeRun: (...args: Parameters<ModelGateway['revokeRun']>) => gateway.revokeRun(...args),
+      },
+    }
+    const stuck = await w.queue()
+    const dispatching = dispatch(deps, w.guild)
+    await Bun.sleep(40)
+    openLedger()
+    await Bun.sleep(10)
+    // The Quest is not released yet, but the late token must already be dead.
+    const [token] = tokens
+    if (!token) {
+      throw new Error('expected the late openRun to issue a token')
+    }
+    const err = await gateway
+      .complete(token, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 10 })
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GatewayError)
+    expect(err instanceof GatewayError ? err.code : null).toBe('token_revoked')
+    finishRelease()
+    await dispatching
+    expect(await w.quests.get(w.guild, stuck.id)).toMatchObject({ state: 'queued' })
   })
 
   test('a late kill that fails is reported once, with ids only', async () => {
