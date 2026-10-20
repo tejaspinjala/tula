@@ -35,16 +35,35 @@ const hall = (
 const document = {
   steward: { id: 'steward', name: 'Steward' },
   halls: [
-    hall('heralds', 'Heralds Hall', [{ id: 'm1', name: 'Quill' }]),
+    { ...hall('heralds', 'Heralds Hall', [{ id: 'm1', name: 'Quill' }]), maxConcurrentMembers: 2 },
     hall('health', 'Health', [], true),
   ],
   sealPolicy: 'always',
+  caps: { dailyTokens: 5, dailySpendCents: 5, maxSpawnDepth: 2 },
 }
+const quest = (id: string, hallId: string, state: string) => ({
+  id,
+  title: id,
+  hallId,
+  ownerId: 'm1',
+  state,
+  doneCondition: 'x',
+  round: 0,
+  roundLimit: 3,
+  attempts: 1,
+  lastError: null,
+})
 
 interface Put {
   body: {
     config: {
-      halls: { id: string; members: { id: string; look?: unknown }[]; captain: unknown }[]
+      halls: {
+        id: string
+        members: { id: string; look?: unknown }[]
+        captain: unknown
+        maxConcurrentMembers?: number
+      }[]
+      caps?: Record<string, number>
     }
   }
 }
@@ -100,6 +119,17 @@ function world(
           },
         ],
         next: null,
+      })
+    }
+    if (url.includes('/quests')) {
+      return Response.json({
+        quests: [
+          quest('q1', 'heralds', 'active'),
+          quest('q2', 'heralds', 'queued'),
+          quest('q3', 'health', 'done'),
+        ],
+        next: null,
+        links: [],
       })
     }
     if (url.endsWith('/gates')) {
@@ -242,4 +272,63 @@ test('a server validation error is shown on the node it names', async () => {
   const item = host.querySelector('[data-node-id="heralds"]')
   expect(item?.textContent).toContain('too long')
   expect(host.querySelector('[data-node-id="review"]')?.textContent).not.toContain('too long')
+})
+
+function field(host: HTMLElement, label: string): HTMLInputElement {
+  const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (!input) {
+    throw new Error(`no field "${label}"`)
+  }
+  return input
+}
+async function type(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+test('each Hall node shows claimed over cap from the active Quests of that Hall', async () => {
+  const host = await mount(world(), true)
+  expect(host.querySelector('[data-node-id="heralds"]')?.textContent).toContain('1 / 2')
+  expect(host.querySelector('[data-node-id="health"]')?.textContent).toContain('0 / no cap')
+})
+
+test('the Hall inspector edits the member cap, shows its bounds, and saves it in the config', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Heralds Hall')
+  expect(host.textContent).toContain('1 to 1000')
+  await type(field(host, 'Member cap'), '1')
+  expect(host.textContent).not.toContain('Widening')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.config.halls[0]?.maxConcurrentMembers).toBe(1)
+})
+
+test('raising a cap is marked widening before save; the server answer decides the passkey prompt', async () => {
+  const w = world({ status: 202, body: { version: 2, status: 'pending', change: 'widening' } })
+  const host = await mount(w, true)
+  await click(host, 'Heralds Hall')
+  await type(field(host, 'Member cap'), '6')
+  expect(host.textContent).toContain('Widening')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.config.halls[0]?.maxConcurrentMembers).toBe(6)
+  expect(host.textContent).toContain('Confirm with passkey')
+})
+
+test('with nothing selected the guild caps are edited and saved under caps', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  expect(host.textContent).toContain('0 to 20')
+  await type(field(host, 'Sub-Quests per Quest'), '5')
+  expect(host.textContent).toContain('Widening')
+  await type(field(host, 'Spawn depth'), '1')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.config.caps).toEqual({
+    dailyTokens: 5,
+    dailySpendCents: 5,
+    maxSpawnDepth: 1,
+    maxChildrenPerQuest: 5,
+  })
 })

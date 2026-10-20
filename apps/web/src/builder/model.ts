@@ -14,8 +14,18 @@ const hall = z.looseObject({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member),
+  maxConcurrentMembers: z.number().int().optional(),
 })
-const config = z.looseObject({ steward: agent, halls: z.array(hall) })
+const guildCaps = z.looseObject({
+  maxChildrenPerQuest: z.number().int().optional(),
+  maxSpawnDepth: z.number().int().optional(),
+  maxQuestsPerCampaign: z.number().int().optional(),
+})
+const config = z.looseObject({
+  steward: agent,
+  halls: z.array(hall),
+  caps: guildCaps.optional(),
+})
 
 /** One Member of a Hall. */
 export type BuilderMember = z.infer<typeof member>
