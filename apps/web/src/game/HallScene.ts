@@ -4,6 +4,17 @@ import hallMap from './hall.tiled.json'
 import { type HallLayout, hallLayout, seatsIn } from './layout'
 import { lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
+import {
+  direction,
+  findPath,
+  followPath,
+  type Keys,
+  moveBy,
+  roomAt,
+  SPEED,
+  teleportTile,
+  type Vec,
+} from './walk'
 
 /** Texture keys of the loaded art. */
 const TILES = 'tiles'
@@ -27,7 +38,16 @@ export interface HallOptions {
   reducedMotion: boolean
   /** Opens a Quest's Seal in the ledger (navigation only). */
   onOpenSeal: (questId: string) => void
+  /** Called when the Guild Master enters a room (its slot) or leaves to the hallway (null). */
+  onRoom: (slot: number | null) => void
 }
+
+/** Where the Guild Master enters the hall: just inside the gate, in tiles. */
+const ENTRANCE: Vec = { x: 38.5, y: 12.5 }
+/** The Guild Master's own look: a fixed id so the sprite is the same every visit. */
+const GUILD_MASTER = 'guild-master'
+/** Longest a pointer may travel and still count as a tap, in px. */
+const TAP_SLOP = 8
 
 interface MemberView {
   root: Phaser.GameObjects.Container
@@ -36,6 +56,18 @@ interface MemberView {
   /** The last bubble seq drawn, so a bubble shows once. */
   bubbleSeq: number
   mode: 'idle' | 'working' | null
+}
+
+/** Keys that walk the Guild Master (lower-case `KeyboardEvent.key`). */
+const KEY_NAMES: Record<string, keyof Keys | undefined> = {
+  a: 'left',
+  arrowleft: 'left',
+  d: 'right',
+  arrowright: 'right',
+  w: 'up',
+  arrowup: 'up',
+  s: 'down',
+  arrowdown: 'down',
 }
 
 const px = (tiles: number, size: number) => tiles * size
@@ -57,6 +89,13 @@ export class HallScene extends Phaser.Scene {
   private gateSprites: Phaser.GameObjects.Image[] = []
   private zoomLevel = 1
   private followed: string | null = null
+  private player: Phaser.GameObjects.Container | null = null
+  private at: Vec = { ...ENTRANCE }
+  private path: Vec[] = []
+  private chasing = false
+  private room: number | null = null
+  private readonly keys: Keys = { left: false, right: false, up: false, down: false }
+  private detachKeys: (() => void) | null = null
 
   constructor(options: HallOptions) {
     super('hall')
@@ -89,20 +128,143 @@ export class HallScene extends Phaser.Scene {
       const next = `${this.scale.width}x${this.scale.height}`
       if (next !== size) {
         size = next
-        this.fit()
+        this.fit(true)
       }
     })
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown) {
-        const cam = this.cameras.main
-        cam.scrollX -= (pointer.x - pointer.prevPosition.x) / cam.zoom
-        cam.scrollY -= (pointer.y - pointer.prevPosition.y) / cam.zoom
-      }
-    })
+    this.createPlayer()
     this.ready = true
     this.fit()
     if (this.pending) {
       this.render(this.pending)
+    }
+  }
+
+  /** The Guild Master's game object (null before the scene has loaded). */
+  guildMasterObject(): Phaser.GameObjects.Container | null {
+    return this.player
+  }
+
+  /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
+  teleport(slot: number | null): void {
+    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.layout.walkable)
+    this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
+    this.path = []
+    this.chasing = true
+    this.syncPlayer()
+    this.chase(true)
+  }
+
+  /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
+  override update(_time: number, delta: number): void {
+    if (!this.player) {
+      return
+    }
+    const seconds = Math.min(delta, 100) / 1000
+    const dir = direction(this.keys)
+    if (dir.x !== 0 || dir.y !== 0) {
+      this.path = []
+      this.at = moveBy(
+        this.at,
+        dir.x * SPEED * seconds,
+        dir.y * SPEED * seconds,
+        this.layout.walkable
+      )
+      this.chase(false)
+    } else if (this.path.length > 0) {
+      const next = followPath(this.at, this.path, SPEED * seconds)
+      this.at = next.pos
+      this.path = next.path
+      this.chase(false)
+    }
+    this.syncPlayer()
+  }
+
+  private createPlayer(): void {
+    const look = lookFor(GUILD_MASTER)
+    const layers = [look.body, look.outfit, look.hair].map((frame) =>
+      this.add.image(0, 0, CHARS, frame)
+    )
+    this.player = this.add.container(0, 0, layers).setDepth(16)
+    this.player.setName(GUILD_MASTER)
+    this.syncPlayer()
+    const down = (event: KeyboardEvent) => this.onKey(event, true)
+    const up = (event: KeyboardEvent) => this.onKey(event, false)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    const blur = () => this.releaseKeys()
+    window.addEventListener('blur', blur)
+    this.detachKeys = () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', blur)
+    }
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.detachKeys?.())
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.detachKeys?.())
+    // A tap or click (not a drag) walks to that tile.
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      const moved = Math.hypot(pointer.upX - pointer.downX, pointer.upY - pointer.downY)
+      if (moved > TAP_SLOP || this.input.hitTestPointer(pointer).length > 0) {
+        return
+      }
+      const s = this.layout.tileSize
+      const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
+      const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
+      const route = findPath(this.layout.walkable, from, to)
+      if (route) {
+        this.path = route
+        this.chase(false)
+      }
+    })
+  }
+
+  private onKey(event: KeyboardEvent, pressed: boolean): void {
+    const target = event.target
+    if (
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      (target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
+    ) {
+      return
+    }
+    const name = KEY_NAMES[event.key.toLowerCase()]
+    if (name) {
+      this.keys[name] = pressed
+      event.preventDefault()
+    }
+  }
+
+  private releaseKeys(): void {
+    this.keys.left = this.keys.right = this.keys.up = this.keys.down = false
+  }
+
+  /** Puts the sprite on the Guild Master's position and reports a change of room. */
+  private syncPlayer(): void {
+    const s = this.layout.tileSize
+    this.player?.setPosition(this.at.x * s, this.at.y * s)
+    const now = roomAt(this.layout.rooms, this.at)
+    if (now !== this.room) {
+      this.room = now
+      this.options.onRoom(now)
+    }
+  }
+
+  /** Follows the Guild Master with the camera: no easing under reduced motion. */
+  private chase(snap: boolean): void {
+    const cam = this.cameras.main
+    if (this.player && (!this.chasing || snap)) {
+      this.chasing = true
+      this.followed = GUILD_MASTER
+      if (this.zoomLevel < 1) {
+        this.zoomLevel = 1
+        cam.setZoom(1)
+      }
+      const ease = this.options.reducedMotion ? 1 : 0.12
+      cam.startFollow(this.player, true, ease, ease)
+      if (snap) {
+        cam.centerOn(this.player.x, this.player.y)
+      }
     }
   }
 
@@ -131,14 +293,25 @@ export class HallScene extends Phaser.Scene {
     this.centre()
   }
 
-  /** Fits the whole hall in view: the largest whole zoom that fits, or a half step on a phone. */
-  fit(): void {
+  /**
+   * Fits the whole hall in view: the largest whole zoom that fits, or a half step on a phone. The
+   * camera returns to the overview unless `keepFollow` (a resize) and the Guild Master is walking.
+   */
+  fit(keepFollow = false): void {
     const cam = this.cameras.main
+    if (!(keepFollow && this.chasing)) {
+      this.chasing = false
+      this.followed = null
+      cam.stopFollow()
+    }
     cam.setSize(this.scale.width, this.scale.height)
     const worldW = px(this.layout.width, this.layout.tileSize)
     const worldH = px(this.layout.height, this.layout.tileSize)
     const fitZoom = Math.min(this.scale.width / worldW, this.scale.height / worldH)
     this.zoomLevel = fitZoom >= 1 ? Math.floor(fitZoom) : fitZoom >= 0.5 ? 0.5 : 0.25
+    if (keepFollow && this.chasing) {
+      this.zoomLevel = Math.max(1, this.zoomLevel)
+    }
     cam.setZoom(this.zoomLevel)
     this.centre()
   }
@@ -146,6 +319,7 @@ export class HallScene extends Phaser.Scene {
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
   follow(memberId: string | null): void {
     this.followed = memberId
+    this.chasing = false
     const target = memberId ? this.memberObject(memberId) : null
     if (target) {
       this.cameras.main.startFollow(target, true, 0.1, 0.1)
