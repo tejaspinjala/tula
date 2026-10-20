@@ -18,6 +18,12 @@ const pageBody = z.object({
   next: z.number().nullable(),
 })
 
+async function found(): Promise<string> {
+  const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
+  await harness.adapters.config.seed(g)
+  return g
+}
+
 const base = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/missives`
 const headers = (g: string) => ({ 'x-guild-id': g })
 
@@ -39,7 +45,7 @@ async function sendSome(g: string, texts: string[], hallId = 'heralds') {
 
 describe('Hall missives route', () => {
   test('the Guild Master reads a Hall’s Missives newest first, in pages', async () => {
-    const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
+    const g = await found()
     await sendSome(g, ['m1', 'm2', 'm3'])
     await sendSome(g, ['elsewhere'], 'scribes')
     const first = pageBody.parse(
@@ -57,7 +63,7 @@ describe('Hall missives route', () => {
   })
 
   test('the text comes back as the sender wrote it, unframed', async () => {
-    const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
+    const g = await found()
     await sendSome(g, ['<b>hello</b> & more'])
     const page = pageBody.parse(
       await (await harness.request(base(g), { headers: headers(g) })).json()
@@ -66,7 +72,7 @@ describe('Hall missives route', () => {
   })
 
   test('a bad page, or a Hall the guild does not have, is refused', async () => {
-    const g = await harness.foundGuild({ name: 'Missives', goal: 'g' })
+    const g = await found()
     const get = (path: string) => harness.request(path, { headers: headers(g) })
     expect((await get(`${base(g)}?limit=0`)).status).toBe(400)
     expect((await get(`${base(g)}?limit=101`)).status).toBe(400)
@@ -76,6 +82,7 @@ describe('Hall missives route', () => {
 
   test('without a session the route answers 401', async () => {
     const g = await strict.foundGuild({ name: 'Missives', goal: 'g' })
+    await strict.adapters.config.seed(g)
     const res = await strict.request(base(g), { headers: { 'x-guild-id': g } })
     expect(res.status).toBe(401)
   })
