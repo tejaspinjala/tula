@@ -330,7 +330,8 @@ ul[aria-label] {
 }
 
 /* The Bag: a modal dialog holding one frame, over the world dimmed by its backdrop. */
-.bag {
+.bag,
+.inspect {
   margin: auto;
   padding: 0;
   border: 0;
@@ -340,7 +341,8 @@ ul[aria-label] {
   max-height: calc(100dvh - var(--px) * 8);
   overflow: visible;
 }
-.bag::backdrop {
+.bag::backdrop,
+.inspect::backdrop {
   background: var(--px-wood-900);
   opacity: 0.6;
 }
@@ -370,6 +372,23 @@ ul[aria-label] {
 .bag-actions {
   display: flex;
   gap: calc(var(--px) * 2);
+}
+/* A Member's greeting, docked at the bottom of the world (the DialogueBox). */
+.world-dialogue {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--px) * 4);
+  z-index: 40;
+  width: min(40rem, calc(100vw - var(--px) * 8));
+  margin-inline: auto;
+}
+.inspect .bag-head {
+  flex-wrap: nowrap;
+}
+.inspect ul {
+  margin: 0 0 calc(var(--px) * 3);
+  padding-left: calc(var(--px) * 6);
 }
 .bag-body {
   overflow: auto;

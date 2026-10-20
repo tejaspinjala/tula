@@ -3,6 +3,7 @@ import { missiveCount, useLiveEvents } from './live-events'
 import { type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
+import { PixelButton } from './ui/pixel'
 
 /** Missives per page. */
 const PAGE = 20
@@ -24,6 +25,7 @@ export function MissivesPanel({
   const [missives, setMissives] = useState<HallMissive[]>([])
   const [next, setNext] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
+  const [addressee, setAddressee] = useState('')
   // A `missive.sent` event means the list is stale: refetch the first page (text only by route).
   const sentCount = missiveCount(useLiveEvents())
 
@@ -94,11 +96,14 @@ export function MissivesPanel({
   }
   const nameOf = (id: string): string => (id === 'hall' ? 'the Hall' : (names.get(id) ?? id))
   const halls = roster?.halls.filter((h) => !h.locked) ?? []
+  const hall = halls.find((h) => h.id === hallId)
+  const people = hall ? [...(hall.captain ? [hall.captain] : []), ...hall.members] : []
+  const target = people.some((p) => p.id === addressee) ? addressee : (people[0]?.id ?? '')
 
   return (
     <section aria-labelledby="missives-heading" className="card">
       <h2 id="missives-heading" className="card-title">
-        Hall missives
+        Guild chat
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to read the Hall’s missives.</p>}
       {failed && <p role="alert">The missives could not be loaded.</p>}
@@ -117,6 +122,24 @@ export function MissivesPanel({
               </option>
             ))}
           </select>
+        </div>
+      )}
+      {session && onTalk && people.length > 0 && (
+        <div className="mt-4">
+          <label htmlFor="chat-member">Address</label>{' '}
+          <select
+            id="chat-member"
+            name="chat-member"
+            value={target}
+            onChange={(e) => setAddressee(e.target.value)}
+          >
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>{' '}
+          <PixelButton onClick={() => onTalk(target)}>Talk</PixelButton>
         </div>
       )}
       {session && missives.length === 0 && !failed && (

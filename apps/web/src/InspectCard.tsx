@@ -59,7 +59,7 @@ export function InspectCard({
   return (
     <dialog
       ref={ref}
-      className="bag inspect"
+      className="inspect"
       aria-labelledby={shown ? 'inspect-title' : undefined}
       onCancel={(event) => {
         event.preventDefault()
