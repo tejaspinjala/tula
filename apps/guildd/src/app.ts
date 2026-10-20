@@ -1,7 +1,14 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { InvalidCursorError, MAX_VERIFY_ENTRIES, signCheckpoint, verifyChain } from './audit-chain'
+import {
+  checkpointHash,
+  InvalidCursorError,
+  MAX_VERIFY_ENTRIES,
+  signCheckpoint,
+  verifyChain,
+  verifyFrom,
+} from './audit-chain'
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
@@ -78,7 +85,12 @@ const verifyQuery = z.object({
   cursor: z.string().max(300).optional(),
   full: z.enum(['true', 'false']).optional(),
 })
-const checkpointBody = z.object({
+const checkpointBeginBody = z.object({
+  limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
+})
+const checkpointFinishBody = assertFinishBody.extend({
+  seq: z.number().int().min(1),
+  mac: z.string().regex(/^[0-9a-f]{64}$/),
   limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
 })
 /** Largest accepted request body for adding a secret. */
@@ -658,6 +670,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
   // the caller's is indistinguishable from one that does not exist.
+  const witness = { anchor: deps.anchor, identity: deps.identity, clock: deps.clock }
   app.get('/guilds/:id/audit/verify', async (c) => {
     const caller = await callerGuild(c)
     if (!caller) {
@@ -673,7 +686,7 @@ export function createApp(deps: AppDeps): Hono {
     try {
       return c.json(
         await deps.db.withGuild(caller, (tx) =>
-          verifyChain(tx, deps.keys, deps.anchor, {
+          verifyChain(tx, deps.keys, witness, {
             ...(query.data.limit === undefined ? {} : { limit: query.data.limit }),
             ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
             full: query.data.full === 'true',
@@ -688,33 +701,87 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
-  // The Guild Master's daily act: re-authenticate, and the verified chain position is signed,
-  // recorded and anchored outside Postgres. What is signed is the position's seq and MAC.
-  app.post('/guilds/:id/audit/checkpoints', async (c) => {
-    const check = await checkSensitive(deps.identity, c.req.raw.headers)
-    if (!check.ok) {
-      return c.json({ error: check.error }, check.status)
-    }
-    if (c.req.param('id') !== check.guildId) {
-      return c.json({ error: 'not_found' }, 404)
-    }
-    const body = checkpointBody.safeParse(await c.req.json().catch(() => ({})))
+  // The Guild Master's daily act, as a passkey ceremony: `begin` verifies the chain and issues a
+  // challenge carrying the hash of the position (seq + MAC) to sign; `finish` checks the
+  // assertion, re-verifies the chain through exactly that position, then records the checkpoint
+  // with the assertion and anchors it outside Postgres. The assertion is itself a fresh proof.
+  app.post('/guilds/:id/audit/checkpoints/begin', async (c) => {
+    const body = checkpointBeginBody.safeParse(await c.req.json().catch(() => ({})))
     if (!body.success) {
       return c.json({ error: 'invalid_body' }, 400)
     }
-    const outcome = await deps.db.withGuild(check.guildId, (tx) =>
-      signCheckpoint(
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const { verdict, position } = await deps.db.withGuild(session.guildId, (tx) =>
+      verifyFrom(
         tx,
         deps.keys,
-        deps.anchor,
+        witness,
         body.data.limit === undefined ? {} : { limit: body.data.limit }
       )
+    )
+    if (!verdict.intact || position.seq < 1) {
+      return c.json(verdict, 409)
+    }
+    const ceremony = await deps.identity.beginCheckpointSignature(
+      token,
+      checkpointHash(session.guildId, position.seq, position.mac)
+    )
+    return c.json({
+      ...ceremony,
+      seq: position.seq,
+      mac: position.mac,
+      complete: !('partial' in verdict),
+    })
+  })
+
+  app.post('/guilds/:id/audit/checkpoints/finish', async (c) => {
+    const body = checkpointFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_body' }, 400)
+    }
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!token || !session) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const signed = await deps.identity.finishCheckpointSignature(
+      token,
+      body.data.challengeId,
+      body.data.response
+    )
+    const { seq, mac, limit } = body.data
+    if (signed.checkpointHash !== checkpointHash(session.guildId, seq, mac)) {
+      return c.json({ error: 'checkpoint_mismatch' }, 409)
+    }
+    const outcome = await deps.db.withGuild(session.guildId, (tx) =>
+      signCheckpoint(tx, deps.keys, witness, {
+        ...(limit === undefined ? {} : { limit }),
+        expect: { seq, mac },
+        assertion: signed.assertion,
+      })
     )
     if (!outcome.ok) {
       return c.json(outcome.verdict, 409)
     }
-    const { seq, mac, signature, complete } = outcome
-    return c.json({ seq, mac, signature, complete }, 201)
+    return c.json(
+      {
+        seq: outcome.seq,
+        mac: outcome.mac,
+        signature: outcome.signature,
+        complete: outcome.complete,
+      },
+      201
+    )
   })
 
   // Artifacts: the bytes live in the ObjectStore under the caller's guild namespace; the row

@@ -20,7 +20,7 @@ const credentialRow = z.object({
 })
 const challengeRow = z.object({
   challenge_id: z.string(),
-  kind: z.enum(['register', 'signin', 'reauth']),
+  kind: z.enum(['register', 'signin', 'reauth', 'checkpoint']),
   challenge: z.string(),
   session_id: z.string().nullable(),
   founding_hash: z.string().nullable(),

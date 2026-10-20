@@ -96,6 +96,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       notes: composed.notes,
       keys,
       anchor,
+      witness: { anchor, identity: composed.identity, clock },
     },
     /** Founds a guild through the chained path with the harness's keys (see `foundTestGuild`). */
     foundGuild: (input: { name: string; goal: string }) => foundTestGuild(db, input, keys),

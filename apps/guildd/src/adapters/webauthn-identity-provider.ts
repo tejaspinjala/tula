@@ -13,6 +13,7 @@ import type { TenantTx } from '../db/client'
 import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
+  type CheckpointAssertion,
   FOUNDING_TTL_MS,
   IdentityError,
   type IdentityProvider,
@@ -259,6 +260,96 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return { proof, expiresAt }
   }
 
+  async beginCheckpointSignature(sessionToken: string, checkpointHash: string) {
+    const live = await this.liveSession(sessionToken)
+    if (!live) {
+      throw new IdentityError('unauthenticated')
+    }
+    const challenge = new Uint8Array(48)
+    challenge.set(Buffer.from(checkpointHash, 'hex'))
+    challenge.set(crypto.getRandomValues(new Uint8Array(16)), 32)
+    const options = await this.requestOptions(live.guildId, challenge)
+    const challengeId = await this.saveChallenge(
+      live.guildId,
+      'checkpoint',
+      options.challenge,
+      live.session.id
+    )
+    return { challengeId, options }
+  }
+
+  async finishCheckpointSignature(
+    sessionToken: string,
+    challengeId: string,
+    response: AuthenticationResponseJSON
+  ): Promise<{ checkpointHash: string; assertion: CheckpointAssertion }> {
+    const live = await this.liveSession(sessionToken)
+    if (!live) {
+      throw new IdentityError('unauthenticated')
+    }
+    const challenge = await this.takeChallenge(live.guildId, challengeId, 'checkpoint')
+    if (challenge.sessionId !== live.session.id) {
+      throw new IdentityError('invalid_challenge')
+    }
+    await this.verifyAssertion(live.guildId, challenge, response)
+    const hash = Buffer.from(isoBase64URL.toBuffer(challenge.challenge)).subarray(0, 32)
+    return {
+      checkpointHash: hash.toString('hex'),
+      assertion: {
+        credentialId: response.id,
+        authenticatorData: response.response.authenticatorData,
+        clientDataJSON: response.response.clientDataJSON,
+        signature: response.response.signature,
+      },
+    }
+  }
+
+  async verifyCheckpointAssertion(
+    guildId: string,
+    checkpointHash: string,
+    assertion: CheckpointAssertion
+  ): Promise<boolean> {
+    const credential = (await this.store.listCredentials(guildId)).find(
+      (c) => c.id === assertion.credentialId
+    )
+    if (!credential) {
+      return false
+    }
+    try {
+      const clientData = z
+        .object({ challenge: z.string() })
+        .parse(
+          JSON.parse(new TextDecoder().decode(isoBase64URL.toBuffer(assertion.clientDataJSON)))
+        )
+      const carried = Buffer.from(isoBase64URL.toBuffer(clientData.challenge)).subarray(0, 32)
+      if (carried.toString('hex') !== checkpointHash) {
+        return false
+      }
+      const verified = await verifyAuthenticationResponse({
+        response: {
+          id: assertion.credentialId,
+          rawId: assertion.credentialId,
+          type: 'public-key',
+          clientExtensionResults: {},
+          response: {
+            clientDataJSON: assertion.clientDataJSON,
+            authenticatorData: assertion.authenticatorData,
+            signature: assertion.signature,
+          },
+        },
+        expectedChallenge: clientData.challenge,
+        expectedOrigin: this.config.origin,
+        expectedRPID: this.config.rpId,
+        requireUserVerification: true,
+        // The counter moved on when the assertion was made; only the signature is re-checked here.
+        credential: { id: credential.id, publicKey: credential.publicKey, counter: 0 },
+      })
+      return verified.verified
+    } catch {
+      return false
+    }
+  }
+
   async resolveSession(sessionToken: string): Promise<{ guildId: string } | null> {
     const live = await this.liveSession(sessionToken)
     return live ? { guildId: live.guildId } : null
@@ -332,9 +423,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return { challengeId: crypto.randomUUID(), options }
   }
 
-  private async requestOptions(guildId: string) {
+  private async requestOptions(guildId: string, challenge?: Uint8Array<ArrayBuffer>) {
     const credentials = await this.store.listCredentials(guildId)
     return generateAuthenticationOptions({
+      ...(challenge ? { challenge } : {}),
       rpID: this.config.rpId,
       userVerification: 'required',
       allowCredentials: credentials.map((c) => ({ id: c.id, transports: c.transports })),

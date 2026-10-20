@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { mkdir, open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   type AnchoredCheckpoint,
@@ -23,7 +23,13 @@ export class FileCheckpointAnchor implements CheckpointAnchor {
   async publish(guildId: string, checkpoint: AnchoredCheckpoint): Promise<void> {
     const file = this.fileFor(guildId)
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
-    await appendFile(file, `${JSON.stringify(checkpoint)}\n`, { mode: 0o600 })
+    const handle = await open(file, 'a', 0o600)
+    try {
+      await handle.write(`${JSON.stringify(checkpoint)}\n`)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
   }
 
   async latest(guildId: string): Promise<AnchoredCheckpoint | null> {
@@ -38,7 +44,10 @@ export class FileCheckpointAnchor implements CheckpointAnchor {
       throw error
     }
     let best: AnchoredCheckpoint | null = null
-    for (const line of text.split('\n')) {
+    // Only newline-terminated lines count: a trailing fragment is a write that never completed.
+    const lines = text.split('\n')
+    lines.pop()
+    for (const line of lines) {
       if (line === '') {
         continue
       }
