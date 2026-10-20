@@ -165,3 +165,27 @@ export function rateLimit(
     await next()
   }
 }
+
+/** Whether a limited route is reached with a session or without one; see {@link RATE_ROUTE_AUTH}. */
+export type RateAuth = 'session' | 'unauthenticated'
+
+/** Stub (red): every route unclassified-as-unauthenticated. */
+export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
+  'signin-begin': 'unauthenticated',
+  'signin-finish': 'unauthenticated',
+  'passkeys-begin': 'unauthenticated',
+  'passkeys-finish': 'unauthenticated',
+  founding: 'unauthenticated',
+  reauth: 'unauthenticated',
+  'stream-ticket': 'unauthenticated',
+  'checkpoint-begin': 'unauthenticated',
+  'checkpoint-finish': 'unauthenticated',
+  'quest-post': 'unauthenticated',
+  'seal-posted': 'unauthenticated',
+  'gateway-call': 'unauthenticated',
+  mcp: 'unauthenticated',
+  'proposal-post': 'unauthenticated',
+  'push-subscribe': 'unauthenticated',
+  'learning-scan': 'unauthenticated',
+  'events-history': 'unauthenticated',
+}
