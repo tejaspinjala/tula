@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { createApp, websocket } from './app'
 import { createDb, type Db } from './db/client'
 import { createEventHub } from './event-hub'
@@ -9,11 +10,11 @@ const harness = await createHarness()
 afterAll(() => harness.close())
 const { db } = harness.adapters
 
-type Frame = { type: string; event?: { seq: number } }
+const FrameSchema = z.object({ type: z.string(), event: z.object({ seq: z.number() }).optional() })
 
 const wsOpen = (url: string, guild: string) =>
   new Promise<WebSocket>((resolve, reject) => {
-    const ws = new WebSocket(url, { headers: { 'x-guild-id': guild } } as never)
+    const ws = new WebSocket(url, { headers: { 'x-guild-id': guild } })
     ws.onmessage = () => resolve(ws)
     ws.onerror = () => reject(new Error('socket error'))
   })
@@ -100,7 +101,7 @@ describe('event stream fan-out', () => {
         received.push(seen)
         const ws = await wsOpen(`${s.base}/guilds/${id}/events?last_seq=1`, id)
         ws.onmessage = (m) => {
-          const f = JSON.parse(String(m.data)) as Frame
+          const f = FrameSchema.parse(JSON.parse(String(m.data)))
           if (f.type === 'event' && f.event) {
             seen.push(f.event.seq)
           }
@@ -153,7 +154,7 @@ describe('event stream fan-out', () => {
             new Promise<'open' | 'refused'>((resolve) => {
               const ws = new WebSocket(`${s.base}/guilds/${id}/events`, {
                 headers: { 'x-guild-id': id },
-              } as never)
+              })
               sockets.push(ws)
               ws.onmessage = () => resolve('open')
               ws.onerror = () => resolve('refused')

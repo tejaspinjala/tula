@@ -56,11 +56,15 @@ export function createDb(url: string, options: { max?: number; streamMax?: numbe
       if (!GUILD_ID.safeParse(guildId).success) {
         throw new InvalidGuildIdError(guildId)
       }
-      const result = await pool.begin(async (tx) => {
+      let outcome: { value: T } | undefined
+      await pool.begin(async (tx) => {
         await tx`select set_config('app.guild_id', ${guildId}, true)`
-        return fn(tx)
+        outcome = { value: await fn(tx) }
       })
-      return result as T
+      if (!outcome) {
+        throw new Error('tenant transaction finished without running its callback')
+      }
+      return outcome.value
     }
   return {
     async foundGuild({ name, goal }) {

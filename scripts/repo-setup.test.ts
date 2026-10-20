@@ -1,18 +1,34 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { loadRulesets, REPO_SETTINGS } from './repo-setup'
 
 const root = join(import.meta.dir, '..')
+
+const ProtectionSchema = z.object({
+  bypass_actors: z.array(z.unknown()),
+  conditions: z.object({ ref_name: z.object({ include: z.array(z.string()) }) }),
+  rules: z.array(
+    z.object({ type: z.string(), parameters: z.record(z.string(), z.unknown()).optional() })
+  ),
+})
+
+const ChecksSchema = z.object({
+  rules: z.array(
+    z.object({
+      type: z.string(),
+      parameters: z
+        .object({ required_status_checks: z.array(z.object({ context: z.string() })).optional() })
+        .optional(),
+    })
+  ),
+})
 
 describe('rulesets', () => {
   test('protect main and develop from deletion, force-push and direct push', async () => {
     const [ruleset] = await loadRulesets()
     expect(ruleset?.name).toBe('Protect main and develop')
-    const r = ruleset as unknown as {
-      bypass_actors: unknown[]
-      conditions: { ref_name: { include: string[] } }
-      rules: { type: string; parameters?: Record<string, unknown> }[]
-    }
+    const r = ProtectionSchema.parse(ruleset)
     expect(r.conditions.ref_name.include.sort()).toEqual(['refs/heads/develop', 'refs/heads/main'])
     expect(r.bypass_actors).toEqual([])
     const types = r.rules.map((x) => x.type)
@@ -30,11 +46,7 @@ describe('rulesets', () => {
 
   test('every required check is a job name in ci.yml', async () => {
     const [ruleset] = await loadRulesets()
-    const rules = (
-      ruleset as unknown as {
-        rules: { type: string; parameters?: { required_status_checks?: { context: string }[] } }[]
-      }
-    ).rules
+    const { rules } = ChecksSchema.parse(ruleset)
     const checks = rules
       .find((x) => x.type === 'required_status_checks')
       ?.parameters?.required_status_checks?.map((c) => c.context)

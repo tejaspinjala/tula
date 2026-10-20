@@ -26,6 +26,20 @@ export interface AppDeps {
   maxSocketBufferBytes?: number
 }
 
+/** Bytes queued on a Bun socket, read through the untyped `raw` handle Hono exposes. */
+function bufferedAmountOf(raw: unknown): number {
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    'getBufferedAmount' in raw &&
+    typeof raw.getBufferedAmount === 'function'
+  ) {
+    const amount: unknown = raw.getBufferedAmount()
+    return typeof amount === 'number' ? amount : 0
+  }
+  return 0
+}
+
 const { upgradeWebSocket, websocket } = createBunWebSocket()
 
 /** The Bun websocket handler; pass it to `Bun.serve` next to the app's `fetch`. */
@@ -76,6 +90,8 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
+  // Releases a reserved stream slot once the socket opens; keyed by the upgrade request.
+  const streamSlots = new WeakMap<Request, () => void>()
   const maxBytes = deps.maxArtifactBytes ?? MAX_ARTIFACT_BYTES
   const storeTimeoutMs = deps.objectStoreTimeoutMs ?? 10_000
 
@@ -225,7 +241,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!slot) {
         return c.json({ error: 'too_many_streams' }, 429)
       }
-      c.set('streamSlot' as never, slot as never)
+      streamSlots.set(c.req.raw, slot)
       try {
         await next()
       } catch (error) {
@@ -245,13 +261,12 @@ export function createApp(deps: AppDeps): Hono {
         .safeParse(c.req.query('last_seq') ?? '0')
       const cursor = parsed.success ? parsed.data : 0
       let subscription: ReturnType<typeof hub.subscribe> | undefined
-      const slot = c.get('streamSlot' as never) as (() => void) | undefined
+      const slot = streamSlots.get(c.req.raw)
       return {
         onOpen: (_evt, ws) => {
           subscription = hub.subscribe(guild, cursor, {
             send: (data) => ws.send(data),
-            bufferedAmount: () =>
-              (ws.raw as { getBufferedAmount?: () => number })?.getBufferedAmount?.() ?? 0,
+            bufferedAmount: () => bufferedAmountOf(ws.raw),
             close: (code, reason) => ws.close(code, reason),
           })
           slot?.()

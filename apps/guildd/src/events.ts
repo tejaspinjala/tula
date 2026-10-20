@@ -1,3 +1,4 @@
+import type { JSONValue } from 'postgres'
 import type { TenantTx } from './db/client'
 
 /** One entry of a guild's append-only event log. */
@@ -14,8 +15,8 @@ export interface GuildEvent {
  * the event commits or rolls back with the state change it describes).
  * @returns the event's seq.
  */
-export async function appendEvent(tx: TenantTx, type: string, payload: unknown): Promise<number> {
-  const [row] = await tx`select append_event(${type}, ${tx.json(payload as never)}) as seq`
+export async function appendEvent(tx: TenantTx, type: string, payload: JSONValue): Promise<number> {
+  const [row] = await tx`select append_event(${type}, ${tx.json(payload)}) as seq`
   return Number(row?.seq)
 }
 

@@ -1,32 +1,41 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 const root = join(import.meta.dir, '..')
 const claude = join(root, '.claude')
 
-type HookEntry = { matcher?: string; hooks: { command: string }[] }
-const settings = (await Bun.file(join(claude, 'settings.json')).json()) as {
-  env: Record<string, string>
-  hooks: Record<string, HookEntry[]>
-}
+const SettingsSchema = z.object({
+  env: z.record(z.string(), z.string()),
+  hooks: z.record(
+    z.string(),
+    z.array(
+      z.object({
+        matcher: z.string().optional(),
+        hooks: z.array(z.object({ command: z.string() }).loose()),
+      })
+    )
+  ),
+})
+const settings = SettingsSchema.parse(await Bun.file(join(claude, 'settings.json')).json())
 
 const frontmatter = (file: string) => {
-  const text = require('node:fs').readFileSync(file, 'utf8') as string
+  const text = readFileSync(file, 'utf8')
   const block = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
   return Object.fromEntries(
     block
       .split('\n')
       .filter((l) => /^[a-z-]+:/.test(l))
-      .map((l) => {
+      .map((l): [string, string] => {
         const i = l.indexOf(':')
         return [l.slice(0, i), l.slice(i + 1).trim()]
       })
-  ) as Record<string, string>
+  )
 }
 
 describe('AGENTS.md', () => {
-  const agents = require('node:fs').readFileSync(join(root, 'AGENTS.md'), 'utf8') as string
+  const agents = readFileSync(join(root, 'AGENTS.md'), 'utf8')
 
   test('stays thin', () => {
     expect(agents.split('\n').length).toBeLessThanOrEqual(200)
@@ -116,9 +125,79 @@ describe('agent worktrees', () => {
   test('are ignored by git (and so by bun test) and by Biome', async () => {
     const gitignore = await Bun.file(join(root, '.gitignore')).text()
     expect(gitignore.split('\n')).toContain('.claude/worktrees/')
-    const biome = (await Bun.file(join(root, 'biome.json')).json()) as {
-      files: { includes: string[] }
-    }
+    const biome = z
+      .object({ files: z.object({ includes: z.array(z.string()) }) })
+      .parse(await Bun.file(join(root, 'biome.json')).json())
     expect(biome.files.includes).toContain('!.claude/worktrees')
+  })
+})
+
+describe('type-safety shortcuts', () => {
+  const tracked = Bun.spawnSync(['git', 'ls-files', '*.ts', '*.tsx'], { cwd: root })
+    .stdout.toString()
+    .split('\n')
+    .filter((f) => f !== '' && !f.includes('node_modules') && existsSync(join(root, f)))
+
+  const hits = (pattern: RegExp): string[] =>
+    tracked.flatMap((file) =>
+      readFileSync(join(root, file), 'utf8')
+        .split('\n')
+        .flatMap((line, i) => (pattern.test(line) ? [`${file}:${i + 1}: ${line.trim()}`] : []))
+    )
+
+  test.each([
+    ['a double cast through unknown', /\bas\s+unknown\s+as\b/],
+    ['a cast to any', /\bas\s+any\b/],
+    ['a cast to never', /\bas\s+never\b/],
+    ['a ts-ignore or ts-expect-error directive', /@ts-(ignore|expect-error)/],
+    ['a CommonJS require call', /\brequire\(/],
+    ['a biome-ignore without a reason', /biome-ignore[^:]*$|biome-ignore[^:]*:\s*$/],
+  ])('no tracked source uses %s', (_name, pattern) => {
+    expect(hits(pattern)).toEqual([])
+  })
+
+  test('biome makes the strict rules errors', async () => {
+    const biome = z
+      .object({
+        linter: z.object({
+          rules: z.object({
+            suspicious: z.record(z.string(), z.unknown()),
+            style: z.record(z.string(), z.unknown()),
+            complexity: z.record(z.string(), z.unknown()),
+          }),
+        }),
+      })
+      .parse(await Bun.file(join(root, 'biome.json')).json())
+    expect(biome.linter.rules.suspicious).toMatchObject({
+      noExplicitAny: 'error',
+      noTsIgnore: 'error',
+    })
+    expect(biome.linter.rules.style).toMatchObject({ noNonNullAssertion: 'error' })
+    expect(biome.linter.rules.complexity).toMatchObject({ noBannedTypes: 'error' })
+  })
+
+  test('every tsconfig keeps strict, noUncheckedIndexedAccess and exactOptionalPropertyTypes', async () => {
+    const rootConfig = z
+      .object({
+        compilerOptions: z.object({
+          strict: z.literal(true),
+          noUncheckedIndexedAccess: z.literal(true),
+          exactOptionalPropertyTypes: z.literal(true),
+        }),
+      })
+      .parse(await Bun.file(join(root, 'tsconfig.json')).json())
+    expect(rootConfig.compilerOptions.strict).toBe(true)
+    for (const app of ['guildd', 'web']) {
+      const cfg = z
+        .object({
+          extends: z.string(),
+          compilerOptions: z.record(z.string(), z.unknown()).default({}),
+        })
+        .parse(await Bun.file(join(root, 'apps', app, 'tsconfig.json')).json())
+      expect(cfg.extends).toBe('../../tsconfig.json')
+      expect(cfg.compilerOptions).not.toMatchObject({ strict: false })
+      expect(cfg.compilerOptions).not.toMatchObject({ noUncheckedIndexedAccess: false })
+      expect(cfg.compilerOptions).not.toMatchObject({ exactOptionalPropertyTypes: false })
+    }
   })
 })
