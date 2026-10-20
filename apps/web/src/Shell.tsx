@@ -7,6 +7,7 @@ import { GamePanel } from './GamePanel'
 import { GatesPanel } from './GatesPanel'
 import { HomePanel } from './HomePanel'
 import { LearningPanel } from './LearningPanel'
+import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
 import type { Session } from './passkeys'
@@ -39,7 +40,12 @@ function ViewBody({
     case 'home':
       return <HomePanel session={session} navigate={navigate} />
     case 'hall':
-      return <GamePanel session={session} navigate={navigate} />
+      return (
+        <>
+          <GamePanel session={session} navigate={navigate} />
+          <MissivesPanel session={session} />
+        </>
+      )
     case 'quests':
       return <QuestBoardPanel session={session} />
     case 'seals':

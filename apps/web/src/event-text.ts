@@ -72,6 +72,8 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return has
         ? `Quest ${q(p, 'questId', names)} claimed in Hall ${str(p, 'hallId')}`
         : 'Quest claimed'
+    case 'missive.sent':
+      return `${str(p, 'from')} sent a Missive to ${str(p, 'to') === 'hall' ? 'the Hall' : str(p, 'to')} in Hall ${str(p, 'hall')}: ${str(p, 'excerpt')}`
     case 'quest.awaiting_seal':
       return has ? `Quest ${q(p, 'questId', names)} is awaiting a Seal` : 'Quest awaiting a Seal'
     case 'quest.done':
