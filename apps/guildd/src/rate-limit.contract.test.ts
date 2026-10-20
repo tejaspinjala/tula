@@ -81,6 +81,18 @@ describe('rate limits on unauthenticated identity routes', () => {
     expect(await refused.json()).toEqual({ error: 'rate_limited' })
   })
 
+  test('reauth begin answers 429 with Retry-After after N invalid-token calls from one address', async () => {
+    const { post } = await harnessWith({ reauth: { client: tight(3) } })
+    const bad = { authorization: 'Bearer not-a-session-token' }
+    for (let i = 0; i < 3; i++) {
+      expect((await post('/session/reauth/begin', bad)).status).not.toBe(429)
+    }
+    const refused = await post('/session/reauth/begin', bad)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+    expect((await post('/session/reauth/finish', bad)).status).toBe(429)
+  })
+
   test('passkeys begin and finish and founding are limited too', async () => {
     const { post, found } = await harnessWith({
       'passkeys-begin': { client: tight(1) },

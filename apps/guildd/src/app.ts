@@ -170,6 +170,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+  app.post('/session/reauth/begin', limited('reauth'))
+  app.post('/session/reauth/finish', limited('reauth'))
 
   app.post('/guilds', async (c) => {
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
