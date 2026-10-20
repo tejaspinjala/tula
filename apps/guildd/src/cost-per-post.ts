@@ -36,9 +36,52 @@ export interface CostPerPostPage {
  * Campaign id with the no-Campaign group first, and `after` is the previous page's cursor.
  */
 export async function costPerPost(
-  _deps: CostPerPostDeps,
-  _guildId: string,
-  _page: { limit: number; after?: string }
+  deps: CostPerPostDeps,
+  guildId: string,
+  page: { limit: number; after?: string }
 ): Promise<CostPerPostPage> {
-  return { overall: { posts: 0, costMicros: 0, costPerPostMicros: 0 }, campaigns: [], next: null }
+  const groups = new Map<string, { campaignId: string | null; posts: number; costMicros: number }>()
+  let cursor: string | undefined
+  do {
+    const rows = await deps.ledger.report(guildId, 'quest', {
+      limit: 100,
+      ...(cursor === undefined ? {} : { after: cursor }),
+    })
+    for (const row of rows.rows) {
+      const seal = await deps.sealStore.forQuest(guildId, row.key)
+      if (seal?.status !== 'consumed') {
+        continue
+      }
+      const quest = await deps.quests.get(guildId, row.key)
+      const campaignId = quest?.campaignId ?? null
+      const group = groups.get(campaignId ?? '') ?? { campaignId, posts: 0, costMicros: 0 }
+      group.posts += 1
+      group.costMicros += row.costMicros
+      groups.set(campaignId ?? '', group)
+    }
+    cursor = rows.next ?? undefined
+  } while (cursor !== undefined)
+  const cost = (g: { posts: number; costMicros: number }): PostCost => ({
+    posts: g.posts,
+    costMicros: g.costMicros,
+    costPerPostMicros: Math.floor(g.costMicros / g.posts),
+  })
+  const ordered = [...groups.entries()]
+    .filter(([key]) => page.after === undefined || key > page.after)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const slice = ordered.slice(0, page.limit)
+  const last = slice.at(-1)
+  const all = [...groups.values()]
+  return {
+    overall: all.length === 0 ? { posts: 0, costMicros: 0, costPerPostMicros: 0 } : cost(sum(all)),
+    campaigns: slice.map(([, g]) => ({ campaignId: g.campaignId, ...cost(g) })),
+    next: ordered.length > page.limit && last ? last[0] : null,
+  }
+}
+
+function sum(groups: ReadonlyArray<{ posts: number; costMicros: number }>) {
+  return groups.reduce(
+    (acc, g) => ({ posts: acc.posts + g.posts, costMicros: acc.costMicros + g.costMicros }),
+    { posts: 0, costMicros: 0 }
+  )
 }
