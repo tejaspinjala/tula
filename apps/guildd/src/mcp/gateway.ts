@@ -9,7 +9,7 @@ import {
   spawnChildrenCap,
   spawnDepthCap,
 } from '../guild-config'
-import type { ActivityLog } from '../ports/activity-log'
+import { ACTIVITY_WINDOW_MS, type Activity, type ActivityLog } from '../ports/activity-log'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
@@ -131,6 +131,22 @@ interface Caller {
   guild: string
   quest: Quest
   member: string
+}
+
+/** What each tool call shows a Member doing; a tool not listed (claim, complete) shows nothing. */
+const TOOL_ACTIVITY: Partial<Record<string, Activity>> = {
+  read_brief: 'reading_brief',
+  read_archive: 'reading_archive',
+  write_archive: 'writing_archive',
+  get_artifact: 'reading_archive',
+  put_artifact: 'writing',
+  submit_proposal: 'proposing',
+  spawn_subquest: 'spawning',
+  await_children: 'waiting',
+  child_results: 'waiting',
+  post_to_board: 'messaging',
+  send_missive: 'messaging',
+  read_missives: 'messaging',
 }
 
 /** True when the Quest's template needs a Seal before anything is posted. */
@@ -364,6 +380,7 @@ export class McpGateway {
     const lease = z.object({ lease: leaseHandle }).parse(args).lease
     const caller = await this.fromLease(lease, false)
     await this.expose(caller, name)
+    await this.noteActivity(caller, name)
     switch (name) {
       case 'read_brief':
         readBriefArgs.parse(args)
@@ -451,6 +468,32 @@ export class McpGateway {
       roleToolNames(quest.rank, this.catalog)
     )
     return frozen.filter((n) => this.catalog.some((t) => t.name === n))
+  }
+
+  /**
+   * Records the Member's tool call as a `member.activity` event (ids and a closed name only,
+   * never an argument). Deterministic: the tool names the activity. A failure to record is
+   * logged by ids and never fails the call, since the event describes the work and is not the work.
+   */
+  private async noteActivity(caller: Caller, tool: string): Promise<void> {
+    const activity = TOOL_ACTIVITY[tool]
+    if (!this.deps.activity || !activity) {
+      return
+    }
+    try {
+      await this.deps.activity.record(caller.guild, {
+        questId: caller.quest.id,
+        memberId: caller.member,
+        hallId: caller.quest.hallId,
+        activity,
+        at: this.deps.clock.now(),
+        windowMs: ACTIVITY_WINDOW_MS,
+      })
+    } catch {
+      process.stderr.write(
+        `${JSON.stringify({ event: 'mcp.activity_failed', guildId: caller.guild, questId: caller.quest.id })}\n`
+      )
+    }
   }
 
   private async expose(caller: Caller, name: string): Promise<void> {
