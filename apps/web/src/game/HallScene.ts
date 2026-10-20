@@ -17,7 +17,7 @@ const FRAME = { doorClosed: 32, doorOpen: 37, scroll: 899, coin: 1025 } as const
 /** How long a speech bubble stays up, in ms. */
 const BUBBLE_MS = 4500
 /** Longest Quest title a bubble shows before it is cut. */
-const BUBBLE_CHARS = 28
+const BUBBLE_CHARS = 24
 /** Most scrolls drawn on the Seal desk; the rest are a count. */
 const MAX_SCROLLS = 5
 
@@ -156,7 +156,7 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  private label(x: number, y: number, text: string, size = 8, tint = 0xffffff) {
+  private label(x: number, y: number, text: string, size = 16, tint = 0xffffff) {
     const t = this.add.bitmapText(x, y, FONT, text, size)
     t.setTint(tint)
     t.setDepth(20)
@@ -203,7 +203,7 @@ export class HallScene extends Phaser.Scene {
           : hall.paused
             ? `${hall.name} (paused)`
             : hall.name
-        add(this.label(room.x * s + 4, room.y * s + 2, tag.slice(0, 30), 8))
+        add(this.label(room.x * s + 4, room.y * s + 2, tag.slice(0, 22), 16))
       }
       if (door && (!hall || hall.locked)) {
         for (let dx = 0; dx < door.w; dx++) {
@@ -237,7 +237,7 @@ export class HallScene extends Phaser.Scene {
         (gate.x - 5) * s,
         (gate.y - 0.8) * s,
         state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
-        8,
+        16,
         state.gateClosed ? 0xff6666 : 0x99ff99
       )
     )
@@ -321,8 +321,7 @@ export class HallScene extends Phaser.Scene {
       const layers = [look.body, look.outfit, look.hair].map((frame) =>
         this.add.image(0, 0, CHARS, frame)
       )
-      const name = this.label(0, 9, member.name.slice(0, 12), 8).setOrigin(0.5, 0)
-      const root = this.add.container(x, y, [...layers, name]).setDepth(15)
+      const root = this.add.container(x, y, layers).setDepth(15)
       root.setName(member.id)
       view = { root, bubble: null, bubbleTimer: null, bubbleSeq: 0, mode: null }
       this.members.set(member.id, view)
@@ -352,10 +351,10 @@ export class HallScene extends Phaser.Scene {
     view.bubbleTimer?.remove()
     const text =
       bubble.text.length > BUBBLE_CHARS ? `${bubble.text.slice(0, BUBBLE_CHARS - 1)}~` : bubble.text
-    const label = this.add.bitmapText(0, 0, FONT, text, 8).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
+    const label = this.add.bitmapText(0, 0, FONT, text, 16).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
     const w = label.width + 8
-    const back = this.add.rectangle(0, 0, w, 14, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 22, [back, label]).setDepth(30)
+    const back = this.add.rectangle(0, 0, w, 20, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    const root = this.add.container(x, y - 26, [back, label]).setDepth(30)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()

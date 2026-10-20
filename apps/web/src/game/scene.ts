@@ -110,7 +110,14 @@ export function deriveScene(input: SceneInput): SceneState {
 
   const members: Record<string, SceneMember> = {}
   const rooms: SceneRoom[] = roster.halls.map((hall) => {
-    for (const m of hall.members) {
+    // The roster lists the Captain apart from the Members; the Captain works in the room too.
+    const everyone = [
+      ...(hall.captain && !hall.members.some((m) => m.id === hall.captain?.id)
+        ? [{ id: hall.captain.id, name: hall.captain.name, rank: 'captain' }]
+        : []),
+      ...hall.members,
+    ]
+    for (const m of everyone) {
       members[m.id] = {
         id: m.id,
         name: m.name,
@@ -126,7 +133,7 @@ export function deriveScene(input: SceneInput): SceneState {
       name: hall.name,
       locked: hall.locked,
       paused: paused.has(hall.id),
-      memberIds: hall.members.map((m) => m.id),
+      memberIds: everyone.map((m) => m.id),
     }
   })
   for (const questId of replay.quests.active) {
