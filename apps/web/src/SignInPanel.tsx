@@ -64,7 +64,7 @@ export function SignInPanel({
         >
           Sign in with passkey
         </button>
-        <details className="mt-2">
+        <details className="disclosure">
           <summary>Older passkey? Use a guild id</summary>
           <div className="mt-2 flex flex-col gap-2">
             <label htmlFor="sign-in-guild-id">Guild id</label>

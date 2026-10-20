@@ -53,6 +53,30 @@ export function startSummon(
   })
 }
 
+const profilesBody = z.object({
+  config: z.object({
+    routingProfiles: z.array(z.object({ id: z.string(), provider: z.string(), tier: z.string() })),
+  }),
+})
+
+/** A routing profile the guild has configured, as the Summon select lists it. */
+export type RoutingProfileChoice = z.infer<typeof profilesBody>['config']['routingProfiles'][number]
+
+/** The routing profiles in the guild's config in force (`GET /guilds/:id/config`). */
+export async function loadRoutingProfiles(
+  session: Session,
+  fetcher: Fetcher
+): Promise<RoutingProfileChoice[]> {
+  const res = await fetcher(`/api/guilds/${session.guildId}/config`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new PasskeyRequestError(res.status, 'config_unavailable')
+  }
+  return profilesBody.parse(data).config.routingProfiles
+}
+
 /** One sentence on where the check stands; it is only complete once the test Quest has passed. */
 export function describeSummon(status: SummonStatus): string {
   if (status.complete) {
