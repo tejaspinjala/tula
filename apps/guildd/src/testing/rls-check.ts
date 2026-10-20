@@ -7,8 +7,13 @@ const NOT_TENANT = ['schema_migrations']
  * Scans every non-system schema and describes each tenancy violation: a table without ENABLE +
  * FORCE RLS or without a policy, a missing or nullable `guild_id`, a policy whose expressions do
  * not reference `app.guild_id`, or a table owned by the app role. Empty means compliant.
+ * `schemas` narrows the scan (the shared test database may hold other tests' scratch schemas).
  */
-export async function findTenancyViolations(sql: Sql): Promise<string[]> {
+export async function findTenancyViolations(
+  sql: Sql,
+  options: { schemas?: string[] } = {}
+): Promise<string[]> {
+  const only = options.schemas ?? null
   const tables = await sql`
     select c.oid, n.nspname || '.' || c.relname as name, c.relrowsecurity as rls,
       c.relforcerowsecurity as forced, r.rolname = 'guildhall_app' as app_owned,
@@ -22,6 +27,7 @@ export async function findTenancyViolations(sql: Sql): Promise<string[]> {
     where c.relkind in ('r', 'p')
       and n.nspname <> 'information_schema' and n.nspname not like 'pg\\_%'
       and c.relname <> all(${NOT_TENANT})
+      and (${only}::text[] is null or n.nspname = any(${only}::text[]))
     order by 2`
   const policies = await sql`
     select schemaname || '.' || tablename as name, policyname, qual, with_check
