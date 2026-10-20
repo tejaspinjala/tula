@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { GuildId } from './GuildId'
 import {
-  PasskeyRequestError,
+  passkeyFailure,
+  passkeyLine,
   reauthenticate,
   registerPasskey,
   type Session,
@@ -25,9 +26,7 @@ export function PasskeyPanel({
     try {
       setMessage((await action()) ?? `${label}: done`)
     } catch (error) {
-      setMessage(
-        error instanceof PasskeyRequestError ? `${label} refused: ${error.code}` : `${label} failed`
-      )
+      setMessage(passkeyLine(passkeyFailure(error), 'sign-in'))
     }
   }
 
