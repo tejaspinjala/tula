@@ -27,6 +27,17 @@ test('each variant is marked for the stylesheet', async () => {
   expect(seen).toEqual(['wood', 'paper', 'dialog', 'slot'])
 })
 
+test('paper, dialog and slot frames get stepped corners from the helper, wood keeps its 9-slice', async () => {
+  const clips: string[] = []
+  for (const variant of ['paper', 'dialog', 'slot', 'wood'] as const) {
+    const m = await mount(<Frame variant={variant}>x</Frame>)
+    const frame = m.host.querySelector<HTMLElement>('.px-frame')
+    clips.push(frame?.style.getPropertyValue('--clip-out').slice(0, 8) ?? 'missing')
+    await m.unmount()
+  }
+  expect(clips).toEqual(['polygon(', 'polygon(', 'polygon(', ''])
+})
+
 test('a caller class is added next to the frame class', async () => {
   const m = await mount(<Frame className="board">x</Frame>)
   expect(m.host.querySelector('.px-frame.board')).not.toBeNull()
