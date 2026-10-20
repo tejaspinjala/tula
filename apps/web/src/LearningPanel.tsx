@@ -71,9 +71,13 @@ export function LearningPanel({ session }: { session: Session | null }) {
       <ul aria-label="Suggestions" className="mt-4 flex flex-col gap-3">
         {items.map((item) => (
           <li key={item.id}>
-            <a href={item.url} rel="noreferrer noopener" target="_blank">
-              {item.title}
-            </a>
+            {item.url === null ? (
+              <span>{item.title}</span>
+            ) : (
+              <a href={item.url} rel="noreferrer noopener" target="_blank">
+                {item.title}
+              </a>
+            )}
             <p>{item.body}</p>
             <button type="button" onClick={() => decide(item.id, 'accept')}>
               Accept {item.title}
