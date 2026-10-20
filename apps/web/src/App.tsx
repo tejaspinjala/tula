@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArtifactViewer } from './ArtifactViewer'
 import { PasskeyPanel } from './PasskeyPanel'
 import type { Session } from './passkeys'
+import { VaultPanel } from './VaultPanel'
 
 /** Ledger-view shell: keyboard-navigable, with a skip link, landmarks and passkey sign-in. */
 export function App() {
@@ -24,12 +25,14 @@ export function App() {
         <nav aria-label="Ledger" className="mt-2 flex gap-4">
           <a href="#passkey-heading">Passkey</a>
           <a href="#artifact-heading">Artifacts</a>
+          <a href="#vault-heading">Vault</a>
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-3xl p-8">
         <p>guildd: {status}</p>
         <PasskeyPanel session={session} onSession={setSession} />
         <ArtifactViewer />
+        <VaultPanel session={session} />
       </main>
     </>
   )

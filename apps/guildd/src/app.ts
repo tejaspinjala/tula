@@ -10,6 +10,13 @@ import type { Clock } from './ports/clock'
 import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import type { ObjectStore } from './ports/object-store'
+import {
+  MAX_SECRET_PAGE,
+  SecretExistsError,
+  type SecretStore,
+  secretRef,
+  secretValue,
+} from './ports/secret-store'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
 
@@ -21,6 +28,8 @@ export interface AppDeps {
   identity: IdentityProvider
   /** Custody of the audit chain's MAC key; never the database. */
   keys: KeyProvider
+  /** The Vault: envelope-encrypted provider keys; values leave only through internal `resolve`. */
+  secrets: SecretStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */
@@ -46,6 +55,14 @@ const foundGuildBody = z.object({
 })
 
 const uuid = z.uuid()
+/** Largest accepted request body for adding a secret. */
+const MAX_SECRET_REQUEST_BYTES = 16 * 1024
+const addSecretBody = z.object({ ref: secretRef, value: secretValue })
+const checkSecretsBody = z.object({ refs: z.array(secretRef).min(1).max(MAX_SECRET_PAGE) })
+const secretPage = z.object({
+  after: secretRef.optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_SECRET_PAGE).default(50),
+})
 const artifactClass = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const artifactHash = z.string().regex(/^[0-9a-f]{64}$/)
 /** Default artifact size cap; main.ts sizes Bun's request-body limit from it. */
@@ -271,6 +288,84 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'not_found' }, 404)
     }
     return c.json({ id: row.guild_id, name: row.name, goal: row.goal })
+  })
+
+  // The Vault. Adding a secret is a sensitive action (fresh passkey re-authentication, spent by
+  // the check); nothing here ever returns, logs or errors with a secret value.
+  app.post('/guilds/:id/vault/secrets', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (c.req.param('id') !== check.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    if (Number(c.req.header('content-length') ?? 0) > MAX_SECRET_REQUEST_BYTES) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    const raw = await readCapped(c.req.raw.body, MAX_SECRET_REQUEST_BYTES)
+    if (!raw) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    const body = addSecretBody.safeParse(
+      (() => {
+        try {
+          return JSON.parse(new TextDecoder().decode(raw))
+        } catch {
+          return null
+        }
+      })()
+    )
+    if (!body.success) {
+      return c.json({ error: 'invalid_secret' }, 400)
+    }
+    try {
+      await deps.secrets.add(check.guildId, body.data.ref, body.data.value)
+    } catch (error) {
+      if (error instanceof SecretExistsError) {
+        return c.json({ error: 'secret_exists' }, 409)
+      }
+      throw error
+    }
+    return c.json({ ref: body.data.ref }, 201)
+  })
+
+  app.get('/guilds/:id/vault/secrets', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const page = secretPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.secrets.list(caller, {
+        limit: page.data.limit,
+        ...(page.data.after ? { after: page.data.after } : {}),
+      })
+    )
+  })
+
+  app.post('/guilds/:id/vault/check', async (c) => {
+    const caller = await callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    if (c.req.param('id') !== caller) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const body = checkSecretsBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json({ results: await deps.secrets.check(caller, body.data.refs) })
   })
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not

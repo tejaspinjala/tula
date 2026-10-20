@@ -18,6 +18,7 @@ export interface HarnessOptions {
     Pick<
       AppDeps,
       | 'identity'
+      | 'secrets'
       | 'objectStore'
       | 'keys'
       | 'objectStoreTimeoutMs'
@@ -56,7 +57,15 @@ export async function createHarness(options: HarnessOptions = {}) {
   return {
     /** Connection URL of the non-owner app role on the central test database. */
     appUrl,
-    adapters: { clock, db, objectStore, memoryStore, identity: composed.identity, keys },
+    adapters: {
+      clock,
+      db,
+      objectStore,
+      memoryStore,
+      identity: composed.identity,
+      secrets: composed.secrets,
+      keys,
+    },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */

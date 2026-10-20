@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
@@ -46,6 +47,7 @@ export async function compose(
         origin: rp.WEBAUTHN_ORIGIN,
       }),
     keys,
+    secrets: overrides.secrets ?? new PgSecretStore(db, keys),
   }
   return { app: createApp(adapters), adapters }
 }
