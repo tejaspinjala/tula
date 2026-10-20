@@ -264,6 +264,8 @@ ul[aria-label] {
 
 /* The talk dialog: a native modal <dialog> over the Guild Hall canvas. */
 .talk-dialog {
+  /* The reset zeroes the dialog's auto margins; put the modal back in the middle. */
+  margin: auto;
   width: min(32rem, calc(100vw - 2rem));
   max-height: calc(100vh - 2rem);
   overflow: auto;
@@ -279,6 +281,13 @@ ul[aria-label] {
 .talk-dialog h2,
 .talk-dialog h3 {
   margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+.talk-dialog h2 {
+  font-size: var(--text-lg);
+}
+.talk-dialog h3 {
+  font-size: var(--text-base);
 }
 .talk-facts {
   display: grid;
@@ -301,7 +310,9 @@ ul[aria-label] {
   margin-bottom: var(--space-3);
 }
 .talk-prompt {
-  margin-top: var(--space-2);
+  /* Reserves the button's height so the canvas does not jump when it appears. */
+  min-height: var(--touch);
+  margin: var(--space-2) 0 0;
 }
 
 .muted {

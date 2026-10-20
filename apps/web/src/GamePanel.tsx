@@ -269,16 +269,7 @@ export function GamePanel({
               {position === null ? 'live' : `event ${at} of ${events.length}`}
             </span>
           </div>
-          <div ref={frame} className="game-frame" data-testid="game-frame" />
-          <p role="status" aria-live="polite" className="muted" data-testid="game-summary">
-            {summary}
-          </p>
-          <p role="status" aria-live="polite" className="muted" data-testid="game-location">
-            {announceRoom(
-              roomSlot === null ? null : scene?.rooms[roomSlot]?.name,
-              roomSlot !== null
-            )}
-          </p>
+          {/* Above the canvas, so on a phone it is never under the bottom navigation. */}
           <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
             {talk.near && talk.open === null && (
               <button
@@ -290,6 +281,16 @@ export function GamePanel({
                   ? 'Open the Seal desk (E)'
                   : `Talk to ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
               </button>
+            )}
+          </p>
+          <div ref={frame} className="game-frame" data-testid="game-frame" />
+          <p role="status" aria-live="polite" className="muted" data-testid="game-summary">
+            {summary}
+          </p>
+          <p role="status" aria-live="polite" className="muted" data-testid="game-location">
+            {announceRoom(
+              roomSlot === null ? null : scene?.rooms[roomSlot]?.name,
+              roomSlot !== null
             )}
           </p>
           <TalkDialog

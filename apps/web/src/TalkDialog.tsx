@@ -84,7 +84,7 @@ export function TalkDialog({
         <>
           <h2 id="talk-title">Seal desk</h2>
           {scene.scrolls.length === 0 ? (
-            <p>No Seals are waiting.</p>
+            <p>No Quest is waiting on a Seal right now.</p>
           ) : (
             <>
               <p>
