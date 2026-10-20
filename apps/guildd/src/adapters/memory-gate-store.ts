@@ -1,4 +1,4 @@
-import type { GateActor, GateScope, GateStatus, GateStore } from '../ports/gate-store'
+import type { GateActor, GateScope, GateStatus, GateStore, GlobalEvent } from '../ports/gate-store'
 
 /**
  * Memory {@link GateStore}: state in this instance only. Every method checks and writes
@@ -33,10 +33,10 @@ export class MemoryGateStore implements GateStore {
     return { barId, created: true }
   }
 
-  async lift(actor: GateActor, scope: GateScope): Promise<boolean> {
+  async lift(actor: GateActor, scope: GateScope): Promise<string | null> {
     const barId = scope === 'global' ? this.globalBar : this.guilds.get(actor.guildId)
     if (!barId) {
-      return false
+      return null
     }
     if (scope === 'global') {
       this.globalBar = null
@@ -44,7 +44,11 @@ export class MemoryGateStore implements GateStore {
       this.guilds.delete(actor.guildId)
     }
     this.onEvent(actor.guildId, 'gates.lifted', { barId, scope, memberId: actor.memberId })
-    return true
+    return barId
+  }
+
+  async announceGlobal(_guildId: string, _event: GlobalEvent): Promise<boolean> {
+    return false
   }
 
   async isBarred(guildId: string): Promise<boolean> {

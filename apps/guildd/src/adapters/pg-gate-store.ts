@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { Db } from '../db/client'
 import { appendEvent } from '../events'
-import type { GateActor, GateScope, GateStatus, GateStore } from '../ports/gate-store'
+import type { GateActor, GateScope, GateStatus, GateStore, GlobalEvent } from '../ports/gate-store'
 import type { KeyProvider } from '../ports/key-provider'
 
 const barRow = z.object({ bar_id: z.string() })
@@ -47,7 +47,7 @@ export class PgGateStore implements GateStore {
     })
   }
 
-  async lift(actor: GateActor, scope: GateScope): Promise<boolean> {
+  async lift(actor: GateActor, scope: GateScope): Promise<string | null> {
     return this.db.withGuild(actor.guildId, async (tx) => {
       const [gone] =
         scope === 'global'
@@ -55,15 +55,16 @@ export class PgGateStore implements GateStore {
           : await tx`
               delete from guild_gates where guild_id = ${actor.guildId} returning bar_id`
       if (!gone) {
-        return false
+        return null
       }
-      await appendEvent(tx, this.keys, 'gates.lifted', {
-        barId: barRow.parse(gone).bar_id,
-        scope,
-        memberId: actor.memberId,
-      })
-      return true
+      const barId = barRow.parse(gone).bar_id
+      await appendEvent(tx, this.keys, 'gates.lifted', { barId, scope, memberId: actor.memberId })
+      return barId
     })
+  }
+
+  async announceGlobal(_guildId: string, _event: GlobalEvent): Promise<boolean> {
+    return false
   }
 
   async isBarred(guildId: string): Promise<boolean> {

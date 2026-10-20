@@ -27,9 +27,9 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       expect(await store.isBarred(a)).toBe(true)
       expect(await store.isBarred(b)).toBe(false)
       expect(await store.status(a)).toEqual({ guild: true, global: false })
-      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBe(true)
+      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBe(first.barId)
       expect(await store.isBarred(a)).toBe(false)
-      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBe(false)
+      expect(await store.lift({ guildId: a, memberId: GM }, 'guild')).toBeNull()
     })
 
     test('a global bar stops every guild and a guild lift does not clear it', async () => {
@@ -75,6 +75,28 @@ export function gateStoreContract(name: string, make: () => Promise<GateStoreFix
       }
       expect(await events(actor)).toEqual(['gates.barred', 'gates.lifted'])
       expect(await events(other)).toEqual([])
+    })
+
+    test('a global bar and lift are announced once to every other guild chain, never twice', async () => {
+      const { store, newGuild, events } = await make()
+      const actor = await newGuild()
+      const other = await newGuild()
+      const { barId } = await store.bar({ guildId: actor, memberId: GM }, 'global')
+      try {
+        const barred = { type: 'gates.barred', barId, memberId: GM } as const
+        expect(await store.announceGlobal(other, barred)).toBe(true)
+        expect(await store.announceGlobal(other, barred)).toBe(false)
+        expect(await store.announceGlobal(actor, barred)).toBe(false)
+        const same = await Promise.all([1, 2, 3].map(() => store.announceGlobal(other, barred)))
+        expect(same.filter(Boolean)).toHaveLength(0)
+      } finally {
+        await store.lift({ guildId: actor, memberId: GM }, 'global')
+      }
+      const lifted = { type: 'gates.lifted', barId, memberId: GM } as const
+      expect(await store.announceGlobal(other, lifted)).toBe(true)
+      expect(await store.announceGlobal(other, lifted)).toBe(false)
+      expect(await events(other)).toEqual(['gates.barred', 'gates.lifted'])
+      expect(await events(actor)).toEqual(['gates.barred', 'gates.lifted'])
     })
   })
 }

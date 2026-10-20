@@ -60,8 +60,8 @@ export class Gates {
   }
 
   /** Lifts the bar; false when it was not up. Revoked run tokens stay revoked. */
-  lift(actor: GateActor, scope: GateScope): Promise<boolean> {
-    return this.deps.store.lift(actor, scope)
+  async lift(actor: GateActor, scope: GateScope): Promise<boolean> {
+    return (await this.deps.store.lift(actor, scope)) !== null
   }
 
   /** Which bars are up for the guild. */

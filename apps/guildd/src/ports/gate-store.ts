@@ -7,6 +7,15 @@ export interface GateActor {
   memberId: string
 }
 
+/** A global bar or lift, told to a guild's own chain: ids only. */
+export interface GlobalEvent {
+  type: 'gates.barred' | 'gates.lifted'
+  /** The global bar this is about. */
+  barId: string
+  /** The platform operator who barred or lifted. */
+  memberId: string
+}
+
 /** Which bars are up for one guild. */
 export interface GateStatus {
   /** This guild is barred. */
@@ -25,8 +34,14 @@ export interface GateStatus {
 export interface GateStore {
   /** Bars; if already barred, returns the existing bar with `created: false` and no event. */
   bar(actor: GateActor, scope: GateScope): Promise<{ barId: string; created: boolean }>
-  /** Lifts; false (and no event) when no such bar was up. */
-  lift(actor: GateActor, scope: GateScope): Promise<boolean>
+  /** Lifts; the lifted bar's id, or null (and no event) when no such bar was up. */
+  lift(actor: GateActor, scope: GateScope): Promise<string | null>
+  /**
+   * Appends a global bar's or lift's event to `guildId`'s own chain, once per (bar id, type, guild):
+   * true when appended, false when that guild's chain already has it (the acting guild gets it
+   * with the bar itself). Called after the bar commits, one short transaction per guild.
+   */
+  announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean>
   /** Whether the guild is barred now, by its own bar or the global one. */
   isBarred(guildId: string): Promise<boolean>
   /** Which bars are up for the guild. */
