@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import type { Db } from './db/client'
 import type { Clock } from './ports/clock'
@@ -7,6 +7,8 @@ import type { Clock } from './ports/clock'
 export interface AppDeps {
   clock: Clock
   db: Db
+  /** Whether `x-guild-id` identifies the caller (development only). */
+  devGuildHeader: boolean
 }
 
 const foundGuildBody = z.object({
@@ -29,16 +31,30 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ id: await deps.db.foundGuild(body.data) }, 201)
   })
 
-  // The caller's guild comes from `x-guild-id` until authentication lands; a guild that is not
-  // the caller's is indistinguishable from one that does not exist.
+  /**
+   * The single trust boundary: which guild is calling. Until authentication lands (#11) this is
+   * the `x-guild-id` header, honoured only when DEV_GUILD_HEADER is on; otherwise no caller.
+   */
+  function callerGuild(c: Context): string | null {
+    if (!deps.devGuildHeader) {
+      return null
+    }
+    const parsed = uuid.safeParse(c.req.header('x-guild-id'))
+    return parsed.success ? parsed.data : null
+  }
+
+  // A guild that is not the caller's is indistinguishable from one that does not exist.
   app.get('/guilds/:id', async (c) => {
-    const caller = uuid.safeParse(c.req.header('x-guild-id'))
+    const caller = callerGuild(c)
+    if (!caller) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
     const id = uuid.safeParse(c.req.param('id'))
-    if (!caller.success || !id.success) {
+    if (!id.success) {
       return c.json({ error: 'not_found' }, 404)
     }
     const rows = await deps.db.withGuild(
-      caller.data,
+      caller,
       (tx) => tx`select guild_id, name, goal from guilds where guild_id = ${id.data}`
     )
     const row = rows[0]

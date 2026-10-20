@@ -11,9 +11,11 @@ import { loadEnv } from './env'
  * run against real Postgres.
  */
 export function compose(overrides: Partial<AppDeps> = {}): { app: Hono; adapters: AppDeps } {
+  const env = overrides.db && overrides.devGuildHeader !== undefined ? undefined : loadEnv()
   const adapters: AppDeps = {
     clock: new SystemClock(),
-    db: overrides.db ?? createDb(loadEnv().APP_DATABASE_URL),
+    db: overrides.db ?? createDb(String(env?.APP_DATABASE_URL)),
+    devGuildHeader: overrides.devGuildHeader ?? env?.DEV_GUILD_HEADER ?? false,
     ...overrides,
   }
   return { app: createApp(adapters), adapters }

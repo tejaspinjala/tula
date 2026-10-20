@@ -39,3 +39,13 @@ export async function migrate(
 
   return { applied }
 }
+
+/**
+ * Sets the login password of the non-owner `guildhall_app` role. The password comes from the
+ * environment (`APP_DB_PASSWORD`), never from a migration, so no credential lives in the repo.
+ */
+export async function provisionAppRole(sql: Sql, password: string): Promise<void> {
+  const [row] =
+    await sql`select format('alter role guildhall_app password %L', ${password}::text) as q`
+  await sql.unsafe(String(row?.q))
+}

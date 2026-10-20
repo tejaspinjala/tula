@@ -2,12 +2,14 @@ import postgres from 'postgres'
 import { MemoryClock } from '../adapters/memory-clock'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
-import { migrate } from '../db/migrate'
+import { migrate, provisionAppRole } from '../db/migrate'
 
 /** Options for {@link createHarness}. */
 export interface HarnessOptions {
   /** Instant the memory clock starts at. */
   now?: Date
+  /** Whether `x-guild-id` identifies the caller; defaults to true in tests. */
+  devGuildHeader?: boolean
 }
 
 const DEFAULT_URL = 'postgres://guildhall:guildhall@localhost:5432/guildhall'
@@ -31,23 +33,25 @@ export async function createHarness(options: HarnessOptions = {}) {
       { cause }
     )
   }
+  const appPassword = crypto.randomUUID()
   const urlFor = (user?: string) => {
     const url = new URL(ownerUrl)
     url.pathname = `/${dbName}`
     if (user) {
       url.username = user
-      url.password = user
+      url.password = appPassword
     }
     return url.toString()
   }
 
   const owner = postgres(urlFor(), { max: 1, onnotice: () => {} })
   await migrate(owner)
+  await provisionAppRole(owner, appPassword)
 
   const clock = new MemoryClock(options.now ?? new Date('2026-01-01T00:00:00.000Z'))
   const appUrl = urlFor('guildhall_app')
   const db = createDb(appUrl)
-  const { app } = compose({ clock, db })
+  const { app } = compose({ clock, db, devGuildHeader: options.devGuildHeader ?? true })
   return {
     /** Connection URL of the non-owner app role on the throwaway database. */
     appUrl,

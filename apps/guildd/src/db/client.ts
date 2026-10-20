@@ -1,4 +1,15 @@
 import postgres, { type Sql, type TransactionSql } from 'postgres'
+import { z } from 'zod'
+
+/** Thrown by `withGuild` when the guild id is not a UUID; nothing is queried. */
+export class InvalidGuildIdError extends Error {
+  constructor(value: string) {
+    super(`invalid guild id: ${JSON.stringify(value)}`)
+    this.name = 'InvalidGuildIdError'
+  }
+}
+
+const GUILD_ID = z.uuid()
 
 /** A transaction on which tenant context is already set; the only handle that reaches tenant tables. */
 export type TenantTx = TransactionSql
@@ -30,6 +41,9 @@ export function createDb(url: string, options: { max?: number } = {}): Db {
       return String(row?.id)
     },
     withGuild: async <T>(guildId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> => {
+      if (!GUILD_ID.safeParse(guildId).success) {
+        throw new InvalidGuildIdError(guildId)
+      }
       const result = await sql.begin(async (tx) => {
         await tx`select set_config('app.guild_id', ${guildId}, true)`
         return fn(tx)

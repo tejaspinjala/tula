@@ -24,6 +24,17 @@ describe('founding a guild', () => {
     })
   })
 
+  test('the x-guild-id header is rejected unless the dev header flag is on', async () => {
+    const strict = await createHarness({ devGuildHeader: false })
+    try {
+      const id = await strict.adapters.db.foundGuild({ name: 'A', goal: 'g' })
+      const res = await strict.request(`/guilds/${id}`, { headers: { 'x-guild-id': id } })
+      expect(res.status).toBe(401)
+    } finally {
+      await strict.close()
+    }
+  })
+
   test('rejects a guild without a name or goal', async () => {
     const res = await harness.request('/guilds', {
       method: 'POST',

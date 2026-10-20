@@ -3,11 +3,17 @@
 
 do $$
 begin
-  create role guildhall_app login password 'guildhall_app' nosuperuser nobypassrls noinherit;
+  create role guildhall_app login nosuperuser nobypassrls noinherit;
 exception
   when duplicate_object or unique_violation then null;
 end
 $$;
+
+-- A pre-existing role is corrected too. The password is never stored in a migration: the migrate
+-- runner sets it from APP_DB_PASSWORD (see provisionAppRole).
+alter role guildhall_app nosuperuser nobypassrls noinherit;
+alter role guildhall_app set statement_timeout = '15s';
+alter role guildhall_app set idle_in_transaction_session_timeout = '30s';
 
 grant usage on schema public to guildhall_app;
 
@@ -29,15 +35,16 @@ grant select, insert, update, delete on guilds to guildhall_app;
 
 -- Founding has no tenant yet, so the app cannot insert the first row under its own context.
 -- This owner-side function is the only door: it mints the id, sets the tenant setting
--- transaction-locally for its single insert, clears it, and returns the id.
+-- transaction-locally for its single insert, restores the caller's previous value, and returns the id.
 create function found_guild(p_name text, p_goal text) returns uuid
   language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_id uuid := gen_random_uuid();
+  v_prev text := coalesce(current_setting('app.guild_id', true), '');
 begin
   perform set_config('app.guild_id', v_id::text, true);
   insert into guilds (guild_id, name, goal) values (v_id, p_name, p_goal);
-  perform set_config('app.guild_id', '', true);
+  perform set_config('app.guild_id', v_prev, true);
   return v_id;
 end
 $$;

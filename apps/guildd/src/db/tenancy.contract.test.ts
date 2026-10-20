@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { readdir } from 'node:fs/promises'
 import postgres from 'postgres'
 import { expectGuildIsolation } from '../testing/cross-guild'
 import { createHarness } from '../testing/harness'
+import { InvalidGuildIdError } from './client'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
@@ -47,6 +49,41 @@ describe('cross-guild isolation', () => {
     const missing = await attempt(crypto.randomUUID())
     expect(existing).toContain('row-level security')
     expect(existing).toBe(missing)
+  })
+})
+
+describe('hardening', () => {
+  test('found_guild inside a tenant transaction restores that guild context', async () => {
+    const a = await db.foundGuild({ name: 'A', goal: 'g' })
+    const seen = await db.withGuild(a, async (tx) => {
+      await tx`select found_guild('Other', 'g')`
+      return tx`select guild_id from guilds`
+    })
+    expect(seen.map((r) => r.guild_id)).toEqual([a])
+  })
+
+  test('withGuild rejects a non-uuid guild id before querying', async () => {
+    let ran = false
+    const attempt = db.withGuild('not-a-uuid', async () => {
+      ran = true
+    })
+    await expect(attempt).rejects.toBeInstanceOf(InvalidGuildIdError)
+    expect(ran).toBe(false)
+  })
+
+  test('the app role has statement and idle-in-transaction timeouts', async () => {
+    const [row] = await harness.owner`
+      select rolconfig from pg_roles where rolname = 'guildhall_app'`
+    const config = (row?.rolconfig ?? []) as string[]
+    expect(config.some((c) => c.startsWith('statement_timeout='))).toBe(true)
+    expect(config.some((c) => c.startsWith('idle_in_transaction_session_timeout='))).toBe(true)
+  })
+
+  test('no migration stores a credential', async () => {
+    const dir = new URL('../../migrations/', import.meta.url)
+    for (const name of await readdir(dir)) {
+      expect(await Bun.file(new URL(name, dir)).text()).not.toMatch(/password\s+'/i)
+    }
   })
 })
 
