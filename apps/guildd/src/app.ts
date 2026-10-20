@@ -348,6 +348,17 @@ const putConfigBody = z.object({ config: guildConfig })
 const MAX_UNKNOWN_KEYS_LISTED = 20
 /** The longest an echoed unknown config key may be, counting the ellipsis that marks a cut. */
 export const MAX_UNKNOWN_KEY_LENGTH = 64
+/**
+ * An unknown key cut to MAX_UNKNOWN_KEY_LENGTH UTF-16 units with an ellipsis, never leaving half of a
+ * surrogate pair at the cut.
+ */
+function shortenUnknownKey(key: string): string {
+  if (key.length <= MAX_UNKNOWN_KEY_LENGTH) {
+    return key
+  }
+  const cut = key.slice(0, MAX_UNKNOWN_KEY_LENGTH - 1)
+  return `${/[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut}…`
+}
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
 const versionPage = z.object({
   after: configVersion.optional(),
@@ -1499,11 +1510,7 @@ export function createApp(deps: AppDeps): Hono {
         i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path.slice(1), k].join('.')) : []
       )
       if (unknownKeys.length > 0) {
-        const listed = unknownKeys
-          .slice(0, MAX_UNKNOWN_KEYS_LISTED)
-          .map((k) =>
-            k.length > MAX_UNKNOWN_KEY_LENGTH ? `${k.slice(0, MAX_UNKNOWN_KEY_LENGTH - 1)}…` : k
-          )
+        const listed = unknownKeys.slice(0, MAX_UNKNOWN_KEYS_LISTED).map(shortenUnknownKey)
         const truncated =
           unknownKeys.length > MAX_UNKNOWN_KEYS_LISTED ||
           unknownKeys.some((k) => k.length > MAX_UNKNOWN_KEY_LENGTH)
