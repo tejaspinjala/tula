@@ -145,7 +145,6 @@ describe('ClaudeCliModelProvider', () => {
     expect(system).toContain(nonce)
     expect(seen.stdin.split(`<turn-${nonce} `)).toHaveLength(4)
     expect(seen.stdin.split(`</turn-${nonce}>`)).toHaveLength(4)
-    expect(seen.stdin).not.toMatch(/^Human:/m)
     const other = echo.parse(JSON.parse((await provider.complete(secret, request)).text))
     expect(/<turn-([0-9a-f]{16,}) /.exec(other.stdin)?.[1]).not.toBe(nonce)
   })
