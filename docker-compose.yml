@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: guildhall
+      POSTGRES_PASSWORD: guildhall
+      POSTGRES_DB: guildhall
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U guildhall -d guildhall']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    # Official minio/minio images are no longer published; Chainguard builds MinIO from source.
+    # Its free tier only tags :latest; the tag plus digest is pinned so Dependabot can track and
+    # bump it (a bare digest is not a trackable reference).
+    image: cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: guildhall
+      MINIO_ROOT_PASSWORD: guildhall-dev-secret
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  minio-data:

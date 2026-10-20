@@ -8,3 +8,12 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+
+  # Compose service images are pinned by digest (MinIO has no versioned free tags); keep them moving.
+  - package-ecosystem: docker-compose
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

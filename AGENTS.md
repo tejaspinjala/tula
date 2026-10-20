@@ -4,7 +4,7 @@ A governed agent-operations platform played as a guild game. `GLOSSARY.md` is bi
 
 ## Build Loop (ADR-0002)
 
-- **Lead** (your session, Opus): runs one batch per fresh session with the `batch` skill. Holds pointers, not file contents.
+- **Lead** (your session, Opus): runs one batch per fresh session with the `batch` skill. Holds pointers, not file contents, and stays under 40% of its context window: past that, finish the current step and continue in a fresh session from GitHub state.
 - **Workers** (`worker` agent, Sonnet): one ticket each, in their own git worktree branched from the batch's integration branch; at most 4 at once, never two in the same area.
 - **Explorer** (`explorer` agent, Haiku): every lookup that would pull many files into context.
 - **Reviewer** (`reviewer` agent, Sonnet): only via the `review-loop` skill, for `risk` tickets and once per batch; max 2 rounds.
@@ -27,7 +27,7 @@ A governed agent-operations platform played as a guild game. `GLOSSARY.md` is bi
 
 ## Fixed standards
 
-Bun only; strict TypeScript with no `any` or `ts-ignore`; Biome; JSDoc on every export; Zod for every boundary and for env (fail at boot); hexagonal layout (one composition root, every port has a memory adapter); `guild_id` on every tenant table with forced RLS and a cross-guild test; paginated lists; timeouts and jittered retries on outbound calls; idempotent retried handlers; no state in process memory; no model id in engine code. Governance (Seals, Treasury, caps, private routing, Bar the Gates) is deterministic code, never a model decision.
+Bun only; strict TypeScript with no shortcuts (no `any`, `as unknown as`, non-null `!`, `ts-ignore`/`ts-expect-error`, `biome-ignore` or `require`; narrow with Zod or type guards); Biome; JSDoc on every export; Zod for every boundary and for env (fail at boot); hexagonal layout (one composition root, every port has a memory adapter); `guild_id` on every tenant table with forced RLS and a cross-guild test; paginated lists; timeouts and jittered retries on outbound calls; idempotent retried handlers; no state in process memory; no model id in engine code. Governance (Seals, Treasury, caps, private routing, Bar the Gates) is deterministic code, never a model decision.
 
 ## Protected files
 

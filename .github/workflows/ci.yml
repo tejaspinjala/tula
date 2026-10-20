@@ -18,13 +18,46 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Contract tests run against real Postgres (same image tag as docker-compose.yml).
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: guildhall
+          POSTGRES_PASSWORD: guildhall
+          POSTGRES_DB: guildhall
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guildhall -d guildhall"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://guildhall:guildhall@localhost:5432/guildhall
+      OBJECT_STORE_ENDPOINT: http://localhost:9000
+      OBJECT_STORE_ACCESS_KEY: guildhall
+      OBJECT_STORE_SECRET_KEY: guildhall-dev-secret
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # Service containers cannot take a command, and this image needs `server /data`, so MinIO
+      # (same image as docker-compose.yml) is started here.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=guildhall -e MINIO_ROOT_PASSWORD=guildhall-dev-secret \
+            cgr.dev/chainguard/minio:latest@sha256:2915cb406f38ed6ff9634de0a3e4a9423e2dda06a6f1aca18f8c968aa37a01f6 \
+            server /data
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          docker logs minio
+          exit 1
       - run: bun run verify
+      - run: bun run test:integration
 
   pr-rules:
     name: pr-rules

@@ -3,16 +3,23 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "prepare": "husky || true",
-    "typecheck": "tsc --noEmit",
-    "verify": "biome check . && tsc --noEmit && bun test",
+    "typecheck": "tsc --noEmit && bun run --filter '*' typecheck",
+    "verify": "biome check . && bun run typecheck && bun test",
+    "test:integration": "bun test ./apps/guildd/integration/migrate.integration.ts ./apps/guildd/integration/object-store.integration.ts",
+    "db:migrate": "bun run --cwd apps/guildd db:migrate",
     "repo:setup": "bun scripts/repo-setup.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/bun": "^1.4.3",
     "husky": "^9.1.7",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
   }
 }
