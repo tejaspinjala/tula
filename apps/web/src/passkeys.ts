@@ -75,7 +75,8 @@ export async function registerPasskey(
   guildId: string,
   auth: { token: string; proof: string } | undefined,
   fetcher: Fetcher,
-  browser: PasskeyBrowser
+  browser: PasskeyBrowser,
+  _foundingToken?: string
 ): Promise<void> {
   const base = `/guilds/${guildId}/passkeys`
   const begin = await send(fetcher, `${base}/begin`, {}, creation, auth?.token, auth?.proof)
@@ -111,6 +112,15 @@ export async function reauthenticate(
     token
   )
   return done.proof
+}
+
+/** Founds a guild; the one-time `foundingToken` it returns authorises the first passkey. */
+export async function foundGuild(
+  _name: string,
+  _goal: string,
+  _fetcher: Fetcher
+): Promise<{ id: string; foundingToken: string }> {
+  throw new Error('not implemented')
 }
 
 /** The real browser ceremonies, backed by the platform WebAuthn implementation. */
