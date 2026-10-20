@@ -16,6 +16,8 @@ export interface TalkDialogProps {
   scene: SceneState | null
   quests: readonly (SceneQuest & { state?: string })[]
   navigate: (path: string) => void
+  /** Called when the Guild Master dismisses the dialog with Esc: focus belongs back on the world. */
+  onDismiss?: () => void
 }
 
 /** How a Quest state reads in a card. */
@@ -40,6 +42,7 @@ export function TalkDialog({
   scene,
   quests,
   navigate,
+  onDismiss,
 }: TalkDialogProps) {
   const ref = useRef<HTMLDialogElement | null>(null)
   const open = state.open
@@ -67,6 +70,7 @@ export function TalkDialog({
       ref={ref}
       className="talk-dialog"
       aria-labelledby={open ? 'talk-title' : undefined}
+      onCancel={() => onDismiss?.()}
       onClose={() => dispatch({ type: 'close' })}
     >
       {member && scene && (
