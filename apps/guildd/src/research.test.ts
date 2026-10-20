@@ -98,7 +98,7 @@ describe('Research.sweep', () => {
   })
 
   test('a spend approved between the sweep read and its deny is re-read and released, not closed as settled', async () => {
-    const { clock, config, treasury, treasuryStore, store, research } = build()
+    const { clock, config, treasury, treasuryStore, store } = build()
     const guild = crypto.randomUUID()
     await config.seed(guild)
     const questId = crypto.randomUUID()
