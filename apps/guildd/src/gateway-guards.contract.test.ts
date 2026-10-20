@@ -16,6 +16,8 @@ gatewayGuardsContract('postgres', async () => {
   const { adapters } = harness
   return {
     gateway: adapters.gateway,
+    gates: adapters.gates,
+    sandboxes: adapters.sandboxes,
     mcp: adapters.mcp,
     tripwires: adapters.tripwires,
     quests: adapters.quests,

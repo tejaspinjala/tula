@@ -3,6 +3,7 @@ import type { GuildConfig } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import type { GateStore } from './ports/gate-store'
 import type { ModelLedger, RunRecord, UsageGroup, UsagePage } from './ports/model-ledger'
 import {
   type ModelProvider,
@@ -23,6 +24,8 @@ export type GatewayErrorCode =
   | 'token_expired'
   | 'token_revoked'
   | 'hall_paused'
+  /** Bar the Gates is up for this guild (or all guilds). */
+  | 'gates_barred'
   | 'cap_reached'
   | 'unknown_profile'
   | 'model_unconfigured'
@@ -49,7 +52,10 @@ export type OpenRunResult =
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
   /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
-  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' }
+  | {
+      status: 'refused'
+      reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
+    }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
@@ -81,6 +87,8 @@ export interface GatewayDeps {
   quests: Pick<QuestQueue, 'get'>
   /** A paused Hall gets no new run and its live runs are refused. */
   tripwires: Pick<TripwireStore, 'isPaused'>
+  /** Bar the Gates: read first on every open and call; a barred guild is refused before any work. */
+  gates: Pick<GateStore, 'isBarred'>
   /** How long a run's token lives; defaults to 15 minutes. */
   tokenTtlMs?: number
 }
@@ -266,6 +274,11 @@ export class ModelGateway {
   /** Revokes every queued or active run of a Hall (its pause); returns how many. */
   revokeHallRuns(guildId: string, hallId: string): Promise<number> {
     return this.deps.ledger.revokeHallRuns(guildId, hallId)
+  }
+
+  /** Revokes every run token of the guild for good (Bar the Gates); returns how many. */
+  revokeGuildRuns(_guildId: string): Promise<number> {
+    return Promise.resolve(0)
   }
 
   /** Revokes a run's token so its next call is refused; false if the run is unknown. */

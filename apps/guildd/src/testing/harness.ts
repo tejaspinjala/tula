@@ -127,6 +127,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       pushNotifier: composed.pushNotifier,
       pushRelay: composed.pushRelay,
       gateway: composed.gateway,
+      gates: composed.gates,
+      sandboxes: composed.sandboxes,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,

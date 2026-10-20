@@ -69,6 +69,8 @@ describe('websocket backpressure', () => {
       classifier: harness.adapters.classifier,
       routingLog: harness.adapters.routingLog,
       gateway: harness.adapters.gateway,
+      gates: harness.adapters.gates,
+      sandboxes: harness.adapters.sandboxes,
       keys,
       devGuildHeader: true,
       eventPollMs: 600_000,

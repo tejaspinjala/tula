@@ -12,6 +12,7 @@ import {
 import type { Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
+import type { Gates } from './gates'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import type { McpGateway } from './mcp/gateway'
@@ -32,6 +33,7 @@ import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
+import type { SandboxRunner } from './ports/sandbox-runner'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
 import {
   MAX_SECRET_PAGE,
@@ -87,6 +89,10 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
+  gates: Gates
+  /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
+  sandboxes: SandboxRunner
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
   /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */

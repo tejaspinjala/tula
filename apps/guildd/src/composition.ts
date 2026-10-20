@@ -5,7 +5,9 @@ import { FileKeyProvider } from './adapters/file-key-provider'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
+import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { PgConfigStore } from './adapters/pg-config-store'
+import { PgGateStore } from './adapters/pg-gate-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
@@ -28,6 +30,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
+import { Gates } from './gates'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 
@@ -66,6 +69,9 @@ export async function compose(
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
+  const gateStore = new PgGateStore(db, keys)
+  // The Docker worker (#20) replaces this; until then no sandbox exists to kill.
+  const sandboxes = overrides.sandboxes ?? new MemorySandboxRunner()
   const vapid = loadVapidEnv()
   const pushStore = overrides.pushStore ?? new PgPushStore(db)
   // Without VAPID keys (development only; production fails at boot) pushes go to the memory notifier.
@@ -86,6 +92,18 @@ export async function compose(
       rpId: rp.WEBAUTHN_RP_ID,
       rpName: 'Guildhall',
       origin: rp.WEBAUTHN_ORIGIN,
+    })
+  const gateway =
+    overrides.gateway ??
+    new ModelGateway({
+      ledger: new PgModelLedger(db, keys),
+      secrets,
+      config,
+      provider: overrides.modelProvider ?? new AnthropicModelProvider(),
+      clock,
+      quests,
+      tripwires,
+      gates: gateStore,
     })
   const adapters: AppDeps = {
     ...overrides,
@@ -125,6 +143,7 @@ export async function compose(
         keys,
         clock,
         tripwires,
+        gates: gateStore,
       }),
     tripwires,
     treasury:
@@ -134,16 +153,15 @@ export async function compose(
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
     classifier: overrides.classifier ?? new MemoryClassifier(),
     routingLog: overrides.routingLog ?? new PgRoutingLog(db),
-    gateway:
-      overrides.gateway ??
-      new ModelGateway({
-        ledger: new PgModelLedger(db, keys),
-        secrets,
-        config,
-        provider: overrides.modelProvider ?? new AnthropicModelProvider(),
-        clock,
-        quests,
-        tripwires,
+    gateway,
+    sandboxes,
+    gates:
+      overrides.gates ??
+      new Gates({
+        store: gateStore,
+        runs: gateway,
+        sandboxes,
+        guildIds: (after, limit) => db.guildIds(after, limit),
       }),
   }
   return { app: createApp(adapters), adapters }

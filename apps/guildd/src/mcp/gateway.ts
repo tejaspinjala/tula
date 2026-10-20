@@ -3,6 +3,7 @@ import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
 import { questConcurrency } from '../guild-config'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
+import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { NoteError, type NoteStore } from '../ports/note-store'
@@ -38,6 +39,8 @@ export interface McpGatewayDeps {
   toolsets: ToolsetStore
   keys: KeyProvider
   clock: Clock
+  /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
+  gates: Pick<GateStore, 'isBarred'>
   /** A paused Hall leases none of its Quests. */
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** The tools on offer; defaults to {@link TOOL_CATALOG}. A role's list is frozen per Campaign from it. */
