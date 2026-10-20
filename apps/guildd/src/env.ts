@@ -125,6 +125,7 @@ const baseSchema = z.object({
     .transform((v) => v === 'true'),
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
+  HOST: z.string().optional(),
   /**
    * Built web app (`apps/web/dist`) to serve at this origin, API under `/api`. The directory
    * must exist and hold `index.html`. Unset: guildd serves the API only.

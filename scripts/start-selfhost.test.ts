@@ -9,6 +9,11 @@ const source = {
 }
 
 describe('selfhostPlan', () => {
+  test('binds guildd to loopback explicitly', () => {
+    expect(selfhostPlan(source, '/repo').guildd.HOST).toBe('127.0.0.1')
+    expect(selfhostPlan({ ...source, HOST: '0.0.0.0' }, '/repo').guildd.HOST).toBe('127.0.0.1')
+  })
+
   test('starts guildd on localhost:8787 with the built web app', () => {
     const plan = selfhostPlan(source, '/repo')
     expect(plan.guildd.WEB_DIST).toBe('/repo/apps/web/dist')
