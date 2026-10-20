@@ -9,8 +9,9 @@ import type {
 } from './ports/seal-store'
 
 /**
- * The reserved principal id of the Guild Master. An agent can never be requester under this id,
- * so the requester-cannot-decide rule can never be sidestepped by naming the Guild Master.
+ * A name no agent may request under. Deciders are real member ids now (sessions resolve to a
+ * principal), so this no longer identifies the decider; it only stops an agent posing as the
+ * Guild Master by name.
  */
 export const GUILD_MASTER_ID = 'guild-master'
 
@@ -22,7 +23,7 @@ export class SealRequestError extends Error {
   }
 }
 
-/** Who is trying to decide a Seal. Only `guild_master` can; the id is checked against the requester. */
+/** Who is trying to decide a Seal: the session principal's role and member id. Only `guild_master` can, and never on its own request. */
 export interface SealDecider {
   role: 'guild_master' | 'agent'
   id: string
@@ -82,7 +83,7 @@ export class SealEngine {
     if (decider.role !== 'guild_master' || decider.id === seal.requestedBy) {
       return { ok: false, reason: 'not_authorised' }
     }
-    return this.store.decide(guildId, id, decision)
+    return this.store.decide(guildId, id, { ...decision, decidedBy: decider.id })
   }
 
   /** Reserves an approved Seal for publishing `text`; returns the holder's one-time token. */

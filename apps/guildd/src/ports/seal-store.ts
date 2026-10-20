@@ -103,7 +103,13 @@ export interface SealStore {
   decide(
     guildId: string,
     id: string,
-    decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
+    decision: {
+      verdict: 'approved' | 'denied'
+      expectedHash: string
+      note?: string
+      /** The deciding principal's member id; recorded in the audit event. */
+      decidedBy?: string
+    }
   ): Promise<SealResult>
   /**
    * Reserves an approved (or released) Seal for publishing `text`, which must hash to the sealed

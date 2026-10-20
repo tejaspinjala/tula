@@ -140,7 +140,7 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       expect(await s.identity.resolveSession('not-a-token')).toBeNull()
     })
 
-    test('a session resolves to the guild\'s Guild Master principal, stable across sessions', async () => {
+    test("a session resolves to the guild's Guild Master principal, stable across sessions", async () => {
       const s = await registered()
       const first = await s.identity.resolveSession((await signIn(s)).token)
       const second = await s.identity.resolveSession((await signIn(s)).token)

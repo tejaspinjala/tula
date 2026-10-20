@@ -112,7 +112,12 @@ export class MemorySealStore implements SealStore {
   async decide(
     guildId: string,
     id: string,
-    decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
+    decision: {
+      verdict: 'approved' | 'denied'
+      expectedHash: string
+      note?: string
+      decidedBy?: string
+    }
   ): Promise<SealResult> {
     const stored = this.seals(guildId).get(id)
     if (!stored) {

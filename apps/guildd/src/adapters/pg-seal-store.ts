@@ -154,7 +154,12 @@ export class PgSealStore implements SealStore {
   async decide(
     guildId: string,
     id: string,
-    decision: { verdict: 'approved' | 'denied'; expectedHash: string; note?: string }
+    decision: {
+      verdict: 'approved' | 'denied'
+      expectedHash: string
+      note?: string
+      decidedBy?: string
+    }
   ): Promise<SealResult> {
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
@@ -180,7 +185,12 @@ export class PgSealStore implements SealStore {
         now,
         tx`status = ${decision.verdict}, decided_at = ${now}, decision_note = ${decision.note ?? null}`
       )
-      await this.emit(tx, decision.verdict === 'approved' ? 'seal.approved' : 'seal.denied', seal)
+      await this.emit(
+        tx,
+        decision.verdict === 'approved' ? 'seal.approved' : 'seal.denied',
+        seal,
+        decision.decidedBy ? { decidedBy: decision.decidedBy } : {}
+      )
       return { ok: true, seal }
     })
   }
@@ -390,8 +400,14 @@ export class PgSealStore implements SealStore {
   }
 
   /** Events carry ids and hashes only, never the Proposal text, evidence or reservation tokens. */
-  private async emit(tx: TenantTx, type: string, seal: Seal): Promise<void> {
+  private async emit(
+    tx: TenantTx,
+    type: string,
+    seal: Seal,
+    extra: Record<string, string> = {}
+  ): Promise<void> {
     await appendEvent(tx, this.keys, type, {
+      ...extra,
       sealId: seal.id,
       questId: seal.questId,
       actionHash: seal.actionHash,
