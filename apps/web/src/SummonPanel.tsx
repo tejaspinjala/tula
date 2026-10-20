@@ -42,8 +42,8 @@ export function SummonPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="summon-heading" className="mt-8">
-      <h2 id="summon-heading" className="text-xl font-semibold">
+    <section aria-labelledby="summon-heading" className="card">
+      <h2 id="summon-heading" className="card-title">
         Summon your first member
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to summon a member.</p>}
@@ -71,15 +71,9 @@ export function SummonPanel({ session }: { session: Session | null }) {
         >
           <label className="flex flex-col">
             Routing profile
-            <input
-              className="min-h-11 rounded border p-2"
-              value={profileId}
-              onChange={(event) => setProfileId(event.target.value)}
-            />
+            <input value={profileId} onChange={(event) => setProfileId(event.target.value)} />
           </label>
-          <button type="submit" className="min-h-11 rounded border p-2">
-            Summon with this profile
-          </button>
+          <button type="submit">Summon with this profile</button>
         </form>
       )}
       {message && (

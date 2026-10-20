@@ -73,8 +73,8 @@ export function TimelinePanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="timeline-heading" className="mt-8">
-      <h2 id="timeline-heading" className="text-xl font-semibold">
+    <section aria-labelledby="timeline-heading" className="card">
+      <h2 id="timeline-heading" className="card-title">
         Timeline
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to replay the guild's day.</p>}

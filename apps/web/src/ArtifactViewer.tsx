@@ -12,8 +12,8 @@ export function ArtifactViewer({ session }: { session: Session | null }) {
   const [result, setResult] = useState<ArtifactResult | null>(null)
 
   return (
-    <section className="mt-8">
-      <h2 id="artifact-heading" className="text-xl font-semibold">
+    <section className="card">
+      <h2 id="artifact-heading" className="card-title">
         Artifact viewer
       </h2>
       <form
@@ -30,19 +30,18 @@ export function ArtifactViewer({ session }: { session: Session | null }) {
       >
         {!session && (
           <input
-            className="rounded border p-2"
             placeholder="Guild id (development only; sign in instead)"
             value={guildId}
             onChange={(event) => setGuildId(event.target.value)}
           />
         )}
         <input
-          className="rounded border p-2 font-mono"
+          className="mono"
           placeholder="Artifact hash (sha-256)"
           value={hash}
           onChange={(event) => setHash(event.target.value)}
         />
-        <button className="rounded bg-black p-2 text-white" type="submit">
+        <button className="btn-primary" type="submit">
           Open artifact
         </button>
       </form>

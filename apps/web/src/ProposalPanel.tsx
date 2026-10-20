@@ -22,22 +22,18 @@ export function ProposalPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="proposals-heading" className="mt-8">
-      <h2 id="proposals-heading" className="text-xl font-semibold">
+    <section aria-labelledby="proposals-heading" className="card">
+      <h2 id="proposals-heading" className="card-title">
         Proposals
       </h2>
       {session ? (
         <div className="mt-4 flex flex-col gap-3">
-          <button
-            type="button"
-            className="min-h-11 rounded border p-2"
-            onClick={() => load(session)}
-          >
+          <button type="button" onClick={() => load(session)}>
             Load Proposals
           </button>
           <ul aria-label="Proposals" className="flex flex-col gap-3">
             {proposals.map((proposal) => (
-              <li key={proposal.id} className="rounded border p-3">
+              <li key={proposal.id} className="item">
                 <p className="whitespace-pre-wrap">{proposal.content}</p>
                 <p className="break-all text-xs">Hash: {proposal.hash}</p>
                 <p className="text-sm">Verdict: {proposal.verdict.passed ? 'pass' : 'fail'}</p>

@@ -27,6 +27,6 @@ test('the shell has a skip link, landmarks and visible focus', async () => {
   const app = await read('./App.tsx')
   expect(app).toContain('href="#main"')
   expect(app).toContain('<main id="main"')
-  expect(app).toContain('<nav aria-label="Ledger"')
+  expect(await read('./Shell.tsx')).toContain('<nav aria-label="Ledger"')
   expect(await read('./index.css')).toContain(':focus-visible')
 })

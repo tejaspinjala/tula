@@ -19,8 +19,8 @@ export function RosterPanel({ session }: { session: Session | null }) {
   }, [session])
 
   return (
-    <section aria-labelledby="roster-heading" className="mt-8">
-      <h2 id="roster-heading" className="text-xl font-semibold">
+    <section aria-labelledby="roster-heading" className="card">
+      <h2 id="roster-heading" className="card-title">
         Roster
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see the roster.</p>}

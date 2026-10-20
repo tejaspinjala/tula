@@ -45,8 +45,8 @@ export function CostTablePanel({ session }: { session: Session | null }) {
   }, [session])
 
   return (
-    <section aria-labelledby="costs-heading" className="mt-8">
-      <h2 id="costs-heading" className="text-xl font-semibold">
+    <section aria-labelledby="costs-heading" className="card">
+      <h2 id="costs-heading" className="card-title">
         Costs
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see spend.</p>}
@@ -93,7 +93,7 @@ export function CostTablePanel({ session }: { session: Session | null }) {
       )}
       {posts && (
         <>
-          <h3 className="mt-6 text-lg font-semibold">Cost per accepted post</h3>
+          <h3 className="sub-title">Cost per accepted post</h3>
           <p className="mt-2">
             {posts.overall.posts === 0
               ? 'No post has been accepted yet.'

@@ -30,8 +30,8 @@ export function VaultPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="vault-heading" className="mt-8">
-      <h2 id="vault-heading" className="text-xl font-semibold">
+    <section aria-labelledby="vault-heading" className="card">
+      <h2 id="vault-heading" className="card-title">
         Vault
       </h2>
       {session ? (
@@ -51,7 +51,7 @@ export function VaultPanel({ session }: { session: Session | null }) {
           <label htmlFor="vault-ref">Secret reference</label>
           <input
             id="vault-ref"
-            className="rounded border p-2 font-mono"
+            className="mono"
             value={ref}
             onChange={(event) => setRef(event.target.value)}
           />
@@ -60,23 +60,15 @@ export function VaultPanel({ session }: { session: Session | null }) {
             id="vault-value"
             type="password"
             autoComplete="off"
-            className="rounded border p-2 font-mono"
+            className="mono"
             value={value}
             onChange={(event) => setValue(event.target.value)}
           />
           <div className="flex gap-2">
-            <button
-              type="submit"
-              className="rounded bg-black p-2 text-white"
-              disabled={!ref.trim() || !value}
-            >
+            <button type="submit" className="btn-primary" disabled={!ref.trim() || !value}>
               Add secret
             </button>
-            <button
-              type="button"
-              className="rounded border p-2"
-              onClick={() => run('Refresh', refresh)}
-            >
+            <button type="button" onClick={() => run('Refresh', refresh)}>
               Refresh
             </button>
           </div>

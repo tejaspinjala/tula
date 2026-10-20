@@ -58,8 +58,8 @@ export function LearningPanel({ session }: { session: Session | null }) {
   }
 
   return (
-    <section aria-labelledby="learning-heading" className="mt-8">
-      <h2 id="learning-heading" className="text-xl font-semibold">
+    <section aria-labelledby="learning-heading" className="card">
+      <h2 id="learning-heading" className="card-title">
         Suggested learnings
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to see suggested learnings.</p>}
