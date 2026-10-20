@@ -7,6 +7,8 @@ export type Target = { kind: 'member'; id: string } | { kind: 'sealDesk' }
 export interface TalkState {
   near: Target | null
   open: Target | null
+  /** The Member whose inspect card is showing (a click, or E next to them). */
+  inspect: string | null
   form: 'view' | 'assign'
 }
 
@@ -14,6 +16,8 @@ export interface TalkState {
 export type TalkAction =
   | { type: 'near'; target: Target | null }
   | { type: 'interact' }
+  | { type: 'inspect'; id: string }
+  | { type: 'talk' }
   | { type: 'assign' }
   | { type: 'back' }
   | { type: 'close' }
@@ -22,7 +26,7 @@ export type TalkAction =
 export const REACH = 1.6
 
 /** The start state: nobody in reach, nothing open. */
-export const initialTalk: TalkState = { near: null, open: null, form: 'view' }
+export const initialTalk: TalkState = { near: null, open: null, inspect: null, form: 'view' }
 
 /** True when two targets are the same Member or both the Seal desk. */
 export function sameTarget(a: Target | null, b: Target | null): boolean {
@@ -44,6 +48,9 @@ export function talkReducer(state: TalkState, action: TalkAction): TalkState {
       return state.open !== null || state.near === null
         ? state
         : { ...state, open: state.near, form: 'view' }
+    case 'inspect':
+    case 'talk':
+      return state
     case 'assign':
       return state.open?.kind === 'member' ? { ...state, form: 'assign' } : state
     case 'back':
