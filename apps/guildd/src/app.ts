@@ -22,6 +22,7 @@ import { IdentityError, type IdentityProvider } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
+import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
 import {
@@ -31,6 +32,8 @@ import {
   secretRef,
   secretValue,
 } from './ports/secret-store'
+import type { StreamTicketStore } from './ports/stream-ticket'
+import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import { bearerToken, checkSensitive } from './sensitive'
 import { readBufferedAmount } from './ws-support'
@@ -51,6 +54,10 @@ export interface AppDeps {
   config: ConfigStore
   /** The Archive: notes with version history, backlinks and full-text search. */
   notes: NoteStore
+  /** The Quest queue: Quests, leases, retries and the dead-letter list. */
+  quests: QuestQueue
+  /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
+  streamTickets: StreamTicketStore
   /** Routing step 1 for free-text goals; the deterministic adapter until a cheap model is wired. */
   classifier: Classifier
   /** Routing decision log (insert-only), read by the future Oracle. */
@@ -111,6 +118,14 @@ const notePage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_NOTE_PAGE).default(50),
   q: z.string().max(500).optional(),
+})
+const questPage = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_QUEST_PAGE).default(50),
+  state: questState.optional(),
 })
 const putConfigBody = z.object({ config: guildConfig })
 const configVersion = z.coerce.number().int().min(1).max(2_147_483_647)
@@ -199,6 +214,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
+  app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -232,6 +248,20 @@ export function createApp(deps: AppDeps): Hono {
     }
     const parsed = uuid.safeParse(c.req.header('x-guild-id'))
     return parsed.success ? parsed.data : null
+  }
+
+  /**
+   * A single-use `?ticket=` on a WebSocket upgrade request from a browser, which cannot set an
+   * Authorization header (see `POST /guilds/:id/events/ticket`). Not spent here: the stream route
+   * spends it after reserving a slot. A session token in the URL is never accepted.
+   */
+  function presentedTicket(c: Context): { guild: string; ticket: string } | null {
+    const ticket = c.req.query('ticket')
+    const guild = uuid.safeParse(c.req.param('id'))
+    if (!ticket || !guild.success || c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
+      return null
+    }
+    return { guild: guild.data, ticket }
   }
 
   /** Whether the guild exists (the guild row is visible only under its own tenant context). */
@@ -531,6 +561,67 @@ export function createApp(deps: AppDeps): Hono {
         ? await deps.notes.list(who.guild, paging)
         : await deps.notes.search(who.guild, page.data.q, paging)
     )
+  })
+
+  // Quests. Posting and every transition is an event appended by the QuestQueue. Like the
+  // Archive, a guild that is not the caller's is indistinguishable from one that does not exist.
+  app.post('/guilds/:id/quests', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const body = postQuestInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const result = await postQuest(
+      { config: deps.config, queue: deps.quests },
+      who.guild,
+      body.data
+    )
+    if (!result.ok) {
+      return c.json({ error: result.error }, 422)
+    }
+    return c.json(result.quest, result.created ? 201 : 200)
+  })
+
+  async function questList(c: Context, dead: boolean): Promise<Response> {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    const page = questPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      state: c.req.query('state'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const paging = {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+    }
+    return c.json(
+      dead
+        ? await deps.quests.deadLetters(who.guild, paging)
+        : await deps.quests.list(who.guild, {
+            ...paging,
+            ...(page.data.state ? { state: page.data.state } : {}),
+          })
+    )
+  }
+
+  app.get('/guilds/:id/quests', (c) => questList(c, false))
+  app.get('/guilds/:id/quests/dead-letters', (c) => questList(c, true))
+
+  // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
+  app.post('/guilds/:id/events/ticket', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    return c.json(await deps.streamTickets.issue(who.guild))
   })
 
   // Guild config. Reads follow `callerGuild`. Writes need a real session: the dev header never
@@ -863,17 +954,24 @@ export function createApp(deps: AppDeps): Hono {
   app.get(
     '/guilds/:id/events',
     async (c, next) => {
-      const caller = await callerGuild(c)
+      const headerCaller = await callerGuild(c)
+      const presented = headerCaller ? null : presentedTicket(c)
+      const caller = headerCaller ?? presented?.guild ?? null
       if (!caller) {
         return c.json({ error: 'unauthenticated' }, 401)
       }
       if (c.req.param('id') !== caller) {
         return c.json({ error: 'not_found' }, 404)
       }
-      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap.
+      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap, and
+      // before spending the ticket so a refused (429) attempt does not burn it.
       const slot = hub.reserve(caller)
       if (!slot) {
         return c.json({ error: 'too_many_streams' }, 429)
+      }
+      if (presented && !(await deps.streamTickets.consume(presented.guild, presented.ticket))) {
+        slot()
+        return c.json({ error: 'unauthenticated' }, 401)
       }
       streamSlots.set(c.req.raw, slot)
       try {

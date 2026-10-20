@@ -5,6 +5,7 @@ import {
   type GuildConfig,
   guildConfig,
   hallAcceptsQuests,
+  questConcurrency,
 } from './guild-config'
 
 describe('seeded guild config', () => {
@@ -55,6 +56,24 @@ describe('classifyChange', () => {
     expect(classifyChange(base, { ...base, caps: { ...base.caps, dailySpendCents: 0 } })).toBe(
       'tightening'
     )
+  })
+  test('the Quest concurrency cap defaults, and raising it is widening', () => {
+    expect(questConcurrency(base)).toBe(4)
+    const raised = { ...base, caps: { ...base.caps, concurrentQuests: 9 } }
+    expect(questConcurrency(raised)).toBe(9)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+  })
+  test('adding a cap above the default is widening; removing one below it widens, from it or above tightens', () => {
+    const withCap = (n: number | undefined) => ({
+      ...base,
+      caps: { ...base.caps, ...(n === undefined ? {} : { concurrentQuests: n }) },
+    })
+    expect(classifyChange(withCap(undefined), withCap(5))).toBe('widening')
+    expect(classifyChange(withCap(2), withCap(undefined))).toBe('widening')
+    expect(classifyChange(withCap(9), withCap(undefined))).toBe('tightening')
+    expect(classifyChange(withCap(5), withCap(undefined))).toBe('tightening')
+    expect(classifyChange(withCap(4), withCap(undefined))).toBe('tightening')
   })
   test('flipping a provider privateEligible either way is widening', () => {
     const off = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: false }]

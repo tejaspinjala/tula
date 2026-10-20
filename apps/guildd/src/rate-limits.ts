@@ -11,6 +11,7 @@ export type RateRoute =
   | 'passkeys-finish'
   | 'founding'
   | 'reauth'
+  | 'stream-ticket'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -38,6 +39,12 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   founding: {
     client: { limit: 10, windowMs: MINUTE },
     unknown: { limit: 3, windowMs: MINUTE },
+  },
+  // Issued to a signed-in session; a person opens few streams, so the guild ceiling is modest.
+  'stream-ticket': {
+    client: { limit: 30, windowMs: MINUTE },
+    unknown: { limit: 10, windowMs: MINUTE },
+    guild: { limit: 60, windowMs: MINUTE },
   },
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {

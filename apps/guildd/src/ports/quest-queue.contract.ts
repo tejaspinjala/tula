@@ -1,0 +1,309 @@
+import { describe, expect, test } from 'bun:test'
+import type { MemoryClock } from '../adapters/memory-clock'
+import { type NewQuest, QuestError, type QuestQueue } from './quest-queue'
+
+/** A queue under test, with the controllable clock it reads. Jitter is fixed at 0.5 (a 750ms first retry). */
+export interface QuestQueueFixture {
+  queue: QuestQueue
+  clock: MemoryClock
+  newGuild: () => Promise<string>
+  /** The Quest event types appended for the guild so far, in order. */
+  events: (guildId: string) => Promise<string[]>
+}
+
+const LEASE = { leaseMs: 60_000, maxActive: 10 }
+
+let counter = 0
+function quest(overrides: Partial<NewQuest> = {}): NewQuest {
+  counter += 1
+  return {
+    jobKey: `job-${counter}-${crypto.randomUUID()}`,
+    templateId: 'herald-brief',
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    title: 'Draft the brief',
+    ownerId: 'heralds-member-2',
+    doneCondition: 'A draft brief is filed',
+    roundLimit: 2,
+    ...overrides,
+  }
+}
+
+/** The QuestQueue contract, run against every adapter. `make` returns a fresh queue. */
+export function questQueueContract(name: string, make: () => Promise<QuestQueueFixture>) {
+  describe(`QuestQueue contract: ${name}`, () => {
+    test('a posted Quest is queued with its owner, done-condition and round limit', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q, created } = await queue.post(g, quest({ roundLimit: 3 }))
+      expect(created).toBe(true)
+      expect(q).toMatchObject({
+        state: 'queued',
+        ownerId: 'heralds-member-2',
+        doneCondition: 'A draft brief is filed',
+        roundLimit: 3,
+        round: 0,
+        attempts: 0,
+        blockedBy: [],
+        leaseExpiresAt: null,
+      })
+      expect(await queue.get(g, q.id)).toEqual(q)
+    })
+
+    test('a repeated job key returns the original Quest, even same-tick', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const input = quest()
+      const results = await Promise.all(Array.from({ length: 8 }, () => queue.post(g, input)))
+      expect(results.filter((r) => r.created)).toHaveLength(1)
+      expect(new Set(results.map((r) => r.quest.id)).size).toBe(1)
+      const page = await queue.list(g, { limit: 100 })
+      expect(page.quests.filter((x) => x.jobKey === input.jobKey)).toHaveLength(1)
+    })
+
+    test('the same job key in two guilds is two Quests', async () => {
+      const { queue, newGuild } = await make()
+      const [a, b] = [await newGuild(), await newGuild()]
+      const input = quest()
+      const qa = await queue.post(a, input)
+      const qb = await queue.post(b, input)
+      expect([qa.created, qb.created]).toEqual([true, true])
+      expect(qa.quest.id).not.toBe(qb.quest.id)
+      expect(await queue.get(a, qb.quest.id)).toBeNull()
+    })
+
+    test('claiming leases a Quest to exactly one claimer, even same-tick', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const claims = await Promise.all(Array.from({ length: 8 }, () => queue.claim(g, LEASE)))
+      const won = claims.filter((c) => c !== null)
+      expect(won).toHaveLength(1)
+      expect(won[0]).toMatchObject({ state: 'active', attempts: 1 })
+    })
+
+    test('a second claim of a leased Quest is rejected', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      await queue.claim(g, { ...LEASE, questId: q.id })
+      await expect(queue.claim(g, { ...LEASE, questId: q.id })).rejects.toMatchObject({
+        code: 'already_claimed',
+      })
+      await expect(
+        queue.claim(g, { ...LEASE, questId: crypto.randomUUID() })
+      ).rejects.toBeInstanceOf(QuestError)
+    })
+
+    test('an expired lease is reclaimed as a new attempt and the old holder is stale', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const first = await queue.claim(g, LEASE)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      clock.advance(60_001)
+      const second = await queue.claim(g, LEASE)
+      expect(second).toMatchObject({ id: first?.id, attempts: 2 })
+      await expect(queue.complete(g, second?.id ?? '', 1)).rejects.toMatchObject({
+        code: 'stale_lease',
+      })
+    })
+
+    test('renewing extends the lease so the Quest is not reclaimed', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const q = await queue.claim(g, LEASE)
+      clock.advance(50_000)
+      await queue.renew(g, q?.id ?? '', 1, 60_000)
+      clock.advance(50_000)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+    })
+
+    test('completing twice has one effect', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const q = await queue.claim(g, LEASE)
+      const id = q?.id ?? ''
+      const [one, two] = await Promise.all([queue.complete(g, id, 1), queue.complete(g, id, 1)])
+      expect(one.state).toBe('done')
+      expect(two).toEqual(one)
+      expect(await queue.get(g, id)).toEqual(one)
+    })
+
+    test('submitting for a Seal holds the Quest and spends a round', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest({ roundLimit: 1 }))
+      const q = await queue.claim(g, LEASE)
+      const id = q?.id ?? ''
+      const held = await queue.submitForSeal(g, id, 1)
+      expect(held).toMatchObject({ state: 'awaiting_seal', round: 1, leaseExpiresAt: null })
+      expect(await queue.submitForSeal(g, id, 1)).toEqual(held)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      expect((await queue.complete(g, id, 1)).state).toBe('done')
+    })
+
+    test('each transition appends one event, and idempotent repeats append none', async () => {
+      const { queue, clock, events, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest({ roundLimit: 2, maxAttempts: 2 }))
+      await queue.post(g, { ...quest(), jobKey: q.jobKey })
+      await queue.claim(g, LEASE)
+      await queue.renew(g, q.id, 1, 60_000)
+      await queue.fail(g, q.id, 1, 'x')
+      await queue.fail(g, q.id, 1, 'x')
+      clock.advance(1000)
+      await queue.claim(g, LEASE)
+      await queue.submitForSeal(g, q.id, 2)
+      await queue.submitForSeal(g, q.id, 2)
+      await queue.complete(g, q.id, 2)
+      await queue.complete(g, q.id, 2)
+      expect(await events(g)).toEqual([
+        'quest.posted',
+        'quest.claimed',
+        'quest.retry_scheduled',
+        'quest.claimed',
+        'quest.awaiting_seal',
+        'quest.done',
+      ])
+      const d = (await queue.post(g, quest({ maxAttempts: 1 }))).quest
+      await queue.claim(g, LEASE)
+      await queue.fail(g, d.id, 1, 'x')
+      expect((await events(g)).slice(-3)).toEqual(['quest.posted', 'quest.claimed', 'quest.dead'])
+    })
+
+    test('a Quest whose lease lapses past its attempts is dead-lettered, not leased again', async () => {
+      const { queue, clock, events, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest({ maxAttempts: 2 }))
+      await queue.claim(g, LEASE)
+      clock.advance(60_001)
+      await queue.claim(g, LEASE)
+      clock.advance(60_001)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      expect((await queue.deadLetters(g, { limit: 10 })).quests.map((d) => d.id)).toEqual([q.id])
+      expect((await events(g)).at(-1)).toBe('quest.dead')
+    })
+
+    test('a blocker must exist in the same guild', async () => {
+      const { queue, newGuild } = await make()
+      const [a, b] = [await newGuild(), await newGuild()]
+      const other = await queue.post(b, quest())
+      await expect(
+        queue.post(a, quest({ blockedBy: [crypto.randomUUID()] }))
+      ).rejects.toMatchObject({ code: 'unknown_blocker' })
+      await expect(queue.post(a, quest({ blockedBy: [other.quest.id] }))).rejects.toMatchObject({
+        code: 'unknown_blocker',
+      })
+    })
+
+    test('after a newer delivery submits, an older delivery cannot complete the Quest', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      await queue.claim(g, LEASE)
+      clock.advance(60_001)
+      await queue.claim(g, LEASE)
+      await queue.submitForSeal(g, q.id, 2)
+      await expect(queue.complete(g, q.id, 1)).rejects.toMatchObject({ code: 'stale_lease' })
+      expect((await queue.complete(g, q.id, 2)).state).toBe('done')
+    })
+
+    test('a failed Quest is retried after a jittered delay', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const q = await queue.claim(g, LEASE)
+      const failed = await queue.fail(g, q?.id ?? '', 1, 'boom')
+      expect(failed).toMatchObject({ state: 'queued', lastError: 'boom' })
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      clock.advance(751)
+      expect(await queue.claim(g, LEASE)).toMatchObject({ id: q?.id, attempts: 2 })
+    })
+
+    test('a Quest that keeps failing lands in the dead-letter list', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: posted } = await queue.post(g, quest({ maxAttempts: 2 }))
+      for (const attempt of [1, 2]) {
+        clock.advance(10_000)
+        await queue.claim(g, LEASE)
+        await queue.fail(g, posted.id, attempt, `boom ${attempt}`)
+      }
+      const dead = await queue.deadLetters(g, { limit: 10 })
+      expect(dead.quests.map((d) => [d.id, d.state, d.lastError])).toEqual([
+        [posted.id, 'dead', 'boom 2'],
+      ])
+      clock.advance(1_000_000)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      const again = await queue.fail(g, posted.id, 2, 'boom 2')
+      expect(again.state).toBe('dead')
+    })
+
+    test('Quests of one Campaign are delivered one at a time, in posting order', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const first = await queue.post(g, quest({ campaignId: 'launch' }))
+      const second = await queue.post(g, quest({ campaignId: 'launch' }))
+      const other = await queue.post(g, quest({ campaignId: 'other' }))
+      const a = await queue.claim(g, LEASE)
+      const b = await queue.claim(g, LEASE)
+      expect([a?.id, b?.id]).toEqual([first.quest.id, other.quest.id])
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      await queue.complete(g, first.quest.id, 1)
+      expect((await queue.claim(g, LEASE))?.id).toBe(second.quest.id)
+    })
+
+    test('a Quest waits for the Quests that block it', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const blocker = await queue.post(g, quest())
+      await queue.post(g, quest({ blockedBy: [blocker.quest.id] }))
+      const first = await queue.claim(g, LEASE)
+      expect(first?.id).toBe(blocker.quest.id)
+      expect(await queue.claim(g, LEASE)).toBeNull()
+      await queue.complete(g, blocker.quest.id, 1)
+      expect(await queue.claim(g, LEASE)).not.toBeNull()
+    })
+
+    test('the concurrency cap bounds live leases, even same-tick', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      for (let i = 0; i < 5; i++) {
+        await queue.post(g, quest())
+      }
+      const claims = await Promise.all(
+        Array.from({ length: 5 }, () => queue.claim(g, { leaseMs: 60_000, maxActive: 2 }))
+      )
+      expect(claims.filter((c) => c !== null)).toHaveLength(2)
+    })
+
+    test('lists are paginated in posting order and filter by state', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const posted = []
+      for (let i = 0; i < 5; i++) {
+        posted.push((await queue.post(g, quest())).quest.id)
+      }
+      const p1 = await queue.list(g, { limit: 2 })
+      const p2 = await queue.list(g, { limit: 2, ...(p1.next ? { after: p1.next } : {}) })
+      const p3 = await queue.list(g, { limit: 2, ...(p2.next ? { after: p2.next } : {}) })
+      expect([...p1.quests, ...p2.quests, ...p3.quests].map((x) => x.id)).toEqual(posted)
+      expect(p3.next).toBeNull()
+      await queue.claim(g, LEASE)
+      expect((await queue.list(g, { limit: 10, state: 'active' })).quests).toHaveLength(1)
+    })
+
+    test('one guild never sees or touches another guild`s Quests', async () => {
+      const { queue, newGuild } = await make()
+      const [a, b] = [await newGuild(), await newGuild()]
+      const { quest: q } = await queue.post(a, quest())
+      expect((await queue.list(b, { limit: 100 })).quests).toEqual([])
+      expect(await queue.claim(b, LEASE)).toBeNull()
+      await expect(queue.complete(b, q.id, 1)).rejects.toMatchObject({ code: 'not_found' })
+    })
+  })
+}

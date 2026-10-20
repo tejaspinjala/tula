@@ -60,7 +60,17 @@ export const schedule = z.object({ id: slug, cron: z.string().trim().min(1).max(
 export const caps = z.object({
   dailyTokens: z.number().int().min(0).max(1_000_000_000_000),
   dailySpendCents: z.number().int().min(0).max(100_000_000),
+  /** Quests that may hold a live lease at once; {@link DEFAULT_CONCURRENT_QUESTS} when absent. */
+  concurrentQuests: z.number().int().min(1).max(1000).optional(),
 })
+
+/** The Quest concurrency cap of a config that does not set one. */
+export const DEFAULT_CONCURRENT_QUESTS = 4
+
+/** The guild's Quest concurrency cap: how many Quests may be leased at once. */
+export function questConcurrency(config: GuildConfig): number {
+  return config.caps.concurrentQuests ?? DEFAULT_CONCURRENT_QUESTS
+}
 
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
 export const guildConfig = z
@@ -201,7 +211,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     level(next.sealPolicy) <= level(prev.sealPolicy) &&
     next.caps.dailyTokens <= prev.caps.dailyTokens &&
     next.caps.dailySpendCents <= prev.caps.dailySpendCents &&
-    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents']) &&
+    questConcurrency(next) <= questConcurrency(prev) &&
+    othersSame(prev.caps, next.caps, ['dailyTokens', 'dailySpendCents', 'concurrentQuests']) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&

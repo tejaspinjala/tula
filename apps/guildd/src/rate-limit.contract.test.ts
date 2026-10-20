@@ -112,6 +112,17 @@ describe('rate limits on unauthenticated identity routes', () => {
     expect(third.headers.get('retry-after')).not.toBeNull()
   })
 
+  test('the stream ticket route answers 429 with Retry-After past its client limit', async () => {
+    const { post, found } = await harnessWith({ 'stream-ticket': { client: tight(2) } })
+    const { id } = await found()
+    const path = `/guilds/${id}/events/ticket`
+    expect((await post(path)).status).toBe(401)
+    expect((await post(path)).status).toBe(401)
+    const refused = await post(path)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
   test('X-Forwarded-For is ignored unless TRUST_PROXY is set', async () => {
     const { post, found } = await harnessWith({ 'signin-begin': { client: tight(2) } })
     const { id } = await found()

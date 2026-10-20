@@ -18,6 +18,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   founding: { client: NO_LIMIT },
   reauth: { client: NO_LIMIT },
+  'stream-ticket': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */
@@ -34,6 +35,8 @@ export interface HarnessOptions {
       | 'secrets'
       | 'config'
       | 'notes'
+      | 'quests'
+      | 'streamTickets'
       | 'objectStore'
       | 'keys'
       | 'anchor'
@@ -94,6 +97,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       secrets: composed.secrets,
       config: composed.config,
       notes: composed.notes,
+      quests: composed.quests,
+      streamTickets: composed.streamTickets,
       classifier: composed.classifier,
       routingLog: composed.routingLog,
       keys,
