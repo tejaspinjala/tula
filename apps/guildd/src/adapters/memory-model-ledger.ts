@@ -1,4 +1,5 @@
 import {
+  type HallDayTotals,
   isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
@@ -211,6 +212,14 @@ export class MemoryModelLedger implements ModelLedger {
 
   async dayTotals(guildId: string, day: string): Promise<Totals> {
     return this.totalsOf(this.state(guildId), day)
+  }
+
+  async hallDayTotals(
+    _guildId: string,
+    _hallId: string,
+    _range: { from: string; to: string }
+  ): Promise<HallDayTotals[]> {
+    throw new Error('not implemented')
   }
 
   async report(

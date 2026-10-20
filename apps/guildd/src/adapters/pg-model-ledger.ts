@@ -3,6 +3,7 @@ import type { Db } from '../db/client'
 import { appendEvent } from '../events'
 import type { KeyProvider } from '../ports/key-provider'
 import {
+  type HallDayTotals,
   isUsageDate,
   MAX_USAGE_PAGE,
   type ModelLedger,
@@ -232,6 +233,14 @@ export class PgModelLedger implements ModelLedger {
     )
     const parsed = totalsRow.parse(row)
     return { tokens: parsed.tokens, costMicros: parsed.cost_micros }
+  }
+
+  async hallDayTotals(
+    _guildId: string,
+    _hallId: string,
+    _range: { from: string; to: string }
+  ): Promise<HallDayTotals[]> {
+    throw new Error('not implemented')
   }
 
   async report(
