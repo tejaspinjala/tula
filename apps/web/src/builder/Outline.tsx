@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Badge } from '../Badge'
+import { capBadge } from './caps'
 import type { Overlays } from './graph'
 import type { BuilderConfig } from './model'
 
@@ -44,7 +45,9 @@ export function Outline({ config, overlays, issues, selected, onSelect }: Outlin
         <ul aria-label="Halls">
           {config.halls.map((hall) => (
             <li key={hall.id} data-node-id={hall.id}>
-              {name(hall.id, hall.name)} {hall.locked && <Badge tone="neutral">Locked</Badge>}{' '}
+              {name(hall.id, hall.name)}{' '}
+              <Badge tone="neutral">{`Members ${capBadge(overlays.claimed.get(hall.id) ?? 0, hall)}`}</Badge>{' '}
+              {hall.locked && <Badge tone="neutral">Locked</Badge>}{' '}
               {overlays.pausedHalls.has(hall.id) && <Badge tone="warn">Hall paused</Badge>}{' '}
               {overlays.barred && <Badge tone="danger">Gates barred</Badge>}
               {problems(hall.id)}
