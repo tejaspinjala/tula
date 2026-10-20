@@ -5,6 +5,7 @@ import {
   fetchGuild,
   foundingOpen,
   type PasskeyBrowser,
+  restoreSession,
   type Session,
   webAuthnBrowser,
 } from './passkeys'
@@ -18,6 +19,7 @@ import { SignInPanel } from './SignInPanel'
 export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } = {}) {
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
+  const [restored, setRestored] = useState(false)
 
   const [founding, setFounding] = useState<FoundingState>('closed')
   const [guild, setGuild] = useState<{ id: string; name: string } | null>(null)
@@ -30,6 +32,13 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   }, [])
 
   useEffect(() => {
+    restoreSession(fetch).then((found) => {
+      setSession((current) => current ?? found)
+      setRestored(true)
+    })
+  }, [])
+
+  useEffect(() => {
     setGuild(null)
     if (session) {
       fetchGuild(session, fetch)
@@ -37,6 +46,10 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
         .catch(() => setGuild({ id: session.guildId, name: '' }))
     }
   }, [session])
+
+  if (!session && !restored) {
+    return <p role="status">Checking your session...</p>
+  }
 
   if (!session) {
     return (

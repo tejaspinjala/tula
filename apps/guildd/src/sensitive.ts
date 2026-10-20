@@ -1,5 +1,4 @@
-import type { MiddlewareHandler } from 'hono'
-import type { IdentityProvider, Principal } from './ports/identity'
+import type { Principal } from './ports/identity'
 
 /** Request header carrying the re-authentication proof for a sensitive action. */
 export const REAUTH_HEADER = 'x-reauth-proof'
@@ -38,15 +37,4 @@ export async function checkSensitive<P extends { guildId: string } = Principal>(
     return { ok: false, status: 403, error: 'reauth_required' }
   }
   return { ok: true, guildId: session.guildId, principal: session }
-}
-
-/** Hono middleware form of {@link checkSensitive}: rejects with 401/403 before the handler runs. */
-export function sensitiveAction(identity: IdentityProvider): MiddlewareHandler {
-  return async (c, next) => {
-    const check = await checkSensitive(identity, c.req.raw.headers)
-    if (!check.ok) {
-      return c.json({ error: check.error }, check.status)
-    }
-    await next()
-  }
 }

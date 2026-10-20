@@ -418,6 +418,16 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return this.store.findMember(guildId, memberId)
   }
 
+  async revokeSession(sessionToken: string): Promise<void> {
+    const live = await this.liveSession(sessionToken)
+    if (live) {
+      await this.store.endSession(live.guildId, live.session.id, this.config.clock.now(), {
+        type: 'identity.signed_out',
+        payload: { sessionId: live.session.id },
+      })
+    }
+  }
+
   async checkReauth(sessionToken: string, proof: string): Promise<boolean> {
     const live = await this.liveSession(sessionToken)
     return live ? this.proofMatches(live.session, proof) : false

@@ -10,7 +10,7 @@ import { LearningPanel } from './LearningPanel'
 import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
-import type { Session } from './passkeys'
+import { endSession, type Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
 import { useRoute, VIEWS, type ViewId } from './router'
@@ -131,7 +131,8 @@ export function Shell({
       ?.querySelector<HTMLElement>('[aria-current="page"]')
       ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [active])
-  const signOut = () => {
+  const signOut = async () => {
+    await endSession(fetch)
     navigate('/')
     onSession(null)
   }

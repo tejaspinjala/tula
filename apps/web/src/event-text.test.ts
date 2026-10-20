@@ -49,12 +49,12 @@ const cases: Array<[ReplayEvent, string]> = [
   [ev('quest.posted', { questId: 'q1', hallId: 'h1' }), 'Quest q1 posted to Hall h1'],
   [ev('quest.claimed', { questId: 'q1', hallId: 'h1' }), 'Quest q1 claimed in Hall h1'],
   [
-    ev('missive.sent', { from: 'ana', to: 'hall', hall: 'h1', excerpt: 'Ready when you are' }),
-    'ana sent a Missive to the Hall in Hall h1: Ready when you are',
+    ev('missive.sent', { missiveId: 'x1', from: 'ana', to: 'hall', hall: 'h1' }),
+    'ana sent a Missive to the Hall in Hall h1',
   ],
   [
-    ev('missive.sent', { from: 'ana', to: 'bo', hall: 'h1', excerpt: 'Which tone?' }),
-    'ana sent a Missive to bo in Hall h1: Which tone?',
+    ev('missive.sent', { missiveId: 'x2', from: 'ana', to: 'bo', hall: 'h1' }),
+    'ana sent a Missive to bo in Hall h1',
   ],
   [ev('quest.awaiting_seal', { questId: 'q1', hallId: 'h1' }), 'Quest q1 is awaiting a Seal'],
   [ev('quest.done', { questId: 'q1', hallId: 'h1' }), 'Quest q1 done'],

@@ -2,6 +2,7 @@ import { type DragEvent, useCallback, useEffect, useMemo, useState } from 'react
 import type { Fetcher } from '../artifacts'
 import { loadGates } from '../gates'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
+import { loadQuests } from '../quests'
 import { loadTripwires } from '../tripwires'
 import {
   type ConfigIssue,
@@ -51,7 +52,18 @@ function useDesktop(forced: boolean | undefined): boolean {
   return forced ?? wide
 }
 
-const noOverlays: Overlays = { pausedHalls: new Set(), barred: false }
+const noOverlays: Overlays = { pausedHalls: new Set(), claimed: new Map(), barred: false }
+
+/** Counts active Quests per Hall: the live usage against each member cap. */
+function activePerHall(quests: readonly { hallId: string; state: string }[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const q of quests) {
+    if (q.state === 'active') {
+      counts.set(q.hallId, (counts.get(q.hallId) ?? 0) + 1)
+    }
+  }
+  return counts
+}
 const noIssues: ReadonlyMap<string, string[]> = new Map()
 
 function startDrag(piece: string) {
@@ -94,10 +106,12 @@ export function BuilderPanel({
     Promise.all([
       loadTripwires(session, fetcher).catch(() => null),
       loadGates(session, fetcher).catch(() => null),
-    ]).then(([tripwires, gates]) => {
+      loadQuests(session, fetcher).catch(() => []),
+    ]).then(([tripwires, gates, quests]) => {
       if (live) {
         setOverlays({
           pausedHalls: new Set(tripwires?.pauses.map((p) => p.hallId)),
+          claimed: activePerHall(quests),
           barred: Boolean(gates?.guild || gates?.global),
         })
       }
@@ -238,7 +252,13 @@ export function BuilderPanel({
               onMove={(id, to) => edit(moveMember(draft, id, to))}
               onDropPiece={dropPiece}
             />
-            <Inspector config={draft} selected={selected} onChange={edit} onSelect={setSelected} />
+            <Inspector
+              saved={saved}
+              config={draft}
+              selected={selected}
+              onChange={edit}
+              onSelect={setSelected}
+            />
           </div>
           <details open className="builder-outline">
             <summary>Outline (keyboard access to every node)</summary>
