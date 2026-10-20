@@ -26,6 +26,7 @@ import {
 import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
+import type { WorkflowStore } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
 import { chooseHallOwner, QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
@@ -69,6 +70,8 @@ export interface McpGatewayDeps {
   /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
   proposals: ProposalEngine
   keys: KeyProvider
+  /** Reads a workflow Quest's node, so its brief template reaches the Brief; absent, none does. */
+  workflows?: Pick<WorkflowStore, 'getInstance' | 'getVersion'>
   clock: Clock
   /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
   gates: Pick<GateStore, 'isBarred'>
