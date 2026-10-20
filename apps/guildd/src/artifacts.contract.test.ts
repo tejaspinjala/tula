@@ -154,3 +154,45 @@ describe('artifact limits', () => {
     }
   })
 })
+
+describe('artifact events reach live streams', () => {
+  test('artifact.stored is pushed within a second even with a long fallback poll', async () => {
+    const live = await createHarness({ app: { eventPollMs: 10_000 } })
+    try {
+      const guild = await live.adapters.db.foundGuild({ name: 'Live', goal: 'g' })
+      const ws = new WebSocket(`${live.listen()}/guilds/${guild}/events`, {
+        headers: { 'x-guild-id': guild },
+      } as never)
+      const types: string[] = []
+      const seen = new Promise<void>((resolve) => {
+        ws.onmessage = (m) => {
+          const frame = JSON.parse(String(m.data))
+          if (frame.type === 'event') {
+            types.push(frame.event.type)
+          }
+          if (types.includes('artifact.stored')) {
+            resolve()
+          }
+        }
+      })
+      await new Promise((r) => {
+        ws.onopen = r
+      })
+      await Bun.sleep(300)
+      const res = await live.request('/artifacts?class=report', {
+        method: 'PUT',
+        headers: { 'x-guild-id': guild },
+        body: enc('live bytes'),
+      })
+      expect(res.status).toBe(201)
+      const outcome = await Promise.race([
+        seen.then(() => 'seen'),
+        Bun.sleep(1000).then(() => 'late'),
+      ])
+      ws.close()
+      expect(outcome).toBe('seen')
+    } finally {
+      await live.close()
+    }
+  })
+})

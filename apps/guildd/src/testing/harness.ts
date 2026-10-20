@@ -13,7 +13,9 @@ export interface HarnessOptions {
   /** Whether `x-guild-id` identifies the caller; defaults to true in tests. */
   devGuildHeader?: boolean
   /** Adapter or limit overrides for the app (db and clock are managed by the harness). */
-  app?: Partial<Pick<AppDeps, 'objectStore' | 'objectStoreTimeoutMs' | 'maxArtifactBytes'>>
+  app?: Partial<
+    Pick<AppDeps, 'objectStore' | 'objectStoreTimeoutMs' | 'maxArtifactBytes' | 'eventPollMs'>
+  >
 }
 
 const DEFAULT_URL = 'postgres://guildhall:guildhall@localhost:5432/guildhall'
@@ -63,7 +65,7 @@ export async function createHarness(options: HarnessOptions = {}) {
     ...options.app,
     objectStore,
     devGuildHeader: options.devGuildHeader ?? true,
-    eventPollMs: 25,
+    eventPollMs: options.app?.eventPollMs ?? 25,
   })
   const servers: Array<ReturnType<typeof Bun.serve>> = []
   return {
