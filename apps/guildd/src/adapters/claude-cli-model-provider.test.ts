@@ -31,6 +31,36 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
   return 'resolved'
 }
 
+const window = z.object({ start: z.number(), end: z.number() })
+
+describe('ClaudeCliModelProvider concurrency cap', () => {
+  const run = async (provider: ClaudeCliModelProvider, n: number) =>
+    (await Promise.all(Array.from({ length: n }, () => provider.complete(secret, call('slow')))))
+      .map((r) => window.parse(JSON.parse(r.text)))
+      .sort((a, b) => a.start - b.start)
+
+  test('at most maxConcurrent children run at once; the rest wait their turn', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE, maxConcurrent: 1 })
+    const [a, b, c] = await run(provider, 3)
+    expect(b?.start).toBeGreaterThanOrEqual(a?.end ?? Number.POSITIVE_INFINITY)
+    expect(c?.start).toBeGreaterThanOrEqual(b?.end ?? Number.POSITIVE_INFINITY)
+  })
+
+  test('with room for two, the first two overlap', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE, maxConcurrent: 2 })
+    const [a, b, c] = await run(provider, 3)
+    expect(b?.start).toBeLessThan(a?.end ?? 0)
+    expect(c?.start).toBeGreaterThanOrEqual(Math.min(a?.end ?? 0, b?.end ?? 0))
+  })
+
+  test('a call that waits past its deadline for a slot fails with timeout', async () => {
+    const provider = new ClaudeCliModelProvider({ bin: FAKE, maxConcurrent: 1, queueTimeoutMs: 50 })
+    const first = provider.complete(secret, call('slow'))
+    expect(await codeOf(provider.complete(secret, call('slow')))).toBe('timeout')
+    await first
+  })
+})
+
 describe('ClaudeCliModelProvider failures', () => {
   const provider = new ClaudeCliModelProvider({
     bin: FAKE,
