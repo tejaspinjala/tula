@@ -168,6 +168,12 @@ export interface QuestQueue {
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
   fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest>
+  /**
+   * Releases the lease of every active Quest of the guild without spending an attempt: each goes
+   * back to `queued`, deliverable at once, with `reason` as its last error. Atomic and idempotent;
+   * returns how many it released. Used when the Gates are barred and the workers were killed.
+   */
+  releaseLeases(guildId: string, reason: FailReason): Promise<number>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */

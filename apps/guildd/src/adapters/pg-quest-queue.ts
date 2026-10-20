@@ -9,6 +9,7 @@ import {
   completeTransition,
   dataClass,
   expireTransition,
+  type FailReason,
   failReason,
   failTransition,
   isExhausted,
@@ -252,6 +253,10 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) =>
       failTransition(q, attempt, error, this.clock.now(), retryDelayMs(q.attempts, this.random()))
     )
+  }
+
+  async releaseLeases(_guildId: string, _reason: FailReason): Promise<number> {
+    throw new Error('not implemented')
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {
