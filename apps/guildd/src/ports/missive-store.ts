@@ -4,9 +4,6 @@ export const MAX_MISSIVE_CHARS = 2000
 /** Largest page a {@link MissiveStore} list returns. */
 export const MAX_MISSIVE_PAGE = 100
 
-/** Characters of a Missive's text that its `missive.sent` event carries. */
-export const MISSIVE_EXCERPT_CHARS = 80
-
 /** The addressee that reaches every Member of the sender's Hall. */
 export const WHOLE_HALL = 'hall'
 
@@ -72,10 +69,4 @@ export interface MissiveStore {
   send(guildId: string, input: NewMissive): Promise<SendResult>
   /** One page of a Hall's Missives, newest first. */
   list(guildId: string, query: MissiveQuery): Promise<MissivePage>
-}
-
-/** The short text a `missive.sent` event carries in place of the whole message. */
-export function missiveExcerpt(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > MISSIVE_EXCERPT_CHARS ? `${flat.slice(0, MISSIVE_EXCERPT_CHARS - 1)}…` : flat
 }

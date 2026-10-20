@@ -7,7 +7,6 @@ import {
   type MissivePage,
   type MissiveQuery,
   type MissiveStore,
-  missiveExcerpt,
   type NewMissive,
   type SendResult,
   WHOLE_HALL,
@@ -42,7 +41,7 @@ function toMissive(r: unknown): Missive {
 /**
  * Postgres {@link MissiveStore}: every call runs in `Db.withGuild`, so RLS scopes it to one guild.
  * A send takes a per-Quest advisory lock, so the cap and the idempotency check hold under
- * concurrent sends, and appends `missive.sent` (ids and a short excerpt) in the same transaction.
+ * concurrent sends, and appends `missive.sent` (ids only, never the text) in the same transaction.
  */
 export class PgMissiveStore implements MissiveStore {
   constructor(
@@ -74,13 +73,14 @@ export class PgMissiveStore implements MissiveStore {
         values (${guildId}, ${input.hallId}, ${input.questId}, ${input.from}, ${input.to},
           ${input.text}, ${input.at}, ${dedupe})
         returning *`
+      const missive = toMissive(created)
       await appendEvent(tx, this.keys, 'missive.sent', {
+        missiveId: missive.id,
         from: input.from,
         to: input.to,
         hall: input.hallId,
-        excerpt: missiveExcerpt(input.text),
       })
-      return { ok: true, missive: toMissive(created), created: true }
+      return { ok: true, missive, created: true }
     })
   }
 

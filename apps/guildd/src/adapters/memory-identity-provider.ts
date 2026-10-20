@@ -182,6 +182,21 @@ export class MemoryIdentityStore implements IdentityStore {
     return this.sessions.get(`${guildId}/${tokenHash}`) ?? null
   }
 
+  async endSession(guildId: string, sessionId: string, at: Date, event: IdentityEvent) {
+    for (const [key, session] of this.sessions) {
+      if (key.startsWith(`${guildId}/`) && session.id === sessionId) {
+        this.sessions.set(key, {
+          ...session,
+          expiresAt: at,
+          reauthHash: null,
+          reauthExpiresAt: null,
+        })
+        this.record(guildId, event)
+        return
+      }
+    }
+  }
+
   async setReauth(
     guildId: string,
     sessionId: string,
