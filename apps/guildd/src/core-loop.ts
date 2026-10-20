@@ -58,6 +58,7 @@ export async function reconcileSeals(
 /** Collaborators of {@link requestQuestSeal}. */
 export interface SealRequestDeps {
   quests: Pick<QuestQueue, 'settleSeal'>
+  sealStore: Pick<SealStore, 'forQuest'>
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealEngine, 'requestSeal'>
 }
@@ -71,7 +72,9 @@ export type QuestSealOutcome =
 /**
  * Asks for the Seal of a Quest held in `awaiting_seal`, gated on the Verdict bound to the hash of
  * its latest Proposal. Passed: the Seal is requested for exactly that text and the Quest's round.
- * Failed: the Quest is settled as rejected (a revision round, or the dead letters). Deterministic.
+ * Failed: the Quest is settled as rejected (a revision round, or the dead letters). A revision
+ * round whose latest Proposal is still the text the previous round's Seal bound is settled
+ * rejected as `no_revision`, so a denied hash is never asked for twice. Deterministic.
  */
 export async function requestQuestSeal(
   deps: SealRequestDeps,
@@ -81,6 +84,16 @@ export async function requestQuestSeal(
   const proposal = await deps.proposals.latestForQuest(guildId, quest.id)
   if (!proposal) {
     return { outcome: 'no_proposal' }
+  }
+  // The previous round's Seal already bound this exact text: no new Proposal followed the denial
+  // (or expiry), so there is nothing new to ask a Seal for. Compared by hash, not by clock, so two
+  // writes in one instant cannot be mistaken for a revision.
+  const previous = await deps.sealStore.forQuest(guildId, quest.id)
+  if (previous && previous.round < quest.round && proposal.hash === previous.actionHash) {
+    return {
+      outcome: 'rejected',
+      quest: await deps.quests.settleSeal(guildId, quest.id, 'rejected', { reason: 'no_revision' }),
+    }
   }
   const verdict = await deps.proposals.verdictFor(guildId, proposal.hash)
   if (!verdict?.passed) {

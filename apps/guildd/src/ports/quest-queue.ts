@@ -99,6 +99,11 @@ export function failReason(value: string): FailReason {
   return FAIL_REASONS.find((r) => r === value) ?? 'unknown'
 }
 
+/** Options of {@link QuestQueue.settleSeal}: the coded reason a rejection records (default `seal_rejected`). */
+export interface SealSettleOptions {
+  reason?: FailReason
+}
+
 /** How a Seal ended for the Quest that asked: consumed or posted, or denied or expired. */
 export type SealOutcome = 'posted' | 'rejected'
 
@@ -181,7 +186,12 @@ export interface QuestQueue {
    * a Quest no longer `awaiting_seal` is returned unchanged. A Quest in any state but
    * `awaiting_seal`, `done`, `queued` or `dead` is `invalid_state`.
    */
-  settleSeal(guildId: string, id: string, outcome: SealOutcome): Promise<Quest>
+  settleSeal(
+    guildId: string,
+    id: string,
+    outcome: SealOutcome,
+    opts?: SealSettleOptions
+  ): Promise<Quest>
   /** Marks the Quest done. Idempotent: finishing a done Quest changes nothing. */
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
@@ -389,7 +399,13 @@ export function killTransition(quest: Quest, attempt: number, reason: string): T
  * dead-letters it when `round >= roundLimit`. Anything not `awaiting_seal` is returned unchanged
  * when it already left that state by this route (done, queued, dead), else `invalid_state`.
  */
-export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Date): Transition {
+export function sealSettleTransition(
+  quest: Quest,
+  outcome: SealOutcome,
+  now: Date,
+  opts: SealSettleOptions = {}
+): Transition {
+  const reason = opts.reason ?? 'seal_rejected'
   if (quest.state !== 'awaiting_seal') {
     if (quest.state === 'active') {
       throw new QuestError('invalid_state')
@@ -401,7 +417,7 @@ export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Da
   }
   if (quest.round >= quest.roundLimit) {
     return {
-      quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'seal_rejected' },
+      quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: reason },
       event: 'quest.dead',
     }
   }
@@ -410,7 +426,7 @@ export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Da
       ...quest,
       state: 'queued',
       leaseExpiresAt: null,
-      lastError: 'seal_rejected',
+      lastError: reason,
       notBefore: now.toISOString(),
     },
     event: 'quest.retry_scheduled',
