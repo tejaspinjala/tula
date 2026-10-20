@@ -302,10 +302,28 @@ export const guildConfig = z
     }
   })
 
-/** Wraps `write` so a message already seen is not written again (placeholder: passes everything). */
+/** Most distinct messages {@link warnOnce} remembers, so the dedupe set stays bounded. */
+const MAX_REMEMBERED_WARNINGS = 100
+
+/** Wraps `write` so a message already seen is not written again (bounded memory: oldest forgotten). */
 export function warnOnce(write: (message: string) => void): (message: string) => void {
-  return write
+  const seen = new Set<string>()
+  return (message) => {
+    if (seen.has(message)) {
+      return
+    }
+    if (seen.size >= MAX_REMEMBERED_WARNINGS) {
+      seen.clear()
+    }
+    seen.add(message)
+    write(message)
+  }
 }
+
+/** Unknown-key paths named in one stored-config warning. */
+const MAX_WARNED_KEYS = 10
+
+const warnToStderr = warnOnce((m) => process.stderr.write(`${m}\n`))
 
 /**
  * Parses a config read back from storage. Writes are strict, but a config stored before a key was
@@ -314,7 +332,7 @@ export function warnOnce(write: (message: string) => void): (message: string) =>
  */
 export function parseStoredConfig(
   raw: unknown,
-  warn: (message: string) => void = (m) => process.stderr.write(`${m}\n`)
+  warn: (message: string) => void = warnToStderr
 ): GuildConfig {
   const strict = guildConfig.safeParse(raw)
   if (strict.success) {
@@ -338,7 +356,10 @@ export function parseStoredConfig(
   }
   if (unknown.length > 0) {
     const paths = unknown.flatMap(({ path, keys }) => keys.map((k) => [...path, k].join('.')))
-    warn(`stored guild config has unknown keys, ignored: ${paths.join(', ')}`)
+    // JSON.stringify escapes newlines, so a hostile key cannot forge a log line.
+    const shown = paths.slice(0, MAX_WARNED_KEYS).map((p) => JSON.stringify(p))
+    const more = paths.length > shown.length ? ` and ${paths.length - shown.length} more` : ''
+    warn(`stored guild config has unknown keys, ignored: ${shown.join(', ')}${more}`)
   }
   return guildConfig.parse(cleaned)
 }
