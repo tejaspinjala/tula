@@ -14,6 +14,14 @@ export interface EgressProxyOptions {
   allowedHosts: readonly string[]
   /** Longest an upstream connection may take to open, in ms. Defaults to 5000. */
   connectTimeoutMs?: number
+  /** Most simultaneous client connections. */
+  maxConnections?: number
+  /** A tunnel with no traffic for this long is closed, in ms. */
+  tunnelIdleMs?: number
+  /** A tunnel is closed after this long however busy, in ms. */
+  tunnelMaxMs?: number
+  /** Longest wait for an upstream response (a slow model reply), in ms. */
+  responseIdleMs?: number
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
