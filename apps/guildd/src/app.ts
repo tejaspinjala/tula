@@ -25,7 +25,7 @@ import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
-import { IdentityError, type IdentityProvider } from './ports/identity'
+import { IdentityError, type IdentityProvider, type IdentitySession } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
 import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
@@ -60,6 +60,12 @@ import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
+import {
+  clearedSessionCookie,
+  sessionCookie,
+  sessionCookieAuth,
+  wantsCookie,
+} from './session-cookie'
 import type { Summon } from './summon'
 import { startTeamCampaign, startTeamCampaignInput } from './team-campaign'
 import { isGuildMaster, type Treasury } from './treasury'
@@ -365,6 +371,7 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
+  app.use('*', sessionCookieAuth(deps.trustProxy ?? false))
   // Releases a reserved stream slot once the socket opens; keyed by the upgrade request.
   const streamSlots = new WeakMap<Request, () => void>()
   const maxBytes = deps.maxArtifactBytes ?? MAX_ARTIFACT_BYTES
@@ -625,7 +632,7 @@ export function createApp(deps: AppDeps): Hono {
       body.data.challengeId,
       body.data.response
     )
-    return c.json(session)
+    return sessionResponse(c, session)
   })
 
   // Usernameless sign-in: the authenticator offers a discoverable credential, and the guild is
@@ -639,9 +646,42 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    return c.json(
+    return sessionResponse(
+      c,
       await deps.identity.finishDiscoverableSignIn(body.data.challengeId, body.data.response)
     )
+  })
+
+  /**
+   * A browser asks for a cookie session (`x-session-mode: cookie`) and never receives the token
+   * in the body; any other client gets the bearer token as before.
+   */
+  function sessionResponse(c: Context, session: IdentitySession): Response {
+    if (!wantsCookie(c)) {
+      return c.json(session)
+    }
+    const seconds = (session.expiresAt.getTime() - deps.clock.now().getTime()) / 1000
+    c.header('Set-Cookie', sessionCookie(c, deps.trustProxy ?? false, session.token, seconds))
+    return c.json({ guildId: session.guildId, expiresAt: session.expiresAt })
+  }
+
+  // Who the cookie (or bearer) session is; a reloaded page asks this before showing anything.
+  app.get('/session', async (c) => {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    return session
+      ? c.json({ guildId: session.guildId })
+      : c.json({ error: 'unauthenticated' }, 401)
+  })
+
+  // Sign-out: revokes the session server-side and clears the cookie. Idempotent.
+  app.post('/session/logout', async (c) => {
+    const token = bearerToken(c.req.header('authorization'))
+    if (token) {
+      await deps.identity.revokeSession(token)
+    }
+    c.header('Set-Cookie', clearedSessionCookie(c, deps.trustProxy ?? false))
+    return c.body(null, 204)
   })
 
   app.post('/session/reauth/begin', async (c) => {
