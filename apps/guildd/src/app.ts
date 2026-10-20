@@ -150,6 +150,8 @@ export interface AppDeps {
   rateLimiter: RateLimiter
   /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
   trustProxy?: boolean
+  /** Who may found a guild (env `FOUNDING_MODE`): `open` (default), `once` or `closed`. */
+  foundingMode?: 'open' | 'once' | 'closed'
   /** Per-route limit overrides; defaults to {@link DEFAULT_RATE_LIMITS}. */
   rateLimits?: Partial<RateLimits>
   /** Milliseconds between fallback polls for missed notifications; defaults to 5000. */

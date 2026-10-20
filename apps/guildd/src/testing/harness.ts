@@ -83,6 +83,7 @@ export interface HarnessOptions {
       | 'rateLimiter'
       | 'rateLimits'
       | 'trustProxy'
+      | 'foundingMode'
     >
   >
 }
