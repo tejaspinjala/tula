@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
 import {
+  campaignQuestCap,
   hallAcceptsQuests,
+  hallCaps,
   questConcurrency,
   spawnChildrenCap,
   spawnDepthCap,
@@ -39,6 +41,7 @@ import {
   MAX_PROPOSALS_PER_QUEST,
   MAX_TOOL_ARTIFACT_BYTES,
   MCP_PROTOCOL_VERSION,
+  postToBoardArgs,
   putArtifactArgs,
   readArchiveArgs,
   readBriefArgs,
@@ -359,6 +362,8 @@ export class McpGateway {
         return this.submitProposal(caller, submitProposalArgs.parse(args))
       case 'spawn_subquest':
         return this.spawnSubquest(caller, spawnSubquestArgs.parse(args))
+      case 'post_to_board':
+        return this.postToBoard(caller, postToBoardArgs.parse(args))
       case 'await_children':
         return this.awaitChildren(caller, awaitChildrenArgs.parse(args).mode)
       case 'child_results':
@@ -457,6 +462,7 @@ export class McpGateway {
       claimed = await this.deps.quests.claim(guild, {
         leaseMs: this.leaseMs,
         maxActive: questConcurrency(config),
+        hallCaps: hallCaps(config),
         questId: quest.id,
       })
     } catch (error) {
@@ -656,6 +662,82 @@ export class McpGateway {
       return spawned.ok
         ? ok({ childId: spawned.quest.id, depth: spawned.link.depth, created: spawned.created })
         : refuse(spawned.error)
+    } catch (error) {
+      if (error instanceof QuestError) {
+        return refuse(error.code)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * A Captain posts a Quest to their own Hall's Quest Board under their Campaign. The Hall and the
+   * Campaign come from the leased Quest, never from the arguments; only the Hall's Captain may post
+   * (`captain_only`); the Campaign cap is the guild's current one and is enforced with the write.
+   * The owner is a Member of the template's rank, spread by the request's hash, else the Captain.
+   */
+  private async postToBoard(
+    caller: Caller,
+    a: z.infer<typeof postToBoardArgs>
+  ): Promise<ToolReply> {
+    const { guild, quest } = caller
+    const template = QUEST_TEMPLATES.find((t) => t.id === a.template)
+    if (!template) {
+      return refuse('unknown_template')
+    }
+    const { config } = await this.deps.config.current(guild)
+    const hall = config.halls.find((h) => h.id === quest.hallId)
+    if (!hall || hall.captain?.id !== caller.member) {
+      return refuse('captain_only')
+    }
+    if (quest.campaignId === null) {
+      return refuse('no_campaign')
+    }
+    const accepts = hallAcceptsQuests(config, hall.id)
+    if (!accepts.ok) {
+      return refuse(accepts.error)
+    }
+    if (await this.deps.tripwires.isPaused(guild, hall.id)) {
+      return refuse('hall_paused')
+    }
+    const blockedBy = [...new Set(a.blockedBy ?? [])]
+    for (const id of blockedBy) {
+      const blocker = await this.deps.quests.get(guild, id)
+      if (!blocker || blocker.campaignId !== quest.campaignId || blocker.hallId !== hall.id) {
+        return refuse('unknown_blocker')
+      }
+    }
+    const briefHash = hashBytes(
+      new TextEncoder().encode(JSON.stringify([a.title, a.brief, a.template, blockedBy]))
+    )
+    const members = hall.members.filter((m) => m.rank === template.rank)
+    const ownerId =
+      members.length === 0
+        ? caller.member
+        : (members[Number.parseInt(briefHash.slice(0, 8), 16) % members.length]?.id ??
+          caller.member)
+    try {
+      const posted = await this.deps.quests.postBoard(guild, {
+        parentId: quest.id,
+        attempt: quest.attempts,
+        jobKey: `board:${quest.id}:${quest.attempts}:${briefHash}`,
+        campaignId: quest.campaignId,
+        quest: {
+          templateId: template.id,
+          hallId: hall.id,
+          rank: template.rank,
+          dataClass: stricter(quest.dataClass, template.dataClass),
+          title: a.title,
+          ownerId,
+          doneCondition: a.brief,
+          roundLimit: template.roundLimit,
+          blockedBy,
+        },
+        maxQuests: campaignQuestCap(config),
+      })
+      return posted.ok
+        ? ok({ questId: posted.quest.id, created: posted.created })
+        : refuse(posted.error)
     } catch (error) {
       if (error instanceof QuestError) {
         return refuse(error.code)

@@ -5,6 +5,7 @@ import type { MemoryModelProvider } from './adapters/memory-model-provider'
 import { costPerPost } from './cost-per-post'
 import type { Dispatcher } from './dispatch'
 import type { Gates } from './gates'
+import { defaultConfig } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { ModelLedger } from './ports/model-ledger'
@@ -24,6 +25,17 @@ export interface GuildOptions {
   contentPolicy?: ContentPolicy
   /** Daily caps; zero exhausts the budget so routing blocks transiently. */
   caps?: { dailyTokens: number; dailySpendCents: number }
+  /** The Heralds Hall's `maxConcurrentMembers`. */
+  memberCap?: number
+}
+
+/** The default Halls with the Heralds Hall's member cap from `options`; both worlds build their config from it. */
+export function hallsFor(options: GuildOptions): ReturnType<typeof defaultConfig>['halls'] {
+  return defaultConfig().halls.map((h) =>
+    h.id === 'heralds' && options.memberCap !== undefined
+      ? { ...h, maxConcurrentMembers: options.memberCap }
+      : h
+  )
 }
 
 /** Everything the end-to-end suite drives: the real engines over memory or Postgres adapters. */
@@ -424,6 +436,89 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         const fresh = runIdFor(parent.id, resumed?.attempts ?? 0)
         expect(fresh).not.toBe(runIdFor(parent.id, 1))
         expect((await w.ledger.getRun(guildId, fresh))?.state).toBe('active')
+      })
+    })
+
+    describe('hall teams', () => {
+      const handleOf = (w: E2eWorld, questId: string) =>
+        lease.parse(JSON.parse(w.sandboxes.latest(questId).leaseHandle ?? 'null'))
+      const startsQuest = async (w: E2eWorld, guild: string, questId: string) =>
+        expect(await w.dispatcher.dispatch(guild)).toMatchObject({ status: 'started', questId })
+      const startCampaign = (w: E2eWorld, guild: string) =>
+        w.quests.post(guild, {
+          jobKey: 'team:launch',
+          campaignId: 'launch',
+          templateId: 'team-plan',
+          hallId: 'heralds',
+          rank: 'journeyman',
+          dataClass: 'internal',
+          title: 'Plan the Campaign: ship the launch',
+          ownerId: 'heralds-captain',
+          doneCondition: 'Plan and post the board',
+          roundLimit: 2,
+        })
+      /** The scripted Captain's run: it plans, posts three Quests to the Hall's board, then finishes. */
+      const captainPosts = async (w: E2eWorld, captainQuestId: string) => {
+        const handle = handleOf(w, captainQuestId)
+        const posted: string[] = []
+        const member = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Plan',
+          output: () => 'The plan',
+          afterArtifact: async () => {
+            for (const n of [1, 2, 3]) {
+              const out = await callTool((r) => w.mcp.handle(r), 'post_to_board', {
+                lease: handle,
+                title: `Section ${n}`,
+                brief: `Write section ${n}`,
+                template: 'herald-brief',
+              })
+              posted.push(z.string().parse(out.data.questId))
+            }
+          },
+        })
+        const run = await member.runLeased(handle)
+        expect(run.completion.isError).toBe(false)
+        return posted
+      }
+
+      test('a scripted Captain posts three Quests and two Members claim and finish them under a cap of two', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild({ memberCap: 2 })
+        const { quest: captain } = await startCampaign(w, guildId)
+        await dispatchStarts(w, guildId, captain)
+        const board = await captainPosts(w, captain.id)
+        expect(board).toHaveLength(3)
+        expect((await w.quests.get(guildId, captain.id))?.state).toBe('done')
+        // Two Members claim at once; the third waits queued, not failed.
+        await startsQuest(w, guildId, board[0] ?? '')
+        await startsQuest(w, guildId, board[1] ?? '')
+        expect(await w.dispatcher.dispatch(guildId)).toEqual({ status: 'idle' })
+        expect((await w.quests.get(guildId, board[2] ?? ''))?.state).toBe('queued')
+        // A Member finishing frees a slot for the third.
+        await memberWorks(w, guildId, board[0] ?? '', 'Section one')
+        await startsQuest(w, guildId, board[2] ?? '')
+        await memberWorks(w, guildId, board[1] ?? '', 'Section two')
+        await memberWorks(w, guildId, board[2] ?? '', 'Section three')
+        const finished = await Promise.all(board.map((id) => w.quests.get(guildId, id)))
+        expect(finished.map((q) => q?.state)).toEqual(['done', 'done', 'done'])
+        expect(new Set(finished.map((q) => q?.ownerId))).toEqual(new Set(['heralds-member-2']))
+      })
+
+      test('a bar stops the team: nothing dispatches and the Captain`s lease opens nothing', async () => {
+        const w = await make()
+        const { guildId, masterId } = await w.newGuild({ memberCap: 2 })
+        const { quest: captain } = await startCampaign(w, guildId)
+        await dispatchStarts(w, guildId, captain)
+        const handle = handleOf(w, captain.id)
+        await w.gates.bar({ guildId, memberId: masterId }, 'guild')
+        expect(await w.dispatcher.dispatch(guildId)).toEqual({ status: 'barred' })
+        const denied = await callTool((r) => w.mcp.handle(r), 'post_to_board', {
+          lease: handle,
+          title: 'x',
+          brief: 'y',
+          template: 'herald-brief',
+        })
+        expect(denied.rpcError).toBe('gates_barred')
       })
     })
 

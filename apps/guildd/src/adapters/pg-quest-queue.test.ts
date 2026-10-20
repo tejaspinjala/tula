@@ -29,7 +29,7 @@ questQueueContract('postgres', async () => {
   const events = async (guildId: string) =>
     (
       await owner`
-        select type from events where guild_id = ${guildId} and type like 'quest.%' order by seq`
+        select type from events where guild_id = ${guildId} and type ~ '^(quest|campaign)[.]' order by seq`
     ).map((e) => String(e.type))
   return {
     queue: new PgQuestQueue(db, new MemoryKeyProvider(), clock, () => 0.5),
@@ -107,4 +107,33 @@ test('lapsed Quests are dead-lettered in posting order, whatever the heap order'
   const events = await owner`
     select payload from events where guild_id = ${guild} and type = 'quest.dead' order by seq`
   expect(events.map((e) => e.payload.questId)).toEqual(ids)
+})
+
+test('a lease renewal is not blocked behind an open claim transaction on the guild lock', async () => {
+  const guild = await newGuild()
+  const queue = new PgQuestQueue(db, new MemoryKeyProvider(), new MemoryClock(START), () => 0.5)
+  await queue.post(guild, {
+    jobKey: 'renew-1',
+    templateId: 'herald-brief',
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    title: 'Renew',
+    ownerId: 'heralds-member-2',
+    doneCondition: 'A draft brief is filed',
+    roundLimit: 1,
+  })
+  const held = await queue.claim(guild, { leaseMs: 60_000, maxActive: 5 })
+  if (!held) {
+    throw new Error('expected a claim')
+  }
+  const outcome = await owner.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`quests:${guild}`}, 0))`
+    const timeout = new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 1500))
+    return Promise.race([
+      queue.renew(guild, held.id, held.attempts, 60_000).then(() => 'renewed'),
+      timeout,
+    ])
+  })
+  expect(outcome).toBe('renewed')
 })

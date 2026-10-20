@@ -28,6 +28,13 @@ export const hall = z.object({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
+  /**
+   * Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when
+   * absent. Raising it widens risk. Only live-leased `active` Quests count (a parked parent or a
+   * Quest awaiting a Seal holds no slot), and the Captain's own plan Quest is outside it, so a cap of
+   * 1 still runs one Member.
+   */
+  maxConcurrentMembers: z.number().int().min(1).max(1000).optional(),
 })
 
 /** Seal Policy levels, strictest first: what needs a Seal and what agents may do alone. */
@@ -84,6 +91,8 @@ export const caps = z.object({
   maxChildrenPerQuest: z.number().int().min(0).max(20).optional(),
   /** How deep sub-Quests may nest; {@link DEFAULT_MAX_SPAWN_DEPTH} when absent. Raising it widens risk. */
   maxSpawnDepth: z.number().int().min(0).max(5).optional(),
+  /** Board Quests a Captain may post under one Campaign; {@link DEFAULT_MAX_QUESTS_PER_CAMPAIGN} when absent. Counts board Quests only (Sub-Quests are bounded by the spawn caps). Raising it widens risk. */
+  maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -108,6 +117,31 @@ export function spawnChildrenCap(config: GuildConfig): number {
 /** The guild's cap on how deep sub-Quests may nest. */
 export function spawnDepthCap(config: GuildConfig): number {
   return config.caps.maxSpawnDepth ?? DEFAULT_MAX_SPAWN_DEPTH
+}
+
+/** Quests a Captain may post under one Campaign when the config sets no cap. */
+export const DEFAULT_MAX_QUESTS_PER_CAMPAIGN = 10
+
+/** The guild's cap on Quests posted to the Quest Board under one Campaign. */
+export function campaignQuestCap(config: GuildConfig): number {
+  return config.caps.maxQuestsPerCampaign ?? DEFAULT_MAX_QUESTS_PER_CAMPAIGN
+}
+
+/** Concurrent Members of a Hall when its cap is unset: no limit beyond the guild's Quest concurrency. */
+export const DEFAULT_MAX_CONCURRENT_MEMBERS = 1000
+
+/** The most Quests of `hall` that may hold a live lease at once. */
+export function hallMemberCap(hall: Pick<Hall, 'maxConcurrentMembers'>): number {
+  return hall.maxConcurrentMembers ?? DEFAULT_MAX_CONCURRENT_MEMBERS
+}
+
+/** The per-Hall live-lease caps a claim enforces: only Halls that set `maxConcurrentMembers` appear. */
+export function hallCaps(config: GuildConfig): Record<string, number> {
+  return Object.fromEntries(
+    config.halls.flatMap((h) =>
+      h.maxConcurrentMembers === undefined ? [] : [[h.id, h.maxConcurrentMembers]]
+    )
+  )
 }
 
 /** The Quest concurrency cap of a config that does not set one. */
@@ -333,7 +367,16 @@ function hallNoWider(prev: Hall, next: Hall): boolean {
       const before = members.get(m.id)
       return before !== undefined && memberNoWider(before, m)
     }) &&
-    othersSame(prev, next, ['name', 'kind', 'locked', 'privateEligible', 'captain', 'members'])
+    hallMemberCap(next) <= hallMemberCap(prev) &&
+    othersSame(prev, next, [
+      'name',
+      'kind',
+      'locked',
+      'privateEligible',
+      'captain',
+      'members',
+      'maxConcurrentMembers',
+    ])
   )
 }
 
@@ -391,6 +434,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     sealPostWindowMs(next) <= sealPostWindowMs(prev) &&
     spawnChildrenCap(next) <= spawnChildrenCap(prev) &&
     spawnDepthCap(next) <= spawnDepthCap(prev) &&
+    campaignQuestCap(next) <= campaignQuestCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -398,6 +442,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'sealPostWindowHours',
       'maxChildrenPerQuest',
       'maxSpawnDepth',
+      'maxQuestsPerCampaign',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&

@@ -85,6 +85,18 @@ export const awaitChildrenArgs = z.strictObject({
 })
 /** Arguments of `child_results`: the lease alone. */
 export const childResultsArgs = z.strictObject({ lease: leaseHandle })
+/**
+ * Arguments of `post_to_board`: a Quest for the Captain's own Hall's Quest Board, under the
+ * Captain's current Campaign. The Hall and the Campaign are never arguments. `blockedBy` names
+ * Quests of the same Campaign and Hall that must finish first.
+ */
+export const postToBoardArgs = z.strictObject({
+  lease: leaseHandle,
+  title: z.string().trim().min(1).max(200),
+  brief: z.string().trim().min(1).max(2000),
+  template: z.string().min(1).max(64),
+  blockedBy: z.array(z.uuid()).max(20).optional(),
+})
 /** Arguments of `complete_quest`; the Handoff is checked separately, for an actionable error. */
 export const completeQuestArgs = z.strictObject({ lease: leaseHandle, handoff: z.unknown() })
 
@@ -166,6 +178,13 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     description:
       'Read each Sub-Quest’s status and, once done, its result: an artifact hash and a short summary.',
     args: childResultsArgs,
+  },
+  {
+    name: 'post_to_board',
+    roles: SENIOR_ROLES,
+    description:
+      'Captain only. Post a Quest to your Hall’s Quest Board under your Campaign, for the Hall’s Members to claim. Refused with captain_only for a Member and campaign_cap past the guild’s Quests-per-Campaign cap. Idempotent within one attempt.',
+    args: postToBoardArgs,
   },
   {
     name: 'complete_quest',

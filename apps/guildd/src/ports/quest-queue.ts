@@ -39,6 +39,11 @@ export const newQuest = z.object({
   /** Quests that must be done before this one may start. */
   blockedBy: z.array(z.uuid()).max(50).default([]),
   maxAttempts: z.number().int().min(1).max(20).default(DEFAULT_MAX_ATTEMPTS),
+  /**
+   * A Quest on a Hall's Quest Board: it belongs to a Campaign but is not serialised with the
+   * Campaign's other Quests, so the Hall's Members can claim board Quests in parallel.
+   */
+  board: z.boolean().default(false),
 })
 /** Input to {@link QuestQueue.post}. */
 export type NewQuest = z.input<typeof newQuest>
@@ -85,6 +90,8 @@ export interface Quest {
   seq: number
   jobKey: string
   campaignId: string | null
+  /** True for a Quest a Captain posted to the Hall's Quest Board; it runs in parallel with the rest of its Campaign. */
+  board: boolean
   templateId: string
   hallId: string
   rank: z.infer<typeof questRank>
@@ -175,6 +182,16 @@ export type QuestEventType =
   | 'quest.done'
   | 'quest.retry_scheduled'
   | 'quest.dead'
+  | 'campaign.started'
+  | 'campaign.finished'
+
+/** Ids-only payload of a Quest transition's event; a claim also names the Member and the Hall. */
+export function questEventPayload(t: Transition, attempt: number): Record<string, string | number> {
+  const base = { questId: t.quest.id, hallId: t.quest.hallId, attempt }
+  return t.event === 'quest.claimed'
+    ? { ...base, memberId: t.quest.ownerId, hall: t.quest.hallId }
+    : base
+}
 
 /** The result of a transition: the Quest after it, and the event to append (null for an idempotent no-op). */
 export interface Transition {
@@ -190,7 +207,33 @@ export interface ClaimOptions {
   maxActive: number
   /** Claim this Quest only; `already_claimed` if it holds a live lease. */
   questId?: string
+  /**
+   * Per-Hall cap on Quests with a live lease at once (a Hall's `maxConcurrentMembers`); a Hall
+   * not named here is limited only by `maxActive`. Counted under the same lock as the claim. It
+   * counts live-leased `active` Quests only (a parked parent or a Quest awaiting a Seal holds no
+   * slot) and excludes the Captain's `team-plan` Quest, which it never blocks either.
+   */
+  hallCaps?: Readonly<Record<string, number>>
 }
+
+/** What {@link QuestQueue.postBoard} needs: the Captain's delivery, the Quest and the Campaign cap. */
+export interface BoardRequest {
+  /** The Captain's Quest (its lease is the fencing token). */
+  parentId: string
+  attempt: number
+  /** De-duplicates a retried post. */
+  jobKey: string
+  /** The Campaign the board Quest joins. */
+  campaignId: string
+  quest: Omit<NewQuest, 'jobKey' | 'campaignId' | 'board'>
+  /** The most board Quests the Campaign may hold. */
+  maxQuests: number
+}
+
+/** The outcome of {@link QuestQueue.postBoard}: the Quest, or the cap that refused it (no row written). */
+export type BoardResult =
+  | { ok: true; quest: Quest; created: boolean }
+  | { ok: false; error: 'campaign_cap' }
 
 /** Paging for lists: `after` is the previous page's `next`. */
 export interface QuestPaging {
@@ -285,6 +328,14 @@ export interface QuestQueue {
    * no Campaign and is blocked by nothing, so it is deliverable at once.
    */
   spawn(guildId: string, request: SpawnRequest): Promise<SpawnResult>
+  /**
+   * Posts a Quest onto the Quest Board of a Campaign, on behalf of a Captain who holds the
+   * `parentId` Quest (fenced by `attempt`: `stale_lease` or `invalid_state` otherwise). The Quest
+   * is `board: true`. Idempotent per job key: a repeat returns the same Quest with `created: false`,
+   * whatever the cap now says. Over `maxQuests` board Quests already in the Campaign it refuses with
+   * `campaign_cap` and writes nothing. The count and the write share the per-guild lock.
+   */
+  postBoard(guildId: string, request: BoardRequest): Promise<BoardResult>
   /** The sub-Quests of a Quest, in spawn order (at most the guild's `maxChildrenPerQuest`). */
   children(guildId: string, parentId: string): Promise<QuestLink[]>
   /** The links of those of `childIds` (at most a page of Quests) that are Sub-Quests, for the Quest Board. */
@@ -599,6 +650,24 @@ export function cascadeDeadTransitions(quests: readonly Quest[], deadId: string)
 
 const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']
 
+/** The template of a Captain's plan Quest: it runs beside the team and sits outside the Hall's member cap. */
+export const TEAM_PLAN_TEMPLATE = 'team-plan'
+
+/**
+ * True when `campaignId` is a team Campaign (it has a board Quest) and none of its Quests is still
+ * in flight: the Campaign has finished. Campaigns with no board Quest (workflow runs) never finish
+ * in this sense, because their Quests are posted one by one.
+ */
+export function campaignFinished(quests: readonly Quest[], campaignId: string): boolean {
+  const mine = quests.filter((q) => q.campaignId === campaignId)
+  return mine.some((q) => q.board) && !mine.some((q) => IN_FLIGHT.includes(q.state))
+}
+
+/** The cap a board post would break, or null: `campaign_cap` when the Campaign already holds `maxQuests` board Quests. */
+export function boardRefusal(boardCount: number, maxQuests: number): 'campaign_cap' | null {
+  return boardCount >= maxQuests ? 'campaign_cap' : null
+}
+
 /**
  * Picks the Quest `claim` should lease from `quests` (every Quest of one guild), or null.
  * Pure: used by the memory adapter; the Postgres adapter expresses the same rules in SQL.
@@ -614,15 +683,29 @@ export function pickClaimable(
   if (quests.filter((q) => hasLiveLease(q, now)).length >= options.maxActive) {
     return null
   }
+  // The cap counts live-leased active Quests only (parked and awaiting_seal ones hold no slot) and
+  // leaves the Captain's plan Quest out, so a cap of one still runs one Member beside the Captain.
+  const hallFull = (q: Quest): boolean => {
+    const cap = options.hallCaps?.[q.hallId]
+    return (
+      cap !== undefined &&
+      q.templateId !== TEAM_PLAN_TEMPLATE &&
+      quests.filter(
+        (o) => o.hallId === q.hallId && o.templateId !== TEAM_PLAN_TEMPLATE && hasLiveLease(o, now)
+      ).length >= cap
+    )
+  }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    !hallFull(q) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&
     q.blockedBy.every((id) => doneIds.has(id)) &&
     (q.campaignId === null ||
+      q.board ||
       !quests.some(
         (o) => o.campaignId === q.campaignId && o.seq < q.seq && IN_FLIGHT.includes(o.state)
       ))

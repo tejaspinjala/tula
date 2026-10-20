@@ -1,9 +1,12 @@
 import { expect, test } from 'bun:test'
 import {
   type BoardQuest,
+  campaignsOf,
   childrenOf,
+  claimerOf,
   fetchStreamTicket,
   groupByState,
+  inCampaign,
   loadQuests,
   questStreamUrl,
   readQuestFrame,
@@ -22,6 +25,7 @@ const quest = (id: string, state: BoardQuest['state']): BoardQuest => ({
   roundLimit: 2,
   attempts: 0,
   lastError: null,
+  campaignId: null,
   parentId: null,
 })
 
@@ -113,4 +117,36 @@ test('Sub-Quest links from the list set parentId, and childrenOf nests them unde
   expect(quests.map((q) => q.parentId)).toEqual([null, 'p', 'p'])
   expect(childrenOf(quests, 'p').map((q) => q.id)).toEqual(['c1', 'c2'])
   expect(childrenOf(quests, 'c1')).toEqual([])
+})
+
+const inC = (
+  id: string,
+  campaignId: string | null,
+  over: Partial<BoardQuest> = {}
+): BoardQuest => ({
+  ...quest(id, 'queued'),
+  campaignId,
+  ...over,
+})
+
+test('the Campaigns on the board are listed once each, sorted, without the Quests that have none', () => {
+  expect(
+    campaignsOf([inC('a', 'launch'), inC('b', null), inC('c', 'alpha'), inC('d', 'launch')])
+  ).toEqual(['alpha', 'launch'])
+})
+
+test('filtering by Campaign keeps that Campaign`s Quests in board order; null keeps them all', () => {
+  const all = [inC('a', 'launch'), inC('b', 'other'), inC('c', 'launch'), inC('d', null)]
+  expect(inCampaign(all, 'launch').map((q) => q.id)).toEqual(['a', 'c'])
+  expect(inCampaign(all, null).map((q) => q.id)).toEqual(['a', 'b', 'c', 'd'])
+})
+
+test('a Quest shows its claimer once it has been claimed, and none while it waits unclaimed', () => {
+  expect(claimerOf(inC('a', 'x', { attempts: 0, ownerId: 'heralds-member-1' }))).toBeNull()
+  expect(
+    claimerOf(inC('b', 'x', { attempts: 1, state: 'active', ownerId: 'heralds-member-1' }))
+  ).toBe('heralds-member-1')
+  expect(
+    claimerOf(inC('c', 'x', { attempts: 2, state: 'done', ownerId: 'heralds-member-2' }))
+  ).toBe('heralds-member-2')
 })

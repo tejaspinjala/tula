@@ -61,6 +61,7 @@ import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import type { Summon } from './summon'
+import { startTeamCampaign, startTeamCampaignInput } from './team-campaign'
 import { isGuildMaster, type Treasury } from './treasury'
 import type { WorkflowEngine } from './workflows/engine'
 import { mountWorkflowRoutes } from './workflows/routes'
@@ -436,6 +437,7 @@ export function createApp(deps: AppDeps): Hono {
   // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
+  app.post('/guilds/:id/campaigns/team', limited('quest-post'))
   app.post('/guilds/:id/summon', limited('summon'))
   app.post('/guilds/:id/dispatch', limited('dispatch'))
   app.get('/guilds/:id/cost-per-post', limited('cost-per-post'))
@@ -876,6 +878,30 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: result.error }, 422)
     }
     return c.json(result.quest, result.created ? 201 : 200)
+  })
+
+  // A team Campaign: the Guild Master gives the Hall's Captain a goal. It is one ordinary Quest.
+  app.post('/guilds/:id/campaigns/team', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = startTeamCampaignInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const result = await startTeamCampaign(
+      { config: deps.config, queue: deps.quests, tripwires: deps.tripwires },
+      who.guild,
+      body.data
+    )
+    if (!result.ok) {
+      return c.json({ error: result.error }, 422)
+    }
+    return c.json(
+      { campaignId: body.data.campaignId, questId: result.quest.id },
+      result.created ? 201 : 200
+    )
   })
 
   async function questList(c: Context, dead: boolean): Promise<Response> {

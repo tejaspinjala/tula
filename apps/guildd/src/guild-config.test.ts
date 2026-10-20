@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  campaignQuestCap,
   classifyChange,
   defaultConfig,
   type GuildConfig,
@@ -7,6 +8,7 @@ import {
   guildContentPolicy,
   guildTreasury,
   hallAcceptsQuests,
+  hallMemberCap,
   isLearningRepoAllowed,
   learningRepoAllowlist,
   questConcurrency,
@@ -86,6 +88,41 @@ describe('classifyChange', () => {
       )
     }
     expect(spawnChildrenCap({ ...base, caps: { ...base.caps, maxChildrenPerQuest: 5 } })).toBe(5)
+  })
+  test('the campaign cap defaults to 10; raising it is widening, lowering applies at once', () => {
+    expect(campaignQuestCap(base)).toBe(10)
+    const raised = { ...base, caps: { ...base.caps, maxQuestsPerCampaign: 20 } }
+    expect(campaignQuestCap(raised)).toBe(20)
+    expect(classifyChange(base, raised)).toBe('widening')
+    expect(classifyChange(raised, base)).toBe('tightening')
+    expect(classifyChange(base, { ...base, caps: { ...base.caps, maxQuestsPerCampaign: 2 } })).toBe(
+      'tightening'
+    )
+    expect(
+      guildConfig.safeParse({ ...base, caps: { ...base.caps, maxQuestsPerCampaign: 101 } }).success
+    ).toBe(false)
+  })
+  test('a Hall member cap is unlimited when unset; raising it is widening, lowering applies at once', () => {
+    const withCap = (n: number | undefined): GuildConfig => ({
+      ...base,
+      halls: base.halls.map((h) =>
+        h.id === 'heralds' ? { ...h, ...(n === undefined ? {} : { maxConcurrentMembers: n }) } : h
+      ),
+    })
+    const heralds = (c: GuildConfig) => {
+      const found = c.halls.find((h) => h.id === 'heralds')
+      if (!found) {
+        throw new Error('no heralds')
+      }
+      return found
+    }
+    expect(hallMemberCap(heralds(base))).toBe(1000)
+    expect(hallMemberCap(heralds(withCap(2)))).toBe(2)
+    expect(classifyChange(withCap(2), withCap(3))).toBe('widening')
+    expect(classifyChange(withCap(2), withCap(undefined))).toBe('widening')
+    expect(classifyChange(withCap(3), withCap(2))).toBe('tightening')
+    expect(classifyChange(withCap(undefined), withCap(2))).toBe('tightening')
+    expect(guildConfig.safeParse(withCap(0)).success).toBe(false)
   })
   test('the Seal post window defaults to 72 hours, and raising it is widening', () => {
     expect(sealPostWindowMs(base)).toBe(72 * 3_600_000)
