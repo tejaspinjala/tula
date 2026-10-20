@@ -1,4 +1,4 @@
-import type { IdentityProvider, Principal } from './ports/identity'
+import type { Principal } from './ports/identity'
 
 /** Request header carrying the re-authentication proof for a sensitive action. */
 export const REAUTH_HEADER = 'x-reauth-proof'
