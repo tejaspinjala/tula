@@ -89,6 +89,7 @@ export class DockerSandboxRunner implements SandboxRunner {
       GUILDHALL_QUEST_ID: spec.questId,
       ...(spec.runToken === undefined ? {} : { GUILDHALL_RUN_TOKEN: spec.runToken }),
       ...(spec.leaseHandle === undefined ? {} : { GUILDHALL_LEASE_HANDLE: spec.leaseHandle }),
+      ...(spec.doneCondition === undefined ? {} : { GUILDHALL_DONE_CONDITION: spec.doneCondition }),
     }
     if (Object.values(env).some((v) => /[\r\n]/.test(v))) {
       throw new SandboxError('invalid_env')

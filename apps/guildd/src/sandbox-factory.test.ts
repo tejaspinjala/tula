@@ -26,13 +26,19 @@ describe('sandboxRunnerFor', () => {
       exec
     )
     expect(runner).toBeInstanceOf(DockerSandboxRunner)
-    await runner.start('g1', { questId: 'q1', runToken: 'tok', leaseHandle: 'lease' })
+    await runner.start('g1', {
+      questId: 'q1',
+      runToken: 'tok',
+      leaseHandle: 'lease',
+      doneCondition: 'It is done',
+    })
     const run = calls[0]
     expect(run?.args).toContain(`worker@sha256:${'b'.repeat(64)}`)
     expect(run?.stdin).toContain('HTTPS_PROXY=http://egress-proxy:3128')
     expect(run?.stdin).toContain('HTTP_PROXY=http://egress-proxy:3128')
     expect(run?.stdin).toContain('GUILDHALL_GATEWAY_URL=http://guildd:3000')
     expect(run?.stdin).toContain('GUILDHALL_RUN_TOKEN=tok')
+    expect(run?.stdin).toContain('GUILDHALL_DONE_CONDITION=It is done')
     expect(run?.args.join(' ')).not.toContain('tok')
   })
 })
