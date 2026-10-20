@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createECDH } from 'node:crypto'
 import { Glob } from 'bun'
-import { loadEnv, loadWebauthnEnv } from './env'
+import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
 
 const vapidPair = createECDH('prime256v1')
 vapidPair.generateKeys()
@@ -95,6 +95,16 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...prod, ...vapid, VAPID_SUBJECT: undefined })).toThrow(/VAPID_SUBJECT/)
     expect(loadEnv({ ...prod, ...vapid }).VAPID_PUBLIC_KEY).toBe(vapid.VAPID_PUBLIC_KEY)
     expect(loadEnv(base).VAPID_PUBLIC_KEY).toBeUndefined()
+  })
+
+  test('loadVapidEnv returns the three settings, or nothing when push is unconfigured', () => {
+    expect(loadVapidEnv({ NODE_ENV: 'development' })).toBeUndefined()
+    expect(loadVapidEnv({ NODE_ENV: 'development', ...vapid })).toEqual({
+      publicKey: vapid.VAPID_PUBLIC_KEY,
+      privateKey: vapid.VAPID_PRIVATE_KEY,
+      subject: vapid.VAPID_SUBJECT,
+    })
+    expect(() => loadVapidEnv({ NODE_ENV: 'production' })).toThrow(/VAPID_PUBLIC_KEY/)
   })
 
   test('VAPID keys must be well-formed P-256 keys and are all-or-none', () => {

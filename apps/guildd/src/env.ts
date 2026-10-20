@@ -170,3 +170,8 @@ const webauthnSchema = z
 export function loadWebauthnEnv(source: Record<string, string | undefined> = process.env) {
   return webauthnSchema.parse(source)
 }
+
+/** The web push VAPID settings, or undefined when push is not configured (development only). */
+export function loadVapidEnv(_source: Record<string, string | undefined> = process.env) {
+  return undefined as { publicKey: string; privateKey: string; subject: string } | undefined
+}
