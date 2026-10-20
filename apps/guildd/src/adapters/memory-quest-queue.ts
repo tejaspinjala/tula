@@ -9,6 +9,7 @@ import {
   failTransition,
   hasLiveLease,
   isExhausted,
+  killTransition,
   MAX_QUEST_PAGE,
   type NewQuest,
   newQuest,
@@ -18,6 +19,7 @@ import {
   type QuestPage,
   type QuestPaging,
   type QuestQueue,
+  releaseClaimTransition,
   renewTransition,
   retryDelayMs,
   type SealOutcome,
@@ -199,6 +201,22 @@ export class MemoryQuestQueue implements QuestQueue {
       }
     }
     return released
+  }
+
+  async releaseClaim(
+    guildId: string,
+    id: string,
+    attempt: number,
+    notBefore: Date
+  ): Promise<Quest> {
+    return this.apply(
+      guildId,
+      releaseClaimTransition(this.mustFind(guildId, id), attempt, notBefore)
+    )
+  }
+
+  async kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest> {
+    return this.apply(guildId, killTransition(this.mustFind(guildId, id), attempt, reason))
   }
 
   async findByJobKey(guildId: string, jobKey: string): Promise<Quest | null> {

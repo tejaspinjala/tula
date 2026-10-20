@@ -83,6 +83,9 @@ export const FAIL_REASONS = [
   'sandbox_unavailable',
   'seal_rejected',
   'blocker_dead',
+  'hall_locked',
+  'hall_not_found',
+  'private_provider_unavailable',
   'unknown',
 ] as const
 
@@ -187,6 +190,18 @@ export interface QuestQueue {
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
   releaseLeases(guildId: string, reason: FailReason): Promise<number>
+  /**
+   * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
+   * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
+   * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.
+   * Idempotent: a repeat for the same delivery changes nothing.
+   */
+  releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /**
+   * Dead-letters a claimed Quest with a coded reason (see {@link FAIL_REASONS}), cascading to its
+   * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
+   */
+  kill(guildId: string, id: string, attempt: number, reason: string): Promise<Quest>
   /** The Quest posted under `jobKey`, or null; never creates one. */
   findByJobKey(guildId: string, jobKey: string): Promise<Quest | null>
   /** One Quest, or null. */
@@ -329,6 +344,36 @@ export function failTransition(
       notBefore: new Date(now.getTime() + delayMs).toISOString(),
     },
     event: 'quest.retry_scheduled',
+  }
+}
+
+/** Gives a claimed Quest back to `queued` until `notBefore`; a repeat for the same delivery is a no-op. */
+export function releaseClaimTransition(quest: Quest, attempt: number, notBefore: Date): Transition {
+  if (quest.state === 'queued' && quest.attempts === attempt && attempt > 0) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: 'routing_blocked',
+      notBefore: notBefore.toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/** Dead-letters a claimed Quest with a coded reason; a repeat for the same delivery is a no-op. */
+export function killTransition(quest: Quest, attempt: number, reason: string): Transition {
+  if (quest.state === 'dead' && quest.attempts === attempt) {
+    return { quest, event: null }
+  }
+  held(quest, attempt)
+  return {
+    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: failReason(reason) },
+    event: 'quest.dead',
   }
 }
 

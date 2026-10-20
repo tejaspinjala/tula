@@ -1,0 +1,124 @@
+import { describe, expect, test } from 'bun:test'
+import { MemoryClassifier } from './adapters/memory-classifier'
+import { MemoryClock } from './adapters/memory-clock'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryModelLedger } from './adapters/memory-model-ledger'
+import { MemoryQuestQueue } from './adapters/memory-quest-queue'
+import { MemoryRoutingLog } from './adapters/memory-routing-log'
+import { routeClaimed } from './dispatch'
+import { defaultConfig, type GuildConfig } from './guild-config'
+import type { NewQuest } from './ports/quest-queue'
+import type { BlockReason } from './ports/routing-log'
+
+const START = new Date('2030-01-01T00:00:00.000Z')
+const LEASE = { leaseMs: 60_000, maxActive: 5 }
+
+function configWith(over: Partial<GuildConfig> = {}): GuildConfig {
+  const base = defaultConfig()
+  return {
+    ...base,
+    providers: [{ id: 'cloud', auth: 'api_key', privateEligible: false }],
+    routingProfiles: [{ id: 'cloud-mid', provider: 'cloud', tier: 'mid' }],
+    ...over,
+  }
+}
+
+function setup(config: GuildConfig = configWith()) {
+  const clock = new MemoryClock(START)
+  const quests = new MemoryQuestQueue(clock, () => 0.5)
+  const log = new MemoryRoutingLog()
+  const ledger = new MemoryModelLedger()
+  const deps = {
+    config: { current: async () => ({ version: 1, config }) },
+    quests,
+    routing: { classifier: new MemoryClassifier(), log, keys: new MemoryKeyProvider() },
+    ledger,
+    clock,
+    random: () => 0.5,
+    hosted: false,
+  }
+  const guild = crypto.randomUUID()
+  const post = async (over: Partial<NewQuest> = {}) => {
+    await quests.post(guild, {
+      jobKey: crypto.randomUUID(),
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Brief',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'A draft brief is filed',
+      roundLimit: 2,
+      ...over,
+    })
+    const claimed = await quests.claim(guild, LEASE)
+    if (!claimed) {
+      throw new Error('expected a claim')
+    }
+    return claimed
+  }
+  return { clock, quests, ledger, deps, guild, post }
+}
+
+describe('routeClaimed', () => {
+  test('a routable Quest is routed to a profile and stays claimed', async () => {
+    const s = setup()
+    const quest = await s.post()
+    const out = await routeClaimed(s.deps, s.guild, quest)
+    expect(out).toMatchObject({ status: 'routed', profileId: 'cloud-mid' })
+    expect((await s.quests.get(s.guild, quest.id))?.state).toBe('active')
+  })
+
+  test.each<[BlockReason, Partial<NewQuest>]>([
+    ['hall_not_found', { hallId: 'nowhere' }],
+    ['private_provider_unavailable', { dataClass: 'private' }],
+  ])('a permanent block (%s) kills the Quest with that coded reason', async (reason, over) => {
+    const s = setup()
+    const quest = await s.post(over)
+    const out = await routeClaimed(s.deps, s.guild, quest)
+    expect(out).toEqual({ status: 'blocked', reason, disposition: 'killed' })
+    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({
+      state: 'dead',
+      lastError: reason,
+    })
+  })
+
+  test('a locked Hall kills the Quest and its dependents', async () => {
+    const base = defaultConfig()
+    const locked = configWith({
+      halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+    const s = setup(locked)
+    const quest = await s.post()
+    const { quest: child } = await s.quests.post(s.guild, {
+      jobKey: 'child',
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Child',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'x',
+      roundLimit: 1,
+      blockedBy: [quest.id],
+    })
+    await routeClaimed(s.deps, s.guild, quest)
+    expect((await s.quests.get(s.guild, quest.id))?.lastError).toBe('hall_locked')
+    expect((await s.quests.get(s.guild, child.id))?.lastError).toBe('blocker_dead')
+  })
+
+  test('a transient block releases the claim with a jittered notBefore and spends no attempt', async () => {
+    const s = setup(configWith({ caps: { dailyTokens: 0, dailySpendCents: 0 } }))
+    const quest = await s.post()
+    const out = await routeClaimed(s.deps, s.guild, quest)
+    expect(out).toEqual({
+      status: 'blocked',
+      reason: 'budget_exhausted',
+      disposition: 'retry_scheduled',
+    })
+    const after = await s.quests.get(s.guild, quest.id)
+    expect(after).toMatchObject({ state: 'queued', attempts: 1, lastError: 'routing_blocked' })
+    // attempt 1 backoff with jitter 0.5 is 750ms.
+    expect(after?.notBefore).toBe(new Date(START.getTime() + 750).toISOString())
+  })
+})
