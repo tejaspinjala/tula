@@ -7,7 +7,7 @@ export interface Place {
 }
 
 /** Horizontal distance between layers. */
-export const COLUMN = 240
+export const COLUMN = 260
 /** Vertical distance between nodes in a layer. */
 export const ROW = 130
 

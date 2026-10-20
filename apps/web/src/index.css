@@ -688,3 +688,17 @@ thead th {
   color: var(--text);
   border-color: var(--border);
 }
+
+.workflow-canvas {
+  height: 28rem;
+}
+
+.flow-step {
+  width: 11rem;
+  min-height: 4.5rem;
+  height: auto;
+}
+
+.flow-step .flow-badges {
+  align-items: center;
+}

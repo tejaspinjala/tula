@@ -65,12 +65,14 @@ export function runOverlay(
 ): Map<string, NodeOverlay> {
   const overlay = new Map<string, NodeOverlay>()
   for (const node of nodes) {
+    const own = node.type === 'agent' ? node.questId : null
     const shown = STATUS[node.status] ?? { tone: 'neutral' as const, text: node.status }
     overlay.set(node.id, {
       status: node.status,
       ...shown,
-      attempts: node.questId === null ? null : (attempts.get(node.questId) ?? null),
-      costMicros: node.questId === null ? null : (costs.get(node.questId) ?? null),
+      // Gate nodes carry their agent's Quest id; only the agent node owns its attempts and spend.
+      attempts: own === null ? null : (attempts.get(own) ?? null),
+      costMicros: own === null ? null : (costs.get(own) ?? null),
     })
   }
   return overlay

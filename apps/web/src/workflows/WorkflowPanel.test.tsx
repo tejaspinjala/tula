@@ -74,7 +74,7 @@ function world(options: Options = {}) {
     if (url === `${base}/w/runs/r1`) {
       return Response.json({
         instance: { id: 'r1', version: 1, createdAt: 'now' },
-        nodes: [{ id: 'start', type: 'trigger.manual', status: 'running', questId: 'q1' }],
+        nodes: [{ id: 'start', type: 'agent', status: 'running', questId: 'q1' }],
       })
     }
     if (url.startsWith(`/api/guilds/${guild}/config`)) {
