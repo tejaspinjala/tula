@@ -1,4 +1,10 @@
-import type { GuildConfig } from '../guild-config'
+import {
+  campaignQuestCap,
+  type GuildConfig,
+  hallMemberCap,
+  spawnChildrenCap,
+  spawnDepthCap,
+} from '../guild-config'
 import { QUEST_TEMPLATES, type QuestTemplate } from '../quests'
 import { type WorkflowError, type WorkflowGraph, type WorkflowNode, workflowGraph } from './graph'
 
@@ -52,6 +58,12 @@ function hasCycle(ids: readonly string[], out: Adjacency): boolean {
   }
   return ids.some(visit)
 }
+
+/** Nodes that start Quests: they cannot follow a gate, and they spend. */
+const startsQuests = (
+  n: WorkflowNode
+): n is Extract<WorkflowNode, { type: 'agent' | 'subagents' | 'team' }> =>
+  n.type === 'agent' || n.type === 'subagents' || n.type === 'team'
 
 const isTrigger = (n: WorkflowNode) => n.type === 'trigger.manual' || n.type === 'trigger.schedule'
 
@@ -125,15 +137,29 @@ export function validateWorkflow(
     out
   )
   for (const n of byId.values()) {
-    if (n.type === 'agent' && afterGate.has(n.id)) {
-      add('agent_after_gate', `agent ${n.id} runs after a verify or approval gate`, n.id)
+    if (startsQuests(n) && afterGate.has(n.id)) {
+      add('agent_after_gate', `${n.type} ${n.id} runs after a verify or approval gate`, n.id)
+    }
+  }
+  // A team Campaign's Quests are on a Quest Board and finish on their own clock, so nothing can be
+  // ordered after it (blockedBy covers a single Quest).
+  const teams = [...byId.values()].filter((n) => n.type === 'team')
+  const afterTeam = reach(
+    teams.flatMap((t) => out.get(t.id) ?? []),
+    out
+  )
+  for (const n of byId.values()) {
+    if (n.type === 'agent' && afterTeam.has(n.id)) {
+      add('agent_after_team', `agent ${n.id} runs after a team node`, n.id)
     }
   }
   if (hasCycle([...known], out)) {
     add('cycle', 'the graph contains a cycle')
   }
   for (const n of byId.values()) {
-    if (n.type !== 'post' && (out.get(n.id) ?? []).length === 0) {
+    // A fan-out or team node may end a path: its output is its results, not a draft to publish.
+    const mayEnd = n.type === 'post' || n.type === 'subagents' || n.type === 'team'
+    if (!mayEnd && (out.get(n.id) ?? []).length === 0) {
       add('dead_end', `node ${n.id} ends a path without reaching a post`, n.id)
     }
   }
@@ -151,12 +177,35 @@ export function validateWorkflow(
     return seen
   }
 
+  const checkTeam = (
+    n: Extract<WorkflowNode, { type: 'team' }>,
+    hall: GuildConfig['halls'][number] | undefined
+  ) => {
+    if (hall && !hall.captain) {
+      add('no_captain', `Hall ${hall.id} has no Captain to lead a team`, n.id)
+    }
+    if (hall && n.maxMembers > hallMemberCap(hall)) {
+      add(
+        'member_cap',
+        `${n.maxMembers} Members exceed Hall ${hall.id}'s cap of ${hallMemberCap(hall)}`,
+        n.id
+      )
+    }
+    if (n.maxQuests > campaignQuestCap(config)) {
+      add(
+        'campaign_cap',
+        `${n.maxQuests} Quests exceed the cap of ${campaignQuestCap(config)} per Campaign`,
+        n.id
+      )
+    }
+  }
+
   let budgetMicros = 0
   for (const n of byId.values()) {
     if (n.type === 'trigger.schedule' && !config.schedules.some((s) => s.id === n.scheduleId)) {
       add('unknown_schedule', `schedule ${n.scheduleId} is not in the guild config`, n.id)
     }
-    if (n.type !== 'agent') {
+    if (!startsQuests(n)) {
       continue
     }
     budgetMicros += Math.round(n.maxUsd * 1_000_000)
@@ -165,6 +214,10 @@ export function validateWorkflow(
       add('unknown_hall', `Hall ${n.hallId} does not exist`, n.id)
     } else if (hall.locked) {
       add('hall_locked', `Hall ${n.hallId} is locked`, n.id)
+    }
+    if (n.type === 'team') {
+      checkTeam(n, hall)
+      continue
     }
     const template = templates.find((t) => t.id === n.templateId)
     if (!template) {
@@ -175,6 +228,19 @@ export function validateWorkflow(
         `template ${n.templateId} belongs to Hall ${template.hallId}`,
         n.id
       )
+    }
+    if (n.type === 'subagents') {
+      if (n.briefs.length > spawnChildrenCap(config)) {
+        add(
+          'children_cap',
+          `${n.briefs.length} briefs exceed the cap of ${spawnChildrenCap(config)} Sub-Quests per Quest`,
+          n.id
+        )
+      }
+      if (spawnDepthCap(config) < 1) {
+        add('depth_cap', 'the guild allows no Sub-Quest depth, so nothing can be spawned', n.id)
+      }
+      continue
     }
     const upstream = ancestorsOf(n.id)
     for (const match of n.briefTemplate.matchAll(BRIEF_REF)) {
