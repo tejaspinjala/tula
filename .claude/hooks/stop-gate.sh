@@ -28,6 +28,12 @@ if [ "$(cat "$state/last-pass" 2>/dev/null)" = "$fingerprint" ]; then
   exit 0
 fi
 
+# Stale node_modules after pulling a changed bun.lock fail verify: reinstall when it changed.
+lock_hash=$(shasum bun.lock 2>/dev/null | cut -d' ' -f1)
+if [ "$(cat "$state/lock-hash" 2>/dev/null)" != "$lock_hash" ]; then
+  bun install >/dev/null 2>&1 && echo "$lock_hash" >"$state/lock-hash"
+fi
+
 output=$(bun run verify 2>&1)
 status=$?
 
