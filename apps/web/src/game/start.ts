@@ -19,6 +19,8 @@ export interface GameHandle {
   setPhase: (phase: Phase | null) => void
   /** Dresses the Guild Master's character in a look, live. */
   setLook: (look: LookChoice) => void
+  /** Follows a Member with the camera, into whatever map they are in (null returns to the overview). */
+  follow: (memberId: string | null) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
   setPaused: (paused: boolean) => void
   destroy: () => void
@@ -81,6 +83,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     teleport: (slot) => scene.teleport(slot),
     goTo: (place) => scene.goTo(place),
     setPhase: (phase) => (phase ? scene.setPhase(phase) : scene.setPhase(phaseNow(), false)),
+    follow: (memberId) => scene.follow(memberId),
     setLook: (look) => scene.setPlayerLook(look),
     setPaused: (paused) => {
       if (paused) {

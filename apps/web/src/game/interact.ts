@@ -7,6 +7,8 @@ export type Target = { kind: 'member'; id: string } | { kind: 'sealDesk' }
 export interface TalkState {
   near: Target | null
   open: Target | null
+  /** The Member whose inspect card is showing (a click, or E next to them). */
+  inspect: string | null
   form: 'view' | 'assign'
 }
 
@@ -14,6 +16,8 @@ export interface TalkState {
 export type TalkAction =
   | { type: 'near'; target: Target | null }
   | { type: 'interact' }
+  | { type: 'inspect'; id: string }
+  | { type: 'talk' }
   | { type: 'assign' }
   | { type: 'back' }
   | { type: 'close' }
@@ -22,7 +26,7 @@ export type TalkAction =
 export const REACH = 1.6
 
 /** The start state: nobody in reach, nothing open. */
-export const initialTalk: TalkState = { near: null, open: null, form: 'view' }
+export const initialTalk: TalkState = { near: null, open: null, inspect: null, form: 'view' }
 
 /** True when two targets are the same Member or both the Seal desk. */
 export function sameTarget(a: Target | null, b: Target | null): boolean {
@@ -41,15 +45,24 @@ export function talkReducer(state: TalkState, action: TalkAction): TalkState {
     case 'near':
       return sameTarget(state.near, action.target) ? state : { ...state, near: action.target }
     case 'interact':
-      return state.open !== null || state.near === null
-        ? state
+      if (state.open !== null || state.inspect !== null || state.near === null) {
+        return state
+      }
+      return state.near.kind === 'member'
+        ? { ...state, inspect: state.near.id, form: 'view' }
         : { ...state, open: state.near, form: 'view' }
+    case 'inspect':
+      return state.open !== null ? state : { ...state, inspect: action.id, form: 'view' }
+    case 'talk':
+      return state.inspect === null
+        ? state
+        : { ...state, open: { kind: 'member', id: state.inspect }, inspect: null, form: 'view' }
     case 'assign':
       return state.open?.kind === 'member' ? { ...state, form: 'assign' } : state
     case 'back':
       return { ...state, form: 'view' }
     case 'close':
-      return { ...state, open: null, form: 'view' }
+      return { ...state, open: null, inspect: null, form: 'view' }
   }
 }
 

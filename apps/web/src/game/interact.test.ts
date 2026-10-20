@@ -7,7 +7,7 @@ const desk: Target = { kind: 'sealDesk' }
 
 test('coming within reach offers a prompt but opens nothing', () => {
   const next = talkReducer(initialTalk, { type: 'near', target: ana })
-  expect(next).toEqual({ near: ana, open: null, form: 'view' })
+  expect(next).toEqual({ near: ana, open: null, inspect: null, form: 'view' })
 })
 
 test('interacting opens the target in reach, and does nothing with none', () => {
@@ -16,14 +16,33 @@ test('interacting opens the target in reach, and does nothing with none', () => 
   expect(talkReducer(near, { type: 'interact' })).toEqual({
     near: desk,
     open: desk,
+    inspect: null,
     form: 'view',
   })
 })
 
+test('interacting next to a Member inspects them; Talk then opens the conversation', () => {
+  const near = talkReducer(initialTalk, { type: 'near', target: ana })
+  const inspecting = talkReducer(near, { type: 'interact' })
+  expect(inspecting.inspect).toBe('ana')
+  expect(inspecting.open).toBeNull()
+  const talking = talkReducer(inspecting, { type: 'talk' })
+  expect(talking.open).toEqual(ana)
+  expect(talking.inspect).toBeNull()
+})
+
+test('a click inspects any Member, in reach or not, and close clears it', () => {
+  const clicked = talkReducer(initialTalk, { type: 'inspect', id: 'bo' })
+  expect(clicked.inspect).toBe('bo')
+  expect(talkReducer(clicked, { type: 'close' }).inspect).toBeNull()
+  expect(talkReducer(initialTalk, { type: 'talk' })).toEqual(initialTalk)
+})
+
 test('assigning shows the form, back returns to the view, close closes everything', () => {
-  const open = talkReducer(talkReducer(initialTalk, { type: 'near', target: ana }), {
-    type: 'interact',
-  })
+  const open = talkReducer(
+    talkReducer(talkReducer(initialTalk, { type: 'near', target: ana }), { type: 'interact' }),
+    { type: 'talk' }
+  )
   const assigning = talkReducer(open, { type: 'assign' })
   expect(assigning.form).toBe('assign')
   expect(talkReducer(assigning, { type: 'back' }).form).toBe('view')
@@ -42,9 +61,10 @@ test('assigning needs an open Member, not the Seal desk or nothing', () => {
 })
 
 test('walking away while a dialog is open does not close it or change who it is about', () => {
-  const open = talkReducer(talkReducer(initialTalk, { type: 'near', target: ana }), {
-    type: 'interact',
-  })
+  const open = talkReducer(
+    talkReducer(talkReducer(initialTalk, { type: 'near', target: ana }), { type: 'interact' }),
+    { type: 'talk' }
+  )
   const moved = talkReducer(open, { type: 'near', target: bo })
   expect(moved.open).toEqual(ana)
   expect(moved.near).toEqual(bo)

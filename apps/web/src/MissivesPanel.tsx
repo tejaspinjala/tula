@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { missiveCount, useLiveEvents } from './live-events'
 import { type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
+import { PixelButton } from './ui/pixel'
 
 /** Missives per page. */
 const PAGE = 20
@@ -10,12 +12,22 @@ const PAGE = 20
  * The Hall's Missives in the Guild Hall view: what its Members said to each other, newest first,
  * a page at a time. The text is other Members' words, so it is only ever rendered as text.
  */
-export function MissivesPanel({ session }: { session: Session | null }) {
+export function MissivesPanel({
+  session,
+  onTalk,
+}: {
+  session: Session | null
+  /** Addresses a Member through the talk path (the Guild chat page passes it). */
+  onTalk?: ((memberId: string) => void) | undefined
+}) {
   const [roster, setRoster] = useState<Roster | null>(null)
   const [hallId, setHallId] = useState('')
   const [missives, setMissives] = useState<HallMissive[]>([])
   const [next, setNext] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
+  const [addressee, setAddressee] = useState('')
+  // A `missive.sent` event means the list is stale: refetch the first page (text only by route).
+  const sentCount = missiveCount(useLiveEvents())
 
   useEffect(() => {
     if (!session) {
@@ -51,6 +63,14 @@ export function MissivesPanel({ session }: { session: Session | null }) {
     }
   }, [session, hallId])
   useEffect(() => refresh(), [refresh])
+  const seen = useRef(sentCount)
+  useEffect(() => {
+    if (seen.current === sentCount) {
+      return
+    }
+    seen.current = sentCount
+    return refresh()
+  }, [sentCount, refresh])
 
   const older = async () => {
     if (!session || next === null) {
@@ -76,11 +96,14 @@ export function MissivesPanel({ session }: { session: Session | null }) {
   }
   const nameOf = (id: string): string => (id === 'hall' ? 'the Hall' : (names.get(id) ?? id))
   const halls = roster?.halls.filter((h) => !h.locked) ?? []
+  const hall = halls.find((h) => h.id === hallId)
+  const people = hall ? [...(hall.captain ? [hall.captain] : []), ...hall.members] : []
+  const target = people.some((p) => p.id === addressee) ? addressee : (people[0]?.id ?? '')
 
   return (
     <section aria-labelledby="missives-heading" className="card">
       <h2 id="missives-heading" className="card-title">
-        Hall missives
+        Guild chat
       </h2>
       {!session && <p className="mt-4">Sign in with a passkey to read the Hall’s missives.</p>}
       {failed && <p role="alert">The missives could not be loaded.</p>}
@@ -99,6 +122,24 @@ export function MissivesPanel({ session }: { session: Session | null }) {
               </option>
             ))}
           </select>
+        </div>
+      )}
+      {session && onTalk && people.length > 0 && (
+        <div className="mt-4">
+          <label htmlFor="chat-member">Address</label>{' '}
+          <select
+            id="chat-member"
+            name="chat-member"
+            value={target}
+            onChange={(e) => setAddressee(e.target.value)}
+          >
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>{' '}
+          <PixelButton onClick={() => onTalk(target)}>Talk</PixelButton>
         </div>
       )}
       {session && missives.length === 0 && !failed && (

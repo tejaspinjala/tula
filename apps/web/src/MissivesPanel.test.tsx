@@ -8,8 +8,10 @@ const realFetch = globalThis.fetch
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 const { MissivesPanel } = await import('./MissivesPanel')
+const { LiveEvents } = await import('./live-events')
 
 const urls: string[] = []
+const fresh: ReturnType<typeof missive>[] = []
 const missive = (id: string, from: string, to: string, text: string) => ({
   id,
   from,
@@ -51,6 +53,7 @@ beforeAll(() => {
       if (url.includes('/halls/heralds/missives')) {
         return Response.json({
           missives: [
+            ...fresh,
             missive('m3', 'heralds-member-2', 'heralds-captain', '<b>Which tone?</b>'),
             missive('m2', 'heralds-captain', 'heralds-member-2', 'Warm and brief.'),
           ],
@@ -81,7 +84,7 @@ async function mount(ui: React.ReactElement) {
 test('a Hall’s exchange is listed newest first with Member names, as plain text', async () => {
   const m = await mount(<MissivesPanel session={session} />)
   const heading = m.host.querySelector('h2')
-  expect(heading?.textContent).toBe('Hall missives')
+  expect(heading?.textContent).toBe('Guild chat')
   const rows = [...m.host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
   expect(rows).toHaveLength(2)
   expect(rows[0]).toContain('Herald Journeyman')
@@ -126,5 +129,57 @@ test('signed out, it asks for a passkey and reads nothing', async () => {
   const m = await mount(<MissivesPanel session={null} />)
   expect(m.host.textContent).toContain('Sign in')
   expect(urls).toEqual([])
+  await m.unmount()
+})
+
+test('a new Missive arrives live: missive.sent refetches the list by route', async () => {
+  fresh.length = 0
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const sent = {
+    seq: 9,
+    type: 'missive.sent',
+    payload: { missiveId: 'm9', hall: 'heralds', from: 'heralds-captain' },
+    occurredAt: '2026-01-01T00:00:00.000Z',
+  }
+  await act(async () => {
+    root.render(
+      <LiveEvents.Provider value={[]}>
+        <MissivesPanel session={session} />
+      </LiveEvents.Provider>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  expect(host.querySelectorAll('[data-testid="missive"]')).toHaveLength(2)
+  fresh.push(missive('m9', 'heralds-captain', 'hall', 'Fresh from the road.'))
+  await act(async () => {
+    root.render(
+      <LiveEvents.Provider value={[sent]}>
+        <MissivesPanel session={session} />
+      </LiveEvents.Provider>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const rows = [...host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
+  expect(rows).toHaveLength(3)
+  expect(rows[0]).toContain('Fresh from the road.')
+  await act(async () => root.unmount())
+  fresh.length = 0
+})
+
+test('the Guild Master can address a Member from the chat through the talk path', async () => {
+  const talked: string[] = []
+  const m = await mount(<MissivesPanel session={session} onTalk={(id) => talked.push(id)} />)
+  expect(m.host.querySelector('select[name="chat-member"]')).not.toBeNull()
+  const talk = [...m.host.querySelectorAll('button')].find((b) => b.textContent === 'Talk')
+  await act(async () => talk?.click())
+  expect(talked).toEqual(['heralds-captain'])
+  await m.unmount()
+})
+
+test('without a talk path, the chat offers no addressing', async () => {
+  const m = await mount(<MissivesPanel session={session} />)
+  expect(m.host.querySelector('select[name="chat-member"]')).toBeNull()
   await m.unmount()
 })

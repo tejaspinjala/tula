@@ -8,7 +8,7 @@ export const BAG_PAGES = [
   { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds' },
   { id: 'guild', path: '/guild', label: 'Guild builder' },
   { id: 'workflows', path: '/workflows', label: 'Workflows' },
-  { id: 'missives', path: '/missives', label: 'Missives' },
+  { id: 'missives', path: '/missives', label: 'Guild chat' },
   { id: 'gates', path: '/gates', label: 'Gates' },
   { id: 'settings', path: '/vault', label: 'Settings' },
 ] as const

@@ -38,6 +38,8 @@ export interface BagProps {
   onSignOut: () => void
   /** Returns keyboard focus to the world. */
   focusWorld: () => void
+  /** Closes the Bag and opens the talk conversation with a Member (the Guild chat's Talk). */
+  onTalkTo?: ((memberId: string) => void) | undefined
 }
 
 const HALL_TOOLS = 'hall-tools'
@@ -53,10 +55,12 @@ function PageBody({
   page,
   session,
   onSession,
+  onTalkTo,
 }: {
   page: PageId
   session: Session
   onSession: (session: Session | null) => void
+  onTalkTo?: ((memberId: string) => void) | undefined
 }) {
   switch (page) {
     case 'quests':
@@ -91,7 +95,7 @@ function PageBody({
     case 'workflows':
       return <WorkflowPanel session={session} />
     case 'missives':
-      return <MissivesPanel session={session} />
+      return <MissivesPanel session={session} onTalk={onTalkTo} />
     case 'gates':
       return (
         <>
@@ -126,6 +130,7 @@ export function Bag({
   onClose,
   onSignOut,
   focusWorld,
+  onTalkTo,
 }: BagProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const wasVisible = useRef(false)
@@ -203,7 +208,7 @@ export function Bag({
         {hall && <div className="bag-body">{hallControls}</div>}
         {page !== null && (
           <div className="bag-body">
-            <PageBody page={page} session={session} onSession={onSession} />
+            <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
           </div>
         )}
       </Frame>
