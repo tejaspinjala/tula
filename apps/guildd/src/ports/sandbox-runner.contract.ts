@@ -26,6 +26,19 @@ export function sandboxRunnerContract(name: string, make: () => Promise<SandboxR
       expect(await runner.list(b)).toHaveLength(1)
     })
 
+    test('killing one Quest stops its sandboxes and no other Quest, in its guild or another', async () => {
+      const runner = await make()
+      const a = crypto.randomUUID()
+      const b = crypto.randomUUID()
+      await runner.start(a, { questId: 'q1' })
+      await runner.start(a, { questId: 'q2' })
+      await runner.start(b, { questId: 'q1' })
+      expect(await runner.kill({ guildId: a, questId: 'q1' })).toBe(1)
+      expect((await runner.list(a)).map((s) => s.questId)).toEqual(['q2'])
+      expect(await runner.list(b)).toHaveLength(1)
+      expect(await runner.kill({ guildId: a, questId: 'q1' })).toBe(0)
+    })
+
     test('killing all stops every guild, and killing again is a no-op', async () => {
       const runner = await make()
       const a = crypto.randomUUID()

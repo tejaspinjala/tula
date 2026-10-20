@@ -343,7 +343,7 @@ export function spawnJobKey(
   return `spawn:${request.parentId}:${request.attempt}:${request.briefHash}`
 }
 
-// Throws unless the Quest is leased and `attempt` is the delivery it was given. */
+/** Throws unless the Quest is leased and `attempt` is the delivery it was given. */
 function held(quest: Quest, attempt: number): void {
   if (quest.state !== 'active') {
     throw new QuestError('invalid_state')
