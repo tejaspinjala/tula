@@ -52,12 +52,12 @@ test('a refused request throws and an odd body is not trusted', async () => {
   ).rejects.toThrow()
 })
 
-test('a Member’s own missives are those they sent or received, not the rest of the Hall’s', () => {
+test('a Member’s own missives are those they sent, received, or the Hall was told, not the rest', () => {
   const all = [
     row('1', 'ana', 'bo'),
     row('2', 'bo', 'cy'),
     row('3', 'cy', 'ana'),
     row('4', 'cy', 'hall'),
   ]
-  expect(missivesOf(all, 'ana').map((m) => m.id)).toEqual(['1', '3'])
+  expect(missivesOf(all, 'ana').map((m) => m.id)).toEqual(['1', '3', '4'])
 })

@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { GuildId } from './GuildId'
 import {
-  PasskeyRequestError,
+  passkeyFailure,
+  passkeyLine,
   reauthenticate,
   registerPasskey,
   type Session,
   signIn,
   webAuthnBrowser,
 } from './passkeys'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /** Passkey registration, sign-in and re-authentication for one guild; every control is a real button or input. */
 export function PasskeyPanel({
@@ -25,19 +28,14 @@ export function PasskeyPanel({
     try {
       setMessage((await action()) ?? `${label}: done`)
     } catch (error) {
-      setMessage(
-        error instanceof PasskeyRequestError ? `${label} refused: ${error.code}` : `${label} failed`
-      )
+      setMessage(passkeyLine(passkeyFailure(error), 'sign-in'))
     }
   }
 
   const guild = guildId.trim()
   return (
-    <section aria-labelledby="passkey-heading" className="card">
-      <h2 id="passkey-heading" className="card-title">
-        Passkey
-      </h2>
-      <div className="mt-4 flex flex-col gap-2">
+    <WorkSection id="passkey" title="Passkey">
+      <div className="work-body">
         <label htmlFor="passkey-guild">Guild id</label>
         <input
           id="passkey-guild"
@@ -45,10 +43,8 @@ export function PasskeyPanel({
           value={guildId}
           onChange={(event) => setGuildId(event.target.value)}
         />
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-primary"
+        <div className="work-actions">
+          <PixelButton
             disabled={!guild}
             onClick={() =>
               run('Register passkey', async () => {
@@ -68,10 +64,8 @@ export function PasskeyPanel({
             }
           >
             Register passkey
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
+          </PixelButton>
+          <PixelButton
             disabled={!guild}
             onClick={() =>
               run('Sign in', async () => {
@@ -81,7 +75,7 @@ export function PasskeyPanel({
             }
           >
             Sign in
-          </button>
+          </PixelButton>
         </div>
         {session && (
           <p>
@@ -92,6 +86,6 @@ export function PasskeyPanel({
           {message}
         </p>
       </div>
-    </section>
+    </WorkSection>
   )
 }

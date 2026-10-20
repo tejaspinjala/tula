@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { FoundGuildPanel } from './FoundGuildPanel'
+import { useEffect, useRef, useState } from 'react'
 import {
   type FoundingState,
   fetchGuild,
@@ -11,6 +10,10 @@ import {
 } from './passkeys'
 import { Shell } from './Shell'
 import { SignInPanel } from './SignInPanel'
+import { TitleScene } from './TitleScene'
+
+/** How long the title-to-world fade stays mounted: the 0.6 s CSS animation plus a frame. */
+const FADE_MS = 700
 
 /**
  * The ledger: signed out it shows only sign-in (and founding while it is open); signed in it
@@ -38,6 +41,23 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
     })
   }, [])
 
+  // The title dissolves into the world: a decorative overlay that fades out in steps, then goes.
+  const onTitle = useRef(false)
+  const [fading, setFading] = useState(false)
+  useEffect(() => {
+    if (!session) {
+      onTitle.current = restored
+      return
+    }
+    if (!onTitle.current) {
+      return
+    }
+    onTitle.current = false
+    setFading(true)
+    const timer = setTimeout(() => setFading(false), FADE_MS)
+    return () => clearTimeout(timer)
+  }, [session, restored])
+
   useEffect(() => {
     setGuild(null)
     if (session) {
@@ -53,55 +73,40 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
 
   if (!session) {
     return (
-      <div className="signed-out">
+      <TitleScene>
         <a href="#main" className="skip-link">
           Skip to content
         </a>
-        <header className="shell-header">
-          <h1 className="brand">Guildhall ledger</h1>
+        <header>
+          <h1 className="title-wordmark">Guildhall</h1>
+          <p className="title-tagline">A guild of AI agents awaits its Guild Master</p>
         </header>
-        <main id="main" tabIndex={-1} className="signed-out-main">
-          <section aria-labelledby="about-heading" className="card">
-            <h2 id="about-heading" className="card-title">
-              What is Guildhall?
-            </h2>
-            <p className="mt-2">
-              Guildhall is where you run a guild of AI agents. They do the work as Quests, and
-              anything that touches the outside world waits for your Seal.
-            </p>
-            <details className="disclosure">
-              <summary>What is a passkey?</summary>
-              <p>
-                A passkey is a sign-in kept on your device and unlocked with your fingerprint, face
-                or screen lock. There is no password to remember or leak.
-              </p>
-            </details>
-          </section>
+        <main id="main" tabIndex={-1}>
           {status === 'down' && (
-            <p role="alert" className="mt-4">
+            <p role="alert" className="title-line">
               guildd: down. The server is not answering.
             </p>
           )}
-          <SignInPanel fetcher={fetch} browser={browser} onSession={setSession} />
-          {founding === 'open' && (
-            <FoundGuildPanel fetcher={fetch} browser={browser} onSession={setSession} />
-          )}
-          {founding === 'busy' && (
-            <section aria-labelledby="found-busy-heading" className="card">
-              <h2 id="found-busy-heading" className="card-title">
-                Found your guild
-              </h2>
-              <p role="status" className="mt-2">
-                Founding is busy right now: try again shortly.
-              </p>
-            </section>
-          )}
+          <SignInPanel
+            fetcher={fetch}
+            browser={browser}
+            founding={founding}
+            onSession={setSession}
+          />
         </main>
-      </div>
+      </TitleScene>
     )
   }
 
   return (
-    <Shell session={session} guildName={guild?.name ?? ''} status={status} onSession={setSession} />
+    <>
+      <Shell
+        session={session}
+        guildName={guild?.name ?? ''}
+        status={status}
+        onSession={setSession}
+      />
+      {fading && <div className="scene-fade" aria-hidden="true" />}
+    </>
   )
 }

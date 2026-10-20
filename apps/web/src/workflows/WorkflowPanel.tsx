@@ -1,11 +1,13 @@
-import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
 import type { Fetcher } from '../artifacts'
 import { Badge } from '../Badge'
 import { loadCurrent } from '../builder/api'
+import { Palette } from '../builder/Palette'
 import { formatDollars, loadCosts } from '../costs'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
+import { WorkSection } from '../WorkSection'
 import {
   confirmWorkflowVersion,
   listRuns,
@@ -25,7 +27,7 @@ import {
 import { Canvas, NODE_PIECE } from './Canvas'
 import { Inspector } from './Inspector'
 import { layout, type Place } from './layout'
-import { addNode, connect, paletteTypes, saveBody } from './model'
+import { addNode, connect, paletteTypes, saveBody, versionLine } from './model'
 import {
   errorsByNode,
   type NodeOverlay,
@@ -74,13 +76,6 @@ const POLL_MS = 4000
 const noPlaces: ReadonlyMap<string, Place> = new Map()
 const noOverlay: ReadonlyMap<string, NodeOverlay> = new Map()
 const TERMINAL = new Set(['done', 'failed', 'passed', 'approved', 'rejected'])
-
-function startDrag(type: string) {
-  return (event: DragEvent<HTMLButtonElement>) => {
-    event.dataTransfer.setData(NODE_PIECE, type)
-    event.dataTransfer.effectAllowed = 'copy'
-  }
-}
 
 /** Follows the guild event stream and calls `onRefresh` for events that can move a run. */
 function useRunStream(session: Session, enabled: boolean, onRefresh: () => void) {
@@ -338,12 +333,9 @@ export function WorkflowPanel({
 
   if (!draft || !id) {
     return (
-      <section aria-labelledby="workflows-heading" className="card">
-        <h2 id="workflows-heading" className="card-title">
-          Workflows
-        </h2>
-        {failed ? <p role="alert">{failed}</p> : <p className="muted">Loading...</p>}
-      </section>
+      <WorkSection id="workflows" title="Workflows">
+        {failed ? <p role="alert">{failed}</p> : <p>Loading...</p>}
+      </WorkSection>
     )
   }
 
@@ -489,25 +481,19 @@ export function WorkflowPanel({
         </button>
       </div>
       <p className="muted">
-        {version === 0
-          ? 'Not saved yet.'
-          : `Version ${version} of ${activeVersion === null ? 'none in force' : `${activeVersion} in force`}.`}
+        {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
       </p>
       {wide && (
-        <fieldset className="actions builder-palette workflow-palette">
-          <legend className="sr-only">Palette</legend>
-          {paletteTypes().map((type) => (
-            <button
-              key={type}
-              type="button"
-              draggable
-              onDragStart={startDrag(type)}
-              onClick={() => dropType(type)}
-            >
-              {`Add ${type}`}
-            </button>
-          ))}
-        </fieldset>
+        <Palette
+          label="Palette"
+          pieces={paletteTypes().map((type) => ({
+            id: type,
+            label: `Add ${type}`,
+            glyph: type.replace(/^trigger\./, '').slice(0, 4),
+          }))}
+          dragType={NODE_PIECE}
+          onAdd={dropType}
+        />
       )}
       {split.graphLevel.length > 0 && (
         <ul aria-label="Graph problems">

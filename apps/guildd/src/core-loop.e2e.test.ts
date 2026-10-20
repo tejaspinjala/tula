@@ -1,3 +1,4 @@
+import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
@@ -51,6 +52,7 @@ async function memoryWorld(): Promise<E2eWorld> {
   const provider = new MemoryModelProvider()
   const ledger = new MemoryModelLedger()
   const gateway = new ModelGateway({
+    activity: new MemoryActivityLog(),
     ledger,
     secrets,
     config,
@@ -63,6 +65,7 @@ async function memoryWorld(): Promise<E2eWorld> {
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const handoffs = new MemoryHandoffStore()
   const mcp = new McpGateway({
+    activity: new MemoryActivityLog(),
     quests,
     config,
     notes: new MemoryNoteStore(),

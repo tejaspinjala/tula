@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import { assignQuest, templatesFor } from './assign'
 import type { TalkAction, TalkState } from './game/interact'
@@ -16,9 +16,12 @@ export interface TalkDialogProps {
   scene: SceneState | null
   quests: readonly (SceneQuest & { state?: string })[]
   navigate: (path: string) => void
+  /** Called when the Guild Master dismisses the dialog with Esc: focus belongs back on the world. */
+  onDismiss?: () => void
 }
 
-const STATE_WORDS: Record<string, string> = {
+/** How a Quest state reads in a card. */
+export const STATE_WORDS: Record<string, string> = {
   queued: 'queued',
   active: 'active',
   awaiting_seal: 'awaiting a Seal',
@@ -39,6 +42,7 @@ export function TalkDialog({
   scene,
   quests,
   navigate,
+  onDismiss,
 }: TalkDialogProps) {
   const ref = useRef<HTMLDialogElement | null>(null)
   const open = state.open
@@ -66,6 +70,7 @@ export function TalkDialog({
       ref={ref}
       className="talk-dialog"
       aria-labelledby={open ? 'talk-title' : undefined}
+      onCancel={() => onDismiss?.()}
       onClose={() => dispatch({ type: 'close' })}
     >
       {member && scene && (
@@ -100,7 +105,7 @@ export function TalkDialog({
             </>
           )}
           <div className="talk-actions">
-            <button type="button" className="btn" onClick={() => go('/seals')}>
+            <button type="button" onClick={() => go('/seals')}>
               Review Seal
             </button>
             <button type="button" onClick={() => dispatch({ type: 'close' })}>
@@ -173,7 +178,7 @@ function MemberCard({
             </ul>
           )}
           <div className="talk-actions">
-            <button type="button" className="btn" onClick={() => dispatch({ type: 'assign' })}>
+            <button type="button" onClick={() => dispatch({ type: 'assign' })}>
               Assign a Quest
             </button>
             <button type="button" onClick={() => go('/roster')}>
@@ -196,13 +201,15 @@ const RECENT_MISSIVES = 5
  * The Missives this Member sent or received, newest first. They are other Members' text, so they
  * are only ever rendered as text. A failed read is the same as no messages.
  */
-function useRecentMissives(
+export function useRecentMissives(
   session: Session,
   fetcher: Fetcher,
-  member: SceneMember
+  member: SceneMember,
+  /** Changes when a Missive was sent, so the thread is read again. */
+  sentCount = 0
 ): readonly HallMissive[] {
   const [messages, setMessages] = useState<readonly HallMissive[]>([])
-  useEffect(() => {
+  const load = useCallback(() => {
     let live = true
     loadMissives(session, fetcher, member.hallId, { limit: 50 })
       .then(
@@ -214,6 +221,15 @@ function useRecentMissives(
       live = false
     }
   }, [session, fetcher, member.hallId, member.id])
+  useEffect(() => load(), [load])
+  const seen = useRef(sentCount)
+  useEffect(() => {
+    if (seen.current === sentCount) {
+      return
+    }
+    seen.current = sentCount
+    return load()
+  }, [sentCount, load])
   return messages
 }
 
@@ -262,7 +278,7 @@ function AssignForm({
       <>
         <p role="status">Quest posted to the Quest Board for {member.name}.</p>
         <div className="talk-actions">
-          <button type="button" className="btn" onClick={onBoard}>
+          <button type="button" onClick={onBoard}>
             Open Quest Board
           </button>
           <button type="button" onClick={onBack}>
@@ -313,7 +329,7 @@ function AssignForm({
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="talk-actions">
-        <button type="submit" className="btn" disabled={busy || title.trim() === ''}>
+        <button type="submit" disabled={busy || title.trim() === ''}>
           Post Quest
         </button>
         <button type="button" onClick={onBack}>

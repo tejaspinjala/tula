@@ -53,6 +53,14 @@ async function getJson(session: Session, fetcher: Fetcher, path: string): Promis
   return data
 }
 
+/** The Treasury overview alone (the HUD's day and daily-cap meter), without the ledger pages. */
+export async function loadTreasuryOverview(
+  session: Session,
+  fetcher: Fetcher
+): Promise<TreasuryView['overview']> {
+  return overviewBody.parse(await getJson(session, fetcher, ''))
+}
+
 /** Loads the overview, every ledger entry (following page cursors) and the hash-chain check. */
 export async function loadTreasury(
   session: Session,

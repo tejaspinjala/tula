@@ -1,3 +1,4 @@
+import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryGateStore } from './adapters/memory-gate-store'
@@ -43,6 +44,7 @@ gatewayGuardsContract('memory', async () => {
   const provider = new MemoryModelProvider()
   const ledger = new MemoryModelLedger()
   const gatewayDeps = {
+    activity: new MemoryActivityLog(),
     ledger,
     secrets,
     config,
@@ -54,6 +56,7 @@ gatewayGuardsContract('memory', async () => {
   }
   const gateway = new ModelGateway(gatewayDeps)
   const mcpDeps = {
+    activity: new MemoryActivityLog(),
     quests,
     config,
     notes: new MemoryNoteStore(),

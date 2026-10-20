@@ -62,6 +62,16 @@ _Avoid_: backlog
 A short note (up to 2000 characters) one Member of a Hall sends another Member of the same Hall, or the whole Hall (`send_missive`, `read_missives`). Capped per Quest (`maxMissivesPerQuest`, refused as `missive_cap`). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame, and the Guild Master reads a Hall's Missives in the ledger. Hall-scoped in v1; cross-Hall Missives are the Milestone 2 extension. Work products travel as Handoffs (ids and hashes), not Missives.
 _Avoid_: DM, chat, message, notification
 
+**Research**:
+A Member's governed web search (`research` MCP tool, ADR-0010). guildd, never the sandbox, runs the query through the configured search provider and reads short extracts of the top pages through the page fetcher, so the egress allowlist stays closed. Off unless the host configures a provider and the guild sets `maxResearchPerQuest` above 0 (default 0; enabling or raising it is widening, so it needs a Seal). Each call is capped per Quest (`research_cap`) and charged to the Treasury in code (`RESEARCH_CALL_COST_CENTS`, refused as `research_declined`); a private-class Quest is refused (`provider_not_private_eligible`) unless the provider is private-eligible, a host setting; outbound calls have timeouts and jittered retries (`research_timeout`, `research_failed`). A refused or failed call charges nothing, but a failed one still counts toward the cap; a page that cannot be read (private host, 4xx, not text) is skipped without retry and reported in the result's `note`. Results (title, url, extract of at most 1000 characters) are untrusted web text, returned inside a per-call random nonce frame; nothing is executed. The store keeps ids only, never the query or a result.
+_Avoid_: browse, crawl, scrape
+
+**Search provider**:
+The port to a web search service (Brave Search in v1) that the Research tool queries. It is private-eligible only when the host says so (`RESEARCH_PRIVATE_ELIGIBLE`), never by a model's say-so.
+
+**Page fetcher**:
+The port that reads one https page as plain text for a Research result: https only, no private or loopback hosts, no redirects, text content only, byte-capped.
+
 **Inquiry**:
 One precise question from one Hall to another, answered once and filed in the Archive.
 _Avoid_: chat, ping
@@ -226,6 +236,9 @@ A team Campaign (one with a board Quest) got its first board Quest / the last in
 
 **missive.sent**:
 A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).
+
+**member.activity**:
+A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).

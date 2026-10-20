@@ -17,7 +17,7 @@ import { ProposalPanel } from './ProposalPanel'
 import { webAuthnBrowser } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
-import { VIEWS } from './router'
+import { BAG_PAGES } from './router'
 import { SealPanel } from './SealPanel'
 import { Shell } from './Shell'
 import { SummonPanel } from './SummonPanel'
@@ -152,7 +152,7 @@ describe('axe: no serious or critical violations', () => {
     await unmount(m)
   })
 
-  test.each(VIEWS.map((v) => [v.label, v.path] as const))(
+  test.each(BAG_PAGES.map((v) => [v.label, v.path] as const))(
     'the signed-in %s view',
     async (_label, path) => {
       window.history.pushState({}, '', path)
@@ -187,8 +187,10 @@ describe('keyboard', () => {
     expect(controls.length).toBeGreaterThan(5)
     for (const el of controls) {
       if (el.hasAttribute('disabled') || el.getAttribute('tabindex') === '-1') {
-        // The only deliberate -1 is the programmatic focus target of the skip link.
-        expect(el.id === 'main' || el.hasAttribute('disabled')).toBe(true)
+        // Deliberate -1: the skip link's focus target and the idle rows of a roving-tabindex menu.
+        expect(
+          el.id === 'main' || el.hasAttribute('disabled') || el.getAttribute('role') === 'option'
+        ).toBe(true)
         continue
       }
       el.focus()

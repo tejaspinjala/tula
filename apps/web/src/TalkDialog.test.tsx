@@ -5,6 +5,7 @@ import { act, useReducer } from 'react'
 import { initialTalk, type TalkState, type Target, talkReducer } from './game/interact'
 import type { SceneState } from './game/scene'
 
+let dismissals = 0
 const session = { token: 't1', guildId: '11111111-1111-4111-8111-111111111111' }
 const ana: Target = { kind: 'member', id: 'ana' }
 const desk: Target = { kind: 'sealDesk' }
@@ -89,6 +90,9 @@ async function show(
         scene={scene}
         quests={quests}
         navigate={(p) => paths.push(p)}
+        onDismiss={() => {
+          dismissals += 1
+        }}
       />
     )
   }
@@ -146,6 +150,21 @@ test('a Member dialog is a real labelled modal showing who they are and their Qu
   expect(text).toContain('Recent messages')
   expect(text).toContain('No messages yet')
   expect(await violations(run.host)).toEqual([])
+  await run.unmount()
+})
+
+test('Esc hands focus back to the world, but a dialog closed by the program does not', async () => {
+  const run = await show(ana)
+  const dialog = run.host.querySelector('dialog')
+  const before = dismissals
+  await act(async () => {
+    dialog?.dispatchEvent(new Event('cancel', { cancelable: true }))
+  })
+  expect(dismissals).toBe(before + 1)
+  await act(async () => {
+    dialog?.close()
+  })
+  expect(dismissals).toBe(before + 1)
   await run.unmount()
 })
 

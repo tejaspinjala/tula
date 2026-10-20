@@ -138,8 +138,7 @@ Paste into `apps/web/src/styles/tokens.css`. Components read only these variable
 - Text is 16px or larger. Sizes are in `rem` so zooming to 200% keeps the grid whole. Ship a "Readable text" setting
   that swaps `--font-body` and `--font-prose`.
 - Never colour alone: meters show numbers and hatching, states show an icon and a word, selection shows the ▶.
-- Keyboard: every menu works with the arrow keys, Enter and Esc. Focus is always visible: `outline: calc(var(--px)*2) solid var(--px-focus);
-  outline-offset: calc(var(--px)*2)`. Every tooltip also opens on focus. Add a skip link.
+- Keyboard: every menu works with the arrow keys, Enter and Esc. Focus is always visible and two-tone (gold alone on paper is ~1.3:1 and fails 3:1): an ink outer ring with a gold inner ring, as the kit's focus style does; reuse it, never a gold-only outline. Every tooltip also opens on focus. Add a skip link.
 - `prefers-reduced-motion`: the typewriter shows text instantly, banners appear without sliding, the loader is static, and nothing loops.
   Nothing flashes more than 3 times a second.
 

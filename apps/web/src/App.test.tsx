@@ -108,13 +108,23 @@ async function click(el: HTMLElement) {
   })
 }
 
+function option(host: HTMLElement, label: string): HTMLElement {
+  const found = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (o) => o.textContent?.trim() === label
+  )
+  if (!found) {
+    throw new Error(`no menu option "${label}"`)
+  }
+  return found
+}
+
 const headings = (host: HTMLElement) =>
   [...host.querySelectorAll('h2')].map((h) => h.textContent?.trim())
 
 test('signed out with founding closed shows one sign-in button and no other panel', async () => {
   foundingIsOpen = false
   const { host, root } = await mount()
-  expect(button(host, 'Sign in with passkey')).toBeTruthy()
+  expect(option(host, 'Continue')).toBeTruthy()
   expect(headings(host)).not.toContain('Found your guild')
   expect(host.textContent).not.toContain('Found your guild')
   for (const id of ['vault', 'roster', 'archive', 'quests', 'treasury', 'timeline', 'artifact']) {
@@ -124,77 +134,51 @@ test('signed out with founding closed shows one sign-in button and no other pane
   await act(async () => root.unmount())
 })
 
-test('Found your guild appears only while founding is open', async () => {
+test('New guild is on the title menu only while founding is open, and opens the founding form', async () => {
+  foundingIsOpen = false
+  const closed = await mount()
+  expect(() => option(closed.host, 'New guild')).toThrow()
+  await act(async () => closed.root.unmount())
   foundingIsOpen = true
   const { host, root } = await mount()
+  expect(headings(host)).not.toContain('Found your guild')
+  await click(option(host, 'New guild'))
   expect(headings(host)).toContain('Found your guild')
+  // Keyboard only: the Guild name field has focus, so typing starts at once.
+  expect(document.activeElement?.id).toBe(host.querySelector('input')?.id)
+  expect(document.activeElement?.tagName).toBe('INPUT')
   await act(async () => root.unmount())
 })
 
-test('signing in with a passkey needs no guild id, then shows the guild name and id', async () => {
+test('signing in with a passkey needs no guild id, then drops into the world with the guild name', async () => {
   foundingIsOpen = false
   signInStatus = 200
   const { host, root } = await mount()
-  await click(button(host, 'Sign in with passkey'))
+  await click(option(host, 'Continue'))
   expect(urls).toContain('/api/sign-in/begin')
   expect(urls).toContain('/api/sign-in/finish')
-  expect(host.textContent).toContain('Ember Guild')
-  expect(host.querySelector('header')?.textContent).not.toContain(guild)
-  expect(host.querySelector('#home-heading')).not.toBeNull()
-  expect(host.querySelector('#vault-heading')).toBeNull()
+  expect(host.querySelector('h1')?.textContent).toContain('Ember Guild')
+  expect(host.querySelector('h1')?.textContent).not.toContain(guild)
+  expect(host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
+  expect(host.querySelector('nav')).toBeNull()
+  expect(host.querySelector('dialog[open]')).toBeNull()
   await act(async () => root.unmount())
 })
 
-test('signed in, only the active view renders and the nav moves between views', async () => {
-  foundingIsOpen = false
-  signInStatus = 200
-  visit('/')
-  const { host, root } = await mount()
-  await click(button(host, 'Sign in with passkey'))
-  const nav = host.querySelector('nav[aria-label="Ledger"]')
-  const labels = [...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent?.trim())
-  expect(labels).toEqual([
-    'Home',
-    'Guild Hall',
-    'Quest Board',
-    'Seals',
-    'Archive',
-    'Treasury and Costs',
-    'Roster and Summon',
-    'Guild',
-    'Workflows',
-    'Gates',
-    'Timeline',
-    'Vault and Settings',
-  ])
-  const link = [...(nav?.querySelectorAll('a') ?? [])].find(
-    (a) => a.textContent?.trim() === 'Treasury and Costs'
-  )
-  if (!link) {
-    throw new Error('no Treasury link')
-  }
-  await click(link)
-  expect(window.location.pathname).toBe('/treasury')
-  expect(host.querySelector('#treasury-heading')).not.toBeNull()
-  expect(host.querySelector('#home-heading')).toBeNull()
-  expect(host.querySelectorAll('main h1').length).toBe(1)
-  await act(async () => root.unmount())
-})
-
-test('a deep link opens its own view, and a Seal link opens the Seals view', async () => {
+test('a deep link opens its Bag page over the world, and a Seal link opens the Seals page', async () => {
   foundingIsOpen = false
   signInStatus = 200
   visit('/vault')
   const first = await mount()
-  await click(button(first.host, 'Sign in with passkey'))
-  expect(first.host.querySelector('#vault-heading')).not.toBeNull()
-  expect(first.host.querySelector('#home-heading')).toBeNull()
+  await click(option(first.host, 'Continue'))
+  expect(first.host.querySelector('dialog[open] #settings-title')).not.toBeNull()
+  expect(first.host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
   await act(async () => first.root.unmount())
 
   visit('/?seal=abc')
   const second = await mount()
-  await click(button(second.host, 'Sign in with passkey'))
-  expect(second.host.querySelector('#seals-heading')).not.toBeNull()
+  await click(option(second.host, 'Continue'))
+  expect(second.host.querySelector('dialog[open] #seals-title')).not.toBeNull()
   await act(async () => second.root.unmount())
   visit('/')
 })
@@ -203,7 +187,7 @@ test('signed out at a deep link shows only sign-in, never the view', async () =>
   foundingIsOpen = false
   visit('/vault')
   const { host, root } = await mount()
-  expect(button(host, 'Sign in with passkey')).toBeTruthy()
+  expect(option(host, 'Continue')).toBeTruthy()
   expect(host.querySelector('#vault-heading')).toBeNull()
   expect(host.querySelector('nav')).toBeNull()
   await act(async () => root.unmount())
@@ -214,8 +198,8 @@ test('a refused passkey sign-in is announced', async () => {
   foundingIsOpen = false
   signInStatus = 401
   const { host, root } = await mount()
-  await click(button(host, 'Sign in with passkey'))
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be signed in')
+  await click(option(host, 'Continue'))
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('stayed shut')
   expect(host.querySelector('#vault-heading')).toBeNull()
   await act(async () => root.unmount())
 })
@@ -224,6 +208,7 @@ test('a guild id fallback signs in through the per-guild route', async () => {
   foundingIsOpen = false
   signInStatus = 200
   const { host, root } = await mount()
+  await click(option(host, 'Older passkey'))
   const input = host.querySelector<HTMLInputElement>('input[name="guild-id"]')
   if (!input) {
     throw new Error('no guild id input')
@@ -243,20 +228,79 @@ test('a rate-limited /founding shows a try again shortly state instead of vanish
   foundingIsOpen = true
   foundingStatus = 429
   const { host, root } = await mount()
+  await click(option(host, 'New guild'))
   expect(host.textContent).toContain('try again shortly')
   foundingStatus = 200
   await act(async () => root.unmount())
 })
 
-test('signed out: says what Guildhall and a passkey are, and shows guildd only when it is down', async () => {
+test('signed out: the title shows the wordmark and a Member explains passkeys on request', async () => {
   foundingIsOpen = true
   const { host, root } = await mount()
-  expect(host.textContent).toContain('What is a passkey')
+  expect(host.querySelector('h1')?.textContent).toContain('Guildhall')
   expect(host.textContent).not.toContain('guildd:')
-  const sign = button(host, 'Sign in with passkey')
-  expect(sign.className).toContain('btn-primary')
-  const found = button(host, 'Found your guild')
-  expect(found.className).not.toContain('btn-primary')
+  await click(option(host, 'About passkeys'))
+  expect(host.textContent).toContain('Member')
+  expect(host.textContent).toContain('passkey')
+  await act(async () => root.unmount())
+})
+
+test('keyboard only: Enter on Continue signs in', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  const { host, root } = await mount()
+  const continueRow = option(host, 'Continue')
+  await key('Enter', continueRow)
+  expect(urls).toContain('/api/sign-in/finish')
+  expect(host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
+  await act(async () => root.unmount())
+})
+
+test('a passkey the browser cannot offer for this address has its own line, apart from cancel and refusal', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  const denied = (name: string) => ({
+    create: async () => ({}),
+    get: async () => {
+      const error = new Error(name)
+      error.name = name
+      throw error
+    },
+  })
+  const lineFor = async (name: string) => {
+    urls.length = 0
+    cookieLive = false
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    await act(async () => {
+      root.render(<App browser={denied(name)} />)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    await click(option(host, 'Continue'))
+    const line = host.querySelector('[role="alert"]')?.textContent ?? ''
+    await act(async () => root.unmount())
+    return line
+  }
+  const wrong = await lineFor('SecurityError')
+  const none = await lineFor('NoPasskeyOffered')
+  const cancelled = await lineFor('NotAllowedError')
+  expect(wrong).toContain('address')
+  expect(none).toContain('address')
+  expect(new Set([wrong, none, cancelled]).size).toBe(3)
+  expect(cancelled).not.toContain('address')
+})
+
+test('signing in fades the title into the world, and the fade is decoration only', async () => {
+  foundingIsOpen = false
+  signInStatus = 200
+  const { host, root } = await mount()
+  expect(host.querySelector('.scene-fade')).toBeNull()
+  await click(option(host, 'Continue'))
+  const fade = host.querySelector('.scene-fade')
+  expect(fade).not.toBeNull()
+  expect(fade?.getAttribute('aria-hidden')).toBe('true')
+  expect(host.querySelector('[data-testid="game-frame"]')).not.toBeNull()
   await act(async () => root.unmount())
 })
 
@@ -265,44 +309,107 @@ async function signedIn(path = '/') {
   signInStatus = 200
   visit(path)
   const mounted = await mount()
-  await click(button(mounted.host, 'Sign in with passkey'))
+  await click(option(mounted.host, 'Continue'))
   return mounted
 }
 
-test('signed in: the header names the guild, has Sign out, and hides guildd while ok (U4, U5, U1)', async () => {
+async function key(k: string, target: EventTarget = document) {
+  await act(async () => {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+}
+
+const bagOpen = (host: HTMLElement) => host.querySelector('dialog.bag[open]') !== null
+
+function row(host: HTMLElement, label: string): HTMLElement {
+  const found = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (o) => o.textContent === label
+  )
+  if (!found) {
+    throw new Error(`no Bag row "${label}"`)
+  }
+  return found
+}
+
+test('B opens the Bag and Esc closes it, and focus returns to the world', async () => {
   const { host, root } = await signedIn()
-  const header = host.querySelector('header')
-  expect(header?.textContent).toContain('Ember Guild')
-  expect(header?.textContent).not.toContain('guildd:')
-  expect(header?.textContent).not.toContain(guild)
-  await click(button(header as HTMLElement, 'Sign out'))
-  expect(window.location.pathname).toBe('/')
-  expect(button(host, 'Sign in with passkey')).toBeTruthy()
+  expect(bagOpen(host)).toBe(false)
+  await key('b')
+  expect(bagOpen(host)).toBe(true)
+  await key('Escape', host.querySelector('[role="option"]') as HTMLElement)
+  expect(bagOpen(host)).toBe(false)
+  expect(document.activeElement).toBe(host.querySelector('[data-testid="game-frame"]'))
   await act(async () => root.unmount())
 })
 
-test('Sign out from a deeper view returns to / (U4)', async () => {
+test('B typed into a field does not open the Bag', async () => {
+  const { host, root } = await signedIn()
+  const field = document.createElement('input')
+  host.appendChild(field)
+  await key('b', field)
+  expect(bagOpen(host)).toBe(false)
+  await act(async () => root.unmount())
+})
+
+test('the HUD has a Bag button that opens the Bag, and a Seal count that opens the Seals page', async () => {
+  const { host, root } = await signedIn()
+  await click(button(host, 'Bag (B)'))
+  expect(bagOpen(host)).toBe(true)
+  await key('Escape', host.querySelector('[role="option"]') as HTMLElement)
+  await click(host.querySelector('.hud-seals') as HTMLElement)
+  expect(host.querySelector('dialog[open] #seals-title')).not.toBeNull()
+  await act(async () => root.unmount())
+})
+
+test('choosing a row opens its page, Esc closes the Bag and the address returns to /', async () => {
+  const { host, root } = await signedIn()
+  await key('b')
+  await click(row(host, 'Treasury'))
+  expect(window.location.pathname).toBe('/treasury')
+  expect(host.querySelector('dialog[open] #treasury-title')).not.toBeNull()
+  await key('Escape', host.querySelector('dialog.bag') as HTMLElement)
+  expect(bagOpen(host)).toBe(false)
+  expect(window.location.pathname).toBe('/')
+  await act(async () => root.unmount())
+})
+
+test('signed in: the plate names the guild, the Bag has Sign out, and guildd shows only while down (U4, U5, U1)', async () => {
+  const { host, root } = await signedIn()
+  const plate = host.querySelector('h1')
+  expect(plate?.textContent).toContain('Ember Guild')
+  expect(host.textContent).not.toContain('guildd:')
+  await key('b')
+  await click(row(host, 'Sign out'))
+  expect(window.location.pathname).toBe('/')
+  expect(option(host, 'Continue')).toBeTruthy()
+  await act(async () => root.unmount())
+})
+
+test('Sign out from a deeper page returns to / (U4)', async () => {
   const { host, root } = await signedIn('/timeline')
   expect(window.location.pathname).toBe('/timeline')
-  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  await click(button(host.querySelector('dialog.bag') as HTMLElement, 'Back to the Bag'))
+  await click(row(host, 'Sign out'))
   expect(window.location.pathname).toBe('/')
   await act(async () => root.unmount())
 })
 
-test('the guild id appears only in Vault and Settings, truncated with a copy button (U5)', async () => {
+test('the guild id appears only in Settings, truncated with a copy button (U5)', async () => {
   const { host, root } = await signedIn('/vault')
-  const main = host.querySelector('main')
-  expect(main?.textContent).not.toContain(guild)
-  expect(main?.textContent).toContain(`${guild.slice(0, 8)}…${guild.slice(-4)}`)
-  expect(button(main as HTMLElement, 'Copy guild id')).toBeTruthy()
+  const settings = host.querySelector('dialog.bag') as HTMLElement
+  expect(settings.textContent).not.toContain(guild)
+  expect(settings.textContent).toContain(`${guild.slice(0, 8)}…${guild.slice(-4)}`)
+  expect(button(settings, 'Copy guild id')).toBeTruthy()
+  expect(settings.textContent).toContain('Hall lighting')
   await act(async () => root.unmount())
 })
 
-test('document.title names the view (F3)', async () => {
+test('document.title names the open Bag page (F3)', async () => {
   const { host, root } = await signedIn('/')
-  expect(document.title).toBe('Home | Guildhall')
-  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Seals')
-  await click(link as HTMLElement)
+  expect(document.title).toBe('Guildhall')
+  await key('b')
+  await click(row(host, 'Seals'))
   expect(document.title).toBe('Seals | Guildhall')
   await act(async () => root.unmount())
 })
@@ -313,38 +420,11 @@ test('an unknown path redirects to / (U18)', async () => {
   await act(async () => root.unmount())
 })
 
-test('the phone nav has a More menu that opens and closes (U10)', async () => {
-  const { host, root } = await signedIn('/')
-  const more = button(host.querySelector('nav') as HTMLElement, 'More')
-  expect(more.getAttribute('aria-expanded')).toBe('false')
-  await click(more)
-  expect(more.getAttribute('aria-expanded')).toBe('true')
-  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Timeline')
-  await click(link as HTMLElement)
-  expect(
-    button(host.querySelector('nav') as HTMLElement, 'More').getAttribute('aria-expanded')
-  ).toBe('false')
-  await act(async () => root.unmount())
-})
-
-test('the active tab is scrolled into view (F2)', async () => {
-  const scrolled: string[] = []
-  const original = HTMLElement.prototype.scrollIntoView
-  HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
-    scrolled.push(this.textContent ?? '')
-  }
-  const { host, root } = await signedIn('/')
-  const link = [...host.querySelectorAll('nav a')].find((a) => a.textContent === 'Quest Board')
-  await click(link as HTMLElement)
-  HTMLElement.prototype.scrollIntoView = original
-  expect(scrolled).toContain('Quest Board')
-  await act(async () => root.unmount())
-})
-
 test('Sign out resets the document title to Guildhall (shot 51)', async () => {
   const { host, root } = await signedIn('/seals')
   expect(document.title).toBe('Seals | Guildhall')
-  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  await click(button(host.querySelector('dialog.bag') as HTMLElement, 'Back to the Bag'))
+  await click(row(host, 'Sign out'))
   expect(document.title).toBe('Guildhall')
   await act(async () => root.unmount())
 })
@@ -354,27 +434,6 @@ test('an unknown path redirects to / and keeps the query string, so ?seal= survi
   expect(window.location.pathname).toBe('/')
   expect(window.location.search).toBe('?seal=abc')
   expect(host.querySelector('#seals-title')).not.toBeNull()
-  await act(async () => root.unmount())
-})
-
-test('the phone More menu closes on Escape, on a tap outside, and from its own toggle (shot 50)', async () => {
-  const { host, root } = await signedIn('/')
-  const nav = () => host.querySelector('nav') as HTMLElement
-  const expanded = () => nav().querySelector('.nav-more button')?.getAttribute('aria-expanded')
-  await click(button(nav(), 'More'))
-  expect(expanded()).toBe('true')
-  await act(async () => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-  })
-  expect(expanded()).toBe('false')
-  await click(button(nav(), 'More'))
-  await act(async () => {
-    document.getElementById('main')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-  })
-  expect(expanded()).toBe('false')
-  await click(button(nav(), 'More'))
-  await click(button(nav(), 'Close'))
-  expect(expanded()).toBe('false')
   await act(async () => root.unmount())
 })
 
@@ -401,10 +460,11 @@ test('sign-in asks for a cookie session and no request carries a bearer token', 
 
 test('Sign out revokes the session on guildd, and a reload stays signed out', async () => {
   const { host, root } = await signedIn()
-  await click(button(host.querySelector('header') as HTMLElement, 'Sign out'))
+  await key('b')
+  await click(row(host, 'Sign out'))
   expect(requests.some((r) => r.url === '/api/session/logout' && r.method === 'POST')).toBe(true)
   await act(async () => root.unmount())
   const again = await mount({ keepSession: true })
-  expect(button(again.host, 'Sign in with passkey')).toBeTruthy()
+  expect(option(again.host, 'Continue')).toBeTruthy()
   await act(async () => again.root.unmount())
 })

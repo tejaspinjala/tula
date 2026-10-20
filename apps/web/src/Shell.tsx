@@ -1,104 +1,13 @@
-import { type MouseEvent, useEffect, useRef, useState } from 'react'
-import { ArchivePanel } from './ArchivePanel'
-import { ArtifactViewer } from './ArtifactViewer'
-import { BuilderPanel } from './builder/BuilderPanel'
-import { CostTablePanel } from './CostTablePanel'
+import { useCallback, useEffect, useState } from 'react'
+import { Bag } from './Bag'
 import { GamePanel } from './GamePanel'
-import { GatesPanel } from './GatesPanel'
-import { HomePanel } from './HomePanel'
-import { LearningPanel } from './LearningPanel'
-import { MissivesPanel } from './MissivesPanel'
-import { PasskeyPanel } from './PasskeyPanel'
-import { ProposalPanel } from './ProposalPanel'
+import { Hud } from './Hud'
 import { endSession, type Session } from './passkeys'
-import { QuestBoardPanel } from './QuestBoardPanel'
-import { RosterPanel } from './RosterPanel'
-import { useRoute, VIEWS, type ViewId } from './router'
-import { SealPanel } from './SealPanel'
-import { SummonPanel } from './SummonPanel'
-import { TimelinePanel } from './TimelinePanel'
-import { TreasuryPanel } from './TreasuryPanel'
-import { TripwirePanel } from './TripwirePanel'
-import { VaultPanel } from './VaultPanel'
-import { WorkflowPanel } from './workflows/WorkflowPanel'
-
-/** How many views get their own tab on a phone; the rest sit behind More. */
-const PHONE_TABS = 4
-
-function ViewBody({
-  view,
-  session,
-  onSession,
-  navigate,
-}: {
-  view: ViewId
-  session: Session
-  onSession: (session: Session | null) => void
-  navigate: (path: string) => void
-}) {
-  switch (view) {
-    case 'home':
-      return <HomePanel session={session} navigate={navigate} />
-    case 'hall':
-      return (
-        <>
-          <GamePanel session={session} navigate={navigate} />
-          <MissivesPanel session={session} />
-        </>
-      )
-    case 'quests':
-      return <QuestBoardPanel session={session} />
-    case 'seals':
-      return <SealPanel session={session} />
-    case 'archive':
-      return (
-        <>
-          <ArchivePanel session={session} />
-          <ArtifactViewer session={session} />
-          <LearningPanel session={session} />
-          <ProposalPanel session={session} />
-        </>
-      )
-    case 'treasury':
-      return (
-        <>
-          <TreasuryPanel session={session} />
-          <CostTablePanel session={session} />
-        </>
-      )
-    case 'roster':
-      return (
-        <>
-          <RosterPanel session={session} />
-          <SummonPanel session={session} />
-        </>
-      )
-    case 'guild':
-      return <BuilderPanel session={session} />
-    case 'workflows':
-      return <WorkflowPanel session={session} />
-    case 'gates':
-      return (
-        <>
-          <GatesPanel session={session} />
-          <TripwirePanel session={session} />
-        </>
-      )
-    case 'timeline':
-      return <TimelinePanel session={session} />
-    case 'vault':
-      return (
-        <>
-          <VaultPanel session={session} />
-          <PasskeyPanel session={session} onSession={onSession} />
-        </>
-      )
-  }
-}
+import { BAG_PAGES, useRoute } from './router'
 
 /**
- * The signed-in ledger: a header with the guild name, navigation (a left rail on desktop, a tab
- * bar on a phone) and exactly one active view.
+ * The signed-in game: the Guild Hall fills the screen, a HUD sits over it, and the Bag opens
+ * every other page as a framed overlay. There is no page navigation, only the world and the Bag.
  */
 export function Shell({
   session,
@@ -111,104 +20,96 @@ export function Shell({
   status: 'checking' | 'ok' | 'down'
   onSession: (session: Session | null) => void
 }) {
-  const { view, navigate } = useRoute()
-  const [moreOpen, setMoreOpen] = useState(false)
-  const more = moreOpen ? 'open' : 'closed'
-  const nav = useRef<HTMLElement | null>(null)
-  const active = VIEWS.find((v) => v.id === view)
-  const activeIndex = VIEWS.findIndex((v) => v.id === view)
-  const go = (path: string) => (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-      return
-    }
-    event.preventDefault()
-    setMoreOpen(false)
-    navigate(path)
-  }
+  const { page, navigate } = useRoute()
+  const [bagOpen, setBagOpen] = useState(false)
+  const visible = bagOpen || page !== null
+  const active = BAG_PAGES.find((p) => p.id === page)
+  // Any path that names a Bag page (a Seal desk, a Member's Quest) opens the Bag over the world.
+  const openPath = useCallback(
+    (path: string) => {
+      setBagOpen(true)
+      navigate(path)
+    },
+    [navigate]
+  )
+  const showMenu = useCallback(() => {
+    setBagOpen(true)
+    navigate('/')
+  }, [navigate])
+  const close = useCallback(() => {
+    setBagOpen(false)
+    navigate('/')
+  }, [navigate])
+  // B opens the Bag from the walk, and closes it from its menu. Typing in a field never triggers it.
   useEffect(() => {
-    document.title = `${active?.label ?? 'Ledger'} | Guildhall`
-    nav.current
-      ?.querySelector<HTMLElement>('[aria-current="page"]')
-      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'b' || event.ctrlKey || event.metaKey || event.altKey) {
+        return
+      }
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          (!visible && target.closest('dialog') !== null))
+      ) {
+        return
+      }
+      event.preventDefault()
+      if (!visible) {
+        showMenu()
+      } else if (page === null) {
+        close()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [visible, page, showMenu, close])
+  useEffect(() => {
+    document.title = active ? `${active.label} | Guildhall` : 'Guildhall'
   }, [active])
   useEffect(() => {
     return () => {
       document.title = 'Guildhall'
     }
   }, [])
-  useEffect(() => {
-    if (!moreOpen) {
-      return
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMoreOpen(false)
-      }
-    }
-    const onPointer = (event: Event) => {
-      if (event.target instanceof Node && !nav.current?.contains(event.target)) {
-        setMoreOpen(false)
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('pointerdown', onPointer)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('pointerdown', onPointer)
-    }
-  }, [moreOpen])
   const signOut = async () => {
     await endSession(fetch)
     navigate('/')
     onSession(null)
   }
   return (
-    <div className="shell">
-      <a href="#main" className="skip-link">
-        Skip to content
-      </a>
-      <header className="shell-header">
-        <p className="brand">{guildName || 'Guildhall ledger'}</p>
-        {status === 'down' && (
-          <p role="alert" className="error-text">
-            guildd: down
-          </p>
+    <main id="main" tabIndex={-1} className="shell">
+      <GamePanel session={session} navigate={openPath}>
+        {({ hallControls, focusWorld, talkTo }) => (
+          <>
+            <Hud
+              session={session}
+              guildName={guildName}
+              status={status}
+              refresh={visible ? 0 : 1}
+              onOpenBag={showMenu}
+              onOpenSeals={() => openPath('/seals')}
+            />
+            <Bag
+              session={session}
+              onSession={onSession}
+              visible={visible}
+              page={page}
+              hallControls={hallControls}
+              onOpenPath={openPath}
+              onMenu={showMenu}
+              onClose={close}
+              onSignOut={signOut}
+              focusWorld={focusWorld}
+              onTalkTo={(id) => {
+                close()
+                talkTo(id)
+              }}
+            />
+          </>
         )}
-        <button type="button" onClick={signOut}>
-          Sign out
-        </button>
-      </header>
-      <nav aria-label="Ledger" className="shell-nav" data-more={more} ref={nav}>
-        <ul>
-          {VIEWS.map((v, index) => (
-            <li key={v.id} className={index >= PHONE_TABS ? 'nav-extra' : 'nav-tab'}>
-              <a
-                href={v.path}
-                aria-current={v.id === view ? 'page' : undefined}
-                onClick={go(v.path)}
-              >
-                {v.label}
-              </a>
-            </li>
-          ))}
-          <li className="nav-more">
-            <button
-              type="button"
-              aria-expanded={moreOpen}
-              data-active-inside={activeIndex >= PHONE_TABS ? 'true' : undefined}
-              onClick={() => setMoreOpen((open) => !open)}
-            >
-              {moreOpen ? 'Close' : 'More'}
-            </button>
-          </li>
-        </ul>
-      </nav>
-      <main id="main" tabIndex={-1} className="shell-main">
-        <h1 id={view === 'home' ? 'home-heading' : `${view}-title`} className="view-title">
-          {active?.label}
-        </h1>
-        <ViewBody view={view} session={session} onSession={onSession} navigate={navigate} />
-      </main>
-    </div>
+      </GamePanel>
+    </main>
   )
 }

@@ -5,10 +5,13 @@ import {
   foundingOpen,
   type PasskeyBrowser,
   PasskeyRequestError,
+  passkeyFailure,
+  passkeyLine,
   reauthenticate,
   registerPasskey,
   signIn,
   signInWithPasskey,
+  withNoPasskeyDetection,
 } from './passkeys'
 
 const guild = '11111111-1111-4111-8111-111111111111'
@@ -130,4 +133,58 @@ test('the signed-in guild is read with the session token', async () => {
     name: 'Ember',
   })
   expect(auth).toEqual(['Bearer t'])
+})
+
+function named(name: string): Error {
+  const error = new Error(name)
+  error.name = name
+  return error
+}
+
+test('a passkey failure is told apart: cancel, no credential, wrong address, refusal, 429', () => {
+  expect(passkeyFailure(named('NotAllowedError'))).toBe('cancelled')
+  expect(passkeyFailure(named('NoPasskeyOffered'))).toBe('no_credential')
+  expect(passkeyFailure(named('SecurityError'))).toBe('wrong_address')
+  expect(passkeyFailure(new PasskeyRequestError(401, 'verification_failed'))).toBe('refused')
+  expect(passkeyFailure(new PasskeyRequestError(429, 'rate_limited'))).toBe('busy')
+  expect(passkeyFailure(new Error('boom'))).toBe('unknown')
+})
+
+test('each failure reads as its own in-world line', () => {
+  const kinds = [
+    'cancelled',
+    'no_credential',
+    'wrong_address',
+    'refused',
+    'busy',
+    'unknown',
+  ] as const
+  const lines = kinds.map((kind) => passkeyLine(kind, 'sign-in'))
+  expect(new Set(lines).size).toBe(kinds.length)
+  expect(passkeyLine('no_credential', 'sign-in')).toContain('address')
+})
+
+test('the no-passkey line also covers a very fast real cancel', () => {
+  expect(passkeyLine('no_credential', 'sign-in')).toContain('set it aside')
+  expect(passkeyLine('no_credential', 'founding')).toContain('set it aside')
+})
+
+test('a browser that rejects at once with NotAllowedError offered no passkey; a slow one was cancelled', async () => {
+  const reject = async () => {
+    throw named('NotAllowedError')
+  }
+  let clock = 0
+  const instant = withNoPasskeyDetection({ create: reject, get: reject }, () => clock)
+  await expect(instant.get(options)).rejects.toMatchObject({ name: 'NoPasskeyOffered' })
+  const slow = withNoPasskeyDetection(
+    {
+      create: reject,
+      get: async () => {
+        clock += 5000
+        throw named('NotAllowedError')
+      },
+    },
+    () => clock
+  )
+  await expect(slow.get(options)).rejects.toMatchObject({ name: 'NotAllowedError' })
 })

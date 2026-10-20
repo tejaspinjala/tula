@@ -17,6 +17,8 @@ import {
   readQuestFrame,
   roundText,
 } from './quests'
+import { EmptyState, PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 const COLUMN_NAMES: Record<BoardQuest['state'], string> = {
   queued: 'Queued',
@@ -36,6 +38,8 @@ const MAX_RECONNECT_MS = 10_000
 export function QuestBoardPanel({ session }: { session: Session | null }) {
   const [quests, setQuests] = useState<BoardQuest[]>([])
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const titleInput = useRef<HTMLInputElement>(null)
   const [campaign, setCampaign] = useState<string | null>(null)
   const [hallId, setHallId] = useState(QUEST_TEMPLATES[0]?.hallId ?? '')
   const [templateId, setTemplateId] = useState(QUEST_TEMPLATES[0]?.id ?? '')
@@ -82,6 +86,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
         .then((loaded) => {
           if (!closed) {
             setQuests(loaded)
+            setLoaded(true)
             setFailed(false)
           }
         })
@@ -136,14 +141,11 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
   const board = groupByState(inCampaign(quests, campaign))
 
   return (
-    <section aria-labelledby="quests-heading" className="card">
-      <h2 id="quests-heading" className="card-title">
-        Quests by state
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see the Quest Board.</p>}
+    <WorkSection id="quests" title="Quests by state">
+      {!session && <p>Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
       {session && campaigns.length > 0 && (
-        <label className="mt-4 block">
+        <label className="block">
           Campaign
           <select
             className="ml-2"
@@ -197,6 +199,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
           <label className="flex flex-col">
             Title
             <input
+              ref={titleInput}
               name="quest-title"
               required
               maxLength={200}
@@ -204,24 +207,30 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <button type="submit" className="btn-primary">
-            Post Quest
-          </button>
+          <PixelButton type="submit">Post Quest</PixelButton>
         </form>
       )}
       {posting && <p role="status">{posting}</p>}
+      {session && loaded && quests.length === 0 && !failed && (
+        <EmptyState
+          member="Quartermaster"
+          line="The Quest Board is empty. Post a Quest?"
+          actionLabel="Post a Quest"
+          onAction={() => titleInput.current?.focus()}
+        />
+      )}
       {session && (
-        <div className="board" aria-live="polite">
+        <div className="corkboard" aria-live="polite">
           {BOARD_STATES.map((state) => (
-            <div key={state}>
-              <h3 className="column-title">
+            <div key={state} className="corkboard-column">
+              <h3 className="corkboard-plate">
                 <Badge tone={questTone(state)}>
                   {`${COLUMN_NAMES[state]} (${board[state].length})`}
                 </Badge>
               </h3>
-              <ul aria-label={COLUMN_NAMES[state]} className="mt-2 flex flex-col gap-2">
+              <ul aria-label={COLUMN_NAMES[state]}>
                 {board[state].map((quest) => (
-                  <li key={quest.id} className="item">
+                  <li key={quest.id} className="work-note">
                     <strong>{quest.title}</strong>
                     <div>
                       {quest.hallId} / {quest.ownerId}
@@ -241,7 +250,7 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
           ))}
         </div>
       )}
-    </section>
+    </WorkSection>
   )
 }
 

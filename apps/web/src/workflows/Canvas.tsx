@@ -1,10 +1,12 @@
 import {
   applyNodeChanges,
   Background,
+  BackgroundVariant,
   type Connection,
   Controls,
   type Edge,
   Handle,
+  MiniMap,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -16,7 +18,10 @@ import {
 import { type DragEvent, useCallback, useEffect, useState } from 'react'
 import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
 import { Badge } from '../Badge'
+import { SNAP_GRID } from '../builder/Canvas'
+import { useBoardFit } from '../builder/useBoardFit'
 import { formatDollars } from '../costs'
+import { Frame } from '../ui/pixel'
 import type { Place } from './layout'
 import type { NodeOverlay } from './overlay'
 
@@ -33,11 +38,13 @@ export interface FlowData extends Record<string, unknown> {
 type FlowNode = Node<FlowData, 'step'>
 
 function StepNode({ data, selected }: NodeProps<FlowNode>) {
+  // The plate names the kind of step; `trigger.` is dropped so the longest names fit a node.
+  const plate = data.type.replace(/^trigger\./, '')
   return (
-    <div className={`flow-node flow-step${selected ? ' flow-selected' : ''}`}>
+    <Frame variant="paper" className={`flow-node flow-step${selected ? ' flow-selected' : ''}`}>
       <Handle type="target" position={Position.Left} />
+      <span className="flow-plate">{selected ? `\u25B6 ${plate}` : plate}</span>
       <strong>{data.label}</strong>
-      <span className="muted">{data.type}</span>
       {data.overlay && (
         <div className="flow-badges">
           <Badge tone={data.overlay.tone}>{data.overlay.text}</Badge>
@@ -55,9 +62,12 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
         </p>
       ))}
       <Handle type="source" position={Position.Right} />
-    </div>
+    </Frame>
   )
 }
+
+/** The initial fit of the canvas. */
+export const FIT_VIEW_OPTIONS = { padding: 0.25, minZoom: 0.6 }
 
 const nodeTypes = { step: StepNode }
 
@@ -112,6 +122,8 @@ function Flow(props: CanvasProps) {
     setEdges(built.edges)
   }, [graph, places, issues, overlay, selected])
 
+  const overflowRight = useBoardFit(FIT_VIEW_OPTIONS, nodes.length)
+
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => setNodes((current) => applyNodeChanges(changes, current)),
     []
@@ -151,13 +163,21 @@ function Flow(props: CanvasProps) {
         nodesConnectable={!props.readOnly}
         deleteKeyCode={null}
         elementsSelectable
-        fitView
+        snapToGrid
+        snapGrid={SNAP_GRID}
+        defaultEdgeOptions={{ type: 'step' }}
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background variant={BackgroundVariant.Dots} gap={SNAP_GRID[0]} size={2} />
         <Controls showInteractive={false} />
+        <MiniMap pannable zoomable ariaLabel="Map of the workflow" />
       </ReactFlow>
+      {overflowRight && (
+        <p className="board-cue" role="note">
+          More steps this way. Drag to pan. <span aria-hidden="true">{'\u25B6'}</span>
+        </p>
+      )}
     </div>
   )
 }
