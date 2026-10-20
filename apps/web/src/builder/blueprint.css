@@ -15,7 +15,7 @@
 .builder-canvas {
   position: relative;
   height: 36rem;
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
+  border: calc(var(--px) * 2) solid var(--px-ink);
   background: var(--px-paper-200);
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
@@ -73,7 +73,7 @@
 .flow-plate {
   align-self: flex-start;
   padding: 0 calc(var(--px) * 2);
-  background: var(--px-wood-700);
+  background: var(--px-ink);
   color: var(--px-paper);
   font-family: var(--font-label);
   font-size: var(--text-sm);
@@ -109,7 +109,7 @@
 
 .flow-selected .flow-plate {
   background: var(--px-gold-500);
-  color: var(--px-ink);
+  color: var(--px-wood-900);
 }
 
 /* Handles: square 4 --px pixels. */
@@ -118,25 +118,25 @@
   height: calc(var(--px) * 4);
   min-width: 0;
   min-height: 0;
-  border: var(--px) solid var(--px-wood-900);
+  border: var(--px) solid var(--px-ink);
   border-radius: 0;
   background: var(--px-gold-500);
 }
 
 /* Edges: crisp 2 --px steps. */
 .builder-canvas .react-flow__edge-path {
-  stroke: var(--px-wood-900);
+  stroke: var(--px-ink);
   stroke-width: calc(var(--px) * 2);
   shape-rendering: crispEdges;
 }
 
 .builder-canvas .react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--px-wood-500);
+  stroke: var(--px-gold-700);
 }
 
 /* Controls and the minimap are framed too. */
 .builder-canvas .react-flow__controls {
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
+  border: calc(var(--px) * 2) solid var(--px-ink);
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
 
@@ -144,7 +144,7 @@
   width: calc(var(--px) * 12);
   height: calc(var(--px) * 12);
   border: 0;
-  border-bottom: var(--px) solid var(--px-wood-900);
+  border-bottom: var(--px) solid var(--px-ink);
   background: var(--px-paper);
   fill: var(--px-ink);
 }
@@ -162,7 +162,7 @@
 .builder-canvas .react-flow__minimap {
   width: calc(var(--px) * 56);
   height: calc(var(--px) * 36);
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
+  border: calc(var(--px) * 2) solid var(--px-ink);
   background: var(--px-paper);
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
@@ -173,8 +173,14 @@
 }
 
 .builder-canvas .react-flow__minimap-mask {
-  fill: var(--px-paper-400);
-  fill-opacity: 0.6;
+  fill: var(--px-wood-500);
+  fill-opacity: 0.35;
+}
+
+@media (max-width: 767px) {
+  .builder-canvas .react-flow__minimap {
+    display: none;
+  }
 }
 
 /* The cue that the board pans sideways. */
@@ -185,7 +191,7 @@
   margin: 0;
   white-space: nowrap;
   padding: calc(var(--px) * 2) calc(var(--px) * 3);
-  border: calc(var(--px) * 2) solid var(--px-wood-900);
+  border: calc(var(--px) * 2) solid var(--px-ink);
   background: var(--px-paper);
   color: var(--px-ink);
   font-size: var(--text-sm);
