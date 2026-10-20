@@ -209,7 +209,9 @@ export interface ClaimOptions {
   questId?: string
   /**
    * Per-Hall cap on Quests with a live lease at once (a Hall's `maxConcurrentMembers`); a Hall
-   * not named here is limited only by `maxActive`. Counted under the same lock as the claim.
+   * not named here is limited only by `maxActive`. Counted under the same lock as the claim. It
+   * counts live-leased `active` Quests only (a parked parent or a Quest awaiting a Seal holds no
+   * slot) and excludes the Captain's `team-plan` Quest, which it never blocks either.
    */
   hallCaps?: Readonly<Record<string, number>>
 }
@@ -648,10 +650,17 @@ export function cascadeDeadTransitions(quests: readonly Quest[], deadId: string)
 
 const IN_FLIGHT: readonly QuestState[] = ['queued', 'active', 'awaiting_seal']
 
-/** True when `campaignId` has Quests and none is still in flight (the Campaign has finished). */
+/** The template of a Captain's plan Quest: it runs beside the team and sits outside the Hall's member cap. */
+export const TEAM_PLAN_TEMPLATE = 'team-plan'
+
+/**
+ * True when `campaignId` is a team Campaign (it has a board Quest) and none of its Quests is still
+ * in flight: the Campaign has finished. Campaigns with no board Quest (workflow runs) never finish
+ * in this sense, because their Quests are posted one by one.
+ */
 export function campaignFinished(quests: readonly Quest[], campaignId: string): boolean {
   const mine = quests.filter((q) => q.campaignId === campaignId)
-  return mine.length > 0 && !mine.some((q) => IN_FLIGHT.includes(q.state))
+  return mine.some((q) => q.board) && !mine.some((q) => IN_FLIGHT.includes(q.state))
 }
 
 /** The cap a board post would break, or null: `campaign_cap` when the Campaign already holds `maxQuests` board Quests. */
@@ -674,18 +683,23 @@ export function pickClaimable(
   if (quests.filter((q) => hasLiveLease(q, now)).length >= options.maxActive) {
     return null
   }
-  const hallFull = (hallId: string): boolean => {
-    const cap = options.hallCaps?.[hallId]
+  // The cap counts live-leased active Quests only (parked and awaiting_seal ones hold no slot) and
+  // leaves the Captain's plan Quest out, so a cap of one still runs one Member beside the Captain.
+  const hallFull = (q: Quest): boolean => {
+    const cap = options.hallCaps?.[q.hallId]
     return (
       cap !== undefined &&
-      quests.filter((q) => q.hallId === hallId && hasLiveLease(q, now)).length >= cap
+      q.templateId !== TEAM_PLAN_TEMPLATE &&
+      quests.filter(
+        (o) => o.hallId === q.hallId && o.templateId !== TEAM_PLAN_TEMPLATE && hasLiveLease(o, now)
+      ).length >= cap
     )
   }
   const doneIds = new Set(quests.filter((q) => q.state === 'done').map((q) => q.id))
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
-    !hallFull(q.hallId) &&
+    !hallFull(q) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
     new Date(q.notBefore).getTime() <= now.getTime() &&

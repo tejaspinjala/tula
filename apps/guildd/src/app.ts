@@ -882,7 +882,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // A team Campaign: the Guild Master gives the Hall's Captain a goal. It is one ordinary Quest.
   app.post('/guilds/:id/campaigns/team', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }

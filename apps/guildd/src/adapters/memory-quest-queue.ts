@@ -142,9 +142,6 @@ export class MemoryQuestQueue implements QuestQueue {
     if (parsed.blockedBy.some((id) => !g.byId.has(id))) {
       throw new QuestError('unknown_blocker')
     }
-    const startsCampaign =
-      parsed.campaignId !== undefined &&
-      ![...g.byId.values()].some((q) => q.campaignId === parsed.campaignId)
     g.seq += 1
     const now = this.clock.now().toISOString()
     const quest: Quest = {
@@ -176,9 +173,6 @@ export class MemoryQuestQueue implements QuestQueue {
     g.byId.set(quest.id, quest)
     g.byKey.set(quest.jobKey, quest.id)
     this.onEvent(guildId, 'quest.posted', { questId: quest.id, hallId: quest.hallId, attempt: 0 })
-    if (startsCampaign) {
-      this.onEvent(guildId, 'campaign.started', { campaignId: parsed.campaignId })
-    }
     return { quest, created: true }
   }
 
@@ -353,12 +347,16 @@ export class MemoryQuestQueue implements QuestQueue {
     if (refusal) {
       return { ok: false, error: refusal }
     }
+
     const { quest, created } = this.postNow(guildId, {
       ...request.quest,
       jobKey: request.jobKey,
       campaignId: request.campaignId,
       board: true,
     })
+    if (created && onBoard === 0) {
+      this.onEvent(guildId, 'campaign.started', { campaignId: request.campaignId })
+    }
     return { ok: true, quest, created }
   }
 

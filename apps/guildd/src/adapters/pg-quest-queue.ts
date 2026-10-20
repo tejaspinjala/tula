@@ -43,6 +43,7 @@ import {
   spawnJobKey,
   spawnRefusal,
   submitTransition,
+  TEAM_PLAN_TEMPLATE,
   type Transition,
   type WaitMode,
 } from '../ports/quest-queue'
@@ -130,6 +131,9 @@ export function toQuest(raw: unknown): Quest {
   }
 }
 
+/** Thrown inside a transaction to roll it back and rerun it holding the guild lock. */
+class NeedsGuildLock extends Error {}
+
 /**
  * Postgres {@link QuestQueue}. Every call runs in `Db.withGuild` (RLS scopes it to one guild) and
  * appends its transition event in the same transaction. Claims and posts take a per-guild advisory
@@ -177,8 +181,12 @@ export class PgQuestQueue implements QuestQueue {
         select exists (
           select 1 from quests
           where guild_id = ${guildId} and campaign_id = ${campaignId}
-            and state in ('queued', 'active', 'awaiting_seal')) as open`
-      if (!z.object({ open: z.boolean() }).parse(open).open) {
+            and state in ('queued', 'active', 'awaiting_seal')) as open,
+          exists (
+          select 1 from quests
+          where guild_id = ${guildId} and campaign_id = ${campaignId} and board) as team`
+      const state = z.object({ open: z.boolean(), team: z.boolean() }).parse(open)
+      if (state.team && !state.open) {
         await appendEvent(tx, this.keys, 'campaign.finished', { campaignId })
       }
     }
@@ -208,19 +216,38 @@ export class PgQuestQueue implements QuestQueue {
     return toQuest(row)
   }
 
-  /** Locks, loads, transitions and saves one Quest in one transaction. */
+  /**
+   * Loads, transitions and saves one Quest in one transaction. A step that settles the Quest (done
+   * or dead) must hold the per-guild lock, taken before any row lock, so a Campaign's last two
+   * settles are ordered and exactly one sees it finish. Other steps (renew, seal hold, release)
+   * run unlocked, so heartbeats do not queue behind claims. A step found to settle without the lock
+   * rolls back and reruns with it.
+   */
   private async mutate(
     guildId: string,
     id: string,
     step: (quest: Quest) => Transition
   ): Promise<Quest> {
-    return this.db.withGuild(guildId, async (tx) => {
-      // The guild lock orders a Campaign's last settle against its siblings, so exactly one sees it finish.
-      await this.lock(tx, guildId)
-      const before = await this.load(tx, guildId, id)
-      const t = step(before)
-      return t.quest === before ? before : this.save(tx, guildId, t)
-    })
+    const run = (locked: boolean) =>
+      this.db.withGuild(guildId, async (tx) => {
+        if (locked) {
+          await this.lock(tx, guildId)
+        }
+        const before = await this.load(tx, guildId, id)
+        const t = step(before)
+        if (!locked && (t.event === 'quest.done' || t.event === 'quest.dead')) {
+          throw new NeedsGuildLock()
+        }
+        return t.quest === before ? before : this.save(tx, guildId, t)
+      })
+    try {
+      return await run(false)
+    } catch (error) {
+      if (error instanceof NeedsGuildLock) {
+        return run(true)
+      }
+      throw error
+    }
   }
 
   /** Inserts a Quest unless its job key exists: the row, or undefined for a repeat. The caller holds the guild lock. */
@@ -254,8 +281,6 @@ export class PgQuestQueue implements QuestQueue {
           throw new QuestError('unknown_blocker')
         }
       }
-      const startsCampaign =
-        p.campaignId !== undefined && !(await this.hasCampaign(tx, guildId, p.campaignId))
       const row = await this.insertQuest(tx, guildId, p)
       if (!row) {
         const [existing] = await tx`
@@ -264,18 +289,8 @@ export class PgQuestQueue implements QuestQueue {
       }
       const quest = toQuest(row)
       await this.emit(tx, { quest, event: 'quest.posted' }, 0)
-      if (startsCampaign) {
-        await appendEvent(tx, this.keys, 'campaign.started', { campaignId: p.campaignId })
-      }
       return { quest, created: true }
     })
-  }
-
-  private async hasCampaign(tx: TenantTx, guildId: string, campaignId: string): Promise<boolean> {
-    const [found] = await tx`
-      select exists (
-        select 1 from quests where guild_id = ${guildId} and campaign_id = ${campaignId}) as found`
-    return z.object({ found: z.boolean() }).parse(found).found
   }
 
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {
@@ -324,12 +339,13 @@ export class PgQuestQueue implements QuestQueue {
             select 1 from hall_pauses hp
             where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
           and (${only}::uuid is null or q.quest_id = ${only}::uuid)
-          and not exists (
+          and (q.template_id = ${TEAM_PLAN_TEMPLATE} or not exists (
             select 1 from unnest(${capHalls}::text[], ${capLimits}::int[]) as c(hall, cap)
             where c.hall = q.hall_id and c.cap <= (
               select count(*) from quests l
               where l.guild_id = q.guild_id and l.hall_id = q.hall_id
-                and l.state = 'active' and l.lease_expires_at > ${now}))
+                and l.template_id <> ${TEAM_PLAN_TEMPLATE}
+                and l.state = 'active' and l.lease_expires_at > ${now})))
           and (cardinality(q.wait_on) = 0
             or not exists (
               select 1 from quests w
@@ -508,6 +524,9 @@ export class PgQuestQueue implements QuestQueue {
       )
       const quest = toQuest(row)
       await this.emit(tx, { quest, event: 'quest.posted' }, 0)
+      if (z.object({ n: z.number() }).parse(count).n === 0) {
+        await appendEvent(tx, this.keys, 'campaign.started', { campaignId: request.campaignId })
+      }
       return { ok: true, quest, created: true }
     })
   }

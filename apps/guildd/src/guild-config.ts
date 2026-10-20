@@ -28,7 +28,12 @@ export const hall = z.object({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
-  /** Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when absent. Raising it widens risk. */
+  /**
+   * Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when
+   * absent. Raising it widens risk. Only live-leased `active` Quests count (a parked parent or a
+   * Quest awaiting a Seal holds no slot), and the Captain's own plan Quest is outside it, so a cap of
+   * 1 still runs one Member.
+   */
   maxConcurrentMembers: z.number().int().min(1).max(1000).optional(),
 })
 
@@ -86,7 +91,7 @@ export const caps = z.object({
   maxChildrenPerQuest: z.number().int().min(0).max(20).optional(),
   /** How deep sub-Quests may nest; {@link DEFAULT_MAX_SPAWN_DEPTH} when absent. Raising it widens risk. */
   maxSpawnDepth: z.number().int().min(0).max(5).optional(),
-  /** Quests a Captain may post to the Quest Board under one Campaign; {@link DEFAULT_MAX_QUESTS_PER_CAMPAIGN} when absent. Raising it widens risk. */
+  /** Board Quests a Captain may post under one Campaign; {@link DEFAULT_MAX_QUESTS_PER_CAMPAIGN} when absent. Counts board Quests only (Sub-Quests are bounded by the spawn caps). Raising it widens risk. */
   maxQuestsPerCampaign: z.number().int().min(0).max(100).optional(),
 })
 

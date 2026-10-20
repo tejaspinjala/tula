@@ -31,7 +31,7 @@ async function found(name: string) {
 }
 
 describe('POST /guilds/:id/campaigns/team', () => {
-  test('gives the Hall`s Captain a Campaign goal as their first Quest, and says so in the ledger', async () => {
+  test('gives the Hall`s Captain a Campaign goal as their first Quest', async () => {
     const g = await found('Team')
     const res = await start(g, { hall: 'heralds', campaignId: 'launch-1', goal: 'Plan the launch' })
     expect(res.status).toBe(201)
@@ -48,8 +48,8 @@ describe('POST /guilds/:id/campaigns/team', () => {
     expect(quest?.doneCondition).toContain('Plan the launch')
     const events = await harness.owner`
       select type, payload from events where guild_id = ${g} and type like 'campaign.%'`
-    expect(events.map((e) => e.type)).toEqual(['campaign.started'])
-    expect(events[0]?.payload).toEqual({ campaignId: 'launch-1' })
+    // campaign.started is a team event: it comes with the Captain's first board Quest.
+    expect(events).toHaveLength(0)
   })
 
   test('a repeat of the same Campaign id is 200 with the same Quest', async () => {
