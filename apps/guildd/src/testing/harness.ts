@@ -29,6 +29,7 @@ export interface HarnessOptions {
       AppDeps,
       | 'identity'
       | 'secrets'
+      | 'config'
       | 'notes'
       | 'objectStore'
       | 'keys'
@@ -85,6 +86,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       identity: composed.identity,
       rateLimiter: composed.rateLimiter,
       secrets: composed.secrets,
+      config: composed.config,
       notes: composed.notes,
       keys,
     },

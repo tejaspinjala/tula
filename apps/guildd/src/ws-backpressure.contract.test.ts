@@ -52,6 +52,7 @@ describe('websocket backpressure', () => {
       rateLimiter: harness.adapters.rateLimiter,
       rateLimits: UNLIMITED_RATE_LIMITS,
       secrets: harness.adapters.secrets,
+      config: harness.adapters.config,
       notes: harness.adapters.notes,
       keys,
       devGuildHeader: true,

@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
+import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
@@ -53,6 +54,7 @@ export async function compose(
     keys,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
+    config: overrides.config ?? new PgConfigStore(db, keys),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
   }
