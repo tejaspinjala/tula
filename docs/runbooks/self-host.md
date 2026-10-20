@@ -85,9 +85,13 @@ and `MINIO_CONSOLE_PORT` (9001). `start:selfhost` itself reads `DATABASE_URL`, `
 
 ## Founding the guild
 
-Open `http://localhost:8787`, found the guild (name and goal). The response carries a one-time
-founding token (only its hash is kept); use it to register the Guild Master's first passkey. Sign
-in with that passkey afterwards. Sensitive actions (Vault writes, widening config, lifting Gates)
+Open `http://localhost:8787`. While you are signed out the page shows **Found your guild**: enter
+the guild name and goal and press **Found your guild**. The page asks the browser to create the
+Guild Master's first passkey (the one-time founding token is held in memory only and sent for you;
+only its hash is kept on the server), then signs you in. If you cancel the passkey prompt, press
+**Create passkey** to retry without founding a second guild; reloading the page loses the token,
+so finish founding before you close it. Too many attempts shows a rate-limit message; wait a
+minute. Later, sign in with the passkey (Passkey section, with the guild id). Sensitive actions (Vault writes, widening config, lifting Gates)
 ask for re-authentication with the passkey.
 
 ## Models: adding a provider
