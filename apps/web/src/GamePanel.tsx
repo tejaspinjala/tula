@@ -5,7 +5,7 @@ import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest } from './game/scene'
 import type { GameHandle } from './game/start'
-import { readEventFrame, sceneSummary } from './game/text'
+import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
@@ -287,8 +287,8 @@ export function GamePanel({
                 <option value="">choose a room</option>
                 <option value="entrance">Entrance</option>
                 {(scene?.rooms ?? []).map((room, slot) => (
-                  <option key={room.hallId} value={slot}>
-                    {room.name}
+                  <option key={room.hallId} value={slot} disabled={room.locked}>
+                    {teleportLabel(room)}
                   </option>
                 ))}
               </select>

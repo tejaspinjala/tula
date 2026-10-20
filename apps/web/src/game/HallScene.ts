@@ -2,7 +2,17 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { apprenticeSeats, type HallLayout, hallLayout, questBoardIn, seatsIn } from './layout'
+import {
+  apprenticeSeats,
+  bubbleCentreY,
+  fitZoom,
+  type HallLayout,
+  hallLayout,
+  openZoom,
+  questBoardIn,
+  seatsIn,
+  withClosedDoors,
+} from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -102,6 +112,9 @@ const px = (tiles: number, size: number) => tiles * size
  */
 export class HallScene extends Phaser.Scene {
   private readonly layout: HallLayout = hallLayout()
+  /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
+  private walkable: (x: number, y: number) => boolean = this.layout.walkable
+  private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
   private dynamic: Phaser.GameObjects.GameObject[] = []
@@ -170,6 +183,7 @@ export class HallScene extends Phaser.Scene {
     this.createPlayer()
     this.ready = true
     this.fit()
+    this.openReadable()
     if (this.pending) {
       this.render(this.pending)
     }
@@ -192,7 +206,10 @@ export class HallScene extends Phaser.Scene {
 
   /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
   teleport(slot: number | null): void {
-    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.layout.walkable)
+    if (slot !== null && this.lockedSlots.has(slot)) {
+      return
+    }
+    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.walkable)
     this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
     this.path = []
     this.chasing = true
@@ -203,15 +220,14 @@ export class HallScene extends Phaser.Scene {
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
   override update(_time: number, delta: number): void {
     for (const view of this.members.values()) {
-      const lift = view.bubble?.getData('lift')
-      if (view.bubble && typeof lift === 'number') {
-        // Above the sprite; below it when that would run off the top of the hall.
-        const half = lift - 16
-        const above = view.root.y - lift
-        view.bubble.setPosition(
-          Math.max(BUBBLE_WRAP / 2 + 6, view.root.x),
-          above - half < 0 ? view.root.y + 14 + half : above
-        )
+      const height = view.bubble?.getData('height')
+      if (view.bubble && typeof height === 'number') {
+        // Above the speaker, or below when that would cover a room label; a tall (wrapped) bubble
+        // moves away from the speaker by its extra height.
+        const { x, y } = view.root
+        const centre = bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y)
+        const extra = (height - 20) / 2
+        view.bubble.setPosition(x, centre < y ? centre - extra : centre + extra)
       }
     }
     if (!this.player) {
@@ -221,12 +237,7 @@ export class HallScene extends Phaser.Scene {
     const dir = direction(this.keys)
     if (dir.x !== 0 || dir.y !== 0) {
       this.path = []
-      this.at = moveBy(
-        this.at,
-        dir.x * SPEED * seconds,
-        dir.y * SPEED * seconds,
-        this.layout.walkable
-      )
+      this.at = moveBy(this.at, dir.x * SPEED * seconds, dir.y * SPEED * seconds, this.walkable)
       this.chase(false)
     } else if (this.path.length > 0) {
       const next = followPath(this.at, this.path, SPEED * seconds)
@@ -314,7 +325,7 @@ export class HallScene extends Phaser.Scene {
       const s = this.layout.tileSize
       const to = { x: Math.floor(pointer.worldX / s), y: Math.floor(pointer.worldY / s) }
       const from = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
-      const route = findPath(this.layout.walkable, from, to)
+      const route = findPath(this.walkable, from, to)
       if (route) {
         this.path = route
         this.chase(false)
@@ -401,6 +412,8 @@ export class HallScene extends Phaser.Scene {
     if (!this.ready) {
       return
     }
+    this.walkable = withClosedDoors(this.layout, state.rooms)
+    this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
     this.drawMembers(state)
     this.drawApprentices(state)
@@ -428,13 +441,25 @@ export class HallScene extends Phaser.Scene {
     cam.setSize(this.scale.width, this.scale.height)
     const worldW = px(this.layout.width, this.layout.tileSize)
     const worldH = px(this.layout.height, this.layout.tileSize)
-    const fitZoom = Math.min(this.scale.width / worldW, this.scale.height / worldH)
-    this.zoomLevel = fitZoom >= 1 ? Math.floor(fitZoom) : fitZoom >= 0.5 ? 0.5 : 0.25
+    this.zoomLevel = fitZoom(this.scale.width, this.scale.height, worldW, worldH)
     if (keepFollow && this.chasing) {
       this.zoomLevel = Math.max(1, this.zoomLevel)
     }
     cam.setZoom(this.zoomLevel)
     this.centre()
+  }
+
+  /** A phone opens at a readable zoom on the Guild Master, not at the whole hall in miniature; Fit hall still shows it all. */
+  private openReadable(): void {
+    const cam = this.cameras.main
+    const worldW = px(this.layout.width, this.layout.tileSize)
+    const worldH = px(this.layout.height, this.layout.tileSize)
+    const zoom = openZoom(this.scale.width, this.scale.height, worldW, worldH)
+    if (zoom > this.zoomLevel) {
+      this.zoomLevel = zoom
+      cam.setZoom(zoom)
+      cam.centerOn(this.at.x * this.layout.tileSize, this.at.y * this.layout.tileSize)
+    }
   }
 
   /** Follows a Member's sprite with the camera (null returns to the fixed overview). */
@@ -811,9 +836,9 @@ export class HallScene extends Phaser.Scene {
     const w = label.width + 8
     const h = label.height + 4
     const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 16 - h / 2, [back, label]).setDepth(30)
-    // The bubble rides above the sprite, so it stays with a Member who is walking to the board.
-    root.setData('lift', 16 + h / 2)
+    const root = this.add.container(x, y, [back, label]).setDepth(30)
+    // The bubble rides with the sprite (a Member walking to the Quest Board), so `update` places it.
+    root.setData('height', h)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()

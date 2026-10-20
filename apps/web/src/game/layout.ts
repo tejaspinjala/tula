@@ -152,3 +152,46 @@ export function apprenticeSeats(
   }
   return seats
 }
+
+/**
+ * The map's walkable test minus the doorways of rooms that are locked or empty: a closed door
+ * blocks entry. `rooms` is in slot order; a doorway past its end belongs to an empty room.
+ */
+export function withClosedDoors(
+  layout: HallLayout,
+  rooms: readonly { locked: boolean }[]
+): (x: number, y: number) => boolean {
+  const closed = layout.doorways.filter((_door, index) => rooms[index]?.locked ?? true)
+  return (x, y) =>
+    layout.walkable(x, y) &&
+    !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
+}
+
+/** The zoom that fills a frame with the hall (to two places), never below a quarter. */
+export function fitZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  const fill = Math.min(frameW / worldW, frameH / worldH)
+  return Math.max(0.25, Math.floor(fill * 100) / 100)
+}
+
+/** The zoom the hall opens at: the fit, but never below a readable one. */
+export function openZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
+  return Math.max(1, fitZoom(frameW, frameH, worldW, worldH))
+}
+
+/** Where a speech bubble centres for a speaker at pixel `(x, y)`: above, unless that covers a room label. */
+export function bubbleCentreY(
+  rooms: readonly TileRect[],
+  tileSize: number,
+  x: number,
+  y: number
+): number {
+  const above = y - 26
+  // A room's label is a 20px band under its top edge; a 20px bubble above the speaker would cover it.
+  const covers = rooms.some((room) => {
+    const top = room.y * tileSize
+    return (
+      x >= room.x * tileSize && x < (room.x + room.w) * tileSize && y > top && above - 10 < top + 20
+    )
+  })
+  return covers ? y + 26 : above
+}

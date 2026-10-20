@@ -79,7 +79,7 @@
 
 /* Anything scrolled into view (a focused control, a tapped link) clears the sticky header and the phone tab bar. */
 html {
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 6rem;
   scroll-padding-bottom: calc(var(--touch) + var(--space-8));
 }
 
@@ -251,6 +251,14 @@ ul[aria-label] {
   overflow: hidden;
   touch-action: none;
 }
+/* On a wide screen the frame has the hall's own proportions, so the hall fills its card. */
+@media (min-width: 641px) {
+  .game-frame {
+    height: auto;
+    aspect-ratio: 8 / 5;
+    max-height: 80vh;
+  }
+}
 @media (max-width: 640px) {
   .game-frame {
     height: 340px;
@@ -276,6 +284,7 @@ ul[aria-label] {
 }
 .game-scrub {
   display: flex;
+  white-space: nowrap;
   gap: 0.5rem;
   align-items: center;
 }
@@ -551,6 +560,11 @@ thead th {
   min-width: 28rem;
 }
 
+/* Headings never break mid-word; the table scrolls instead. */
+.table-scroll th {
+  white-space: nowrap;
+}
+
 .shell-main:focus {
   outline: none;
 }
@@ -579,6 +593,13 @@ thead th {
 
 .shell-nav .nav-extra {
   display: none;
+}
+
+/* A tab never shrinks to nothing, so with the More menu open the tab bar wraps onto its own row
+   under the extra rows instead of squeezing in beside the last one. */
+.shell-nav .nav-tab,
+.shell-nav .nav-more {
+  min-width: var(--touch);
 }
 
 /* The More menu: the views past the fourth open as full-width rows above the tab bar. */
@@ -811,6 +832,13 @@ thead th {
 .outline ul {
   list-style: none;
   padding-left: var(--space-4);
+}
+
+.builder-outline,
+.outline {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
 }
 
 .outline-name[aria-pressed="true"] {

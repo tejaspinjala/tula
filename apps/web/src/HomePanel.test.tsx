@@ -29,7 +29,7 @@ beforeAll(() => {
         })
       }
       if (url.endsWith('/gates')) {
-        return Response.json({ guild: barred, global: false })
+        return Response.json({ guild: barred, global: false, operator: false })
       }
       if (url.includes('/seals')) {
         return Response.json({
@@ -92,6 +92,16 @@ test('after a successful bar the Gates tile reloads and shows barred', async () 
   })
   expect(host.textContent).toContain('The Gates are barred for this guild.')
   await act(async () => root.unmount())
+})
+
+test('once the guild is barred Home offers Lift the bar, not Bar the Gates', async () => {
+  barred = true
+  const { host, root } = await mount()
+  const labels = [...host.querySelectorAll('button')].map((b) => b.textContent)
+  expect(labels).toContain('Lift the bar')
+  expect(labels).not.toContain('Bar the Gates')
+  await act(async () => root.unmount())
+  barred = false
 })
 
 test('the Gates link is named Gates settings, so it does not read as lifting the bar', async () => {
