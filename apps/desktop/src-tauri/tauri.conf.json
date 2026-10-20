@@ -5,9 +5,14 @@
   "identifier": "app.guildhall.desktop",
   "build": { "frontendDist": "../ui" },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [],
-    "security": { "csp": null }
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost"
+      }
+    }
   },
   "bundle": {
     "active": true,

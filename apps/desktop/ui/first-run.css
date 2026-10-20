@@ -1,0 +1,31 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #2a1d14;
+  color: #f2e3c6;
+  font: 18px monospace;
+}
+form {
+  display: grid;
+  gap: 12px;
+  width: min(28rem, 90vw);
+}
+input,
+button {
+  font: inherit;
+  padding: 10px;
+  border: 2px solid #8a5a33;
+  background: #3f2718;
+  color: inherit;
+}
+button {
+  background: #c88a1a;
+  color: #2a1d14;
+  cursor: pointer;
+}
+#error {
+  color: #ff8a7a;
+  min-height: 1.4em;
+}
