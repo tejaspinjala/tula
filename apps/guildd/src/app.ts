@@ -378,7 +378,9 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'object_store_timeout' }, 504)
     }
     if (err instanceof IdentityError) {
-      return c.json({ error: err.code }, err.code === 'invalid_challenge' ? 400 : 401)
+      const status =
+        err.code === 'invalid_challenge' ? 400 : err.code === 'credential_exists' ? 409 : 401
+      return c.json({ error: err.code }, status)
     }
     return c.json({ error: 'internal_error' }, 500)
   })
@@ -415,6 +417,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: 'rate_limited' }, 429)
   }
   app.post('/guilds', limited('founding'))
+  app.get('/founding', limited('founding-status'))
   app.post('/sign-in/begin', limited('signin-begin'))
   app.post('/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/passkeys/begin', limited('passkeys-begin'))

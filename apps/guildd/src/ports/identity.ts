@@ -14,6 +14,7 @@ export type IdentityFailure =
   | 'unknown_credential'
   | 'unauthenticated'
   | 'registration_closed'
+  | 'credential_exists'
 
 /** Thrown by an {@link IdentityProvider} when a ceremony or session check fails. */
 export class IdentityError extends Error {

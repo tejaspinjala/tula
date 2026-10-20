@@ -164,25 +164,38 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       counter: credential.counter,
       transports: credential.transports ?? [],
     }
-    if (challenge.foundingHash) {
-      const founded = await this.store.foundCredential(
-        guildId,
-        stored,
-        challenge.foundingHash,
-        this.config.clock.now(),
-        [
-          { type: 'identity.founding_token_spent', payload: { credentialId: stored.id } },
-          { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
-        ]
-      )
-      if (!founded) {
-        throw new IdentityError('registration_closed')
+    // Credential ids are unique across guilds (migration 0058); refuse before the founding token is spent.
+    const holder = await this.store.guildForCredential(stored.id)
+    if (holder && holder !== guildId) {
+      throw new IdentityError('credential_exists')
+    }
+    try {
+      if (challenge.foundingHash) {
+        const founded = await this.store.foundCredential(
+          guildId,
+          stored,
+          challenge.foundingHash,
+          this.config.clock.now(),
+          [
+            { type: 'identity.founding_token_spent', payload: { credentialId: stored.id } },
+            { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
+          ]
+        )
+        if (!founded) {
+          throw new IdentityError('registration_closed')
+        }
+      } else {
+        await this.store.saveCredential(guildId, stored, {
+          type: 'identity.passkey_registered',
+          payload: { credentialId: stored.id },
+        })
       }
-    } else {
-      await this.store.saveCredential(guildId, stored, {
-        type: 'identity.passkey_registered',
-        payload: { credentialId: stored.id },
-      })
+    } catch (error) {
+      // A concurrent registration of the same id lost the unique index race (Postgres 23505).
+      if (z.object({ code: z.literal('23505') }).safeParse(error).success) {
+        throw new IdentityError('credential_exists')
+      }
+      throw error
     }
     return { credentialId: credential.id }
   }
