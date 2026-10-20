@@ -482,6 +482,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/workflows/:wid/validate', limited('workflow-write'))
   app.post('/guilds/:id/workflows/:wid/versions/:version/confirm', limited('workflow-write'))
   app.post('/guilds/:id/workflows/:wid/runs', limited('workflow-run'))
+  app.get('/session', limited('session-check'))
+  app.post('/session/logout', limited('session-check'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -926,9 +928,9 @@ export function createApp(deps: AppDeps): Hono {
   // A Hall's Missives for the Guild Master, newest first. The text is the sender's, untrusted:
   // the ledger shows it as text and never as markup.
   app.get('/guilds/:id/halls/:hallId/missives', async (c) => {
-    const who = await archiveCaller(c)
-    if (who instanceof Response) {
-      return who
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
     }
     const hallId = hallParam.safeParse(c.req.param('hallId'))
     const page = missivePage.safeParse({
