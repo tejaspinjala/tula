@@ -1,38 +1,94 @@
+import { z } from 'zod'
 import type { Db } from '../db/client'
 import type { PushStore, PushSubscription, PushSubscriptionPage } from '../ports/push-store'
 
-/** Postgres {@link PushStore}. */
+const subscriptionRow = z.object({ endpoint: z.string(), p256dh: z.string(), auth: z.string() })
+const cursorRow = z.object({ last_seq: z.coerce.number() })
+
+/**
+ * Postgres {@link PushStore}: every call runs in `Db.withGuild`, so RLS scopes it to one guild.
+ * A delivery claim is one `insert ... on conflict do nothing`, so exactly one caller wins.
+ */
 export class PgPushStore implements PushStore {
   constructor(private readonly db: Db) {}
 
-  async add(_guildId: string, _subscription: PushSubscription): Promise<void> {
-    throw new Error(`not implemented ${typeof this.db}`)
+  async add(guildId: string, s: PushSubscription): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        insert into push_subscriptions (guild_id, endpoint, p256dh, auth)
+        values (${guildId}, ${s.endpoint}, ${s.p256dh}, ${s.auth})
+        on conflict (guild_id, endpoint) do update set p256dh = excluded.p256dh, auth = excluded.auth`
+    )
   }
 
-  async remove(_guildId: string, _endpoint: string): Promise<boolean> {
-    throw new Error('not implemented')
+  async remove(guildId: string, endpoint: string): Promise<boolean> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        delete from push_subscriptions where guild_id = ${guildId} and endpoint = ${endpoint}
+        returning 1 as ok`
+    )
+    return rows.length === 1
   }
 
   async list(
-    _guildId: string,
-    _page: { after?: string; limit: number }
+    guildId: string,
+    page: { after?: string; limit: number }
   ): Promise<PushSubscriptionPage> {
-    throw new Error('not implemented')
+    const after = page.after ?? null
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select endpoint, p256dh, auth from push_subscriptions
+        where guild_id = ${guildId}
+          and (${after}::text is null or endpoint collate "C" > ${after}::text collate "C")
+        order by endpoint collate "C" limit ${page.limit + 1}`
+    )
+    const all = rows.map((r) => subscriptionRow.parse(r))
+    const subscriptions = all.slice(0, page.limit)
+    const last = subscriptions.at(-1)
+    return { subscriptions, next: all.length > page.limit && last ? last.endpoint : null }
   }
 
-  async claimDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<boolean> {
-    throw new Error('not implemented')
+  async claimDelivery(guildId: string, sealId: string, endpoint: string): Promise<boolean> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        insert into push_deliveries (guild_id, seal_id, endpoint)
+        select guild_id, ${sealId}::uuid, endpoint from push_subscriptions
+        where guild_id = ${guildId} and endpoint = ${endpoint}
+        on conflict do nothing
+        returning 1 as ok`
+    )
+    return rows.length === 1
   }
 
-  async releaseDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
-    throw new Error('not implemented')
+  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        delete from push_deliveries
+        where guild_id = ${guildId} and seal_id = ${sealId}::uuid and endpoint = ${endpoint}`
+    )
   }
 
-  async cursor(_guildId: string): Promise<number> {
-    throw new Error('not implemented')
+  async cursor(guildId: string): Promise<number> {
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`select last_seq from push_cursors where guild_id = ${guildId}`
+    )
+    const row = rows[0]
+    return row ? cursorRow.parse(row).last_seq : 0
   }
 
-  async advanceCursor(_guildId: string, _seq: number): Promise<void> {
-    throw new Error('not implemented')
+  async advanceCursor(guildId: string, seq: number): Promise<void> {
+    await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        insert into push_cursors (guild_id, last_seq) values (${guildId}, ${seq})
+        on conflict (guild_id) do update
+          set last_seq = greatest(push_cursors.last_seq, excluded.last_seq)`
+    )
   }
 }
