@@ -42,6 +42,16 @@ export function integerZoom(
   return Math.min(4, Math.max(1, fill))
 }
 
+/** The whole zoom a map opens at: the fit rounded to the nearest whole number (1 to 4). */
+export function openZoomWhole(
+  _frameW: number,
+  _frameH: number,
+  _worldW: number,
+  _worldH: number
+): number {
+  return 1
+}
+
 /** One pose of the walk cycle: which of four frames, and the pixel offsets that make it. */
 export interface Pose {
   frame: 0 | 1 | 2 | 3

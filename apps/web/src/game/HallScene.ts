@@ -297,20 +297,39 @@ export class HallScene extends Phaser.Scene {
     const map = mapData(this.current)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
-    // The camera never shows past the map: a small map is centred, not dragged into the void.
-    cam.setBounds(x, y, w, h)
+    cam.setSize(this.scale.width, this.scale.height)
     this.zoomLevel = integerZoom(this.scale.width, this.scale.height, w, h)
     cam.setZoom(this.zoomLevel)
+    this.boundCamera()
     cam.centerOn(x + this.at.x * map.tileSize, y + this.at.y * map.tileSize)
+  }
+
+  /**
+   * Bounds the camera to the current map, padded to the view when the map is smaller than it, so a
+   * small map sits in the middle of the frame instead of in its corner.
+   */
+  private boundCamera(): void {
+    const cam = this.cameras.main
+    const { x, y } = OFFSETS[this.current]
+    const map = mapData(this.current)
+    const w = px(map.width, map.tileSize)
+    const h = px(map.height, map.tileSize)
+    const boundW = Math.max(w, cam.width / cam.zoom)
+    const boundH = Math.max(h, cam.height / cam.zoom)
+    cam.setBounds(x - (boundW - w) / 2, y - (boundH - h) / 2, boundW, boundH)
   }
 
   /** Lays the world tint over the current map only, and lights or douses its lanterns. */
   private applyTint(): void {
+    // Before the scene has loaded there is nothing to tint: `create` applies the stored phase.
+    if (!this.veil) {
+      return
+    }
     const tint = tintFor(this.phase)
     const { x, y } = OFFSETS[this.current]
     const map = mapData(this.current)
     this.veil
-      ?.setPosition(x, y)
+      .setPosition(x, y)
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
       .setFillStyle(tint.color, tint.alpha)
     for (const lantern of this.lanterns) {
@@ -351,7 +370,7 @@ export class HallScene extends Phaser.Scene {
   /** A stepped lantern glow: four hard-edged rings of warm light, no gradient. */
   private makeGlow(): void {
     const g = this.add.graphics()
-    g.fillStyle(0xffc66b, 0.16)
+    g.fillStyle(0xffc66b, 0.09)
     for (const r of [28, 21, 14, 7]) {
       g.fillCircle(28, 28, r)
     }
@@ -623,6 +642,7 @@ export class HallScene extends Phaser.Scene {
   zoomBy(step: number): void {
     this.zoomLevel = Math.min(4, Math.max(1, this.zoomLevel + Math.sign(step)))
     this.cameras.main.setZoom(this.zoomLevel)
+    this.boundCamera()
     this.centre()
   }
 
@@ -647,6 +667,7 @@ export class HallScene extends Phaser.Scene {
       px(map.height, map.tileSize)
     )
     cam.setZoom(this.zoomLevel)
+    this.boundCamera()
     this.centre()
   }
 

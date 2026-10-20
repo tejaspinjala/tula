@@ -1,5 +1,16 @@
 import { expect, test } from 'bun:test'
-import { integerZoom, phaseAt, tintFor, walkPose } from './daylight'
+import { integerZoom, openZoomWhole, phaseAt, tintFor, walkPose } from './daylight'
+
+test('a map opens at the nearest whole zoom, so a small phone frame is not left with a postage stamp', () => {
+  // 936x585 frame: the plaza (576x320) fits 1.62x, so it opens at 2x and the camera follows the Guild Master.
+  expect(openZoomWhole(936, 585, 576, 320)).toBe(2)
+  // The hall (640x400) fits 1.46x, which rounds down to 1x.
+  expect(openZoomWhole(936, 585, 640, 400)).toBe(1)
+  expect(openZoomWhole(354, 340, 256, 192)).toBe(1)
+  expect(openZoomWhole(354, 340, 100, 100)).toBe(3)
+  expect(openZoomWhole(10, 10, 640, 400)).toBe(1)
+  expect(openZoomWhole(3000, 3000, 100, 100)).toBe(4)
+})
 
 test('the hour of day picks day, dusk or night', () => {
   expect(phaseAt(12)).toBe('day')
