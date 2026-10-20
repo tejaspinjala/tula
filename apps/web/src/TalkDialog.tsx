@@ -101,7 +101,7 @@ export function TalkDialog({
             </>
           )}
           <div className="talk-actions">
-            <button type="button" className="btn" onClick={() => go('/seals')}>
+            <button type="button" onClick={() => go('/seals')}>
               Review Seal
             </button>
             <button type="button" onClick={() => dispatch({ type: 'close' })}>
@@ -174,7 +174,7 @@ function MemberCard({
             </ul>
           )}
           <div className="talk-actions">
-            <button type="button" className="btn" onClick={() => dispatch({ type: 'assign' })}>
+            <button type="button" onClick={() => dispatch({ type: 'assign' })}>
               Assign a Quest
             </button>
             <button type="button" onClick={() => go('/roster')}>
@@ -274,7 +274,7 @@ function AssignForm({
       <>
         <p role="status">Quest posted to the Quest Board for {member.name}.</p>
         <div className="talk-actions">
-          <button type="button" className="btn" onClick={onBoard}>
+          <button type="button" onClick={onBoard}>
             Open Quest Board
           </button>
           <button type="button" onClick={onBack}>
@@ -325,7 +325,7 @@ function AssignForm({
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="talk-actions">
-        <button type="submit" className="btn" disabled={busy || title.trim() === ''}>
+        <button type="submit" disabled={busy || title.trim() === ''}>
           Post Quest
         </button>
         <button type="button" onClick={onBack}>

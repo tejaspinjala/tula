@@ -19,6 +19,7 @@ import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { CursorMenu, Frame, PixelButton, ThemeControls } from './ui/pixel'
 import { VaultPanel } from './VaultPanel'
+import { FlatWorkContext } from './WorkSection'
 import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 /** Props of {@link Bag}. */
@@ -208,7 +209,9 @@ export function Bag({
         {hall && <div className="bag-body">{hallControls}</div>}
         {page !== null && (
           <div className="bag-body">
-            <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
+            <FlatWorkContext.Provider value>
+              <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
+            </FlatWorkContext.Provider>
           </div>
         )}
       </Frame>

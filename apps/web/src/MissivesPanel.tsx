@@ -4,6 +4,7 @@ import { type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
 import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /** Missives per page. */
 const PAGE = 20
@@ -101,11 +102,8 @@ export function MissivesPanel({
   const target = people.some((p) => p.id === addressee) ? addressee : (people[0]?.id ?? '')
 
   return (
-    <section aria-labelledby="missives-heading" className="card">
-      <h2 id="missives-heading" className="card-title">
-        Guild chat
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to read the Hall’s missives.</p>}
+    <WorkSection id="missives" title="Guild chat">
+      {!session && <p>Sign in with a passkey to read the Hall’s missives.</p>}
       {failed && <p role="alert">The missives could not be loaded.</p>}
       {session && halls.length > 0 && (
         <div className="mt-4">
@@ -163,6 +161,6 @@ export function MissivesPanel({
           Load older missives
         </button>
       )}
-    </section>
+    </WorkSection>
   )
 }

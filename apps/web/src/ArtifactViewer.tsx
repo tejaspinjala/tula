@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { type ArtifactResult, openArtifact } from './artifacts'
 import type { Session } from './passkeys'
+import { PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /**
  * Minimal artifact viewer: opens a stored artifact by hash and shows its class, size and text.
@@ -12,12 +14,9 @@ export function ArtifactViewer({ session }: { session: Session | null }) {
   const [result, setResult] = useState<ArtifactResult | null>(null)
 
   return (
-    <section className="card">
-      <h2 id="artifact-heading" className="card-title">
-        Artifact viewer
-      </h2>
+    <WorkSection id="artifact" title="Artifact viewer">
       <form
-        className="mt-4 flex flex-col gap-2"
+        className="work-body"
         onSubmit={(event) => {
           event.preventDefault()
           openArtifact(
@@ -30,31 +29,31 @@ export function ArtifactViewer({ session }: { session: Session | null }) {
       >
         {!session && (
           <input
+            aria-label="Guild id"
             placeholder="Guild id (development only; sign in instead)"
             value={guildId}
             onChange={(event) => setGuildId(event.target.value)}
           />
         )}
         <input
+          aria-label="Artifact hash"
           className="mono"
           placeholder="Artifact hash (sha-256)"
           value={hash}
           onChange={(event) => setHash(event.target.value)}
         />
-        <button className="btn-primary" type="submit">
-          Open artifact
-        </button>
+        <PixelButton type="submit">Open artifact</PixelButton>
       </form>
       {result?.kind === 'found' && (
-        <article className="mt-4">
+        <article className="work-body">
           <p>
             class: {result.artifact.class} - {result.artifact.size} bytes
           </p>
-          <pre className="mt-2 overflow-auto rounded border p-2">{result.artifact.text}</pre>
+          <pre className="work-log">{result.artifact.text}</pre>
         </article>
       )}
-      {result?.kind === 'not_found' && <p className="mt-4">Artifact not found.</p>}
-      {result?.kind === 'error' && <p className="mt-4">Could not open the artifact.</p>}
-    </section>
+      {result?.kind === 'not_found' && <p>Artifact not found.</p>}
+      {result?.kind === 'error' && <p>Could not open the artifact.</p>}
+    </WorkSection>
   )
 }
