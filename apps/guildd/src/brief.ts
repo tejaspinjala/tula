@@ -18,6 +18,10 @@ export interface BriefInput {
   tools: readonly string[]
   /** Archive notes in the Quest's Hall worth reading, by id and title. */
   notes: ReadonlyArray<{ id: string; title: string }>
+  /** The workflow node's brief template: what to write, from the Workflow (untrusted text, one line). */
+  instructions?: string | undefined
+  /** On a revision round, why the last draft failed its Verdict, by rule (never the draft itself). */
+  revisionReason?: string | undefined
 }
 
 /** A compiled Brief. */
