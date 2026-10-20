@@ -42,6 +42,14 @@ _Avoid_: task, ticket
 A project: a set of related Quests under one Captain.
 _Avoid_: project
 
+**Workflow**:
+A saved, versioned graph of steps (trigger, agent, verify, approval, post) that compiles to governed Quests. It has no authority of its own: every Quest it posts goes through the normal dispatcher, Verdict, Seal, caps and Bar the Gates.
+_Avoid_: pipeline, automation
+
+**Workflow instance**:
+One run of a pinned Workflow version. Its Quests share one Campaign, the instance id.
+_Avoid_: job
+
 **Quest Board**:
 The kanban of a Hall's Quests.
 _Avoid_: backlog
@@ -182,6 +190,19 @@ A config version was proposed (payload: version, status `pending` or `applied`, 
 
 **config.version_confirmed**:
 A pending config version was confirmed and took force (payload: version).
+
+## Workflow events
+
+Event types the Workflow store appends to the chained event log (ids and small facts only, never the graph):
+
+**workflow.version_saved**:
+A Workflow version was saved (payload: workflow id, version, status `pending` or `active`, kind `internal` or `widening`). A widening version stays `pending` until confirmed.
+
+**workflow.version_confirmed**:
+A pending Workflow version was confirmed and may run (payload: workflow id, version).
+
+**workflow.run_started**:
+A Workflow instance was created (payload: instance id, workflow id, version).
 
 ## Gates, work and vault events
 
