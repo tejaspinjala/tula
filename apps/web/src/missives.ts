@@ -1,35 +1,43 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
-import type { Session } from './passkeys'
+import { PasskeyRequestError, type Session } from './passkeys'
+
+const missiveBody = z.object({
+  id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  text: z.string(),
+  sentAt: z.string(),
+})
+const pageBody = z.object({ missives: z.array(missiveBody), next: z.number().nullable() })
 
 /** One Missive as the ledger shows it: the sender's own text, to be rendered as text only. */
-export interface HallMissive {
-  id: string
-  from: string
-  to: string
-  text: string
-  sentAt: string
-}
+export type HallMissive = z.infer<typeof missiveBody>
 
 /** One page of a Hall's Missives, newest first; `next` is the cursor of the following page. */
-export interface MissivePage {
-  missives: HallMissive[]
-  next: number | null
-}
+export type MissivePage = z.infer<typeof pageBody>
 
 /** Reads one page of the Hall's Missives (session-guarded). */
 export async function loadMissives(
-  _session: Session,
-  _fetcher: Fetcher,
-  _hallId: string,
-  _options: { limit: number; after?: number }
+  session: Session,
+  fetcher: Fetcher,
+  hallId: string,
+  options: { limit: number; after?: number }
 ): Promise<MissivePage> {
-  throw new Error('not implemented')
+  const query = `limit=${options.limit}${options.after === undefined ? '' : `&after=${options.after}`}`
+  const res = await fetcher(
+    `/api/guilds/${session.guildId}/halls/${encodeURIComponent(hallId)}/missives?${query}`,
+    { headers: { authorization: `Bearer ${session.token}` } }
+  )
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return pageBody.parse(data)
 }
 
-/** The Missives `memberId` sent or received. */
-export function missivesOf(_missives: readonly HallMissive[], _memberId: string): HallMissive[] {
-  return []
+/** The Missives `memberId` sent or received (not those the Hall merely shared). */
+export function missivesOf(missives: readonly HallMissive[], memberId: string): HallMissive[] {
+  return missives.filter((m) => m.from === memberId || m.to === memberId)
 }
-
-export const _unused = z
