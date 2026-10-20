@@ -19,6 +19,8 @@ export interface IdentityContractSubject {
   newGuild: () => Promise<string>
   rpId: string
   origin: string
+  /** The guild's audit events, in order, as the chained event log holds them. */
+  events: (guildId: string) => Promise<{ type: string; payload: unknown }[]>
 }
 
 /** The failure code a call rejects with, or `no_error` when it resolves. */
@@ -62,6 +64,60 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         await s.key.assert(begin.options)
       )
     }
+
+    test('founding, sign-in and re-auth each append a non-secret event of ids only', async () => {
+      const subject = await make()
+      const guildId = await subject.newGuild()
+      const key = await SoftwareAuthenticator.create(subject.rpId, subject.origin)
+      const founding = await subject.identity.issueFoundingToken(guildId)
+      const begin = await subject.identity.beginRegistration(guildId, {
+        foundingToken: founding.token,
+      })
+      const registration = await key.register(begin.options)
+      const { credentialId } = await subject.identity.finishRegistration(
+        guildId,
+        begin.challengeId,
+        registration
+      )
+      const signBegin = await subject.identity.beginSignIn(guildId)
+      const assertion = await key.assert(signBegin.options)
+      const session = await subject.identity.finishSignIn(guildId, signBegin.challengeId, assertion)
+      const reBegin = await subject.identity.beginReauth(session.token)
+      const reAssertion = await key.assert(reBegin.options)
+      const reauth = await subject.identity.finishReauth(
+        session.token,
+        reBegin.challengeId,
+        reAssertion
+      )
+
+      const events = (await subject.events(guildId)).filter((e) => e.type.startsWith('identity.'))
+      expect(events.map((e) => e.type)).toEqual([
+        'identity.founding_token_issued',
+        'identity.founding_token_spent',
+        'identity.passkey_registered',
+        'identity.signed_in',
+        'identity.reauthenticated',
+      ])
+      expect(
+        JSON.stringify(events.find((e) => e.type === 'identity.passkey_registered'))
+      ).toContain(credentialId)
+      const serialised = JSON.stringify(events)
+      const secrets = [
+        founding.token,
+        session.token,
+        reauth.proof,
+        begin.options.challenge,
+        signBegin.options.challenge,
+        reBegin.options.challenge,
+        registration.response.attestationObject,
+        registration.response.clientDataJSON,
+        assertion.response.signature,
+        reAssertion.response.signature,
+      ]
+      for (const secret of secrets) {
+        expect(serialised).not.toContain(secret)
+      }
+    })
 
     test('registering then signing in yields a session bound to that guild', async () => {
       const s = await registered()

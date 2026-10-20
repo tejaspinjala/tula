@@ -4,6 +4,7 @@ import { createDb } from '../db/client'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
 import { testDbUrl } from '../testing/test-db'
 import type { StoredChallenge } from './identity-store'
+import { MemoryKeyProvider } from './memory-key-provider'
 import { PgIdentityStore } from './pg-identity-store'
 
 const db = createDb(testDbUrl('app'))
@@ -13,7 +14,7 @@ afterAll(async () => {
   await owner.end()
 })
 
-const store = new PgIdentityStore(db)
+const store = new PgIdentityStore(db, new MemoryKeyProvider())
 const T0 = new Date('2026-01-01T00:00:00.000Z')
 
 function challenge(offsetMs: number): StoredChallenge {

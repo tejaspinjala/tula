@@ -1,8 +1,11 @@
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
+import { appendEvent } from '../events'
 import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
+import type { KeyProvider } from '../ports/key-provider'
 import type {
+  IdentityEvent,
   IdentityStore,
   StoredChallenge,
   StoredCredential,
@@ -33,7 +36,14 @@ const sessionRow = z.object({
 
 /** Postgres {@link IdentityStore}: every call runs in `Db.withGuild`, so RLS scopes it to one guild. */
 export class PgIdentityStore implements IdentityStore {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly keys: KeyProvider
+  ) {}
+
+  private append(tx: TenantTx, event: IdentityEvent) {
+    return appendEvent(tx, this.keys, event.type, event.payload)
+  }
 
   async listCredentials(guildId: string): Promise<StoredCredential[]> {
     const rows = await this.db.withGuild(
@@ -53,14 +63,16 @@ export class PgIdentityStore implements IdentityStore {
     })
   }
 
-  async saveCredential(guildId: string, c: StoredCredential): Promise<void> {
-    await this.db.withGuild(
-      guildId,
-      (tx) =>
-        tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
+  async saveCredential(guildId: string, c: StoredCredential, event: IdentityEvent): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      const inserted =
+        await tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
            values (${guildId}, ${c.id}, ${isoBase64URL.fromBuffer(c.publicKey)}, ${c.counter}, ${c.transports})
-           on conflict (guild_id, credential_id) do nothing`
-    )
+           on conflict (guild_id, credential_id) do nothing returning 1`
+      if (inserted.length > 0) {
+        await this.append(tx, event)
+      }
+    })
   }
 
   async updateCounter(guildId: string, credentialId: string, counter: number): Promise<void> {
@@ -88,12 +100,15 @@ export class PgIdentityStore implements IdentityStore {
     guildId: string,
     tokenHash: string,
     expiresAt: Date,
+    event: IdentityEvent,
     tx?: TenantTx
   ): Promise<void> {
-    const write = (t: TenantTx) =>
-      t`insert into identity_founding (guild_id, token_hash, expires_at)
+    const write = async (t: TenantTx) => {
+      await t`insert into identity_founding (guild_id, token_hash, expires_at)
         values (${guildId}, ${tokenHash}, ${expiresAt})
         on conflict (guild_id) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`
+      await this.append(t, event)
+    }
     await (tx ? write(tx) : this.db.withGuild(guildId, write))
   }
 
@@ -111,7 +126,8 @@ export class PgIdentityStore implements IdentityStore {
     guildId: string,
     c: StoredCredential,
     tokenHash: string,
-    now: Date
+    now: Date,
+    events: IdentityEvent[]
   ): Promise<boolean> {
     return this.db.withGuild(guildId, async (tx) => {
       // The guild row lock serialises concurrent founding finishes: the loser sees the winner's passkey.
@@ -127,6 +143,9 @@ export class PgIdentityStore implements IdentityStore {
       }
       await tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
         values (${guildId}, ${c.id}, ${isoBase64URL.fromBuffer(c.publicKey)}, ${c.counter}, ${c.transports})`
+      for (const event of events) {
+        await this.append(tx, event)
+      }
       return true
     })
   }
@@ -163,13 +182,12 @@ export class PgIdentityStore implements IdentityStore {
     }
   }
 
-  async saveSession(guildId: string, s: StoredSession): Promise<void> {
-    await this.db.withGuild(
-      guildId,
-      (tx) =>
-        tx`insert into identity_sessions (guild_id, session_id, token_hash, expires_at)
+  async saveSession(guildId: string, s: StoredSession, event: IdentityEvent): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`insert into identity_sessions (guild_id, session_id, token_hash, expires_at)
            values (${guildId}, ${s.id}, ${s.tokenHash}, ${s.expiresAt})`
-    )
+      await this.append(tx, event)
+    })
   }
 
   async findSession(guildId: string, tokenHash: string): Promise<StoredSession | null> {
@@ -196,13 +214,13 @@ export class PgIdentityStore implements IdentityStore {
     guildId: string,
     sessionId: string,
     hash: string,
-    expiresAt: Date
+    expiresAt: Date,
+    event: IdentityEvent
   ): Promise<void> {
-    await this.db.withGuild(
-      guildId,
-      (tx) =>
-        tx`update identity_sessions set reauth_hash = ${hash}, reauth_expires_at = ${expiresAt}
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`update identity_sessions set reauth_hash = ${hash}, reauth_expires_at = ${expiresAt}
            where guild_id = ${guildId} and session_id = ${sessionId}`
-    )
+      await this.append(tx, event)
+    })
   }
 }

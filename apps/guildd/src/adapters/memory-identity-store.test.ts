@@ -5,7 +5,10 @@ test('two same-tick founding finishes with one token register exactly one passke
   const store = new MemoryIdentityStore()
   const guild = crypto.randomUUID()
   const now = new Date('2026-01-01T00:00:00.000Z')
-  await store.issueFounding(guild, 'hash', new Date(now.getTime() + 60_000))
+  await store.issueFounding(guild, 'hash', new Date(now.getTime() + 60_000), {
+    type: 'identity.founding_token_issued',
+    payload: {},
+  })
   const credential = (id: string) => ({
     id,
     publicKey: new Uint8Array(4),
@@ -13,8 +16,8 @@ test('two same-tick founding finishes with one token register exactly one passke
     transports: [],
   })
   const results = await Promise.all([
-    store.foundCredential(guild, credential('a'), 'hash', now),
-    store.foundCredential(guild, credential('b'), 'hash', now),
+    store.foundCredential(guild, credential('a'), 'hash', now, []),
+    store.foundCredential(guild, credential('b'), 'hash', now, []),
   ])
   expect(results.filter(Boolean)).toHaveLength(1)
   expect(await store.listCredentials(guild)).toHaveLength(1)
