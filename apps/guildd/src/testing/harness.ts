@@ -33,6 +33,7 @@ export interface HarnessOptions {
       | 'secrets'
       | 'config'
       | 'notes'
+      | 'seals'
       | 'objectStore'
       | 'keys'
       | 'objectStoreTimeoutMs'
@@ -90,6 +91,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       secrets: composed.secrets,
       config: composed.config,
       notes: composed.notes,
+      seals: composed.seals,
       keys,
     },
     /** Founds a guild through the chained path with the harness's keys (see `foundTestGuild`). */

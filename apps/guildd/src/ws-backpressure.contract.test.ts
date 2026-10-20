@@ -49,6 +49,7 @@ describe('websocket backpressure', () => {
       db,
       objectStore: harness.adapters.objectStore,
       identity: harness.adapters.identity,
+      seals: harness.adapters.seals,
       rateLimiter: harness.adapters.rateLimiter,
       rateLimits: UNLIMITED_RATE_LIMITS,
       secrets: harness.adapters.secrets,

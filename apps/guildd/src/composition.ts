@@ -4,6 +4,7 @@ import { PgConfigStore } from './adapters/pg-config-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
+import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -11,6 +12,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadWebauthnEnv } from './env'
+import { SealEngine } from './seals'
 
 /**
  * The single composition root: wires adapters into the app.
@@ -36,6 +38,7 @@ export async function compose(
       : await fromEnv(overrides)
   const clock = overrides.clock ?? new SystemClock()
   const rp = loadWebauthnEnv()
+  const config = overrides.config ?? new PgConfigStore(db, keys)
   const adapters: AppDeps = {
     ...overrides,
     clock,
@@ -54,7 +57,8 @@ export async function compose(
     keys,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
-    config: overrides.config ?? new PgConfigStore(db, keys),
+    config,
+    seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
   }
