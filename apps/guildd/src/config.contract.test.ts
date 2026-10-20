@@ -145,6 +145,33 @@ describe('subscription providers in a saved config', () => {
   })
 })
 
+describe('restoring a version that names a subscription provider', () => {
+  const restoreOf = async (h: typeof harness) => {
+    const who = await signedIn(h)
+    await h.adapters.config.propose(who.guildId, {
+      ...defaultConfig(),
+      providers: [{ id: 'home', auth: 'subscription', privateEligible: false }],
+      routingProfiles: [],
+    })
+    // Version 2 names the subscription provider; move on so it is an earlier version.
+    await h.adapters.config.propose(who.guildId, {
+      ...defaultConfig(),
+      caps: { dailyTokens: 5, dailySpendCents: 5 },
+    })
+    return send(h, 'POST', `${who.base}/config/versions/2/restore`, {}, who.auth)
+  }
+
+  test('is refused as subscription_disabled while the host has not enabled them', async () => {
+    const res = await restoreOf(harness)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'subscription_disabled' })
+  })
+
+  test('works once the host enables them', async () => {
+    expect((await restoreOf(subscriptionHarness)).status).toBeLessThan(300)
+  })
+})
+
 describe('guild config over HTTP', () => {
   test('a founded guild has the Steward, Heralds Hall with Captain and Members, and three locked Halls', async () => {
     const who = await signedIn()
