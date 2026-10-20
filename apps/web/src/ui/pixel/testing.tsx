@@ -47,6 +47,21 @@ export async function click(target: Element): Promise<void> {
   })
 }
 
+/** Moves the pointer over `target` (mouseover then mouseenter) inside `act`. */
+export async function hover(target: Element): Promise<void> {
+  await act(async () => {
+    target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+  })
+}
+
+/** Focuses `target` inside `act`. */
+export async function focus(target: HTMLElement): Promise<void> {
+  await act(async () => {
+    target.focus()
+  })
+}
+
 /** Advances fake time by `ms` inside `act` (use with `jest`-style timers from bun:test). */
 export async function tick(ms: number): Promise<void> {
   await act(async () => {
