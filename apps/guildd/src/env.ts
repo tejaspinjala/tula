@@ -223,7 +223,33 @@ export type SandboxEnv =
 
 /** Reads the sandbox settings (`SANDBOX_RUNNER` and friends); throws at boot on a bad combination. */
 export function loadSandboxEnv(
-  _source: Record<string, string | undefined> = process.env
+  source: Record<string, string | undefined> = process.env
 ): SandboxEnv {
-  throw new Error('not implemented')
+  const common = z.object({ NODE_ENV: z.string().default('development') }).parse(source)
+  const runner = z.enum(['memory', 'docker']).optional().parse(source.SANDBOX_RUNNER)
+  if (common.NODE_ENV === 'production' && runner !== 'docker') {
+    throw new Error('SANDBOX_RUNNER must be docker in production')
+  }
+  if (runner !== 'docker') {
+    return { kind: 'memory' }
+  }
+  const docker = z
+    .object({
+      SANDBOX_IMAGE: z
+        .string()
+        .regex(/@sha256:[0-9a-f]{64}$/, 'SANDBOX_IMAGE must be pinned by digest'),
+      SANDBOX_NETWORK: z.string().min(1),
+      SANDBOX_SCOPE: z.string().min(1).default('default'),
+      EGRESS_PROXY_URL: z.url(),
+      SANDBOX_GATEWAY_URL: z.url(),
+    })
+    .parse(source)
+  return {
+    kind: 'docker',
+    image: docker.SANDBOX_IMAGE,
+    network: docker.SANDBOX_NETWORK,
+    scope: docker.SANDBOX_SCOPE,
+    proxyUrl: docker.EGRESS_PROXY_URL,
+    gatewayUrl: docker.SANDBOX_GATEWAY_URL,
+  }
 }
