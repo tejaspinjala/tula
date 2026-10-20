@@ -159,11 +159,12 @@ export class PgSealStore implements SealStore {
             : status === 'expired'
               ? tx`(status = 'expired' or (status = 'requested' and expires_at <= ${now}))`
               : tx`status = ${status}`
+      const decided = since === null ? tx`true` : tx`decided_at >= ${since}::timestamptz`
       const rows = await tx`
         select ${tx.unsafe(SEAL_COLUMNS)} from seals
         where guild_id = ${guildId} and ${wanted}
           and (${after}::uuid is null or seal_id > ${after}::uuid)
-          and (${since}::timestamptz is null or decided_at >= ${since}::timestamptz)
+          and ${decided}
         order by seal_id limit ${page.limit + 1}`
       const seals = rows.map((r) => toSeal(sealRow.parse(r), now))
       const items = seals.slice(0, page.limit)

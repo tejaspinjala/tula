@@ -188,3 +188,25 @@ test('several Seals expiring together emit their events in seal id order', async
   const ids = events.map((e) => String(e.payload.sealId))
   expect(ids).toEqual([...ids].sort())
 })
+
+test('list with decidedSince and a status uses the partial decided index', async () => {
+  const { guild, store } = await setup()
+  await owner`insert into seals (seal_id, guild_id, quest_id, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at)
+    select gen_random_uuid(), ${guild}, gen_random_uuid(), 'h', 'post', 't', '', encode(sha256(convert_to('t', 'UTF8')), 'hex'), 'denied', now(), now() + interval '1 day', now() - (g || ' minutes')::interval
+    from generate_series(1, 3000) g`
+  await owner`analyze seals`
+  // Same predicate shape as PgSealStore.list, planned as the app role under forced RLS.
+  const since = new Date(Date.now() - 5 * 60_000).toISOString()
+  const plan = await db.withGuild(guild, async (tx) => {
+    const after: string | null = null
+    const decided = tx`decided_at >= ${since}::timestamptz`
+    return tx`explain select seal_id from seals
+      where guild_id = ${guild} and status = 'denied'
+        and (${after}::uuid is null or seal_id > ${after}::uuid) and ${decided}
+      order by seal_id limit 11`
+  })
+  expect(JSON.stringify(plan)).toContain('seals_guild_decided')
+  const page = await store.list(guild, { limit: 10, status: 'denied', decidedSince: since })
+  expect(page.seals.length).toBeGreaterThanOrEqual(4)
+  expect(page.seals.length).toBeLessThanOrEqual(5)
+})

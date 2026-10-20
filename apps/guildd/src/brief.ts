@@ -63,9 +63,9 @@ export function compileBrief(input: BriefInput, cap: number = BRIEF_TOKEN_CAP): 
   ].join('\n')
   const body = [
     `Quest: ${oneLine(quest.title)} (${quest.id})`,
-    `Hall: ${quest.hallId}`,
+    `Hall: ${oneLine(quest.hallId)}`,
     `Round: ${quest.round + 1} of ${quest.roundLimit}`,
-    `Done when: ${quest.doneCondition}`,
+    `Done when: ${oneLine(quest.doneCondition)}`,
   ].join('\n')
   const pointers = [
     ...[...input.notes]
