@@ -8,7 +8,7 @@ import { type AppDeps, websocket } from '../app'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
 import { foundTestGuild } from './found-guild'
-import { testDbUrl } from './test-db'
+import { createIsolatedTestDb, testDbUrl } from './test-db'
 
 const NO_LIMIT = { limit: 1_000_000_000, windowMs: 60_000 }
 /** Limits so high they never trip; the harness default, for tests that are not about limits. */
@@ -38,6 +38,11 @@ export const UNLIMITED_RATE_LIMITS = {
 
 /** Options for {@link createHarness}. */
 export interface HarnessOptions {
+  /**
+   * Runs on a database private to the calling test file (dropped by `close`). Required by tests
+   * that bar, lift or revoke GLOBALLY: those operations reach every guild of the database.
+   */
+  isolatedDb?: boolean
   /** Instant the memory clock starts at. */
   now?: Date
   /** Whether `x-guild-id` identifies the caller; defaults to true in tests. */
@@ -93,8 +98,9 @@ export interface HarnessOptions {
  * adapters are covered by the shared contract suites and can be swapped in through `options.app`.
  */
 export async function createHarness(options: HarnessOptions = {}) {
-  const appUrl = testDbUrl('app')
-  const owner = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
+  const isolated = options.isolatedDb ? await createIsolatedTestDb() : null
+  const appUrl = testDbUrl('app', isolated?.name)
+  const owner = postgres(testDbUrl('owner', isolated?.name), { max: 1, onnotice: () => {} })
   const db = createDb(appUrl)
 
   const clock = new MemoryClock(options.now ?? new Date('2026-01-01T00:00:00.000Z'))
@@ -177,6 +183,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       await composed.gates.stop()
       await db.close()
       await owner.end()
+      await isolated?.drop()
     },
   }
 }

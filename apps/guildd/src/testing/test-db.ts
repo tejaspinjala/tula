@@ -120,3 +120,38 @@ export async function withScratchSchema<T>(
     await sql.end()
   }
 }
+
+/** A database private to one test file, for tests whose operations reach every guild (global bars). */
+export interface IsolatedTestDb {
+  /** Database name; pass it to {@link testDbUrl}. */
+  name: string
+  /** Drops the database; call in `afterAll`, after every connection to it is closed. */
+  drop: () => Promise<void>
+}
+
+/**
+ * Creates and migrates a database named after this worktree's test database and the calling test
+ * file (`Bun.main`), so a global Bar the Gates, `release_all_leases` or `revoke_all_run_tokens`
+ * there can never touch the guilds of another test file. Any copy left by an interrupted run is
+ * dropped first.
+ */
+export async function createIsolatedTestDb(): Promise<IsolatedTestDb> {
+  const hash = new Bun.CryptoHasher('sha256').update(Bun.main).digest('hex').slice(0, 8)
+  const name = `${testDbName()}_g${hash}`
+  const admin = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
+  const drop = async () => {
+    const dropper = postgres(baseUrl().toString(), { max: 1, onnotice: () => {} })
+    try {
+      await dropper.unsafe(`drop database if exists "${name}" with (force)`)
+    } finally {
+      await dropper.end()
+    }
+  }
+  try {
+    await drop()
+    await ensureTestDatabase(name)
+  } finally {
+    await admin.end()
+  }
+  return { name, drop }
+}

@@ -5,15 +5,18 @@ import { createDb } from '../db/client'
 import { gateStoreContract } from '../ports/gate-store.contract'
 import { FAIL_REASONS } from '../ports/quest-queue'
 import { foundTestGuild } from '../testing/found-guild'
-import { testDbUrl } from '../testing/test-db'
+import { createIsolatedTestDb, testDbUrl } from '../testing/test-db'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgGateStore } from './pg-gate-store'
 
-const db = createDb(testDbUrl('app'))
-const owner = postgres(testDbUrl(), { max: 1, onnotice: () => {} })
+// Global bars and revokes reach every guild of a database, so this file gets its own.
+const isolated = await createIsolatedTestDb()
+const db = createDb(testDbUrl('app', isolated.name))
+const owner = postgres(testDbUrl('owner', isolated.name), { max: 1, onnotice: () => {} })
 afterAll(async () => {
   await db.close()
   await owner.end()
+  await isolated.drop()
 })
 
 gateStoreContract('postgres', async () => ({

@@ -7,7 +7,11 @@ import { defaultConfig, guildConfig } from './guild-config'
 import { createHarness } from './testing/harness'
 
 const provider = new MemoryModelProvider()
-const harness = await createHarness({ devGuildHeader: true, app: { modelProvider: provider } })
+const harness = await createHarness({
+  isolatedDb: true,
+  devGuildHeader: true,
+  app: { modelProvider: provider },
+})
 afterAll(async () => {
   await harness.close()
 })

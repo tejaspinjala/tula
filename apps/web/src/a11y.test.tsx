@@ -180,7 +180,8 @@ describe('reduced motion', () => {
     const block = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*)\}/)?.[1] ?? ''
     expect(block).toContain('animation')
     expect(block).toContain('transition')
-    expect(block).toContain('!important')
+    // Beats every class-level rule by specificity, with no !important.
+    expect(block).toContain('html:root *')
   })
 })
 

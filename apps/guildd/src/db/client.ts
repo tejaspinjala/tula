@@ -86,15 +86,32 @@ export interface Db {
 /** Opens a pool as the non-owner app role (`url` must name that role, never the table owner). */
 export function createDb(
   url: string,
-  options: { max?: number; streamMax?: number; streamStatementTimeoutMs?: number } = {}
+  options: {
+    max?: number
+    streamMax?: number
+    streamStatementTimeoutMs?: number
+    /** Names this Db's sessions in `pg_stat_activity` (tests tell their own pool apart). */
+    applicationName?: string
+  } = {}
 ): Db {
-  const sql: Sql = postgres(url, { max: options.max ?? 10, onnotice: () => {} })
+  const sql: Sql = postgres(url, {
+    max: options.max ?? 10,
+    onnotice: () => {},
+    ...(options.applicationName === undefined
+      ? {}
+      : { connection: { application_name: options.applicationName } }),
+  })
   // A hung fan-out query would otherwise hold one of the few stream connections forever and
   // stall every guild's stream, so the stream pool cancels statements after a bound.
   const streamSql: Sql = postgres(url, {
     max: options.streamMax ?? 2,
     onnotice: () => {},
-    connection: { statement_timeout: options.streamStatementTimeoutMs ?? 10_000 },
+    connection: {
+      statement_timeout: options.streamStatementTimeoutMs ?? 10_000,
+      ...(options.applicationName === undefined
+        ? {}
+        : { application_name: options.applicationName }),
+    },
   })
   const scoped =
     (pool: Sql) =>
