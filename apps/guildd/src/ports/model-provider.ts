@@ -66,6 +66,8 @@ export const PROVIDER_ERROR_CODES = [
   'timeout',
   'unavailable',
   'invalid_response',
+  /** The Claude subscription's usage limit is reached; not retried. */
+  'subscription_limit',
 ] as const
 /** One provider failure code. */
 export type ProviderErrorCode = (typeof PROVIDER_ERROR_CODES)[number]

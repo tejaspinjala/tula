@@ -40,6 +40,17 @@ const cliReply = z.object({
   }),
 })
 
+/** The CLI's wording when the subscription's usage window is spent. */
+const LIMIT_MESSAGE = /usage limit|limit reached|hit your limit|out of extra usage/i
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 /** Flattens the conversation into the one prompt `claude -p` reads from stdin. */
 function promptOf(messages: ModelRequest['messages']): string {
   const [only] = messages
@@ -61,9 +72,13 @@ function promptOf(messages: ModelRequest['messages']): string {
 export class ClaudeCliModelProvider implements ModelProvider {
   private readonly bin: string
   private readonly env: Record<string, string>
+  private readonly timeoutMs: number
+  private readonly maxStdoutBytes: number
 
   constructor(options: ClaudeCliOptions = {}) {
     this.bin = options.bin ?? 'claude'
+    this.timeoutMs = options.timeoutMs ?? 120_000
+    this.maxStdoutBytes = options.maxStdoutBytes ?? 1024 * 1024
     const source = options.env ?? process.env
     const env: Record<string, string> = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }
     for (const key of ENV_ALLOWLIST) {
@@ -73,6 +88,47 @@ export class ClaudeCliModelProvider implements ModelProvider {
       }
     }
     this.env = env
+  }
+
+  /** Runs one child to completion: killed at the timeout or when stdout passes its cap. */
+  private async run(args: string[], prompt: string): Promise<{ text: string; exitCode: number }> {
+    const proc = Bun.spawn([this.bin, ...args], {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'ignore',
+      env: this.env,
+    })
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      proc.kill('SIGKILL')
+    }, this.timeoutMs)
+    try {
+      proc.stdin.write(prompt)
+      await proc.stdin.end()
+      const chunks: Uint8Array[] = []
+      let size = 0
+      for await (const chunk of proc.stdout) {
+        size += chunk.byteLength
+        if (size > this.maxStdoutBytes) {
+          proc.kill('SIGKILL')
+          throw new ModelProviderError('invalid_response')
+        }
+        chunks.push(chunk)
+      }
+      const exitCode = await proc.exited
+      if (timedOut) {
+        throw new ModelProviderError('timeout')
+      }
+      return { text: Buffer.concat(chunks).toString('utf8'), exitCode }
+    } catch (e) {
+      if (timedOut) {
+        throw new ModelProviderError('timeout')
+      }
+      throw e instanceof ModelProviderError ? e : new ModelProviderError('unavailable')
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async complete(_credential: ProviderSecret, request: ModelRequest): Promise<ModelResponse> {
@@ -95,17 +151,14 @@ export class ClaudeCliModelProvider implements ModelProvider {
       '--model',
       model,
     ]
-    const proc = Bun.spawn([this.bin, ...args], {
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'ignore',
-      env: this.env,
-    })
-    proc.stdin.write(promptOf(messages))
-    await proc.stdin.end()
-    const stdout = await new Response(proc.stdout).text()
-    await proc.exited
-    const data = cliReply.safeParse(JSON.parse(stdout))
+    const stdout = await this.run(args, promptOf(messages))
+    const data = cliReply.safeParse(parseJson(stdout.text))
+    if (data.success && data.data.is_error && LIMIT_MESSAGE.test(data.data.result)) {
+      throw new ModelProviderError('subscription_limit')
+    }
+    if (stdout.exitCode !== 0 || (data.success && data.data.is_error)) {
+      throw new ModelProviderError('unavailable')
+    }
     if (!data.success) {
       throw new ModelProviderError('invalid_response')
     }
