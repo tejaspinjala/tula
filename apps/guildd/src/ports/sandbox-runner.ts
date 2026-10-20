@@ -1,6 +1,8 @@
 /** What a sandbox runs for: ids only, never content. */
 export interface SandboxSpec {
   questId: string
+  /** The id the caller wants the sandbox to have, so it can stop that exact sandbox even if `start` never returns. */
+  sandboxId?: string | undefined
   /** The per-run model gateway token. The only credential a sandbox gets; never a provider key. */
   runToken?: string
   /** Opaque handle the worker exchanges for its Quest lease at the MCP gateway. */
