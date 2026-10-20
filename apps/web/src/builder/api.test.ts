@@ -165,3 +165,15 @@ test('a truncated unknown-key refusal still names the keys and says more were cu
   expect(error instanceof Error && error.message).toContain('caps.bogus')
   expect(error instanceof Error && error.message).toContain('and more')
 })
+
+test('an unknown-key refusal with a shortened key reads cleanly', async () => {
+  const shortened = `caps.${'k'.repeat(58)}…`
+  const { fetcher } = fakes({
+    [`PUT ${cfg}`]: {
+      status: 422,
+      body: { error: 'unknown_config_key', unknownKeys: [shortened], truncated: true },
+    },
+  })
+  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  expect(error instanceof Error && error.message).toBe(`unknown config key: ${shortened} and more`)
+})
