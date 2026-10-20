@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 
 /** Settings that must be explicit in production and have development defaults elsewhere. */
@@ -123,6 +125,16 @@ const baseSchema = z.object({
     .transform((v) => v === 'true'),
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
+  /**
+   * Built web app (`apps/web/dist`) to serve at this origin, API under `/api`. The directory
+   * must exist and hold `index.html`. Unset: guildd serves the API only.
+   */
+  WEB_DIST: z
+    .string()
+    .min(1)
+    .refine((dir) => existsSync(dir) && statSync(dir).isDirectory(), 'WEB_DIST must be a directory')
+    .refine((dir) => existsSync(join(dir, 'index.html')), 'WEB_DIST must hold index.html')
+    .optional(),
 })
 
 const schema = baseSchema
