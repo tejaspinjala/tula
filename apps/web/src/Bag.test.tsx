@@ -181,3 +181,12 @@ test('a page inside the Bag has one wood border: its sections are flat, not fram
   expect(body?.querySelector('[data-variant="paper"]')).toBeNull()
   await m.unmount()
 })
+
+test('opening a page from the menu moves keyboard focus to that page, not to the page body', async () => {
+  const c = calls()
+  const m = await mount(bag({}, c))
+  expect(document.activeElement?.getAttribute('role')).toBe('option')
+  await m.rerender(bag({ page: 'treasury' }, c))
+  expect(document.activeElement?.id).toBe('treasury-title')
+  await m.unmount()
+})
