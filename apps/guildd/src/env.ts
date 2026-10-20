@@ -250,6 +250,7 @@ export function loadSandboxEnv(
           message: 'SANDBOX_NETWORK must be the dedicated internal network',
         }),
       SANDBOX_SCOPE: z.string().min(1).default('default'),
+      SANDBOX_KILL_DEADLINE_MS: z.coerce.number().int().min(1).max(10_000).default(2000),
       EGRESS_PROXY_URL: z.url(),
       SANDBOX_GATEWAY_URL: z.url(),
     })
@@ -259,7 +260,7 @@ export function loadSandboxEnv(
     image: docker.SANDBOX_IMAGE,
     network: docker.SANDBOX_NETWORK,
     scope: docker.SANDBOX_SCOPE,
-    killDeadlineMs: 2000,
+    killDeadlineMs: docker.SANDBOX_KILL_DEADLINE_MS,
     proxyUrl: docker.EGRESS_PROXY_URL,
     gatewayUrl: docker.SANDBOX_GATEWAY_URL,
   }

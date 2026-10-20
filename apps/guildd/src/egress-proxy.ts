@@ -34,16 +34,30 @@ const DEFAULT_TUNNEL_MAX_MS = 900_000
 const DEFAULT_RESPONSE_IDLE_MS = 120_000
 
 /** The host and port a proxy request names, or null when it does not parse. */
-function target(raw: string, fallbackPort: number): { host: string; port: number } | null {
+function target(raw: string): { host: string; port: number } | null {
   try {
     const url = new URL(raw)
     if (url.username !== '' || url.password !== '') {
       return null
     }
-    return { host: url.hostname.toLowerCase(), port: Number(url.port || fallbackPort) }
+    return {
+      host: url.hostname.toLowerCase(),
+      port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
+    }
   } catch {
     return null
   }
+}
+
+/**
+ * The target of a CONNECT request: its authority must carry an explicit port. Parsing it as an
+ * http URL would turn `host:80` into the scheme default (an empty port), so a default is never
+ * guessed; plain proxy requests use the absolute URI's own scheme default (http 80, https 443).
+ */
+function tunnelTarget(authority: string): { host: string; port: number } | null {
+  const match = /^([a-z0-9.-]+):([0-9]{1,5})$/i.exec(authority)
+  const port = Number(match?.[2])
+  return match?.[1] && port >= 1 && port <= 65535 ? { host: match[1].toLowerCase(), port } : null
 }
 
 /** Hop-by-hop headers belong to one connection and are not forwarded (RFC 9110 7.6.1). */
@@ -86,7 +100,7 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
   }
 
   const forward = (req: IncomingMessage, res: ServerResponse): void => {
-    const to = target(req.url ?? '', 80)
+    const to = target(req.url ?? '')
     if (to === null || !permits(to)) {
       deny(res)
       return
@@ -134,7 +148,7 @@ export function createEgressProxy(options: EgressProxyOptions): Server {
   const server = createServer(forward)
   server.maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS
   server.on('connect', (req: IncomingMessage, socket: net.Socket, head: Buffer) => {
-    const to = target(`http://${req.url ?? ''}`, 443)
+    const to = tunnelTarget(req.url ?? '')
     if (to === null || !permits(to)) {
       socket.end('HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n')
       return

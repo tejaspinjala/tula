@@ -16,6 +16,7 @@ export function sandboxRunnerFor(env: SandboxEnv, exec?: DockerExec): SandboxRun
     image: env.image,
     network: env.network,
     scope: env.scope,
+    killDeadlineMs: env.killDeadlineMs,
     env: {
       HTTP_PROXY: env.proxyUrl,
       HTTPS_PROXY: env.proxyUrl,

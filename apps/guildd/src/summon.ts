@@ -152,7 +152,14 @@ export class Summon {
     }
     // A bar that landed while the container started could not see it yet: stop it here.
     if (await this.deps.gates.isBarred(guildId)) {
-      await this.deps.sandboxes.kill({ guildId })
+      try {
+        await this.deps.sandboxes.kill({ guildId })
+      } catch {
+        // The kill was not confirmed: end the Quest as failed rather than leave it leased.
+        await release('sandbox_unavailable')
+        return { ok: false, error: 'sandbox_unavailable' }
+      }
+      await release('routing_blocked')
       return { ok: false, error: 'gates_barred' }
     }
     return { ok: true, status: await this.status(guildId) }

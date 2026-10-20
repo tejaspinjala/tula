@@ -30,7 +30,11 @@ export interface DockerSandboxOptions {
   exec?: DockerExec
   /** Extra labels on every container (tests use one to find leftovers). */
   extraLabels?: Record<string, string>
-  /** Overall deadline for `kill`, in ms, below the per-call timeout. Defaults to 2000. */
+  /**
+   * Overall deadline for `kill`, in ms, below the per-call timeout. Defaults to 2000. A kill that
+   * rejects at the deadline (`kill_failed`, surfaced as `killFailed` by Bar the Gates) means the
+   * kill was not confirmed within the deadline, not that nothing was killed.
+   */
   killDeadlineMs?: number
   /** Longest any one docker call may take, in ms. Defaults to 10000. */
   timeoutMs?: number
