@@ -25,7 +25,7 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
     fetch('/api/health')
       .then((res) => setStatus(res.ok ? 'ok' : 'down'))
       .catch(() => setStatus('down'))
-    foundingOpen(fetch).then(setOpen)
+    foundingOpen(fetch).then((state) => setOpen(state === 'open'))
   }, [])
 
   useEffect(() => {

@@ -111,10 +111,11 @@ test('founding is open only when guildd says so; a failed call reads as closed',
     (body: unknown, status = 200) =>
     async () =>
       Response.json(body, { status })
-  expect(await foundingOpen(reply({ open: true }))).toBe(true)
-  expect(await foundingOpen(reply({ open: false }))).toBe(false)
-  expect(await foundingOpen(reply({ error: 'x' }, 503))).toBe(false)
-  expect(await foundingOpen(reply({ unexpected: 1 }))).toBe(false)
+  expect(await foundingOpen(reply({ open: true }))).toBe('open')
+  expect(await foundingOpen(reply({ open: false }))).toBe('closed')
+  expect(await foundingOpen(reply({ error: 'x' }, 503))).toBe('closed')
+  expect(await foundingOpen(reply({ unexpected: 1 }))).toBe('closed')
+  expect(await foundingOpen(reply({ error: 'rate_limited' }, 429))).toBe('busy')
 })
 
 test('the signed-in guild is read with the session token', async () => {
