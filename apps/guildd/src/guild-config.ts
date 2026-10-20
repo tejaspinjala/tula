@@ -87,6 +87,11 @@ export function guildTripwires(config: GuildConfig): TripwireThresholds {
   return config.tripwires ?? DEFAULT_TRIPWIRES
 }
 
+/** The guild's effective Treasury envelope limits. */
+export function guildTreasury(config: GuildConfig): TreasuryLimits {
+  return config.treasury ?? DEFAULT_TREASURY
+}
+
 /** The guild's Quest concurrency cap: how many Quests may be leased at once. */
 export function questConcurrency(config: GuildConfig): number {
   return config.caps.concurrentQuests ?? DEFAULT_CONCURRENT_QUESTS
@@ -114,6 +119,31 @@ export const DEFAULT_TRIPWIRES: TripwireThresholds = {
   loopRepeats: 5,
 }
 
+/**
+ * The paper Treasury's envelope limits, in integer cents and whole percents (data, not code).
+ * Raising a spend limit, or lowering a share held back, widens risk.
+ */
+export const treasuryLimits = z.object({
+  /** Most the Treasurer lets out in one UTC day; the Guild Master alone approves beyond it. */
+  dailyCapCents: z.number().int().min(0).max(100_000_000),
+  /** Largest single spend the Treasurer may approve alone; larger needs the Guild Master. */
+  treasurerLimitCents: z.number().int().min(0).max(100_000_000),
+  /** Share of the starting funds held in reserve, released only by the Guild Master. */
+  reservePercent: z.number().int().min(0).max(100),
+  /** Share of each revenue entry reinvested into the operating envelope. */
+  reinvestPercent: z.number().int().min(0).max(100),
+})
+/** The Treasury envelope limits. */
+export type TreasuryLimits = z.infer<typeof treasuryLimits>
+
+/** The limits a new guild is founded with: $10 a day, $5 Treasurer limit, 30% reserve, 40% reinvest. */
+export const DEFAULT_TREASURY: TreasuryLimits = {
+  dailyCapCents: 1000,
+  treasurerLimitCents: 500,
+  reservePercent: 30,
+  reinvestPercent: 40,
+}
+
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
 export const guildConfig = z
   .object({
@@ -126,6 +156,8 @@ export const guildConfig = z
     schedules: z.array(schedule).max(MAX_ITEMS),
     /** Absent in configs older than Tripwires; {@link DEFAULT_TRIPWIRES} then applies. */
     tripwires: tripwireThresholds.optional(),
+    /** Absent in configs older than the Treasury; {@link DEFAULT_TREASURY} then applies. */
+    treasury: treasuryLimits.optional(),
   })
   .superRefine((config, ctx) => {
     const known = new Set(config.providers.map((p) => p.id))
@@ -188,6 +220,7 @@ export function defaultConfig(): GuildConfig {
     routingProfiles: [],
     schedules: [],
     tripwires: DEFAULT_TRIPWIRES,
+    treasury: DEFAULT_TREASURY,
   }
 }
 
@@ -250,6 +283,21 @@ function tripwiresNoWider(prev: TripwireThresholds, next: TripwireThresholds): b
   )
 }
 
+function treasuryNoWider(prev: TreasuryLimits, next: TreasuryLimits): boolean {
+  return (
+    next.dailyCapCents <= prev.dailyCapCents &&
+    next.treasurerLimitCents <= prev.treasurerLimitCents &&
+    next.reservePercent >= prev.reservePercent &&
+    next.reinvestPercent >= prev.reinvestPercent &&
+    othersSame(prev, next, [
+      'dailyCapCents',
+      'treasurerLimitCents',
+      'reservePercent',
+      'reinvestPercent',
+    ])
+  )
+}
+
 /** True only when `next` is provably no riskier than `prev`, field by field; anything else fails closed. */
 function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   const level = (p: GuildConfig['sealPolicy']) => SEAL_POLICY_LEVELS.indexOf(p)
@@ -270,6 +318,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
     tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&
+    treasuryNoWider(guildTreasury(prev), guildTreasury(next)) &&
     removedHallsOk &&
     next.halls.every((h) => {
       const before = prevHalls.get(h.id)
@@ -284,6 +333,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'routingProfiles',
       'schedules',
       'tripwires',
+      'treasury',
     ])
   )
 }
@@ -315,7 +365,10 @@ export function classifyChange(prev: GuildConfig, next: GuildConfig): ChangeKind
   if (!provablyNoWider(prev, next)) {
     return 'widening'
   }
-  return same(withoutNames(prev), withoutNames(next)) ? 'neutral' : 'tightening'
+  // Absent optional sections mean their defaults, so compare the effective configs.
+  const effective = (c: GuildConfig) =>
+    withoutNames({ ...c, tripwires: guildTripwires(c), treasury: guildTreasury(c) })
+  return same(effective(prev), effective(next)) ? 'neutral' : 'tightening'
 }
 
 /** Whether a Hall takes Quests: locked Halls reject them. */
