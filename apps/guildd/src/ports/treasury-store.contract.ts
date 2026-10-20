@@ -406,6 +406,42 @@ export function treasuryStoreContract(name: string, make: () => Promise<Treasury
       })
     })
 
+    describe('idempotency keys', () => {
+      const conflict = { ok: false, reason: 'idempotency_conflict' } as const
+
+      test('a key reused with different terms is refused and creates nothing', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const spend = { key: 's', amountCents: 300, purpose: 'ads', requestedBy: 'm' }
+        await store.requestSpend(g, spend, LIMITS)
+        expect(await store.requestSpend(g, { ...spend, amountCents: 400 }, LIMITS)).toEqual(
+          conflict
+        )
+        expect(await store.requestSpend(g, { ...spend, purpose: 'other' }, LIMITS)).toEqual(
+          conflict
+        )
+
+        const revenue = { actorMember: ACTOR, key: 'r', amountCents: 1000, evidence: 'inv' }
+        await store.recordRevenue(g, revenue, LIMITS)
+        expect(await store.recordRevenue(g, { ...revenue, amountCents: 2000 }, LIMITS)).toEqual(
+          conflict
+        )
+        expect(await store.recordRevenue(g, { ...revenue, evidence: 'other' }, LIMITS)).toEqual(
+          conflict
+        )
+
+        const release = { actorMember: ACTOR, key: 'rr', amountCents: 500 }
+        await store.releaseReserve(g, release, LIMITS)
+        expect(await store.releaseReserve(g, { ...release, amountCents: 600 }, LIMITS)).toEqual(
+          conflict
+        )
+
+        // seed 2 + spend 1 + revenue 2 + reserve release 2: the refusals appended nothing.
+        expect((await store.listEntries(g, { limit: 100 })).items).toHaveLength(7)
+        expect(await store.verifyLedger(g)).toMatchObject({ intact: true, entries: 7 })
+      })
+    })
+
     describe('atomicity', () => {
       const loose = { ...LIMITS, treasurerLimitCents: 100_000, dailyCapCents: 100_000 }
       const ask = (g: string, store: TreasuryStore, key: string, amountCents: number, l = loose) =>
