@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import { hallAcceptsQuests } from './guild-config'
 import type { ConfigStore } from './ports/config-store'
-import { type Quest, type QuestQueue, newQuest as queueQuest } from './ports/quest-queue'
+import {
+  type Quest,
+  QuestError,
+  type QuestQueue,
+  newQuest as queueQuest,
+} from './ports/quest-queue'
 import type { TripwireStore } from './ports/tripwire-store'
 import { QUEST_TEMPLATES } from './quests'
 
@@ -23,6 +28,7 @@ export type StartTeamCampaignError =
   | 'hall_paused'
   | 'no_captain'
   | 'unknown_template'
+  | 'unknown_blocker'
 
 /** The outcome of {@link startTeamCampaign}. */
 export type StartTeamCampaignResult =
@@ -55,18 +61,25 @@ export async function startTeamCampaign(
   if (await deps.tripwires.isPaused(guildId, input.hall)) {
     return { ok: false, error: 'hall_paused' }
   }
-  const { quest, created } = await deps.queue.post(guildId, {
-    jobKey: `team:${input.campaignId}`,
-    campaignId: input.campaignId,
-    templateId: template.id,
-    hallId: input.hall,
-    rank: template.rank,
-    dataClass: template.dataClass,
-    title: `Plan the Campaign: ${input.goal}`.slice(0, 200),
-    ownerId: captain.id,
-    blockedBy: input.blockedBy ?? [],
-    doneCondition: `${template.doneCondition}: ${input.goal}`,
-    roundLimit: template.roundLimit,
-  })
-  return { ok: true, quest, created }
+  try {
+    const { quest, created } = await deps.queue.post(guildId, {
+      jobKey: `team:${input.campaignId}`,
+      campaignId: input.campaignId,
+      templateId: template.id,
+      hallId: input.hall,
+      rank: template.rank,
+      dataClass: template.dataClass,
+      title: `Plan the Campaign: ${input.goal}`.slice(0, 200),
+      ownerId: captain.id,
+      blockedBy: input.blockedBy ?? [],
+      doneCondition: `${template.doneCondition}: ${input.goal}`,
+      roundLimit: template.roundLimit,
+    })
+    return { ok: true, quest, created }
+  } catch (error) {
+    if (error instanceof QuestError && error.code === 'unknown_blocker') {
+      return { ok: false, error: 'unknown_blocker' }
+    }
+    throw error
+  }
 }
