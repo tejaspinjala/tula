@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
+import { upgradeWebSocket, websocket } from 'hono/bun'
 import { loadEnv } from './env'
 import { withWebApp } from './web-static'
 
@@ -124,5 +125,33 @@ describe('WEB_DIST in loadEnv', () => {
   test('fails clearly when the directory is missing or has no index.html', () => {
     expect(() => loadEnv({ ...base, WEB_DIST: join(root, 'nope') })).toThrow(/WEB_DIST/)
     expect(() => loadEnv({ ...base, WEB_DIST: join(dist, 'assets') })).toThrow(/index\.html/)
+  })
+})
+
+describe('withWebApp WebSocket upgrade', () => {
+  test('a socket opened under /api upgrades, like the un-prefixed one', async () => {
+    const socketApi = new Hono()
+    socketApi.get(
+      '/guilds/:id/events',
+      upgradeWebSocket(() => ({ onOpen: (_event, ws) => ws.send('hello') }))
+    )
+    const server = Bun.serve({
+      port: 0,
+      fetch: withWebApp(socketApi, dist).fetch,
+      websocket,
+    })
+    try {
+      for (const path of ['/guilds/g1/events', '/api/guilds/g1/events']) {
+        const message = await new Promise<string>((resolve, reject) => {
+          const socket = new WebSocket(`ws://localhost:${server.port}${path}`)
+          socket.onmessage = (event) => resolve(String(event.data))
+          socket.onerror = () => reject(new Error(`no upgrade at ${path}`))
+          setTimeout(() => reject(new Error(`timeout at ${path}`)), 3000)
+        })
+        expect(message).toBe('hello')
+      }
+    } finally {
+      await server.stop(true)
+    }
   })
 })
