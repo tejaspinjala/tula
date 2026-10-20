@@ -159,11 +159,16 @@ export class PgPushStore implements PushStore {
     )
   }
 
-  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+  async releaseDelivery(
+    guildId: string,
+    sealId: string,
+    endpoint: string,
+    now: Date
+  ): Promise<void> {
     await this.db.withGuild(
       guildId,
       (tx) => tx`
-        update push_deliveries set lease_expires_at = to_timestamp(0)
+        update push_deliveries set lease_expires_at = ${now}
         where guild_id = ${guildId} and seal_id = ${sealId}::uuid and endpoint = ${endpoint}
           and state = 'pending'`
     )
@@ -188,10 +193,19 @@ export class PgPushStore implements PushStore {
     )
   }
 
-  withDispatchLock<T>(guildId: string, fn: () => Promise<T>): Promise<T> {
-    return this.db.withGuild(guildId, async (tx) => {
-      await tx`select pg_advisory_xact_lock(hashtextextended(${`push-dispatch:${guildId}`}, 0))`
-      return fn()
-    })
+  async acquireDispatchLease(
+    _guildId: string,
+    _holder: string,
+    _lease: { now: Date; leaseMs: number }
+  ): Promise<boolean> {
+    throw new Error('not implemented')
+  }
+
+  async releaseDispatchLease(_guildId: string, _holder: string): Promise<void> {
+    throw new Error('not implemented')
+  }
+
+  async guildsWithDevices(_after: string | undefined, _limit: number): Promise<string[]> {
+    throw new Error('not implemented')
   }
 }

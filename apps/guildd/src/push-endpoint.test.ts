@@ -26,6 +26,11 @@ describe('isPushEndpoint', () => {
       'https://user:pw@fcm.googleapis.com/x',
       'https://fcm.googleapis.com:8443/x',
       'not a url',
+      'https://fcm.googleapis.com./x',
+      'https://fcm.googleapis.com@evil.com/x',
+      'https://xpush.apple.com/x',
+      'https://evilpush.apple.com.attacker.net/x',
+      'https://web.push.apple.com.attacker.net/x',
     ]) {
       expect(isPushEndpoint(url, PUSH_SERVICE_HOSTS)).toBe(false)
     }

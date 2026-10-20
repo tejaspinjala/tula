@@ -121,8 +121,57 @@ describe('Seal push relay', () => {
     const seal = await request('seal')
     notifier.failNext(1)
     const outcomes = await Promise.allSettled([relay.dispatch(guild), relay.dispatch(guild)])
-    expect(outcomes.map((o) => o.status).sort()).toEqual(['fulfilled', 'rejected'])
+    expect(outcomes.map((o) => o.status)).toContain('rejected')
+    await relay.dispatch(guild)
+    await relay.dispatch(guild)
     expect(notifier.sends.map((s) => s.payload.sealId)).toEqual([seal.id])
+  })
+
+  test('a dispatch that cannot take the guild lease returns at once and sends nothing', async () => {
+    const { store, notifier, clock, relay, guild, request, subscribe } = await setup()
+    await subscribe()
+    await request('seal')
+    await store.acquireDispatchLease(guild, 'another-process', { now: clock.now(), leaseMs: 5000 })
+    await relay.dispatch(guild)
+    expect(notifier.sends).toEqual([])
+    clock.advance(5001)
+    await relay.dispatch(guild)
+    expect(notifier.sends).toHaveLength(1)
+  })
+
+  test('a relay restart delivers a pending Seal with no new event', async () => {
+    const { notifier, relay, guild, request, subscribe } = await setup()
+    await subscribe()
+    const seal = await request('seal')
+    notifier.failNext(1)
+    await expect(relay.dispatch(guild)).rejects.toThrow('delivery_pending')
+    expect(notifier.sends).toEqual([])
+    const running = await relay.start(() => undefined)
+    try {
+      for (let i = 0; i < 150 && notifier.sends.length === 0; i++) {
+        await Bun.sleep(20)
+      }
+      expect(notifier.sends.map((s) => s.payload.sealId)).toEqual([seal.id])
+    } finally {
+      await running.stop()
+    }
+  })
+
+  test('many failing notifications leave one retry timer per guild', async () => {
+    const { notifier, relay, request, subscribe } = await setup({ retryMs: 60_000 })
+    await subscribe()
+    const running = await relay.start(() => undefined)
+    try {
+      notifier.failNext(1000)
+      for (let i = 0; i < 4; i++) {
+        await request(`seal ${i}`)
+        await Bun.sleep(40)
+      }
+      await Bun.sleep(150)
+      expect(running.retryTimers()).toBe(1)
+    } finally {
+      await running.stop()
+    }
   })
 
   test('a crash after the claim is retried once the lease expires', async () => {

@@ -73,12 +73,27 @@ export interface PushStore {
   ): Promise<DeliveryClaim>
   /** Marks a claimed delivery sent. */
   completeDelivery(guildId: string, sealId: string, endpoint: string): Promise<void>
-  /** Gives up a claim after a transient failure so the next claim retries at once. */
-  releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void>
+  /** Gives up a claim after a transient failure so the next claim (at or after `now`) retries. */
+  releaseDelivery(guildId: string, sealId: string, endpoint: string, now: Date): Promise<void>
   /** The highest event seq already dispatched for the guild, 0 when none. */
   cursor(guildId: string): Promise<number>
   /** Raises the cursor to `seq`; it never moves backwards. */
   advanceCursor(guildId: string, seq: number): Promise<void>
-  /** Runs `fn` while holding the guild's dispatch lock; concurrent callers for one guild queue. */
-  withDispatchLock<T>(guildId: string, fn: () => Promise<T>): Promise<T>
+  /**
+   * Takes (or renews, for the same `holder`) the guild's dispatch lease until `now + leaseMs`.
+   * True when `holder` holds it; false while another holder's lease has not expired. An expired
+   * lease is taken over. This is one short atomic write: nothing stays open while a dispatch runs.
+   */
+  acquireDispatchLease(
+    guildId: string,
+    holder: string,
+    lease: { now: Date; leaseMs: number }
+  ): Promise<boolean>
+  /** Gives the lease back if `holder` still holds it. */
+  releaseDispatchLease(guildId: string, holder: string): Promise<void>
+  /**
+   * Guilds that have at least one push subscription, in id order after `after` (for the start-up
+   * sweep). Opaque guild ids only; it reads no tenant data.
+   */
+  guildsWithDevices(after: string | undefined, limit: number): Promise<string[]>
 }

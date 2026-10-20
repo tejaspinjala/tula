@@ -17,7 +17,6 @@ interface GuildPush {
   subscriptions: Map<string, StoredPushSubscription>
   deliveries: Map<string, Delivery>
   cursor: number
-  lockTail: Promise<void>
 }
 
 /**
@@ -34,7 +33,6 @@ export class MemoryPushStore implements PushStore {
         subscriptions: new Map(),
         deliveries: new Map(),
         cursor: 0,
-        lockTail: Promise.resolve(),
       }
       this.guilds.set(guildId, state)
     }
@@ -149,10 +147,15 @@ export class MemoryPushStore implements PushStore {
     }
   }
 
-  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+  async releaseDelivery(
+    guildId: string,
+    sealId: string,
+    endpoint: string,
+    now: Date
+  ): Promise<void> {
     const delivery = this.of(guildId).deliveries.get(`${sealId}|${endpoint}`)
     if (delivery?.state === 'pending') {
-      delivery.leaseUntil = 0
+      delivery.leaseUntil = now.getTime()
     }
   }
 
@@ -165,13 +168,19 @@ export class MemoryPushStore implements PushStore {
     state.cursor = Math.max(state.cursor, seq)
   }
 
-  withDispatchLock<T>(guildId: string, fn: () => Promise<T>): Promise<T> {
-    const state = this.of(guildId)
-    const run = state.lockTail.then(fn)
-    state.lockTail = run.then(
-      () => undefined,
-      () => undefined
-    )
-    return run
+  async acquireDispatchLease(
+    _guildId: string,
+    _holder: string,
+    _lease: { now: Date; leaseMs: number }
+  ): Promise<boolean> {
+    throw new Error('not implemented')
+  }
+
+  async releaseDispatchLease(_guildId: string, _holder: string): Promise<void> {
+    throw new Error('not implemented')
+  }
+
+  async guildsWithDevices(_after: string | undefined, _limit: number): Promise<string[]> {
+    throw new Error('not implemented')
   }
 }

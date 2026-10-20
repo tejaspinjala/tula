@@ -87,7 +87,7 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       expect(await store.claimDelivery(g, seal, A, lease())).toBe('claimed')
       expect(await store.claimDelivery(g, seal, A, lease(999))).toBe('busy')
       expect(await store.claimDelivery(g, seal, A, lease(1001))).toBe('claimed')
-      await store.releaseDelivery(g, seal, A)
+      await store.releaseDelivery(g, seal, A, lease(1001).now)
       expect(await store.claimDelivery(g, seal, A, lease(1002))).toBe('claimed')
     })
 
@@ -97,9 +97,9 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       const seal = crypto.randomUUID()
       await store.add(g, MEMBER, sub(A), 0)
       expect(await store.claimDelivery(g, seal, A, lease(0, 2))).toBe('claimed')
-      await store.releaseDelivery(g, seal, A)
+      await store.releaseDelivery(g, seal, A, lease(0, 2).now)
       expect(await store.claimDelivery(g, seal, A, lease(1, 2))).toBe('claimed')
-      await store.releaseDelivery(g, seal, A)
+      await store.releaseDelivery(g, seal, A, lease(1, 2).now)
       expect(await store.claimDelivery(g, seal, A, lease(2, 2))).toBe('done')
       expect(await store.claimDelivery(g, seal, A, lease(99_999, 2))).toBe('done')
     })
@@ -132,25 +132,45 @@ export function pushStoreContract(name: string, make: () => Promise<PushStoreFix
       expect(await store.cursor(g)).toBe(5)
     })
 
-    test("a guild's dispatch lock serialises its callers and leaves other guilds alone", async () => {
+    test("a guild's dispatch lease admits one holder, renews for it, and is taken over once expired", async () => {
       const { store, newGuild } = await make()
       const [g, other] = [await newGuild(), await newGuild()]
-      const log: string[] = []
-      const run = (guild: string, tag: string) =>
-        store.withDispatchLock(guild, async () => {
-          log.push(`${tag}:start`)
-          await Bun.sleep(30)
-          log.push(`${tag}:end`)
-        })
-      await Promise.all([run(g, '1'), run(g, '2')])
-      // Either caller may win the lock, but their critical sections must not interleave.
-      expect([
-        ['1:start', '1:end', '2:start', '2:end'],
-        ['2:start', '2:end', '1:start', '1:end'],
-      ]).toContainEqual(log)
-      log.length = 0
-      await Promise.all([run(g, 'x'), run(other, 'y')])
-      expect(log.slice(0, 2).sort()).toEqual(['x:start', 'y:start'])
+      const at = (offsetMs: number) => ({ now: new Date(T0.getTime() + offsetMs), leaseMs: 1000 })
+      const taken = await Promise.all(
+        ['a', 'b', 'c'].map((holder) => store.acquireDispatchLease(g, holder, at(0)))
+      )
+      expect(taken.filter(Boolean)).toHaveLength(1)
+      const holder = ['a', 'b', 'c'][taken.indexOf(true)] ?? ''
+      expect(await store.acquireDispatchLease(g, holder, at(500))).toBe(true)
+      expect(await store.acquireDispatchLease(g, 'z', at(1499))).toBe(false)
+      expect(await store.acquireDispatchLease(g, 'z', at(1501))).toBe(true)
+      expect(await store.acquireDispatchLease(g, holder, at(1502))).toBe(false)
+      await store.releaseDispatchLease(g, holder)
+      expect(await store.acquireDispatchLease(g, 'z', at(1503))).toBe(true)
+      await store.releaseDispatchLease(g, 'z')
+      expect(await store.acquireDispatchLease(g, holder, at(1504))).toBe(true)
+      expect(await store.acquireDispatchLease(other, 'y', at(0))).toBe(true)
+    })
+
+    test('guilds with devices are listed in id order, paginated', async () => {
+      const { store, newGuild } = await make()
+      const guilds = [await newGuild(), await newGuild(), await newGuild()]
+      for (const g of guilds.slice(0, 2)) {
+        await store.add(g, MEMBER, sub(A), 0)
+      }
+      const all: string[] = []
+      let after: string | undefined
+      for (;;) {
+        const page = await store.guildsWithDevices(after, 1)
+        const last = page.at(-1)
+        if (!last) {
+          break
+        }
+        all.push(...page)
+        after = last
+      }
+      expect(all.filter((g) => guilds.includes(g))).toEqual(guilds.slice(0, 2).sort())
+      expect(all).toEqual([...all].sort())
     })
   })
 }
