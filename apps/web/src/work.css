@@ -1,0 +1,154 @@
+/* The work screens (Quest Board, Seals, Treasury, Costs, Ledger of Deeds, Proposals, Archive,
+   Timeline). Tokens only; sizes are whole multiples of --px; hard edges, no radius or blur. */
+
+.work {
+  margin-top: calc(var(--px) * 8);
+}
+
+.work-title {
+  margin: 0 0 calc(var(--px) * 3);
+  font-family: var(--font-head);
+  font-size: var(--head-md);
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--px-text);
+}
+
+.work-sub {
+  margin: calc(var(--px) * 6) 0 calc(var(--px) * 2);
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+.work-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--px) * 4);
+}
+
+.work-body p {
+  margin: 0;
+}
+
+.work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--px) * 3);
+}
+
+/* A paper note: one Seal, Quest, Proposal or Suggestion on a sheet. */
+.work-note {
+  list-style: none;
+  position: relative;
+  padding: calc(var(--px) * 4);
+  background: var(--px-paper-200);
+  color: var(--px-text);
+  border: calc(var(--px) * 2) solid var(--px-line);
+  box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
+}
+
+.work-note + .work-note {
+  margin-top: calc(var(--px) * 4);
+}
+
+.work-note p {
+  margin: 0 0 calc(var(--px) * 2);
+}
+
+/* A cork-coloured Quest Board with notices pinned on it. */
+.corkboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: calc(var(--px) * 6);
+  margin-top: calc(var(--px) * 4);
+  padding: calc(var(--px) * 4);
+  background: var(--px-wood-500);
+  border: calc(var(--px) * 3) solid var(--px-wood-900);
+}
+
+.corkboard-column {
+  min-width: 0;
+}
+
+.corkboard-plate {
+  display: inline-block;
+  margin: 0 0 calc(var(--px) * 3);
+  padding: calc(var(--px) * 1) calc(var(--px) * 2);
+  background: var(--px-paper);
+  color: var(--px-text);
+  border: calc(var(--px) * 2) solid var(--px-ink);
+}
+
+.corkboard .work-note::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--px) * -2);
+  left: calc(var(--px) * 4);
+  width: calc(var(--px) * 3);
+  height: calc(var(--px) * 3);
+  background: var(--px-danger-700);
+  border: calc(var(--px) * 1) solid var(--px-ink);
+}
+
+@media (min-width: 48rem) {
+  .corkboard {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+}
+
+/* Logs read in VT323. */
+.work-log {
+  margin: 0;
+  padding: calc(var(--px) * 3);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  background: var(--px-paper-200);
+  color: var(--px-text);
+  border: calc(var(--px) * 2) solid var(--px-line);
+}
+
+.work-log li + li {
+  margin-top: calc(var(--px) * 1);
+}
+
+.work-stat {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: calc(var(--px) * 2) calc(var(--px) * 4);
+  margin: 0;
+}
+
+.work-stat dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  text-align: right;
+}
+
+/* The Yes/No prompt under a Seal. */
+.work-prompt {
+  margin-top: calc(var(--px) * 3);
+}
+
+/* The Ledger of Deeds: an open book with a page per suggestion. */
+.ledger-book {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: calc(var(--px) * 4);
+  padding: calc(var(--px) * 4);
+  background: var(--px-wood-700);
+  border: calc(var(--px) * 3) solid var(--px-wood-900);
+}
+
+.ledger-book .work-note {
+  margin: 0;
+}
+
+@media (min-width: 48rem) {
+  .ledger-book {
+    grid-template-columns: 1fr 1fr;
+  }
+}

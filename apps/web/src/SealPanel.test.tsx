@@ -203,7 +203,7 @@ test('a guild with no Seal waiting gets an in-world line and a refresh action', 
   status = 'none'
   const { host, root } = await mount()
   expect(host.querySelector('.px-empty')?.textContent).toContain('No Seal is waiting')
-  expect(labels(host)).toContain('Look again')
+  expect(labels(host)).toContain('▶Look again')
   await act(async () => root.unmount())
   status = 'requested'
 })

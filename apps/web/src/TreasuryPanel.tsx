@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from './passkeys'
 import { describeEntry, formatCents, loadTreasury, type TreasuryView } from './treasury'
+import { Frame, Meter, PixelButton } from './ui/pixel'
+import { WorkSection } from './WorkSection'
 
 /**
  * The Treasury screen: paper balances, today's spend against the daily cap, every ledger entry and
@@ -27,47 +29,52 @@ export function TreasuryPanel({ session }: { session: Session | null }) {
   useEffect(refresh, [refresh])
 
   return (
-    <section aria-labelledby="treasury-heading" className="card">
-      <h2 id="treasury-heading" className="card-title">
-        Treasury
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see the Treasury.</p>}
+    <WorkSection id="treasury" title="Treasury">
+      {!session && <p>Sign in with a passkey to see the Treasury.</p>}
       {failed && <p role="alert">The Treasury could not be loaded.</p>}
       {view && (
-        <>
-          <p className="mt-4">Paper money only: no real payment is ever made.</p>
-          <dl aria-label="Balances" className="mt-4 grid grid-cols-2 gap-2">
-            <dt>Operating</dt>
-            <dd>{formatCents(view.overview.balances.operating)}</dd>
-            <dt>Reserve (released only by the Guild Master)</dt>
-            <dd>{formatCents(view.overview.balances.reserve)}</dd>
-            <dt>Profit</dt>
-            <dd>{formatCents(view.overview.balances.profit)}</dd>
-            <dt>Spent today</dt>
-            <dd>
-              {formatCents(view.overview.spentTodayCents)} of{' '}
-              {formatCents(view.overview.limits.dailyCapCents)}
-            </dd>
-          </dl>
+        <div className="work-body">
+          <p>Paper money only: no real payment is ever made.</p>
+          <Frame variant="wood">
+            <dl aria-label="Balances" className="work-stat">
+              <dt>Operating</dt>
+              <dd>{formatCents(view.overview.balances.operating)}</dd>
+              <dt>Reserve (released only by the Guild Master)</dt>
+              <dd>{formatCents(view.overview.balances.reserve)}</dd>
+              <dt>Profit</dt>
+              <dd>{formatCents(view.overview.balances.profit)}</dd>
+              <dt>Spent today</dt>
+              <dd>
+                {formatCents(view.overview.spentTodayCents)} of{' '}
+                {formatCents(view.overview.limits.dailyCapCents)}
+              </dd>
+            </dl>
+            <Meter
+              label="Left today"
+              value={Math.max(
+                0,
+                Math.round(
+                  (view.overview.limits.dailyCapCents - view.overview.spentTodayCents) / 100
+                )
+              )}
+              max={Math.round(view.overview.limits.dailyCapCents / 100)}
+            />
+          </Frame>
           {view.chain.intact ? (
-            <p className="mt-4">Ledger chain verified: {view.chain.entries} entries.</p>
+            <p>Ledger chain verified: {view.chain.entries} entries.</p>
           ) : (
-            <p role="alert" className="mt-4">
+            <p role="alert">
               Ledger chain broken at entry #{view.chain.firstBadSeq}: {view.chain.reason}.
             </p>
           )}
-          <ul aria-label="Ledger entries" className="mt-4 flex flex-col gap-1">
+          <ul aria-label="Ledger entries" className="work-log">
             {view.entries.map((entry) => (
               <li key={entry.seq}>{describeEntry(entry)}</li>
             ))}
           </ul>
-        </>
+        </div>
       )}
-      {session && (
-        <button type="button" className="mt-4" onClick={refresh}>
-          Refresh Treasury
-        </button>
-      )}
-    </section>
+      {session && <PixelButton onClick={refresh}>Refresh Treasury</PixelButton>}
+    </WorkSection>
   )
 }
