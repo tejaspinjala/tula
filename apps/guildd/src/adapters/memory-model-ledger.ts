@@ -58,6 +58,7 @@ export class MemoryModelLedger implements ModelLedger {
     s.runs.set(run.runId, {
       runId: run.runId,
       questId: run.questId,
+      attempt: run.attempt,
       hallId: run.hallId,
       providerId: run.providerId,
       profileId: run.profileId,

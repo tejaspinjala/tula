@@ -113,6 +113,7 @@ export async function compose(
         config,
         provider: overrides.modelProvider ?? new AnthropicModelProvider(),
         clock,
+        quests,
         tripwires,
       }),
   }

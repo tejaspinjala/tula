@@ -11,6 +11,7 @@ const DAY = '2026-03-04'
 const run = (runId: string, over: Partial<NewRun> = {}): NewRun => ({
   runId,
   questId: 'quest-1',
+  attempt: 1,
   hallId: 'heralds',
   providerId: 'cloud',
   profileId: 'cloud-mid',

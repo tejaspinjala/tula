@@ -93,9 +93,21 @@ describe('Tripwire and Hall-pause routes', () => {
       await config.confirm(g, proposed.version)
     }
     await secrets.add(g, 'cloud', 'sk-route-key')
+    const { quest } = await harness.adapters.quests.post(g, {
+      jobKey: 'route-run',
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Brief',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'done',
+      roundLimit: 2,
+    })
+    const claimed = await harness.adapters.quests.claim(g, { ...lease, questId: quest.id })
     const run = await gateway.openRun(g, {
-      runId: 'r1',
-      questId: 'quest-1',
+      questId: quest.id,
+      attempt: claimed?.attempts ?? 0,
       hallId: 'heralds',
       profileId: 'cloud-mid',
     })

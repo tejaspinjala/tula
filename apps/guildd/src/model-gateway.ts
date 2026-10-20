@@ -11,6 +11,7 @@ import {
   modelRequest,
   ProviderSecret,
 } from './ports/model-provider'
+import { hasLiveLease, type QuestQueue } from './ports/quest-queue'
 import type { SecretStore } from './ports/secret-store'
 import type { TripwireStore } from './ports/tripwire-store'
 
@@ -48,7 +49,7 @@ export type OpenRunResult =
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
   /** The Hall is paused (Tripwire or Guild Master): no token is issued. */
-  | { status: 'refused'; reason: 'hall_paused' }
+  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
@@ -76,6 +77,8 @@ export interface GatewayDeps {
   config: Pick<ConfigStore, 'current'>
   provider: ModelProvider
   clock: Clock
+  /** Re-read on every open and call: a run token lives only while its Quest attempt holds a live lease. */
+  quests: Pick<QuestQueue, 'get'>
   /** A paused Hall gets no new run and its live runs are refused. */
   tripwires: Pick<TripwireStore, 'isPaused'>
   /** How long a run's token lives; defaults to 15 minutes. */
@@ -112,6 +115,11 @@ function newToken(guildId: string): string {
     b.toString(16).padStart(2, '0')
   ).join('')
   return `${TOKEN_PREFIX}.${guildId}.${secret}`
+}
+
+/** The id of the run for one Quest attempt: deterministic, so retries open the same run. */
+export function runIdFor(questId: string, attempt: number): string {
+  return `${questId}:${attempt}`
 }
 
 /** A routing profile resolved against its provider. */
@@ -154,17 +162,29 @@ export class ModelGateway {
   }
 
   /**
-   * Starts a run: issues its token, or queues it when a daily cap is hit. Idempotent per
-   * `runId`: an active run reports `exists` (its token is shown only once); a queued run is
-   * retried against the caps.
+   * Starts a run for one Quest attempt: issues its token, or queues it when a daily cap is hit.
+   * The Quest must exist in this guild, be in the given Hall, active on that attempt with a live
+   * lease (`quest_not_found` otherwise), and its Hall must not be paused. Idempotent per
+   * Quest attempt: an active run reports `exists` (its token is shown only once); a queued run
+   * is retried against the caps.
    */
   async openRun(
     guildId: string,
-    run: { runId: string; questId: string; hallId: string; profileId: string }
+    input: { questId: string; attempt: number; hallId: string; profileId: string }
   ): Promise<OpenRunResult> {
-    if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
+    const quest = await this.deps.quests.get(guildId, input.questId)
+    if (
+      !quest ||
+      quest.hallId !== input.hallId ||
+      quest.attempts !== input.attempt ||
+      !hasLiveLease(quest, this.deps.clock.now())
+    ) {
+      return { status: 'refused', reason: 'quest_not_found' }
+    }
+    if (await this.deps.tripwires.isPaused(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_paused' }
     }
+    const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
     if (existing && existing.state !== 'queued') {
       return { status: 'exists' }
@@ -261,6 +281,10 @@ export class ModelGateway {
     this.checkLive(run)
     if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
       throw new GatewayError('hall_paused')
+    }
+    const quest = await this.deps.quests.get(guildId, run.questId)
+    if (!quest || quest.attempts !== run.attempt || !hasLiveLease(quest, this.deps.clock.now())) {
+      throw new GatewayError('token_revoked')
     }
     if (!request.success) {
       throw new GatewayError('invalid_request')

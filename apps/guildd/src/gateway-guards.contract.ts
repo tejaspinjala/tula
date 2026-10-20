@@ -50,16 +50,25 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 /** The gateway guard scenarios (Hall pause, Quest attempt binding), run against every adapter set. */
 export function gatewayGuardsContract(name: string, make: () => Promise<GatewayGuardsFixture>) {
   describe(`Gateway guards: ${name}`, () => {
-    async function openRun(f: GatewayGuardsFixture, g: string, runId: string) {
+    /** Posts and claims a Quest (attempt 1), so a run can be opened for it. */
+    async function leased(f: GatewayGuardsFixture, g: string): Promise<Quest> {
+      const quest = await post(f, g)
+      const out = await claim(f, g, quest)
+      if (out.isError) {
+        throw new Error('expected a lease')
+      }
+      return quest
+    }
+    async function openRun(f: GatewayGuardsFixture, g: string, quest: Quest) {
       return f.gateway.openRun(g, {
-        runId,
-        questId: 'quest-1',
+        questId: quest.id,
+        attempt: 1,
         hallId: 'heralds',
         profileId: 'cloud-mid',
       })
     }
-    async function started(f: GatewayGuardsFixture, g: string, runId: string): Promise<string> {
-      const out = await openRun(f, g, runId)
+    async function started(f: GatewayGuardsFixture, g: string, quest: Quest): Promise<string> {
+      const out = await openRun(f, g, quest)
       if (out.status !== 'started') {
         throw new Error(`expected started, got ${out.status}`)
       }
@@ -89,18 +98,19 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
     test('a paused Hall gets no run token, and resuming restores it', async () => {
       const f = await make()
       const g = await f.newGuild()
+      const quest = await leased(f, g)
       await pause(f, g)
-      const refused: unknown = await openRun(f, g, 'r1')
+      const refused: unknown = await openRun(f, g, quest)
       expect(refused).toEqual({ status: 'refused', reason: 'hall_paused' })
       await f.tripwires.resume(g, 'heralds')
-      expect((await openRun(f, g, 'r1')).status).toBe('started')
+      expect((await openRun(f, g, quest)).status).toBe('started')
     })
 
     test('a run active when the Hall is paused is refused before reserve and before the provider', async () => {
       const f = await make()
       const g = await f.newGuild()
       f.provider.script(OK)
-      const token = await started(f, g, 'r1')
+      const token = await started(f, g, await leased(f, g))
       const before = f.provider.seen.length
       await pause(f, g)
       expect(await codeOf(f.gateway.complete(token, message))).toBe('hall_paused')
@@ -127,7 +137,7 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
     test("tripping a Tripwire revokes the Hall's active runs", async () => {
       const f = await make()
       const g = await f.newGuild()
-      const token = await started(f, g, 'r1')
+      const token = await started(f, g, await leased(f, g))
       const deps = { config: f.config, tripwires: f.tripwires, runs: f.gateway }
       const out = await runTripwires(deps, g, 'heralds', TRIP)
       expect(out.paused).toBe(true)
@@ -139,13 +149,14 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
       const a = await f.newGuild()
       const b = await f.newGuild()
       f.provider.script(OK)
-      const tokenA = await started(f, a, 'r1')
-      const tokenB = await started(f, b, 'r1')
+      const questB = await leased(f, b)
+      const tokenA = await started(f, a, await leased(f, a))
+      const tokenB = await started(f, b, questB)
       await pause(f, b)
       expect(await codeOf(f.gateway.complete(tokenB, message))).toBe('hall_paused')
       expect(await codeOf(f.gateway.complete(tokenA, message))).toBe('no error')
-      expect((await openRun(f, a, 'r2')).status).toBe('started')
-      const second: unknown = await openRun(f, b, 'r2')
+      expect((await openRun(f, a, await leased(f, a))).status).toBe('started')
+      const second: unknown = await openRun(f, b, questB)
       expect(second).toEqual({ status: 'refused', reason: 'hall_paused' })
       const quest = await post(f, a)
       expect((await claim(f, a, quest)).isError).toBe(false)
@@ -160,8 +171,10 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
         attempt: number
       ): Promise<unknown> =>
         f.gateway.openRun(g, {
-          runId: 'unused',
-          ...{ questId: quest.id, attempt, hallId: 'heralds', profileId: 'cloud-mid' },
+          questId: quest.id,
+          attempt,
+          hallId: 'heralds',
+          profileId: 'cloud-mid',
         })
 
       test("a lapsed lease's token is refused once the Quest is re-claimed, before the provider", async () => {

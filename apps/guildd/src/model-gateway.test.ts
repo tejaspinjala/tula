@@ -3,10 +3,12 @@ import { MemoryClock } from './adapters/memory-clock'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
+import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig, type GuildConfig, guildConfig } from './guild-config'
-import { GatewayError, type GatewayErrorCode, ModelGateway } from './model-gateway'
+import { GatewayError, type GatewayErrorCode, ModelGateway, runIdFor } from './model-gateway'
+import type { Quest } from './ports/quest-queue'
 
 const GUILD = '11111111-1111-4111-8111-111111111111'
 const OTHER = '22222222-2222-4222-8222-222222222222'
@@ -46,6 +48,32 @@ function config(over: Partial<GuildConfig['caps']> = {}, profile: object = {}): 
   })
 }
 
+/** Posts a Quest and claims it (attempt 1) with a lease that outlives every test clock jump. */
+async function leaseQuest(quests: MemoryQuestQueue, name: string): Promise<Quest> {
+  const posted = (
+    await quests.post(GUILD, {
+      jobKey: name,
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: name,
+      ownerId: 'heralds-member-2',
+      doneCondition: 'done',
+      roundLimit: 2,
+    })
+  ).quest
+  const claimed = await quests.claim(GUILD, {
+    leaseMs: 10 * 24 * 3_600_000,
+    maxActive: 1000,
+    questId: posted.id,
+  })
+  if (!claimed) {
+    throw new Error('expected a lease')
+  }
+  return claimed
+}
+
 async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = {}) {
   const clock = new MemoryClock(new Date('2026-03-04T10:00:00.000Z'))
   const ledger = new CountingLedger()
@@ -54,6 +82,7 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
   if (opts.withKey !== false) {
     await secrets.add(GUILD, 'cloud', KEY)
   }
+  const quests = new MemoryQuestQueue(clock, () => 0.5)
   const gateway = new ModelGateway({
     ledger,
     secrets,
@@ -61,17 +90,33 @@ async function setup(cfg: GuildConfig = config(), opts: { withKey?: boolean } = 
     provider,
     clock,
     tripwires: new MemoryTripwireStore(clock),
+    quests: { get: (g, id) => quests.get(g, id) },
     tokenTtlMs: 60_000,
   })
-  const open = (runId = 'run-1', over: Partial<{ questId: string; profileId: string }> = {}) =>
-    gateway.openRun(GUILD, {
-      runId,
-      questId: 'quest-1',
+  const named = new Map<string, Quest>()
+  /** The Quest (claimed once, attempt 1) that the run called `name` belongs to. */
+  const questFor = async (name: string): Promise<Quest> => {
+    const known = named.get(name)
+    if (known) {
+      return known
+    }
+    const claimed = await leaseQuest(quests, name)
+    named.set(name, claimed)
+    return claimed
+  }
+  const open = async (name = 'run-1', over: Partial<{ profileId: string }> = {}) => {
+    const quest = await questFor(name)
+    return gateway.openRun(GUILD, {
+      questId: quest.id,
+      attempt: quest.attempts,
       hallId: 'heralds',
       profileId: 'cloud-mid',
       ...over,
     })
-  return { clock, ledger, provider, secrets, gateway, open }
+  }
+  /** The ledger run id of the run called `name`. */
+  const runIdOf = async (name: string) => runIdFor((await questFor(name)).id, 1)
+  return { clock, ledger, provider, secrets, gateway, open, questFor, runIdOf }
 }
 
 async function started(r: Promise<Awaited<ReturnType<ModelGateway['openRun']>>>) {
@@ -134,12 +179,12 @@ describe('per-run token', () => {
   })
 
   test("revoking a run's token stops its next call", async () => {
-    const { provider, gateway, open } = await setup()
+    const { provider, gateway, open, runIdOf } = await setup()
     provider.script({ ok: true, text: 'x', usage: { inputTokens: 1, outputTokens: 1 } })
     provider.script({ ok: true, text: 'y', usage: { inputTokens: 1, outputTokens: 1 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
-    expect(await gateway.revokeRun(GUILD, 'run-1')).toBe(true)
+    expect(await gateway.revokeRun(GUILD, await runIdOf('run-1'))).toBe(true)
     expect(await codeOf(gateway.complete(run.token, message))).toBe('token_revoked')
     expect(provider.seen).toHaveLength(1)
   })
@@ -153,7 +198,7 @@ describe('per-run token', () => {
 
 describe('metering', () => {
   test('usage is recorded per run, Quest, Hall and day, with dollars from the profile price', async () => {
-    const { provider, gateway, ledger, open } = await setup()
+    const { provider, gateway, ledger, open, questFor, runIdOf } = await setup()
     provider.script({ ok: true, text: 'a', usage: { inputTokens: 200_000, outputTokens: 100_000 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
@@ -161,7 +206,12 @@ describe('metering', () => {
       const { rows } = await ledger.report(GUILD, by, { limit: 5 })
       expect(rows).toEqual([
         {
-          key: { run: 'run-1', quest: 'quest-1', hall: 'heralds', day: '2026-03-04' }[by],
+          key: {
+            run: await runIdOf('run-1'),
+            quest: (await questFor('run-1')).id,
+            hall: 'heralds',
+            day: '2026-03-04',
+          }[by],
           calls: 1,
           inputTokens: 200_000,
           outputTokens: 100_000,
@@ -216,7 +266,7 @@ describe('metering', () => {
 
 describe('caps', () => {
   test('hitting the token cap queues new runs and the Steward notifies once per day', async () => {
-    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 200 }))
+    const { provider, gateway, ledger, open, runIdOf } = await setup(config({ dailyTokens: 200 }))
     provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
@@ -228,7 +278,10 @@ describe('caps', () => {
     expect(q2.status).toBe('queued')
     expect(await open('run-2')).toEqual({ status: 'queued', reason: 'daily_tokens' })
     expect(ledger.notices).toBe(1)
-    expect((await ledger.listQueued(GUILD, 10)).map((r) => r.runId)).toEqual(['run-2', 'run-3'])
+    expect((await ledger.listQueued(GUILD, 10)).map((r) => r.runId)).toEqual([
+      await runIdOf('run-2'),
+      await runIdOf('run-3'),
+    ])
   })
 
   test('the daily spend cap queues runs too ($10 default)', async () => {
@@ -245,7 +298,7 @@ describe('caps', () => {
   })
 
   test('queued runs start on the next day and get a token', async () => {
-    const { clock, provider, gateway, open } = await setup(config({ dailyTokens: 200 }))
+    const { clock, provider, gateway, open, runIdOf } = await setup(config({ dailyTokens: 200 }))
     provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
@@ -253,7 +306,7 @@ describe('caps', () => {
     expect(await gateway.admitQueued(GUILD, 10)).toEqual([])
     clock.advance(24 * 60 * 60 * 1000)
     const admitted = await gateway.admitQueued(GUILD, 10)
-    expect(admitted.map((a) => a.runId)).toEqual(['run-2'])
+    expect(admitted.map((a) => a.runId)).toEqual([await runIdOf('run-2')])
     provider.script({ ok: true, text: 'ok', usage: { inputTokens: 1, outputTokens: 1 } })
     const first = admitted[0]
     expect(first && (await gateway.complete(first.token, message)).text).toBe('ok')
@@ -302,12 +355,12 @@ describe('reservations and idempotency', () => {
   })
 
   test('reopening an active or revoked run reports exists, even past a cap, with no notice', async () => {
-    const { provider, gateway, ledger, open } = await setup(config({ dailyTokens: 200 }))
+    const { provider, gateway, ledger, open, runIdOf } = await setup(config({ dailyTokens: 200 }))
     provider.script({ ok: true, text: 'big', usage: { inputTokens: 160, outputTokens: 90 } })
     const run = await started(open())
     await gateway.complete(run.token, message)
     expect(await open()).toEqual({ status: 'exists' })
-    await gateway.revokeRun(GUILD, 'run-1')
+    await gateway.revokeRun(GUILD, await runIdOf('run-1'))
     expect(await open()).toEqual({ status: 'exists' })
     expect(ledger.notices).toBe(0)
   })
@@ -350,6 +403,7 @@ describe('estimates and settle failures', () => {
     }
     const provider = new MemoryModelProvider()
     const clock = new MemoryClock(new Date('2026-03-04T10:00:00.000Z'))
+    const quests = new MemoryQuestQueue(clock, () => 0.5)
     const secrets = new MemorySecretStore(new MemoryKeyProvider())
     await secrets.add(GUILD, 'cloud', KEY)
     const gateway = new ModelGateway({
@@ -359,10 +413,12 @@ describe('estimates and settle failures', () => {
       provider,
       clock,
       tripwires: new MemoryTripwireStore(clock),
+      quests,
     })
+    const quest = await leaseQuest(quests, 'run-1')
     const opened = await gateway.openRun(GUILD, {
-      runId: 'run-1',
-      questId: 'quest-1',
+      questId: quest.id,
+      attempt: 1,
       hallId: 'heralds',
       profileId: 'cloud-mid',
     })
@@ -386,7 +442,7 @@ describe('estimates and settle failures', () => {
     expect(JSON.parse(logged)).toMatchObject({
       event: 'gateway.settle_failed',
       guildId: GUILD,
-      runId: 'run-1',
+      runId: runIdFor(quest.id, 1),
       callKey: expect.any(String),
     })
     expect(logged).not.toContain('secret-ish')

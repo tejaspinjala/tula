@@ -22,6 +22,7 @@ const iso = z
 const runRow = z.object({
   run_id: z.string(),
   quest_id: z.string(),
+  attempt: z.number().int(),
   hall_id: z.string(),
   provider_id: z.string(),
   profile_id: z.string(),
@@ -40,6 +41,7 @@ const totalsRow = z.object({ tokens: z.coerce.number(), cost_micros: z.coerce.nu
 const toRun = (r: z.infer<typeof runRow>): RunRecord => ({
   runId: r.run_id,
   questId: r.quest_id,
+  attempt: r.attempt,
   hallId: r.hall_id,
   providerId: r.provider_id,
   profileId: r.profile_id,
@@ -70,8 +72,9 @@ export class PgModelLedger implements ModelLedger {
       guildId,
       (tx) => tx`
         insert into model_runs
-          (guild_id, run_id, quest_id, hall_id, provider_id, profile_id, state, token_hash, expires_at)
-        values (${guildId}, ${run.runId}, ${run.questId}, ${run.hallId}, ${run.providerId},
+          (guild_id, run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, token_hash,
+           expires_at)
+        values (${guildId}, ${run.runId}, ${run.questId}, ${run.attempt}, ${run.hallId}, ${run.providerId},
           ${run.profileId}, ${run.state}, ${run.tokenHash}, ${run.expiresAt})
         on conflict (guild_id, run_id) do nothing
         returning run_id`
@@ -99,7 +102,7 @@ export class PgModelLedger implements ModelLedger {
     const [row] = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
         from model_runs where guild_id = ${guildId} and token_hash = ${tokenHash}`
     )
     return row ? toRun(runRow.parse(row)) : null
@@ -109,7 +112,7 @@ export class PgModelLedger implements ModelLedger {
     const [row] = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
         from model_runs where guild_id = ${guildId} and run_id = ${runId}`
     )
     return row ? toRun(runRow.parse(row)) : null
@@ -140,7 +143,7 @@ export class PgModelLedger implements ModelLedger {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
         from model_runs where guild_id = ${guildId} and state = 'queued'
         order by seq limit ${Math.min(Math.max(limit, 0), MAX_USAGE_PAGE)}`
     )

@@ -26,6 +26,8 @@ export type RunState = 'queued' | 'active' | 'revoked'
 export interface RunRecord {
   runId: string
   questId: string
+  /** The Quest attempt (delivery) this run belongs to. */
+  attempt: number
   hallId: string
   providerId: string
   profileId: string
@@ -38,6 +40,7 @@ export interface RunRecord {
 export interface NewRun {
   runId: string
   questId: string
+  attempt: number
   hallId: string
   providerId: string
   profileId: string
