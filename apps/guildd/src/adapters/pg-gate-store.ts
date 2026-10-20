@@ -63,8 +63,15 @@ export class PgGateStore implements GateStore {
     })
   }
 
-  async latestGlobalLift(_guildId: string): Promise<string | null> {
-    return null
+  async latestGlobalLift(guildId: string): Promise<string | null> {
+    const [row] = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select payload ->> 'barId' as bar_id from events
+        where guild_id = ${guildId} and type = 'gates.lifted' and payload ->> 'scope' = 'global'
+        order by seq desc limit 1`
+    )
+    return row ? barRow.parse(row).bar_id : null
   }
 
   async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {

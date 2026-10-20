@@ -81,10 +81,21 @@ export class Gates {
     }
   }
 
-  /** Lifts the bar; false when it was not up. Revoked run tokens stay revoked. */
+  /**
+   * Lifts the bar; false when it was not up. Revoked run tokens stay revoked. Retrying a global
+   * lift that failed partway finishes its announcements (and still returns false).
+   */
   async lift(actor: GateActor, scope: GateScope): Promise<boolean> {
     const barId = await this.deps.store.lift(actor, scope)
     if (barId === null) {
+      // Nothing to lift now. A global lift that failed partway left its announcements unfinished;
+      // finish them for the latest lift in this guild's chain (idempotent per guild).
+      if (scope === 'global') {
+        const pending = await this.deps.store.latestGlobalLift(actor.guildId)
+        if (pending !== null) {
+          await this.announceAll({ type: 'gates.lifted', barId: pending, memberId: actor.memberId })
+        }
+      }
       return false
     }
     if (scope === 'global') {

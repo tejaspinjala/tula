@@ -9,6 +9,8 @@ export class MemoryGateStore implements GateStore {
   private globalBar: string | null = null
   /** `guild|type|barId` of every global event already in a guild's log. */
   private readonly announced = new Set<string>()
+  /** The latest global bar each guild's actor lifted. */
+  private readonly lastLift = new Map<string, string>()
 
   constructor(
     /** Receives each change's event type and ids-only payload, as the Postgres adapter appends them. */
@@ -50,13 +52,14 @@ export class MemoryGateStore implements GateStore {
     }
     if (scope === 'global') {
       this.announced.add(`${actor.guildId}|gates.lifted|${barId}`)
+      this.lastLift.set(actor.guildId, barId)
     }
     this.onEvent(actor.guildId, 'gates.lifted', { barId, scope, memberId: actor.memberId })
     return barId
   }
 
-  async latestGlobalLift(_guildId: string): Promise<string | null> {
-    return null
+  async latestGlobalLift(guildId: string): Promise<string | null> {
+    return this.lastLift.get(guildId) ?? null
   }
 
   async announceGlobal(guildId: string, event: GlobalEvent): Promise<boolean> {
