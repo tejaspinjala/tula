@@ -43,7 +43,7 @@
   position: absolute;
   width: calc(var(--px) * 2);
   height: calc(var(--px) * 2);
-  background: var(--px-paper);
+  background: var(--px-gold-500);
   animation: title-twinkle 2.4s steps(2) infinite;
 }
 
@@ -88,7 +88,7 @@
   right: 12%;
   width: calc(var(--px) * 14);
   height: calc(var(--px) * 14);
-  background: var(--px-paper);
+  background: var(--px-gold-500);
   clip-path: polygon(
     30% 0,
     70% 0,
@@ -117,7 +117,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 22%;
+  bottom: 38%;
   height: 12%;
   background: var(--px-grass-700);
 }
@@ -127,7 +127,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 22%;
+  height: 38%;
   background: var(--px-grass-500);
   border-top: calc(var(--px) * 2) solid var(--px-grass-700);
 }
@@ -137,9 +137,9 @@
   left: 0;
   right: 0;
   margin-inline: auto;
-  bottom: 22%;
-  width: calc(var(--px) * 90);
-  height: calc(var(--px) * 56);
+  bottom: 38%;
+  width: calc(var(--px) * 110);
+  height: calc(var(--px) * 70);
 }
 
 .title-wall {
@@ -194,7 +194,7 @@
 
 .title-cottage {
   position: absolute;
-  bottom: 22%;
+  bottom: 38%;
   width: calc(var(--px) * 40);
   height: calc(var(--px) * 30);
   background: var(--px-wood-700);
@@ -239,7 +239,7 @@
   font-family: var(--font-label);
   font-size: var(--text-sm);
   text-transform: uppercase;
-  color: var(--px-paper);
+  color: var(--px-wood-100);
   text-shadow: var(--px) var(--px) 0 var(--px-wood-900);
 }
 
