@@ -191,6 +191,9 @@ export class ModelGateway {
     if (existing?.state === 'active') {
       return { status: 'exists' }
     }
+    if (existing?.state === 'revoked' && existing.revokeReason !== 'hall_paused') {
+      return { status: 'refused', reason: 'token_revoked' }
+    }
     const { config } = await this.deps.config.current(guildId)
     const { profile } = resolveProfile(config, run.profileId)
     const capped = await this.capReason(guildId, config)

@@ -76,6 +76,21 @@ export function modelLedgerContract(name: string, make: () => Promise<ModelLedge
       expect(await ledger.revoke(g, 'nope')).toBe(false)
     })
 
+    test('only a run revoked by a Hall pause can be reactivated; a manual revoke is final', async () => {
+      const { ledger, newGuild } = await make()
+      const g = await newGuild()
+      const exp = '2026-03-04T13:00:00.000Z'
+      await ledger.openRun(g, run('paused'))
+      await ledger.openRun(g, run('manual'))
+      await ledger.revoke(g, 'manual')
+      expect(await ledger.revokeHallRuns(g, 'heralds')).toBe(1)
+      expect((await ledger.getRun(g, 'paused'))?.revokeReason).toBe('hall_paused')
+      expect((await ledger.getRun(g, 'manual'))?.revokeReason).toBe('manual')
+      expect(await ledger.activate(g, 'manual', 'hash-m', exp)).toBe(false)
+      expect(await ledger.activate(g, 'paused', 'hash-p', exp)).toBe(true)
+      expect((await ledger.getRun(g, 'paused'))?.revokeReason).toBeNull()
+    })
+
     test('a queued run activates once with a fresh token, even in the same tick', async () => {
       const { ledger, newGuild } = await make()
       const g = await newGuild()
