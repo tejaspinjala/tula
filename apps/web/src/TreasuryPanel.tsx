@@ -51,13 +51,9 @@ export function TreasuryPanel({ session }: { session: Session | null }) {
             </dl>
             <Meter
               label="Left today"
-              value={Math.max(
-                0,
-                Math.round(
-                  (view.overview.limits.dailyCapCents - view.overview.spentTodayCents) / 100
-                )
-              )}
-              max={Math.round(view.overview.limits.dailyCapCents / 100)}
+              value={view.overview.limits.dailyCapCents - view.overview.spentTodayCents}
+              max={view.overview.limits.dailyCapCents}
+              format={formatCents}
             />
           </Frame>
           {view.chain.intact ? (
