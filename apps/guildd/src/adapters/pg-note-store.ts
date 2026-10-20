@@ -10,6 +10,7 @@ import {
   type NoteDetail,
   NoteError,
   type NotePage,
+  type NotePaging,
   type NoteStore,
   type NoteVersion,
   nextVersion,
@@ -43,11 +44,12 @@ export class PgNoteStore implements NoteStore {
     private readonly keys: KeyProvider
   ) {}
 
-  async add(guildId: string, input: NewNote): Promise<Note> {
+  async add(guildId: string, input: NewNote, hallId?: string): Promise<Note> {
     const version = nextVersion(input, 1)
     return this.db.withGuild(guildId, async (tx) => {
       const [row] = await tx`
-        insert into notes (guild_id, kind, current_version) values (${guildId}, ${input.kind}, 1)
+        insert into notes (guild_id, kind, current_version, hall_id)
+        values (${guildId}, ${input.kind}, 1, ${hallId ?? null})
         returning note_id`
       const id = z.object({ note_id: z.string() }).parse(row).note_id
       await this.writeVersion(tx, guildId, id, version)
@@ -82,13 +84,14 @@ export class PgNoteStore implements NoteStore {
     })
   }
 
-  async get(guildId: string, id: string): Promise<NoteDetail | null> {
+  async get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null> {
     return this.db.withGuild(guildId, async (tx) => {
       const [row] = await tx`
         select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
         from notes n join note_versions v
           on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
-        where n.guild_id = ${guildId} and n.note_id = ${id}`
+        where n.guild_id = ${guildId} and n.note_id = ${id}
+          and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)`
       if (!row) {
         return null
       }
@@ -104,6 +107,7 @@ export class PgNoteStore implements NoteStore {
             and v.version = n.current_version
         where l.guild_id = ${guildId} and l.target_key = ${titleKey(note.title)}
           and n.note_id <> ${id}
+          and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)
         order by n.note_id`
       return {
         note,
@@ -116,7 +120,7 @@ export class PgNoteStore implements NoteStore {
     })
   }
 
-  async list(guildId: string, page: { after?: string; limit: number }): Promise<NotePage> {
+  async list(guildId: string, page: NotePaging): Promise<NotePage> {
     const after = page.after ?? null
     return this.db.withGuild(guildId, async (tx) =>
       this.toPage(
@@ -126,17 +130,14 @@ export class PgNoteStore implements NoteStore {
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId}
             and (${after}::uuid is null or n.note_id > ${after}::uuid)
+            and (${page.hall ?? null}::text is null or n.hall_id = ${page.hall ?? null}::text)
           order by n.note_id limit ${page.limit + 1}`,
         page.limit
       )
     )
   }
 
-  async search(
-    guildId: string,
-    query: string,
-    page: { after?: string; limit: number }
-  ): Promise<NotePage> {
+  async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
     const terms = searchTerms(query)
     if (terms.length === 0) {
       return { notes: [], next: null }
@@ -151,6 +152,7 @@ export class PgNoteStore implements NoteStore {
           where n.guild_id = ${guildId}
             and v.search @@ plainto_tsquery('simple', ${terms.join(' ')})
             and (${after}::uuid is null or n.note_id > ${after}::uuid)
+            and (${page.hall ?? null}::text is null or n.hall_id = ${page.hall ?? null}::text)
           order by n.note_id limit ${page.limit + 1}`,
         page.limit
       )

@@ -1,0 +1,77 @@
+import { describe, expect, test } from 'bun:test'
+import { BRIEF_TOKEN_CAP, type BriefInput, compileBrief, estimateTokens } from './brief'
+import type { Quest } from './ports/quest-queue'
+
+const quest: Quest = {
+  id: '11111111-1111-4111-8111-111111111111',
+  seq: 1,
+  jobKey: 'k',
+  campaignId: 'launch',
+  templateId: 'herald-brief',
+  hallId: 'heralds',
+  rank: 'journeyman',
+  dataClass: 'internal',
+  title: 'Draft the launch brief',
+  ownerId: 'heralds-member-2',
+  doneCondition: 'A draft brief is filed in the Archive',
+  state: 'active',
+  round: 0,
+  roundLimit: 2,
+  blockedBy: [],
+  attempts: 1,
+  maxAttempts: 3,
+  leaseExpiresAt: null,
+  notBefore: '2030-01-01T00:00:00.000Z',
+  lastError: null,
+  createdAt: '2030-01-01T00:00:00.000Z',
+}
+
+function input(overrides: Partial<BriefInput> = {}): BriefInput {
+  return {
+    quest,
+    role: 'journeyman',
+    tools: ['claim_quest', 'complete_quest'],
+    notes: [
+      { id: 'n2', title: 'Tone of voice' },
+      { id: 'n1', title: 'Launch plan' },
+    ],
+    ...overrides,
+  }
+}
+
+describe('Brief compiler', () => {
+  test('the same inputs give the same Brief, whatever the order of the pointers', () => {
+    const a = compileBrief(input())
+    const b = compileBrief(input({ notes: [...input().notes].reverse() }))
+    expect(b).toEqual(a)
+  })
+
+  test('the stable prefix comes first and is identical across Quests of a role and tool list', () => {
+    const a = compileBrief(input())
+    const other = compileBrief(
+      input({ quest: { ...quest, id: '22222222-2222-4222-8222-222222222222', title: 'Other' } })
+    )
+    expect(other.prefix).toBe(a.prefix)
+    expect(a.text.startsWith(a.prefix)).toBe(true)
+    expect(a.text).toContain(quest.doneCondition)
+    expect(a.text.indexOf(quest.title)).toBeGreaterThan(a.prefix.length - 1)
+  })
+
+  test('it points at notes and skill sections by id, not by content', () => {
+    const brief = compileBrief(input())
+    expect(brief.text).toContain('n1')
+    expect(brief.text).toContain('heralds/brief')
+  })
+
+  test('it stays under the token cap by dropping pointers, and says so', () => {
+    const notes = Array.from({ length: 2000 }, (_, i) => ({ id: `note-${i}`, title: `Note ${i}` }))
+    const brief = compileBrief(input({ notes }))
+    expect(brief.tokens).toBeLessThanOrEqual(BRIEF_TOKEN_CAP)
+    expect(estimateTokens(brief.text)).toBe(brief.tokens)
+    expect(brief.text).toMatch(/\d+ more pointers omitted/)
+  })
+
+  test('a Quest too large for the cap is refused, never truncated', () => {
+    expect(() => compileBrief(input(), 10)).toThrow('brief_too_large')
+  })
+})

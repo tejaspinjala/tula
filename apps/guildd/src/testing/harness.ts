@@ -24,6 +24,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'quest-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'seal-posted': { client: NO_LIMIT, guild: NO_LIMIT },
   'gateway-call': { client: NO_LIMIT },
+  mcp: { client: NO_LIMIT },
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
@@ -44,6 +45,7 @@ export interface HarnessOptions {
       | 'seals'
       | 'proposals'
       | 'quests'
+      | 'mcp'
       | 'tripwires'
       | 'streamTickets'
       | 'gateway'
@@ -111,6 +113,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       seals: composed.seals,
       proposals: composed.proposals,
       quests: composed.quests,
+      mcp: composed.mcp,
       tripwires: composed.tripwires,
       streamTickets: composed.streamTickets,
       gateway: composed.gateway,

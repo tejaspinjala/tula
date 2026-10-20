@@ -14,6 +14,7 @@ import { createEventHub } from './event-hub'
 import { appendEvent, headSeq } from './events'
 import { guildConfig, guildTripwires } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
+import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
@@ -68,6 +69,8 @@ export interface AppDeps {
   proposals: ProposalEngine
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
+  /** The stateless MCP gateway Members call with a lease handle; authorises every call itself. */
+  mcp: McpGateway
   /** Single-use tickets that authorise one event-stream WebSocket (browsers cannot send headers). */
   streamTickets: StreamTicketStore
   /** Routing step 1 for free-text goals; the deterministic adapter until a cheap model is wired. */
@@ -289,9 +292,20 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/gateway/complete', limited('gateway-call'))
   app.post('/guilds/:id/quests', limited('quest-post'))
   app.post('/guilds/:id/seals/:sealId/posted', limited('seal-posted'))
+  app.post('/mcp', limited('mcp'))
   app.post('/guilds/:id/proposals', limited('proposal-post'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
+
+  // The MCP gateway is stateless and authorises each call by the signed lease handle in its
+  // arguments; the guild is derived from that token, never taken from the path, a header or the body.
+  app.post('/mcp', async (c) => {
+    const reply = await deps.mcp.handle(await c.req.json().catch(() => null))
+    if (reply.body === null) {
+      return c.body(null, 202)
+    }
+    return c.json(reply.body, reply.status)
+  })
 
   app.post('/guilds', async (c) => {
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
