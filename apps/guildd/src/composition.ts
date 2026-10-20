@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { AnthropicModelProvider } from './adapters/anthropic-model-provider'
 import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
+import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
@@ -18,6 +19,7 @@ import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { PgStreamTicketStore } from './adapters/pg-stream-ticket-store'
+import { PgSuggestionStore } from './adapters/pg-suggestion-store'
 import { PgToolsetStore } from './adapters/pg-toolset-store'
 import { PgTreasuryStore } from './adapters/pg-treasury-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
@@ -28,6 +30,8 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
+import { isLearningRepoAllowed } from './guild-config'
+import { LearningEngine } from './learning-engine'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 
@@ -129,6 +133,23 @@ export async function compose(
     tripwires,
     treasury:
       overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
+    // The read-only Envoy resolves the GitHub token from the Vault per call and reads only repos on
+    // the guild's own config allowlist; the check runs before any request.
+    learning:
+      overrides.learning ??
+      new LearningEngine({
+        store: overrides.suggestions ?? new PgSuggestionStore(db, keys, clock),
+        envoy:
+          overrides.githubEnvoy ??
+          new GitHubRestEnvoy({
+            secrets,
+            isAllowed: async (guildId, repo) =>
+              isLearningRepoAllowed((await config.current(guildId)).config, repo),
+          }),
+        config,
+        notes,
+        clock,
+      }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.

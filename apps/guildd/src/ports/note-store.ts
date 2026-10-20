@@ -156,8 +156,8 @@ export function mergeChanges(current: NoteVersion, changes: NoteChanges) {
  * over each note's current version, scoped to one guild.
  */
 export interface NoteStore {
-  /** Adds a note (version 1), filed under `hallId` when given (otherwise no Hall: the Guild Master's own). A fact without evidence throws {@link NoteError} `evidence_required`. */
-  add(guildId: string, input: NewNote, hallId?: string): Promise<Note>
+  /** Adds a note (version 1), filed under `hallId` when given (otherwise no Hall: the Guild Master's own). A fact without evidence throws {@link NoteError} `evidence_required`. With an `idempotencyKey`, a key already used in this guild returns that note and writes nothing (a retried caller never duplicates it). */
+  add(guildId: string, input: NewNote, hallId?: string, idempotencyKey?: string): Promise<Note>
   /** Writes a new NoteVersion with the given fields changed; throws {@link NoteError}. */
   edit(guildId: string, id: string, changes: NoteChanges): Promise<Note>
   /** The note, all its versions and its backlinks; null when absent for this guild or, with `hall`, filed under another Hall (or none). */

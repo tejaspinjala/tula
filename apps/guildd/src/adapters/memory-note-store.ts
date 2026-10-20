@@ -25,6 +25,8 @@ interface Stored {
 /** Memory adapter for {@link NoteStore}: state in this instance only; every write is synchronous. */
 export class MemoryNoteStore implements NoteStore {
   private readonly guilds = new Map<string, Map<string, Stored>>()
+  /** Note ids by guild and idempotency key. */
+  private readonly keyed = new Map<string, string>()
 
   private notes(guildId: string): Map<string, Stored> {
     let notes = this.guilds.get(guildId)
@@ -35,10 +37,26 @@ export class MemoryNoteStore implements NoteStore {
     return notes
   }
 
-  async add(guildId: string, input: NewNote, hallId?: string): Promise<Note> {
+  async add(
+    guildId: string,
+    input: NewNote,
+    hallId?: string,
+    idempotencyKey?: string
+  ): Promise<Note> {
     const version = nextVersion(input, 1)
+    // No await from here to the writes, so same-tick calls with one key cannot both insert.
+    const slot = `${guildId}\u0000${idempotencyKey}`
+    const keyed = idempotencyKey === undefined ? undefined : this.keyed.get(slot)
+    const stored = keyed === undefined ? undefined : this.notes(guildId).get(keyed)
+    const current = stored?.versions.at(-1)
+    if (keyed !== undefined && stored && current) {
+      return { id: keyed, kind: stored.kind, ...current }
+    }
     const id = crypto.randomUUID()
     this.notes(guildId).set(id, { kind: input.kind, hall: hallId ?? null, versions: [version] })
+    if (idempotencyKey !== undefined) {
+      this.keyed.set(slot, id)
+    }
     return { id, kind: input.kind, ...version }
   }
 

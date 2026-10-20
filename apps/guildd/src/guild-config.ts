@@ -144,6 +144,21 @@ export const DEFAULT_TREASURY: TreasuryLimits = {
   reinvestPercent: 40,
 }
 
+/** A GitHub repo as `owner/name`; a name cannot start with a dot, so `..` never reaches a URL. */
+export const repoName = z
+  .string()
+  .regex(/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/)
+
+/** The repos the learning Envoy may read (the Guild Master's own and Tula-Solutions repos), lower-cased. */
+export function learningRepoAllowlist(config: GuildConfig): string[] {
+  return (config.learningRepos ?? []).map((r) => r.toLowerCase())
+}
+
+/** Whether the learning Envoy may read `repo`: it must be on the guild's allowlist (case-insensitive). */
+export function isLearningRepoAllowed(config: GuildConfig, repo: string): boolean {
+  return learningRepoAllowlist(config).includes(repo.toLowerCase())
+}
+
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
 export const guildConfig = z
   .object({
@@ -158,6 +173,8 @@ export const guildConfig = z
     tripwires: tripwireThresholds.optional(),
     /** Absent in configs older than the Treasury; {@link DEFAULT_TREASURY} then applies. */
     treasury: treasuryLimits.optional(),
+    /** Absent in configs older than learning suggestions; then no repo is read. Adding one widens risk. */
+    learningRepos: z.array(repoName).max(MAX_ITEMS).optional(),
   })
   .superRefine((config, ctx) => {
     const known = new Set(config.providers.map((p) => p.id))
@@ -317,6 +334,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
+    learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&
     tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&
     treasuryNoWider(guildTreasury(prev), guildTreasury(next)) &&
     removedHallsOk &&
@@ -334,6 +352,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'schedules',
       'tripwires',
       'treasury',
+      'learningRepos',
     ])
   )
 }
@@ -367,7 +386,12 @@ export function classifyChange(prev: GuildConfig, next: GuildConfig): ChangeKind
   }
   // Absent optional sections mean their defaults, so compare the effective configs.
   const effective = (c: GuildConfig) =>
-    withoutNames({ ...c, tripwires: guildTripwires(c), treasury: guildTreasury(c) })
+    withoutNames({
+      ...c,
+      tripwires: guildTripwires(c),
+      treasury: guildTreasury(c),
+      learningRepos: learningRepoAllowlist(c),
+    })
   return same(effective(prev), effective(next)) ? 'neutral' : 'tightening'
 }
 

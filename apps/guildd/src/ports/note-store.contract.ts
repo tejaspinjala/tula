@@ -27,6 +27,25 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       ])
     })
 
+    test('adding with the same idempotency key twice, even in one tick, makes one note', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const input = { kind: 'text', claim: 'assumption', title: 'Once', body: 'b' } as const
+      const [a, b] = await Promise.all([
+        store.add(g, input, undefined, 'learning:1'),
+        store.add(g, input, undefined, 'learning:1'),
+      ])
+      expect(b.id).toBe(a.id)
+      const again = await store.add(g, input, undefined, 'learning:1')
+      expect(again.id).toBe(a.id)
+      const other = await store.add(g, input, undefined, 'learning:2')
+      expect(other.id).not.toBe(a.id)
+      expect((await store.list(g, { limit: 10 })).notes).toHaveLength(2)
+      const elsewhere = await newGuild()
+      const mine = await store.add(elsewhere, input, undefined, 'learning:1')
+      expect(mine.id).not.toBe(a.id)
+    })
+
     test('a fact without evidence is rejected; an assumption is quarantined', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

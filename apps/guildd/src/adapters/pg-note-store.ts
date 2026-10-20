@@ -44,13 +44,29 @@ export class PgNoteStore implements NoteStore {
     private readonly keys: KeyProvider
   ) {}
 
-  async add(guildId: string, input: NewNote, hallId?: string): Promise<Note> {
+  async add(
+    guildId: string,
+    input: NewNote,
+    hallId?: string,
+    idempotencyKey?: string
+  ): Promise<Note> {
     const version = nextVersion(input, 1)
     return this.db.withGuild(guildId, async (tx) => {
+      // A key already used returns that note; a racing insert waits on the unique index, then
+      // finds the winner's committed row.
       const [row] = await tx`
-        insert into notes (guild_id, kind, current_version, hall_id)
-        values (${guildId}, ${input.kind}, 1, ${hallId ?? null})
+        insert into notes (guild_id, kind, current_version, hall_id, idempotency_key)
+        values (${guildId}, ${input.kind}, 1, ${hallId ?? null}, ${idempotencyKey ?? null})
+        on conflict (guild_id, idempotency_key) where idempotency_key is not null do nothing
         returning note_id`
+      if (!row) {
+        const [existing] = await tx`
+          select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+          from notes n join note_versions v
+            on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
+          where n.guild_id = ${guildId} and n.idempotency_key = ${idempotencyKey ?? null}`
+        return toNote(noteRow.parse(existing))
+      }
       const id = z.object({ note_id: z.string() }).parse(row).note_id
       await this.writeVersion(tx, guildId, id, version)
       await appendEvent(tx, this.keys, 'note.added', { noteId: id, version: 1, kind: input.kind })
@@ -61,11 +77,17 @@ export class PgNoteStore implements NoteStore {
   async edit(guildId: string, id: string, changes: NoteChanges): Promise<Note> {
     return this.db.withGuild(guildId, async (tx) => {
       // The row lock serialises concurrent edits of one note, so versions stay gap-free.
-      const [row] = await tx`
-        select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
-        from notes n join note_versions v
-          on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
-        where n.guild_id = ${guildId} and n.note_id = ${id} for update of n`
+      // Lock first, read second: a statement that locks and joins in one pass re-checks only the
+      // locked row after waiting, and would miss the version the earlier editor just wrote.
+      const [locked] = await tx`
+        select note_id from notes where guild_id = ${guildId} and note_id = ${id} for update`
+      const [row] = locked
+        ? await tx`
+            select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+            from notes n join note_versions v
+              on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
+            where n.guild_id = ${guildId} and n.note_id = ${id}`
+        : []
       if (!row) {
         throw new NoteError('not_found')
       }
