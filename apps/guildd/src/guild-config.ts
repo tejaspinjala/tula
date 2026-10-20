@@ -15,7 +15,7 @@ export const memberRank = z.enum(['apprentice', 'journeyman', 'adept'])
 /** The addressee of a Missive to a whole Hall, so no Member, Captain or Steward may carry it as an id. */
 const agentId = slug.refine((id) => id !== 'hall', { message: 'hall is a reserved id' })
 
-const agent = z.object({ id: agentId, name: displayName })
+const agent = z.strictObject({ id: agentId, name: displayName })
 
 /** A Member: a worker agent with a rank. */
 export const member = agent.extend({
@@ -25,7 +25,7 @@ export const member = agent.extend({
 })
 
 /** A Hall: a department of the guild, with its Captain and Members. */
-export const hall = z.object({
+export const hall = z.strictObject({
   id: slug,
   name: displayName,
   /** `private` Halls (Health, Relationships, Personal) hold data that must never leave private routes. */
@@ -52,7 +52,7 @@ export const sealPolicy = z.enum(SEAL_POLICY_LEVELS)
 /**
  * Per-provider auth (ADR-0005): the Guild Master picks `subscription` or `api_key` per provider.
  */
-export const provider = z.object({
+export const provider = z.strictObject({
   id: slug,
   auth: z.enum(['subscription', 'api_key']),
   /**
@@ -66,7 +66,7 @@ export const provider = z.object({
  * Token prices in millionths of a dollar per million tokens (so $3 per million is 3_000_000).
  * Prices live in guild config, never in engine code: the spec leaves them an open item (O4).
  */
-export const tokenPrice = z.object({
+export const tokenPrice = z.strictObject({
   inputMicrosPerMTok: z.number().int().min(0).max(1_000_000_000),
   outputMicrosPerMTok: z.number().int().min(0).max(1_000_000_000),
 })
@@ -76,7 +76,7 @@ export const tokenPrice = z.object({
  * provider's model id, the only place one lives; `price` is required for `api_key` providers
  * to meter dollars (the gateway refuses an unpriced api_key call, so caps cannot be bypassed).
  */
-export const routingProfile = z.object({
+export const routingProfile = z.strictObject({
   id: slug,
   provider: slug,
   tier: z.enum(['cheap', 'mid', 'deep']),
@@ -85,10 +85,10 @@ export const routingProfile = z.object({
 })
 
 /** A recurring schedule, as a five-field cron expression. */
-export const schedule = z.object({ id: slug, cron: z.string().trim().min(1).max(100) })
+export const schedule = z.strictObject({ id: slug, cron: z.string().trim().min(1).max(100) })
 
 /** Spending and usage caps; raising one widens risk. */
-export const caps = z.object({
+export const caps = z.strictObject({
   dailyTokens: z.number().int().min(0).max(1_000_000_000_000),
   dailySpendCents: z.number().int().min(0).max(100_000_000),
   /** Quests that may hold a live lease at once; {@link DEFAULT_CONCURRENT_QUESTS} when absent. */
@@ -181,7 +181,7 @@ export function guildTripwires(config: GuildConfig): TripwireThresholds {
 }
 
 /** The content policy a Verdict applies; absent in older configs, then {@link DEFAULT_POLICY}. */
-export const contentPolicy = z.object({
+export const contentPolicy = z.strictObject({
   maxLength: z.number().int().min(1).max(20_000),
   bannedTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
   requiredTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
@@ -208,7 +208,7 @@ export function questConcurrency(config: GuildConfig): number {
  * Tripwire thresholds (data, not code): when a Hall's usage crosses one, the Hall is paused.
  * Lowering a threshold tightens; raising one widens risk.
  */
-export const tripwireThresholds = z.object({
+export const tripwireThresholds = z.strictObject({
   /** Pause when today's tokens exceed this multiple of the 7-day median. */
   tokenBurnMultiple: z.number().min(1).max(1000),
   /** Pause when gate denials in the last hour reach this count. */
@@ -230,7 +230,7 @@ export const DEFAULT_TRIPWIRES: TripwireThresholds = {
  * The paper Treasury's envelope limits, in integer cents and whole percents (data, not code).
  * Raising a spend limit, or lowering a share held back, widens risk.
  */
-export const treasuryLimits = z.object({
+export const treasuryLimits = z.strictObject({
   /** Most the Treasurer lets out in one UTC day; the Guild Master alone approves beyond it. */
   dailyCapCents: z.number().int().min(0).max(100_000_000),
   /** Largest single spend the Treasurer may approve alone; larger needs the Guild Master. */
@@ -268,7 +268,7 @@ export function isLearningRepoAllowed(config: GuildConfig, repo: string): boolea
 
 /** The whole versioned guild config: Halls, roles, Members, routing profiles, Seal Policy, caps, schedules. */
 export const guildConfig = z
-  .object({
+  .strictObject({
     steward: agent,
     halls: z.array(hall).max(MAX_ITEMS),
     sealPolicy,
@@ -301,6 +301,68 @@ export const guildConfig = z
       ctx.addIssue({ code: 'custom', path: ['halls'], message: 'duplicate Hall id' })
     }
   })
+
+/** Most distinct messages {@link warnOnce} remembers, so the dedupe set stays bounded. */
+const MAX_REMEMBERED_WARNINGS = 100
+
+/** Wraps `write` so a message already seen is not written again (bounded memory: oldest forgotten). */
+export function warnOnce(write: (message: string) => void): (message: string) => void {
+  const seen = new Set<string>()
+  return (message) => {
+    if (seen.has(message)) {
+      return
+    }
+    if (seen.size >= MAX_REMEMBERED_WARNINGS) {
+      seen.clear()
+    }
+    seen.add(message)
+    write(message)
+  }
+}
+
+/** Unknown-key paths named in one stored-config warning. */
+const MAX_WARNED_KEYS = 10
+
+const warnToStderr = warnOnce((m) => process.stderr.write(`${m}\n`))
+
+/**
+ * Parses a config read back from storage. Writes are strict, but a config stored before a key was
+ * removed or renamed must not brick boot: unknown keys are dropped and reported through `warn`
+ * (paths only, never values); any other error still throws.
+ */
+export function parseStoredConfig(
+  raw: unknown,
+  warn: (message: string) => void = warnToStderr
+): GuildConfig {
+  const strict = guildConfig.safeParse(raw)
+  if (strict.success) {
+    return strict.data
+  }
+  const unknown = strict.error.issues.flatMap((i) =>
+    i.code === 'unrecognized_keys' ? [{ path: i.path, keys: i.keys }] : []
+  )
+  const cleaned: unknown = structuredClone(raw)
+  for (const { path, keys } of unknown) {
+    const parent = path.reduce<unknown>(
+      (node, step) =>
+        typeof node === 'object' && node !== null ? Reflect.get(node, step) : undefined,
+      cleaned
+    )
+    if (typeof parent === 'object' && parent !== null) {
+      for (const k of keys) {
+        Reflect.deleteProperty(parent, k)
+      }
+    }
+  }
+  if (unknown.length > 0) {
+    const paths = unknown.flatMap(({ path, keys }) => keys.map((k) => [...path, k].join('.')))
+    // JSON.stringify escapes newlines, so a hostile key cannot forge a log line.
+    const shown = paths.slice(0, MAX_WARNED_KEYS).map((p) => JSON.stringify(p))
+    const more = paths.length > shown.length ? ` and ${paths.length - shown.length} more` : ''
+    warn(`stored guild config has unknown keys, ignored: ${shown.join(', ')}${more}`)
+  }
+  return guildConfig.parse(cleaned)
+}
 
 /** A guild's config document. */
 export type GuildConfig = z.infer<typeof guildConfig>

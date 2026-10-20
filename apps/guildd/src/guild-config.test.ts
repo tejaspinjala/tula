@@ -12,11 +12,13 @@ import {
   isLearningRepoAllowed,
   learningRepoAllowlist,
   missiveCap,
+  parseStoredConfig,
   questConcurrency,
   researchCap,
   sealPostWindowMs,
   spawnChildrenCap,
   spawnDepthCap,
+  warnOnce,
 } from './guild-config'
 
 describe('seeded guild config', () => {
@@ -504,5 +506,53 @@ describe('Member look overrides', () => {
     expect(guildConfig.safeParse(withLook({ ...look, outfitStyle: 99 })).success).toBe(false)
     expect(guildConfig.safeParse(withLook({ ...look, cape: 1 })).success).toBe(false)
     expect(guildConfig.safeParse(withLook({ ...look, body: -1 })).success).toBe(false)
+  })
+})
+
+describe('strict on write, tolerant on read', () => {
+  const stray = { ...defaultConfig(), caps: { ...defaultConfig().caps, legacyCap: 1 }, extra: 1 }
+
+  test('the write schema rejects unknown keys at every level, naming each path', () => {
+    const out = guildConfig.safeParse(stray)
+    expect(out.success).toBe(false)
+    const keys = out.success
+      ? []
+      : out.error.issues.flatMap((i) =>
+          i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path, k].join('.')) : []
+        )
+    expect(keys.sort()).toEqual(['caps.legacyCap', 'extra'])
+  })
+
+  test('a stored config with unknown keys still parses, drops them and warns with their paths', () => {
+    const warnings: string[] = []
+    const out = parseStoredConfig(stray, (w) => warnings.push(w))
+    expect(out).toEqual(defaultConfig())
+    expect(warnings.join(' ')).toContain('caps.legacyCap')
+    expect(warnings.join(' ')).toContain('extra')
+  })
+
+  test('a stored config with a real error still fails', () => {
+    expect(() => parseStoredConfig({ ...defaultConfig(), sealPolicy: 'nope' })).toThrow()
+  })
+
+  test('a hostile key yields one single-line warning, and a long list is capped', () => {
+    const warnings: string[] = []
+    const hostile = { ...defaultConfig(), 'a\nforged: log line': 1 }
+    parseStoredConfig(hostile, (w) => warnings.push(w))
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).not.toContain('\n')
+    const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`k${i}`, 1]))
+    parseStoredConfig({ ...defaultConfig(), ...many }, (w) => warnings.push(w))
+    expect(warnings[1]).toContain('and 15 more')
+    expect(warnings[1]).not.toContain('k24')
+  })
+
+  test('warnOnce passes a message through once however many versions are read', () => {
+    const seen: string[] = []
+    const warn = warnOnce((m) => seen.push(m))
+    for (let i = 0; i < 5; i++) {
+      parseStoredConfig(stray, warn)
+    }
+    expect(seen).toHaveLength(1)
   })
 })

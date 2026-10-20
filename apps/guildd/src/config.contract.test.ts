@@ -239,6 +239,37 @@ describe('guild config over HTTP', () => {
     expect(body.issues.map((i) => i.path.join('.'))).toContain('halls.0.members.0.id')
   })
 
+  test('an unknown key at any level is refused with 422 naming its path, and no version is recorded', async () => {
+    const who = await signedIn()
+    const base = defaultConfig()
+    const cases: [unknown, string][] = [
+      [{ ...base, maxResearchPerQuest: 5 }, 'maxResearchPerQuest'],
+      [{ ...base, caps: { ...base.caps, maxResearchPerQest: 5 } }, 'caps.maxResearchPerQest'],
+      [
+        {
+          ...base,
+          halls: base.halls.map((h, i) =>
+            i === 0
+              ? { ...h, members: h.members.map((m, j) => (j === 0 ? { ...m, admin: true } : m)) }
+              : h
+          ),
+        },
+        'halls.0.members.0.admin',
+      ],
+    ]
+    for (const [config, path] of cases) {
+      const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+      expect(res.status).toBe(422)
+      const body = z
+        .object({ error: z.string(), unknownKeys: z.array(z.string()) })
+        .parse(await res.json())
+      expect(body.error).toBe('unknown_config_key')
+      expect(body.unknownKeys).toEqual([path])
+    }
+    const versions = await send(harness, 'GET', `${who.base}/config/versions`, undefined, who.auth)
+    expect(JSON.stringify(await versions.json())).not.toContain('maxResearchPerQuest')
+  })
+
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }

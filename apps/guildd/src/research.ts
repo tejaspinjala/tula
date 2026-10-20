@@ -179,7 +179,13 @@ export class Research {
     let freed = 0
     // Treasury is called outside any store transaction, one stale slot at a time.
     for (const callId of await store.stale(guildId, before, SWEEP_BATCH)) {
-      const gave = await treasury.releaseSpendByKey(guildId, `research:${callId}`, SWEEP_ACTOR)
+      const key = `research:${callId}`
+      let gave = await treasury.releaseSpendByKey(guildId, key, SWEEP_ACTOR)
+      if (!gave.ok && gave.reason === 'wrong_state') {
+        // The Guild Master may have approved a waiting spend between the read and the deny: read
+        // it again before deciding what became of it.
+        gave = await treasury.releaseSpendByKey(guildId, key, SWEEP_ACTOR)
+      }
       if (gave.ok || gave.reason === 'not_found') {
         await store.close(guildId, callId, 'freed')
         freed += 1

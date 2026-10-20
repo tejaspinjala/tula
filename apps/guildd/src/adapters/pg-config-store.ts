@@ -2,7 +2,7 @@ import type { JSONValue } from 'postgres'
 import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
-import { classifyChange, defaultConfig, type GuildConfig, guildConfig } from '../guild-config'
+import { classifyChange, defaultConfig, type GuildConfig, parseStoredConfig } from '../guild-config'
 import {
   ConfigError,
   type ConfigStore,
@@ -19,7 +19,7 @@ const versionRow = z.object({
   change: z.enum(['widening', 'tightening', 'neutral']),
   base_version: z.number().int().nullable(),
   created_at: z.coerce.date(),
-  config: guildConfig,
+  config: z.unknown(),
 })
 
 function toVersion(row: unknown): ConfigVersion {
@@ -31,7 +31,7 @@ function toVersion(row: unknown): ConfigVersion {
     change: r.change,
     baseVersion: r.base_version,
     createdAt: r.created_at.toISOString(),
-    config: r.config,
+    config: parseStoredConfig(r.config),
   }
 }
 

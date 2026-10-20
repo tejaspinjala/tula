@@ -1491,6 +1491,12 @@ export function createApp(deps: AppDeps): Hono {
     }
     const body = putConfigBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
+      const unknownKeys = body.error.issues.flatMap((i) =>
+        i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path.slice(1), k].join('.')) : []
+      )
+      if (unknownKeys.length > 0) {
+        return c.json({ error: 'unknown_config_key', unknownKeys }, 422)
+      }
       // Paths and messages only, so the builder can mark the offending node; never the submitted values.
       return c.json(
         {
