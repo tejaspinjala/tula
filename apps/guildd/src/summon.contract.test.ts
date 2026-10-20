@@ -7,7 +7,7 @@ import type { Sandbox, SandboxSpec } from './ports/sandbox-runner'
 import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
-import { callTool } from './testing/scripted-member'
+import { runWorker } from './worker'
 
 /** A memory runner that remembers the spec each sandbox was started with. */
 class RecordingRunner extends MemorySandboxRunner {
@@ -35,7 +35,6 @@ const statusBody = z.object({
   quest: z.object({ id: z.string(), state: z.string() }).nullable(),
 })
 const errorBody = z.object({ error: z.string() })
-const leaseHandle = z.object({ questId: z.string(), attempt: z.number(), token: z.string() })
 
 /** A founded guild with a session; `auth` picks the provider of its one routing profile. */
 async function found(auth: 'api_key' | 'subscription' | null) {
@@ -76,41 +75,16 @@ const summon = (g: string, auth: Record<string, string>, profileId = 'cloud-mid'
     body: JSON.stringify({ profileId }),
   })
 
-/** Plays the sandboxed worker: one model call through the gateway, then files and completes over MCP. */
+/** Runs the real worker code against the app, with only what the sandbox is given. */
 async function playWorker(spec: SandboxSpec) {
   provider.script({ ok: true, text: 'ready', usage: { inputTokens: 4, outputTokens: 2 } })
-  const lease = leaseHandle.parse(JSON.parse(spec.leaseHandle ?? ''))
-  const call = await harness.request('/gateway/complete', {
-    method: 'POST',
-    headers: { ...json, authorization: `Bearer ${spec.runToken}` },
-    body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 20 }),
+  await runWorker({
+    gatewayUrl: 'http://guildd.internal',
+    runToken: spec.runToken ?? '',
+    leaseHandle: spec.leaseHandle ?? '',
+    doneCondition: spec.doneCondition ?? '',
+    fetch: (url, init) => harness.request(new URL(url).pathname, init),
   })
-  expect(call.status).toBe(200)
-  const transport = async (request: object) => {
-    const res = await harness.request('/mcp', {
-      method: 'POST',
-      headers: json,
-      body: JSON.stringify(request),
-    })
-    return { status: res.status, body: await res.json() }
-  }
-  const put = await callTool(transport, 'put_artifact', {
-    lease,
-    contentBase64: Buffer.from('hello from the worker').toString('base64'),
-  })
-  const hash = z.string().parse(put.data.hash)
-  const done = await callTool(transport, 'complete_quest', {
-    lease,
-    handoff: {
-      goal: 'Prove the worker runs',
-      doneCondition: spec.doneCondition,
-      met: true,
-      evidence: [{ kind: 'artifact', ref: hash }],
-      openItems: [],
-      artifacts: [hash],
-    },
-  })
-  expect(done.isError).toBe(false)
 }
 
 describe('Summon your first member', () => {
