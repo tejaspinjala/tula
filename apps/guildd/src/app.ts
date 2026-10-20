@@ -100,6 +100,8 @@ export interface AppDeps {
   modelProvider?: ModelProvider
   /** Serves `subscription` providers; tests inject a memory one, production the `claude` CLI adapter. */
   subscriptionProvider?: ModelProvider
+  /** Whether the host enabled `subscription` providers; a config naming one is refused otherwise. */
+  subscriptionEnabled?: boolean
   /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
   platformOperators: readonly string[]
   /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */

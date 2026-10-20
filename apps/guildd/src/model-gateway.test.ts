@@ -264,7 +264,7 @@ describe('metering', () => {
     expect(await codeOf(open('run-x', { profileId: 'ghost' }))).toBe('unknown_profile')
   })
 
-  test('a subscription provider is refused until spike #15', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled', async () => {
     const { open } = await setup()
     expect(await codeOf(open('run-s', { profileId: 'sub-mid' }))).toBe('subscription_disabled')
   })

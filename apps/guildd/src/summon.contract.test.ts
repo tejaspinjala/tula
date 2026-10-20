@@ -99,7 +99,7 @@ describe('Summon your first member', () => {
     expect(s.quest).toBeNull()
   })
 
-  test('a subscription provider is refused until spike #15, and nothing starts', async () => {
+  test('a subscription provider is refused while the subscription provider is disabled, and nothing starts', async () => {
     const { g, auth } = await found('subscription')
     const before = runner.specs.length
     const res = await summon(g, auth)
