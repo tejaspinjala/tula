@@ -1,12 +1,16 @@
 import type { Hono } from 'hono'
 import { AnthropicModelProvider } from './adapters/anthropic-model-provider'
+import { BraveSearchProvider } from './adapters/brave-search-provider'
 import { ClaudeCliModelProvider } from './adapters/claude-cli-model-provider'
 import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { GitHubRestEnvoy } from './adapters/github-rest-envoy'
+import { HttpPageFetcher } from './adapters/http-page-fetcher'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
+import { MemoryPageFetcher } from './adapters/memory-page-fetcher'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
+import { MemorySearchProvider } from './adapters/memory-search-provider'
 import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
@@ -22,6 +26,7 @@ import { PgProposalStore } from './adapters/pg-proposal-store'
 import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
+import { PgResearchStore } from './adapters/pg-research-store'
 import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
@@ -41,6 +46,7 @@ import { Dispatcher } from './dispatch'
 import {
   loadEnv,
   loadPlatformOperators,
+  loadResearchEnv,
   loadSandboxEnv,
   loadSubscriptionEnv,
   loadVapidEnv,
@@ -52,6 +58,7 @@ import { LearningEngine } from './learning-engine'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
+import { Research } from './research'
 import { retireRun } from './retire-run'
 import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
@@ -149,6 +156,33 @@ export async function compose(
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   const workflowStore = new PgWorkflowStore(db, keys, clock)
   const handoffs = new PgHandoffStore(db, keys)
+  const treasury =
+    overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config })
+  // Governed web research is off unless the host configures a search provider (ADR-0010).
+  const researchEnv = loadResearchEnv()
+  const research = researchEnv
+    ? new Research({
+        search:
+          researchEnv.kind === 'brave'
+            ? new BraveSearchProvider({
+                apiKey: researchEnv.apiKey,
+                privateEligible: researchEnv.privateEligible,
+              })
+            : new MemorySearchProvider({
+                results: researchEnv.seed.results,
+                privateEligible: researchEnv.privateEligible,
+              }),
+        fetcher:
+          researchEnv.kind === 'brave'
+            ? new HttpPageFetcher()
+            : new MemoryPageFetcher(researchEnv.seed.pages),
+        store: new PgResearchStore(db),
+        treasury,
+        config,
+        clock,
+        costCents: researchEnv.costCents,
+      })
+    : undefined
   const mcp =
     overrides.mcp ??
     new McpGateway({
@@ -158,6 +192,7 @@ export async function compose(
       missives,
       objectStore,
       handoffs,
+      ...(research ? { research } : {}),
       activity,
       toolsets: new PgToolsetStore(db),
       proposals,
@@ -216,8 +251,7 @@ export async function compose(
     quests,
     mcp,
     tripwires,
-    treasury:
-      overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
+    treasury,
     // The read-only Envoy resolves the GitHub token from the Vault per call and reads only repos on
     // the guild's own config allowlist; the check runs before any request.
     learning:
