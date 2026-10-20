@@ -17,11 +17,12 @@ interface GuildPush {
   subscriptions: Map<string, StoredPushSubscription>
   deliveries: Map<string, Delivery>
   cursor: number
+  dispatch: { holder: string; until: number } | undefined
 }
 
 /**
  * Memory {@link PushStore}. Every operation checks and writes with no `await` between, so claims
- * are atomic, and the dispatch lock chains callers per guild. State is per instance.
+ * and the dispatch lease are atomic. State is per instance.
  */
 export class MemoryPushStore implements PushStore {
   private readonly guilds = new Map<string, GuildPush>()
@@ -33,6 +34,7 @@ export class MemoryPushStore implements PushStore {
         subscriptions: new Map(),
         deliveries: new Map(),
         cursor: 0,
+        dispatch: undefined,
       }
       this.guilds.set(guildId, state)
     }
@@ -169,18 +171,31 @@ export class MemoryPushStore implements PushStore {
   }
 
   async acquireDispatchLease(
-    _guildId: string,
-    _holder: string,
-    _lease: { now: Date; leaseMs: number }
+    guildId: string,
+    holder: string,
+    lease: { now: Date; leaseMs: number }
   ): Promise<boolean> {
-    throw new Error('not implemented')
+    const state = this.of(guildId)
+    const now = lease.now.getTime()
+    if (state.dispatch && state.dispatch.holder !== holder && state.dispatch.until > now) {
+      return false
+    }
+    state.dispatch = { holder, until: now + lease.leaseMs }
+    return true
   }
 
-  async releaseDispatchLease(_guildId: string, _holder: string): Promise<void> {
-    throw new Error('not implemented')
+  async releaseDispatchLease(guildId: string, holder: string): Promise<void> {
+    const state = this.of(guildId)
+    if (state.dispatch?.holder === holder) {
+      state.dispatch = undefined
+    }
   }
 
-  async guildsWithDevices(_after: string | undefined, _limit: number): Promise<string[]> {
-    throw new Error('not implemented')
+  async guildsWithDevices(after: string | undefined, limit: number): Promise<string[]> {
+    return [...this.guilds]
+      .filter(([id, state]) => state.subscriptions.size > 0 && (after === undefined || id > after))
+      .map(([id]) => id)
+      .sort()
+      .slice(0, limit)
   }
 }
