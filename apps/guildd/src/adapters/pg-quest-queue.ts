@@ -189,7 +189,7 @@ export class PgQuestQueue implements QuestQueue {
       const lapsed = await tx`
         select * from quests
         where guild_id = ${guildId} and state = 'active' and lease_expires_at <= ${now}
-          and attempts >= max_attempts for update`
+          and attempts >= max_attempts order by seq for update`
       for (const raw of lapsed) {
         const quest = toQuest(raw)
         if (isExhausted(quest, now)) {

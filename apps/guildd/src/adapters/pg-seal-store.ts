@@ -340,8 +340,12 @@ export class PgSealStore implements SealStore {
           where guild_id = ${guildId} and status = 'requested' and expires_at <= ${now}
           order by seal_id limit ${EXPIRE_BATCH})
         returning ${tx.unsafe(COLUMNS)}`
-      for (const r of rows) {
-        await this.emit(tx, 'seal.expired', toSeal(row.parse(r), now))
+      // UPDATE ... RETURNING has no defined order; sort so events land in a stable sequence.
+      const expired = rows
+        .map((r) => toSeal(row.parse(r), now))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      for (const seal of expired) {
+        await this.emit(tx, 'seal.expired', seal)
       }
       return rows.length
     })
