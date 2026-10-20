@@ -70,6 +70,13 @@ describe('selfhostPlan', () => {
     expect(plan.guildd.DEV_GUILD_HEADER).toBe('false')
   })
 
+  test('the dispatcher loop runs by default, so Quests move without a manual dispatch', () => {
+    expect(selfhostPlan(source, '/repo').guildd.DISPATCH_INTERVAL_MS).toBe('5000')
+    expect(
+      selfhostPlan({ ...source, DISPATCH_INTERVAL_MS: '2000' }, '/repo').guildd.DISPATCH_INTERVAL_MS
+    ).toBe('2000')
+  })
+
   test('without PUBLIC_ORIGIN the proxy is not trusted', () => {
     expect(selfhostPlan(source, '/repo').guildd.TRUST_PROXY).toBeUndefined()
   })

@@ -131,11 +131,13 @@ test('signed in, only the active view renders and the nav moves between views', 
   const labels = [...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent?.trim())
   expect(labels).toEqual([
     'Home',
+    'Guild Hall',
     'Quest Board',
     'Seals',
     'Archive',
     'Treasury and Costs',
     'Roster and Summon',
+    'Guild',
     'Gates',
     'Timeline',
     'Vault and Settings',
