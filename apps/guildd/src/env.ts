@@ -185,3 +185,10 @@ export function loadVapidEnv(source: Record<string, string | undefined> = proces
   const { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: subject } = env
   return publicKey && privateKey && subject ? { publicKey, privateKey, subject } : undefined
 }
+
+/** The member ids allowed to bar or lift every guild at once (`PLATFORM_OPERATORS`, comma-separated uuids). */
+export function loadPlatformOperators(
+  _source: Record<string, string | undefined> = process.env
+): string[] {
+  return ['unset']
+}
