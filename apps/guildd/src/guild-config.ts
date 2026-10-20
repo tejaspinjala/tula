@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { canonicalJson } from './audit-chain'
+import { type ContentPolicy, DEFAULT_POLICY } from './verdict'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const displayName = z.string().trim().min(1).max(100)
@@ -85,6 +86,18 @@ export const DEFAULT_CONCURRENT_QUESTS = 4
 /** The guild's effective Tripwire thresholds. */
 export function guildTripwires(config: GuildConfig): TripwireThresholds {
   return config.tripwires ?? DEFAULT_TRIPWIRES
+}
+
+/** The content policy a Verdict applies; absent in older configs, then {@link DEFAULT_POLICY}. */
+export const contentPolicy = z.object({
+  maxLength: z.number().int().min(1).max(20_000),
+  bannedTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+  requiredTerms: z.array(z.string().trim().min(1).max(200)).max(MAX_ITEMS),
+})
+
+/** The guild's effective content policy for Verdicts. */
+export function guildContentPolicy(_config: GuildConfig): ContentPolicy {
+  return DEFAULT_POLICY
 }
 
 /** The guild's effective Treasury envelope limits. */
@@ -175,6 +188,8 @@ export const guildConfig = z
     treasury: treasuryLimits.optional(),
     /** Absent in configs older than learning suggestions; then no repo is read. Adding one widens risk. */
     learningRepos: z.array(repoName).max(MAX_ITEMS).optional(),
+    /** Absent in configs older than Core Loop; {@link DEFAULT_POLICY} then applies. Loosening it widens risk. */
+    contentPolicy: contentPolicy.optional(),
   })
   .superRefine((config, ctx) => {
     const known = new Set(config.providers.map((p) => p.id))
