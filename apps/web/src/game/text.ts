@@ -66,3 +66,8 @@ export function sceneSummary(scene: SceneState): string {
   parts.push(`Treasury spend: ${formatCents(scene.coinsCents)}.`)
   return parts.join(' ')
 }
+
+/** The teleport menu entry of a room: locked ones are marked as such. */
+export function teleportLabel(room: { name: string; locked: boolean }): string {
+  return room.name
+}

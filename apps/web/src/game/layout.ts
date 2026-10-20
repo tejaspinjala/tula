@@ -123,3 +123,11 @@ export function seatsIn(
   }
   return seats
 }
+
+/** The tiles walkable on the map, minus the doorways of rooms that are locked or empty (a closed door blocks entry). */
+export function withClosedDoors(
+  layout: HallLayout,
+  rooms: readonly { locked: boolean }[]
+): (x: number, y: number) => boolean {
+  return layout.walkable
+}

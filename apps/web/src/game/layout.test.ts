@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { hallLayout, seatsIn } from './layout'
+import { hallLayout, seatsIn, withClosedDoors } from './layout'
 
 const layout = hallLayout()
 
@@ -70,4 +70,16 @@ test('seatsIn gives distinct walkable tiles inside the room, one per Member', ()
     expect(s.y).toBeGreaterThanOrEqual(room.y)
     expect(s.y).toBeLessThan(room.y + room.h)
   }
+})
+
+test('the door of a locked or empty room blocks entry; an open room keeps its doorway', () => {
+  const walk = withClosedDoors(layout, [{ locked: true }, { locked: false }])
+  const [shut, open, empty] = [layout.doorways[0], layout.doorways[1], layout.doorways[2]]
+  if (!(shut && open && empty)) {
+    throw new Error('map has no doorways')
+  }
+  expect(walk(shut.x, shut.y)).toBe(false)
+  expect(walk(open.x, open.y)).toBe(true)
+  expect(walk(empty.x, empty.y)).toBe(false)
+  expect(walk(0, 0)).toBe(false)
 })
