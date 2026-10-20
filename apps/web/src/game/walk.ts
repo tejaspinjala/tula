@@ -156,23 +156,38 @@ export function followPath(
   return { pos: at, path: rest }
 }
 
-/** A walkable tile just inside a room's doorway, or null. Not implemented. */
+/** The walkable tile nearest a room's centre, or null for an unknown room. */
 export function teleportTile(
   rooms: readonly { x: number; y: number; w: number; h: number }[],
   slot: number,
   walkable: Walkable
 ): Vec | null {
-  void rooms
-  void slot
-  void walkable
-  return null
+  const room = rooms[slot]
+  if (!room) {
+    return null
+  }
+  const cx = room.x + room.w / 2 - 0.5
+  const cy = room.y + room.h / 2 - 0.5
+  let best: Vec | null = null
+  let bestGap = Number.POSITIVE_INFINITY
+  for (let y = room.y; y < room.y + room.h; y++) {
+    for (let x = room.x; x < room.x + room.w; x++) {
+      const gap = Math.hypot(x - cx, y - cy)
+      if (walkable(x, y) && gap < bestGap) {
+        best = { x, y }
+        bestGap = gap
+      }
+    }
+  }
+  return best
 }
 
-/** What the live region says about where the Guild Master is. Not implemented. */
+/** What the live region says about where the Guild Master is. */
 export function announceRoom(hallName: string | null | undefined, inRoom: boolean): string {
-  void hallName
-  void inRoom
-  return ''
+  if (!inRoom) {
+    return 'You are in the hallway.'
+  }
+  return hallName ? `You are in the ${hallName} Hall.` : 'You are in an empty room.'
 }
 
 /** The index of the room rectangle holding a position, or null in the corridors. */
