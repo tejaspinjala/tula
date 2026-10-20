@@ -156,6 +156,9 @@ describe('every rate route is classified', () => {
       'push-subscribe',
       'learning-scan',
       'events-history',
+      'workflow-read',
+      'workflow-write',
+      'workflow-run',
     ] as const
     for (const r of session) {
       expect(RATE_ROUTE_AUTH[r]).toBe('session')

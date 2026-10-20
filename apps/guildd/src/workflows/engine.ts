@@ -2,7 +2,14 @@ import type { ConfigStore } from '../ports/config-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
-import type { WorkflowInstance, WorkflowStore, WorkflowVersion } from '../ports/workflow-store'
+import type {
+  WorkflowInstance,
+  WorkflowInstancePage,
+  WorkflowPage,
+  WorkflowStore,
+  WorkflowVersion,
+  WorkflowVersionPage,
+} from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
 import { type PostQuestError, postQuest } from '../quests'
 import { classifyWorkflowChange } from './classify'
@@ -169,6 +176,43 @@ export class WorkflowEngine {
     version: number
   ): Promise<WorkflowVersion | null> {
     return this.deps.store.activate(guildId, workflowId, version)
+  }
+
+  /** Workflows in id order after `after`. */
+  list(guildId: string, page: { after?: string; limit: number }): Promise<WorkflowPage> {
+    return this.deps.store.list(guildId, page)
+  }
+
+  /** A version (the latest of any status when `version` is omitted) and the newest runnable one. */
+  async get(
+    guildId: string,
+    workflowId: string,
+    version?: number
+  ): Promise<{ version: WorkflowVersion; activeVersion: number | null } | null> {
+    const found = await this.deps.store.getVersion(guildId, workflowId, version)
+    if (!found) {
+      return null
+    }
+    const active = await this.deps.store.latestActive(guildId, workflowId)
+    return { version: found, activeVersion: active?.version ?? null }
+  }
+
+  /** Versions newest first, below `before`. */
+  versions(
+    guildId: string,
+    workflowId: string,
+    page: { before?: number; limit: number }
+  ): Promise<WorkflowVersionPage> {
+    return this.deps.store.versions(guildId, workflowId, page)
+  }
+
+  /** Instances of a Workflow in id order after `after`. */
+  runs(
+    guildId: string,
+    workflowId: string,
+    page: { after?: string; limit: number }
+  ): Promise<WorkflowInstancePage> {
+    return this.deps.store.listInstances(guildId, workflowId, page)
   }
 
   /** Saves the seeded templates as active versions, once per guild. */

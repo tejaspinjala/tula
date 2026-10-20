@@ -62,6 +62,8 @@ import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
 import type { Summon } from './summon'
 import { isGuildMaster, type Treasury } from './treasury'
+import type { WorkflowEngine } from './workflows/engine'
+import { mountWorkflowRoutes } from './workflows/routes'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -84,6 +86,8 @@ export interface AppDeps {
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
   proposals: ProposalEngine
+  /** Versioned Workflows and their instances; compiles agent nodes to governed Quests, with no authority of its own. */
+  workflows: WorkflowEngine
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** The stateless MCP gateway Members call with a lease handle; authorises every call itself. */
@@ -441,6 +445,15 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/proposals', limited('proposal-post'))
   app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.get('/guilds/:id/events/history', limited('events-history'))
+  app.get('/guilds/:id/workflows', limited('workflow-read'))
+  app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
+  app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
+  app.get('/guilds/:id/workflows/:wid/runs', limited('workflow-read'))
+  app.get('/guilds/:id/workflows/:wid/runs/:rid', limited('workflow-read'))
+  app.put('/guilds/:id/workflows/:wid', limited('workflow-write'))
+  app.post('/guilds/:id/workflows/:wid/validate', limited('workflow-write'))
+  app.post('/guilds/:id/workflows/:wid/versions/:version/confirm', limited('workflow-write'))
+  app.post('/guilds/:id/workflows/:wid/runs', limited('workflow-run'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
@@ -1369,6 +1382,13 @@ export function createApp(deps: AppDeps): Hono {
     } catch (error) {
       return configFailure(c, error)
     }
+  })
+
+  mountWorkflowRoutes(app, {
+    workflows: deps.workflows,
+    identity: deps.identity,
+    sessionGuildFor,
+    guildMasterSessionFor,
   })
 
   // Audit verification: replays the guild's chain with the KeyProvider's key. A guild that is not
