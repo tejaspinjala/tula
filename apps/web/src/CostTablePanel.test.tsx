@@ -57,6 +57,10 @@ test('cost tables scroll inside their own container, and unmetered spend says so
   expect(tables.length).toBe(2)
   for (const table of tables) {
     expect(table.parentElement?.className).toContain('table-scroll')
+    // A scrollable region is reachable and named for keyboard users.
+    expect(table.parentElement?.getAttribute('tabindex')).toBe('0')
+    expect(table.parentElement?.getAttribute('role')).toBe('region')
+    expect(table.parentElement?.getAttribute('aria-label')).toBeTruthy()
   }
   expect(host.textContent).toContain('unmetered (subscription)')
   await act(async () => root.unmount())
