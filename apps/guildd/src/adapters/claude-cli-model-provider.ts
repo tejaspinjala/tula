@@ -1,0 +1,122 @@
+import { z } from 'zod'
+import {
+  type ModelProvider,
+  ModelProviderError,
+  type ModelRequest,
+  type ModelResponse,
+  modelRequest,
+  type ProviderSecret,
+} from '../ports/model-provider'
+
+/** Options for {@link ClaudeCliModelProvider}. */
+export interface ClaudeCliOptions {
+  /** The `claude` executable; defaults to `claude` on PATH. */
+  bin?: string
+  /** Milliseconds before the child is killed; defaults to 120000. */
+  timeoutMs?: number
+  /** Most children at once; defaults to 2. */
+  maxConcurrent?: number
+  /** Milliseconds a call may wait for a free slot; defaults to the call timeout. */
+  queueTimeoutMs?: number
+  /** Bytes of stdout kept before the child is killed; defaults to 1 MiB. */
+  maxStdoutBytes?: number
+  /** Where the allowlisted variables are read from; defaults to `process.env`. */
+  env?: Record<string, string | undefined>
+}
+
+/** Environment variables the child may inherit. Nothing else: the subscription is the credential. */
+const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LANG', 'TMPDIR'] as const
+
+/** What `claude -p --output-format json` prints that this adapter uses (validated at the boundary). */
+const cliReply = z.object({
+  result: z.string().default(''),
+  is_error: z.boolean(),
+  subtype: z.string().optional(),
+  usage: z.object({
+    input_tokens: z.number().int().min(0),
+    output_tokens: z.number().int().min(0),
+    cache_creation_input_tokens: z.number().int().min(0).default(0),
+    cache_read_input_tokens: z.number().int().min(0).default(0),
+  }),
+})
+
+/** Flattens the conversation into the one prompt `claude -p` reads from stdin. */
+function promptOf(messages: ModelRequest['messages']): string {
+  const [only] = messages
+  if (messages.length === 1 && only) {
+    return only.content
+  }
+  return messages
+    .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
+    .join('\n\n')
+}
+
+/**
+ * {@link ModelProvider} that runs the unmodified `claude` binary on the host, so the Guild
+ * Master's own signed-in subscription is the credential (ADR-0005, ADR-0008). Guildhall never
+ * reads or forwards the OAuth token: the child inherits only an allowlisted environment, the
+ * prompt goes on stdin, and the process is spawned from an argv array with no shell. Usage is
+ * reported in tokens only; the dollar cost the CLI prints is ignored.
+ */
+export class ClaudeCliModelProvider implements ModelProvider {
+  private readonly bin: string
+  private readonly env: Record<string, string>
+
+  constructor(options: ClaudeCliOptions = {}) {
+    this.bin = options.bin ?? 'claude'
+    const source = options.env ?? process.env
+    const env: Record<string, string> = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }
+    for (const key of ENV_ALLOWLIST) {
+      const value = source[key]
+      if (value !== undefined) {
+        env[key] = value
+      }
+    }
+    this.env = env
+  }
+
+  async complete(_credential: ProviderSecret, request: ModelRequest): Promise<ModelResponse> {
+    const parsed = modelRequest.safeParse(request)
+    if (!parsed.success) {
+      throw new ModelProviderError('invalid_request')
+    }
+    const { model, system, messages } = parsed.data
+    const args = [
+      '-p',
+      '--output-format',
+      'json',
+      '--tools',
+      '',
+      '--strict-mcp-config',
+      '--no-session-persistence',
+      '--setting-sources',
+      '',
+      ...(system === undefined ? [] : ['--system-prompt', system]),
+      '--model',
+      model,
+    ]
+    const proc = Bun.spawn([this.bin, ...args], {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'ignore',
+      env: this.env,
+    })
+    proc.stdin.write(promptOf(messages))
+    await proc.stdin.end()
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    const data = cliReply.safeParse(JSON.parse(stdout))
+    if (!data.success) {
+      throw new ModelProviderError('invalid_response')
+    }
+    const { usage } = data.data
+    return {
+      text: data.data.result,
+      usage: {
+        inputTokens:
+          usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens,
+        outputTokens: usage.output_tokens,
+      },
+    }
+  }
+}
