@@ -63,6 +63,7 @@ function toSeal(r: Row, now: Date): Seal {
     kind: r.kind,
     text: r.text,
     evidence: r.evidence,
+    round: 1,
     actionHash: r.action_hash,
     status,
     stale,
@@ -113,6 +114,10 @@ export class PgSealStore implements SealStore {
           and action_hash = ${actionHash}`
       return toSeal(row.parse(existing), now)
     })
+  }
+
+  async forQuest(_guildId: string, _questId: string): Promise<Seal | null> {
+    throw new Error('not implemented')
   }
 
   async get(guildId: string, id: string): Promise<Seal | null> {

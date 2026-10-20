@@ -72,6 +72,7 @@ export class MemorySealStore implements SealStore {
     const now = this.clock.now()
     const seal: Seal = {
       ...input,
+      round: 1,
       actionHash,
       id: crypto.randomUUID(),
       status: 'requested',
@@ -86,6 +87,10 @@ export class MemorySealStore implements SealStore {
     }
     this.seals(guildId).set(seal.id, { seal, tokenHash: null })
     return { ...seal }
+  }
+
+  async forQuest(_guildId: string, _questId: string): Promise<Seal | null> {
+    throw new Error('not implemented')
   }
 
   async get(guildId: string, id: string): Promise<Seal | null> {
