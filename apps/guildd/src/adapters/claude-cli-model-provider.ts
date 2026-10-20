@@ -142,11 +142,15 @@ export class ClaudeCliModelProvider implements ModelProvider {
   }
 
   /** Runs one child to completion: killed at the timeout or when stdout passes its cap. */
-  private async run(args: string[], prompt: string): Promise<{ text: string; exitCode: number }> {
+  private async run(
+    args: string[],
+    prompt: string,
+    signal?: AbortSignal
+  ): Promise<{ text: string; exitCode: number }> {
     // A fresh empty directory, so the CLI finds no project files, settings or memory to read.
     const cwd = await mkdtemp(join(tmpdir(), 'guildhall-claude-'))
     try {
-      return await this.runIn(cwd, args, prompt)
+      return await this.runIn(cwd, args, prompt, signal)
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
@@ -155,7 +159,8 @@ export class ClaudeCliModelProvider implements ModelProvider {
   private async runIn(
     cwd: string,
     args: string[],
-    prompt: string
+    prompt: string,
+    signal?: AbortSignal
   ): Promise<{ text: string; exitCode: number }> {
     // Its own process group, so one signal to the group takes the whole subtree (a grandchild
     // included) down. argv array, no shell; the prompt goes on stdin; the env is the allowlist.
@@ -173,6 +178,12 @@ export class ClaudeCliModelProvider implements ModelProvider {
     // The deadline is raced against the read: a grandchild holding stdout open cannot outlast it.
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new ModelProviderError('timeout')), this.timeoutMs)
+    })
+    // Barring the Gates aborts the call: the race below rejects and the finally kills the group.
+    let onAbort: (() => void) | undefined
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new ModelProviderError('aborted'))
+      signal?.addEventListener('abort', onAbort, { once: true })
     })
     const collect = new Promise<{ text: string; exitCode: number }>((resolve, reject) => {
       const chunks: Buffer[] = []
@@ -194,11 +205,14 @@ export class ClaudeCliModelProvider implements ModelProvider {
       child.stdin.end(prompt)
     })
     try {
-      return await Promise.race([collect, deadline])
+      return await Promise.race([collect, deadline, aborted])
     } catch (e) {
       throw e instanceof ModelProviderError ? e : new ModelProviderError('unavailable')
     } finally {
       clearTimeout(timer)
+      if (onAbort) {
+        signal?.removeEventListener('abort', onAbort)
+      }
       // Whatever happened, the whole group is dead and the child reaped before the slot is freed.
       if (child.pid !== undefined) {
         try {
@@ -215,7 +229,7 @@ export class ClaudeCliModelProvider implements ModelProvider {
   async complete(
     _credential: ProviderSecret,
     request: ModelRequest,
-    _signal?: AbortSignal
+    signal?: AbortSignal
   ): Promise<ModelResponse> {
     const parsed = modelRequest.safeParse(request)
     if (!parsed.success) {
@@ -238,10 +252,16 @@ export class ClaudeCliModelProvider implements ModelProvider {
       '--model',
       model,
     ]
+    if (signal?.aborted) {
+      throw new ModelProviderError('aborted')
+    }
     await this.acquire()
     let stdout: { text: string; exitCode: number }
     try {
-      stdout = await this.run(args, prompt)
+      if (signal?.aborted) {
+        throw new ModelProviderError('aborted')
+      }
+      stdout = await this.run(args, prompt, signal)
     } finally {
       this.release()
     }
