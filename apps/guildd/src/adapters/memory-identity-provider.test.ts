@@ -17,7 +17,12 @@ identityContract('memory', async () => {
       origin,
     }),
     clock,
-    newGuild: async () => crypto.randomUUID(),
+    newGuild: async () => {
+      const guildId = crypto.randomUUID()
+      store.found(guildId)
+      return guildId
+    },
+    guildMaster: (guildId: string) => store.guildMaster(guildId),
     events: async (guildId: string) => store.eventsOf(guildId),
     rpId: 'localhost',
     origin,

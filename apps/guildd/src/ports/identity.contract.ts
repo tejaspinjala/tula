@@ -18,6 +18,8 @@ export interface IdentityContractSubject {
   clock: MemoryClock
   /** Returns the id of a new guild (the embedded adapter needs a real one). */
   newGuild: () => Promise<string>
+  /** The store's Guild Master for the guild; rejects for a guild that was never founded. */
+  guildMaster: (guildId: string) => Promise<{ memberId: string; role: string }>
   rpId: string
   origin: string
   /** The guild's audit events, in order, as the chained event log holds them. */
@@ -138,6 +140,15 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       const session = await signIn(s)
       expect(session.guildId).toBe(s.guildId)
       expect(await s.identity.resolveSession('not-a-token')).toBeNull()
+    })
+
+    test('the Guild Master exists from founding, stable before any sign-in; unfounded guilds have none', async () => {
+      const s = await make()
+      const guildId = await s.newGuild()
+      const first = await s.guildMaster(guildId)
+      expect(first.role).toBe('guild_master')
+      expect(await s.guildMaster(guildId)).toEqual(first)
+      await expect(s.guildMaster(crypto.randomUUID())).rejects.toThrow()
     })
 
     test("a session resolves to the guild's Guild Master principal, stable across sessions", async () => {

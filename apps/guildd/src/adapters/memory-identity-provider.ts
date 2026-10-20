@@ -128,6 +128,9 @@ export class MemoryIdentityStore implements IdentityStore {
     return challenge
   }
 
+  /** Founds the guild in memory (stub: the Guild Master is still minted lazily). */
+  found(_guildId: string): void {}
+
   async guildMaster(guildId: string): Promise<StoredMember> {
     const known = this.masters.get(guildId)
     if (known) {
