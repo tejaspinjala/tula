@@ -879,7 +879,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.post('/guilds/:id/push/subscriptions', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
@@ -904,7 +904,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.delete('/guilds/:id/push/subscriptions', async (c) => {
-    const who = await sessionGuildFor(c)
+    const who = await guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
@@ -934,7 +934,7 @@ export function createApp(deps: AppDeps): Hono {
   /** The calling session's guild when it is `:id`, else a ready response. */
   async function sessionGuildFor(
     c: Context
-  ): Promise<{ guild: string; member: string } | { res: Response }> {
+  ): Promise<{ guild: string; member: string; role: string } | { res: Response }> {
     const token = bearerToken(c.req.header('authorization'))
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
@@ -943,7 +943,20 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== session.guildId) {
       return { res: c.json({ error: 'not_found' }, 404) }
     }
-    return { guild: session.guildId, member: session.memberId }
+    return { guild: session.guildId, member: session.memberId, role: session.role }
+  }
+
+  /** {@link sessionGuildFor}, then only the Guild Master passes; any other principal gets a 403. */
+  async function guildMasterSessionFor(
+    c: Context
+  ): Promise<{ guild: string; member: string } | { res: Response }> {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who
+    }
+    return isGuildMaster(who)
+      ? { guild: who.guild, member: who.member }
+      : { res: c.json({ error: 'forbidden' }, 403) }
   }
 
   function configFailure(c: Context, error: unknown): Response {
