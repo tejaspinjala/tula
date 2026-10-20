@@ -64,15 +64,20 @@ export class MemorySealStore implements SealStore {
   // same-tick calls cannot interleave.
   async request(guildId: string, input: NewSeal): Promise<Seal> {
     const actionHash = await hashProposal(input.text)
+    const round = input.round ?? 1
     for (const { seal } of this.seals(guildId).values()) {
-      if (seal.questId === input.questId && seal.actionHash === actionHash) {
+      if (
+        seal.questId === input.questId &&
+        seal.round === round &&
+        seal.actionHash === actionHash
+      ) {
         return this.read(seal)
       }
     }
     const now = this.clock.now()
     const seal: Seal = {
       ...input,
-      round: 1,
+      round,
       actionHash,
       id: crypto.randomUUID(),
       status: 'requested',
@@ -89,8 +94,12 @@ export class MemorySealStore implements SealStore {
     return { ...seal }
   }
 
-  async forQuest(_guildId: string, _questId: string): Promise<Seal | null> {
-    throw new Error('not implemented')
+  async forQuest(guildId: string, questId: string): Promise<Seal | null> {
+    const latest = [...this.seals(guildId).values()]
+      .map((s) => s.seal)
+      .filter((s) => s.questId === questId)
+      .sort((a, b) => b.round - a.round || (a.requestedAt < b.requestedAt ? 1 : -1))[0]
+    return latest ? this.read(latest) : null
   }
 
   async get(guildId: string, id: string): Promise<Seal | null> {
