@@ -403,6 +403,26 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(again.state).toBe('dead')
     })
 
+    test('a dead Quest dead-letters the Quests it blocks, transitively, with a coded reason', async () => {
+      const { queue, clock, newGuild, events } = await make()
+      const g = await newGuild()
+      const { quest: root } = await queue.post(g, quest({ maxAttempts: 1 }))
+      const { quest: child } = await queue.post(g, quest({ blockedBy: [root.id] }))
+      const { quest: grandchild } = await queue.post(g, quest({ blockedBy: [child.id] }))
+      const { quest: free } = await queue.post(g, quest())
+      clock.advance(10_000)
+      expect((await queue.claim(g, { ...LEASE, questId: root.id }))?.id).toBe(root.id)
+      await queue.fail(g, root.id, 1, 'timeout')
+      const dead = await queue.deadLetters(g, { limit: 10 })
+      expect(dead.quests.map((d) => [d.id, d.lastError])).toEqual([
+        [root.id, 'timeout'],
+        [child.id, 'blocker_dead'],
+        [grandchild.id, 'blocker_dead'],
+      ])
+      expect((await queue.get(g, free.id))?.state).toBe('queued')
+      expect((await events(g)).filter((e) => e === 'quest.dead')).toHaveLength(3)
+    })
+
     test('Quests of one Campaign are delivered one at a time, in posting order', async () => {
       const { queue, newGuild } = await make()
       const g = await newGuild()
