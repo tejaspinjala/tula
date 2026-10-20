@@ -183,9 +183,6 @@ export function deriveScene(input: SceneInput): SceneState {
       if (p.success && text !== undefined) {
         sayings.set(p.data.from, { text, seq: event.seq })
       }
-    } else if (event.type === 'member.activity') {
-      // Accepted and typed; the world does not act on it yet.
-      memberActivityPayload.safeParse(event.payload)
     } else if (event.type === 'hall.paused' || event.type === 'hall.resumed') {
       const p = hallPayload.safeParse(event.payload)
       if (p.success) {

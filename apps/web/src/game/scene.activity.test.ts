@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
+import { ACTIVITIES as GUILDD_ACTIVITIES } from '../../../guildd/src/ports/activity-log'
 import type { ReplayEvent } from '../replay'
-import { deriveScene, memberActivityPayload, type SceneRoster } from './scene'
+import { ACTIVITIES, deriveScene, memberActivityPayload, type SceneRoster } from './scene'
 
 const roster: SceneRoster = {
   steward: { id: 's1', name: 'Steward' },
@@ -37,4 +38,8 @@ test('the reducer accepts a member.activity event and changes nothing yet', () =
   const base = deriveScene({ roster, quests: [], events: [], upTo: null })
   const withEvent = deriveScene({ roster, quests: [], events: [activity], upTo: null })
   expect(withEvent).toEqual({ ...base, appliedSeq: 1 })
+})
+
+test('the web activity list is the one guildd emits', () => {
+  expect([...ACTIVITIES]).toEqual([...GUILDD_ACTIVITIES])
 })
