@@ -187,7 +187,12 @@ export function announceRoom(hallName: string | null | undefined, inRoom: boolea
   if (!inRoom) {
     return 'You are in the hallway.'
   }
-  return hallName ? `You are in the ${hallName} Hall.` : 'You are in an empty room.'
+  if (!hallName) {
+    return 'You are in an empty room.'
+  }
+  return /\bhall$/i.test(hallName.trim())
+    ? `You are in the ${hallName.trim()}.`
+    : `You are in the ${hallName} Hall.`
 }
 
 /** The index of the room rectangle holding a position, or null in the corridors. */
