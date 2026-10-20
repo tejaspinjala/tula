@@ -46,7 +46,10 @@ export interface MoveTarget {
 }
 
 /** The save status line of the Guild builder. */
-export function saveStatus(dirty: boolean, _pending: boolean): string {
+export function saveStatus(dirty: boolean, pending: boolean): string {
+  if (pending) {
+    return 'Saved, waiting for your passkey to confirm'
+  }
   return dirty ? 'Unsaved changes' : 'No unsaved changes'
 }
 

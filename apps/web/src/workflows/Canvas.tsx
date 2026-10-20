@@ -60,7 +60,7 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
 }
 
 /** The initial fit of the canvas. */
-export const FIT_VIEW_OPTIONS = { padding: 0, minZoom: 0.3 }
+export const FIT_VIEW_OPTIONS = { padding: 0.25, minZoom: 0.6 }
 
 const nodeTypes = { step: StepNode }
 
@@ -155,6 +155,7 @@ function Flow(props: CanvasProps) {
         deleteKeyCode={null}
         elementsSelectable
         fitView
+        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.3}
         proOptions={{ hideAttribution: true }}
       >

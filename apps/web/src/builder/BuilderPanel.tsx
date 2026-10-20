@@ -18,7 +18,7 @@ import {
 import { Canvas, PIECE_TYPE } from './Canvas'
 import { issuesByNode, type Overlays } from './graph'
 import { Inspector } from './Inspector'
-import { addHall, addMember, type BuilderConfig, moveMember } from './model'
+import { addHall, addMember, type BuilderConfig, moveMember, saveStatus } from './model'
 import { Outline } from './Outline'
 import { instantiate, TEMPLATES } from './templates'
 
@@ -278,8 +278,8 @@ export function BuilderPanel({
             />
           </details>
           <div className="actions builder-save">
-            <p role="status" className={dirty ? 'unsaved' : 'muted'}>
-              {dirty ? 'Unsaved changes' : 'No unsaved changes'}
+            <p role="status" className={dirty && !pending ? 'unsaved' : 'muted'}>
+              {saveStatus(dirty, pending !== null)}
             </p>
             <button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
               Save
