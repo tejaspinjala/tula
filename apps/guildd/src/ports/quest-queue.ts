@@ -501,6 +501,8 @@ export function parkTransition(
       leaseExpiresAt: null,
       waitingOn: [...new Set(waitingOn)],
       waitMode: mode,
+      // A wait is not a crash: the extra delivery it costs does not shrink the retry budget.
+      maxAttempts: quest.maxAttempts + 1,
       notBefore: now.toISOString(),
     },
     event: null,

@@ -172,7 +172,8 @@ export class PgQuestQueue implements QuestQueue {
       update quests set state = ${q.state}, round = ${q.round}, attempts = ${q.attempts},
         lease_expires_at = ${q.leaseExpiresAt === null ? null : new Date(q.leaseExpiresAt)},
         not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError},
-        wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode}
+        wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode},
+        max_attempts = ${q.maxAttempts}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
   }
