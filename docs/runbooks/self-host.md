@@ -166,3 +166,23 @@ at `GET` on the same path). Quests then run through the dispatcher on `DISPATCH_
 The kill switch. In the web app, "Bar the Gates" stops all model calls and runs for this guild in
 one step; lifting needs passkey re-authentication. The global bar and lift (`/gates/bar`,
 `/gates/lift`) are only for members listed in `PLATFORM_OPERATORS`.
+
+## Desktop app
+
+`apps/desktop` is a Tauri 2 shell: a native window that opens your Guildhall server, with the pixel-art
+icon, a full-screen toggle (View menu, `Cmd+Ctrl+F`) and **Guildhall > Change Server Address...**
+(`Cmd+Shift+S`). It loads the remote `https://` origin directly, so passkeys keep the tunnel hostname as
+their RP ID. The address is stored in `settings.json` in the app config directory
+(`~/Library/Application Support/app.guildhall.desktop/` on macOS); the first run asks for it.
+
+Needs Rust (`rustup`) and the Tauri CLI (`cargo install tauri-cli --version "^2" --locked`).
+
+```sh
+bun run --cwd apps/desktop dev     # run the shell
+bun run --cwd apps/desktop build   # icons, then .app/.dmg under apps/desktop/src-tauri/target/release/bundle
+cd apps/desktop/src-tauri && cargo test   # address validation and the settings file
+```
+
+Passkey sign-in inside the shell depends on Apple entitlements an unsigned build cannot hold; see
+`docs/spikes/tauri-passkeys.md` for the decision and the system-browser hand-back. CI builds the app on
+macOS only when you run the `desktop` workflow by hand.
