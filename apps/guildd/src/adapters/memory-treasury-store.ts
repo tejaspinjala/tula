@@ -2,7 +2,8 @@ import type { Clock } from '../ports/clock'
 import type { Balances, LedgerEntry, Spend, TreasuryStore } from '../ports/treasury-store'
 import { TreasuryCore, type TreasuryTx } from '../treasury-core'
 
-interface GuildState {
+/** One guild's rows in a {@link MemoryTreasuryStore}. */
+export interface GuildState {
   entries: LedgerEntry[]
   spends: Spend[]
 }
@@ -44,7 +45,8 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
     return result
   }
 
-  private stateOf(guildId: string): GuildState {
+  /** The guild's rows; protected so only a test-only subclass can reach behind the store. */
+  protected stateOf(guildId: string): GuildState {
     const found = this.guilds.get(guildId)
     if (found) {
       return found
@@ -108,11 +110,5 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
       },
       emit: async (type, payload) => this.onEvent(guildId, type, payload),
     }
-  }
-
-  /** Test seam: rewrites a stored entry's amount without re-hashing it, as tampering would. */
-  tamperForTest(guildId: string, seq: number, amountCents: number): void {
-    const state = this.stateOf(guildId)
-    state.entries = state.entries.map((e) => (e.seq === seq ? { ...e, amountCents } : e))
   }
 }
