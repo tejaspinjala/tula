@@ -5,7 +5,7 @@ import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const LIMIT = 2
 
-/** A harness whose `summon-status` limits are `limits`, with a guild and a signed-in session. */
+/** A harness whose `cost-per-post` limits are `limits`, with a guild and a signed-in session. */
 async function setup(limits: RouteLimits) {
   const harness = await createHarness({
     // Rate-limit counters persist in the shared test database, keyed by window: a window of our

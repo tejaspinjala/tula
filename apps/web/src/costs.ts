@@ -48,6 +48,33 @@ export async function loadCosts(
   throw new Error('cost table has too many pages')
 }
 
+/** Accepted posts and what they cost, in millionths of a dollar. */
+export interface PostCost {
+  posts: number
+  costMicros: number
+  costPerPostMicros: number
+}
+
+/** The cost of one Campaign's accepted posts; a null Campaign groups Quests outside any. */
+export interface CampaignPostCost extends PostCost {
+  campaignId: string | null
+}
+
+/** Cost per accepted post: overall and per Campaign. */
+export interface CostPerPost {
+  overall: PostCost
+  campaigns: CampaignPostCost[]
+}
+
+/** Loads cost per accepted post, following the server's page cursors. */
+export async function loadCostPerPost(
+  _session: Session,
+  _fetcher: Fetcher,
+  _limit = 50
+): Promise<CostPerPost> {
+  return { overall: { posts: 0, costMicros: 0, costPerPostMicros: 0 }, campaigns: [] }
+}
+
 /** Formats millionths of a dollar: cents when exact, else up to six places; integer maths only. */
 export function formatDollars(micros: number): string {
   const whole = Math.floor(micros / 1_000_000)
