@@ -37,6 +37,7 @@ export interface DockerSandboxOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000
+const DEFAULT_KILL_DEADLINE_MS = 2_000
 const DEFAULT_LIMITS: SandboxLimits = { pids: 256, memory: '1g', cpus: '1' }
 
 /** Why a docker call failed; coded, never docker's own text (it could echo the environment). */
@@ -121,6 +122,22 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   async kill(target: KillTarget): Promise<number> {
+    // An overall deadline below the per-call timeouts: Bar the Gates must not wait on a stuck docker.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new SandboxError('kill_failed')),
+        this.options.killDeadlineMs ?? DEFAULT_KILL_DEADLINE_MS
+      )
+    })
+    try {
+      return await Promise.race([this.killNow(target), deadline])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async killNow(target: KillTarget): Promise<number> {
     const ids = await this.containers(target)
     if (ids.length === 0) {
       return 0
