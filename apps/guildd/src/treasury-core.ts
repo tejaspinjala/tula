@@ -199,7 +199,11 @@ export abstract class TreasuryCore {
       const idemKey = `revenue:${input.key}`
       const seen = await tx.entriesByKey(idemKey)
       if (seen.length > 0) {
-        return { ok: true, entries: seen, created: false }
+        // The same key with other terms is a different request wearing a used key: refuse it.
+        const total = seen.reduce((sum, e) => sum + e.amountCents, 0)
+        return total === input.amountCents && seen.every((e) => e.evidence === evidence)
+          ? { ok: true, entries: seen, created: false }
+          : { ok: false, reason: 'idempotency_conflict' }
       }
       const reinvest = Math.floor((input.amountCents * limits.reinvestPercent) / 100)
       const entries: LedgerEntry[] = []
@@ -236,7 +240,9 @@ export abstract class TreasuryCore {
       await this.ensureFunded(guildId, tx, limits)
       const seen = await tx.spendByKey(input.key)
       if (seen) {
-        return { ok: true, spend: seen, created: false }
+        return seen.amountCents === input.amountCents && seen.purpose === input.purpose
+          ? { ok: true, spend: seen, created: false }
+          : { ok: false, reason: 'idempotency_conflict' }
       }
       const { operating } = await tx.balances()
       if (input.amountCents > operating) {
@@ -447,7 +453,10 @@ export abstract class TreasuryCore {
       const idemKey = `reserve:${input.key}`
       const seen = await tx.entriesByKey(idemKey)
       if (seen.length > 0) {
-        return { ok: true, entries: seen, created: false }
+        const released = seen.find((e) => e.bucket === 'reserve')
+        return released?.amountCents === -input.amountCents
+          ? { ok: true, entries: seen, created: false }
+          : { ok: false, reason: 'idempotency_conflict' }
       }
       if (input.amountCents > (await tx.balances()).reserve) {
         return { ok: false, reason: 'insufficient_funds' }
