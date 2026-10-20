@@ -179,6 +179,7 @@ describe('founding is atomic with the founding token', () => {
     }
     const identity = new FlakyIdentity(new PgIdentityStore(db, harness.adapters.keys), {
       clock: new MemoryClock(new Date('2026-01-01T00:00:00.000Z')),
+      keys: harness.adapters.keys,
       rpId: 'localhost',
       rpName: 'Guildhall',
       origin: ORIGIN,

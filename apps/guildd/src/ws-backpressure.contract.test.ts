@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { createApp, websocket } from './app'
 import { createDb } from './db/client'
 import { appendEvent } from './events'
-import { createHarness } from './testing/harness'
+import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { assertBackpressureSupported, readBufferedAmount } from './ws-support'
 
 const harness = await createHarness()
@@ -49,6 +49,8 @@ describe('websocket backpressure', () => {
       db,
       objectStore: harness.adapters.objectStore,
       identity: harness.adapters.identity,
+      rateLimiter: harness.adapters.rateLimiter,
+      rateLimits: UNLIMITED_RATE_LIMITS,
       secrets: harness.adapters.secrets,
       notes: harness.adapters.notes,
       keys,

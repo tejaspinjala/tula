@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres'
 
 /** Bookkeeping tables that hold no tenant data. */
-const NOT_TENANT = ['schema_migrations']
+const NOT_TENANT = ['schema_migrations', 'rate_limits']
 
 /**
  * Scans every non-system schema and describes each tenancy violation: a table without ENABLE +

@@ -21,6 +21,7 @@ import {
   type ReauthProof,
   SESSION_TTL_MS,
 } from '../ports/identity'
+import type { KeyProvider } from '../ports/key-provider'
 import type {
   IdentityStore,
   StoredChallenge,
@@ -31,6 +32,8 @@ import type {
 /** Relying-party settings and collaborators for the embedded WebAuthn core. */
 export interface WebAuthnIdentityConfig {
   clock: Clock
+  /** Derives the stable fake credential ids that decoy sign-in options carry for unknown guilds. */
+  keys: KeyProvider
   /** Relying-party id: the registrable domain the passkeys are scoped to. */
   rpId: string
   rpName: string
@@ -171,6 +174,12 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   }
 
   async beginSignIn(guildId: string) {
+    const credentials = guildPrefix.safeParse(guildId).success
+      ? await this.store.listCredentials(guildId)
+      : []
+    if (credentials.length === 0) {
+      return this.decoySignIn(guildId)
+    }
     const options = await this.requestOptions(guildId)
     const challengeId = await this.saveChallenge(guildId, 'signin', options.challenge, null)
     return { challengeId, options }
@@ -276,6 +285,27 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       return null
     }
     return { guildId: guildId.data, session }
+  }
+
+  /**
+   * Options for a guild that is unknown (or has no passkey yet), shaped like a real guild's: one
+   * credential whose id is a keyed MAC of the guild id, so it is stable per guild, unguessable and
+   * not tied to any stored credential. The challenge id is random and nothing is stored, so it can
+   * never be finished. Callers cannot tell unknown guilds from known ones by status or shape.
+   */
+  private async decoySignIn(guildId: string) {
+    const mac = await this.config.keys.mac(
+      guildId,
+      'decoy-credential',
+      new TextEncoder().encode('sign-in')
+    )
+    const id = isoBase64URL.fromBuffer(Buffer.from(mac.slice(0, 64), 'hex'))
+    const options = await generateAuthenticationOptions({
+      rpID: this.config.rpId,
+      userVerification: 'required',
+      allowCredentials: [{ id, transports: ['internal'] }],
+    })
+    return { challengeId: crypto.randomUUID(), options }
   }
 
   private async requestOptions(guildId: string) {

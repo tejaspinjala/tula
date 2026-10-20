@@ -14,9 +14,11 @@ afterAll(() => db.close())
 identityContract('embedded WebAuthn (Postgres)', async () => {
   const clock = new MemoryClock(new Date())
   const origin = 'http://localhost:5173'
+  const keys = new MemoryKeyProvider()
   return {
-    identity: new WebAuthnIdentityProvider(new PgIdentityStore(db, new MemoryKeyProvider()), {
+    identity: new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
       clock,
+      keys,
       rpId: 'localhost',
       rpName: 'Guildhall',
       origin,

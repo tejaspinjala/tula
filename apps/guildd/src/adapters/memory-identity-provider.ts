@@ -55,7 +55,10 @@ export class MemoryIdentityStore implements IdentityStore {
       }
     }
     this.challenges.set(`${prefix}${challenge.id}`, challenge)
-    const mine = [...this.challenges].filter(([key]) => key.startsWith(prefix))
+    // The cap is per kind, so unauthenticated sign-in begins cannot evict a pending reauth.
+    const mine = [...this.challenges].filter(
+      ([key, held]) => key.startsWith(prefix) && held.kind === challenge.kind
+    )
     // Map iteration is insertion order, so a stable sort by expiry keeps ties oldest-first.
     mine.sort((a, b) => a[1].expiresAt.getTime() - b[1].expiresAt.getTime())
     for (const [key] of mine.slice(0, Math.max(0, mine.length - MAX_OUTSTANDING_CHALLENGES))) {

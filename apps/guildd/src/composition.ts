@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgNoteStore } from './adapters/pg-note-store'
+import { PgRateLimiter } from './adapters/pg-rate-limiter'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
@@ -19,7 +20,7 @@ import { loadEnv, loadWebauthnEnv } from './env'
 export async function compose(
   overrides: Partial<AppDeps> = {}
 ): Promise<{ app: Hono; adapters: AppDeps }> {
-  const { db, devGuildHeader, objectStore, keys } =
+  const { db, devGuildHeader, objectStore, keys, trustProxy } =
     overrides.db &&
     overrides.devGuildHeader !== undefined &&
     overrides.objectStore &&
@@ -29,6 +30,7 @@ export async function compose(
           devGuildHeader: overrides.devGuildHeader,
           objectStore: overrides.objectStore,
           keys: overrides.keys,
+          trustProxy: false,
         }
       : await fromEnv(overrides)
   const clock = overrides.clock ?? new SystemClock()
@@ -43,11 +45,14 @@ export async function compose(
       overrides.identity ??
       new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
         clock,
+        keys,
         rpId: rp.WEBAUTHN_RP_ID,
         rpName: 'Guildhall',
         origin: rp.WEBAUTHN_ORIGIN,
       }),
     keys,
+    rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
+    trustProxy: overrides.trustProxy ?? trustProxy,
     secrets: overrides.secrets ?? new PgSecretStore(db, keys),
     notes: overrides.notes ?? new PgNoteStore(db, keys),
   }
@@ -56,7 +61,9 @@ export async function compose(
 
 async function fromEnv(
   overrides: Partial<AppDeps>
-): Promise<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys'>> {
+): Promise<
+  Required<Pick<AppDeps, 'db' | 'devGuildHeader' | 'objectStore' | 'keys' | 'trustProxy'>>
+> {
   const env = loadEnv()
   return {
     keys:
@@ -64,6 +71,7 @@ async function fromEnv(
       (await FileKeyProvider.open(env.KEY_FILE, { create: env.NODE_ENV !== 'production' })),
     db: overrides.db ?? createDb(env.APP_DATABASE_URL),
     devGuildHeader: overrides.devGuildHeader ?? env.DEV_GUILD_HEADER,
+    trustProxy: overrides.trustProxy ?? env.TRUST_PROXY,
     objectStore:
       overrides.objectStore ??
       new S3ObjectStore({
