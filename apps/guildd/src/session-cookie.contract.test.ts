@@ -208,14 +208,17 @@ describe('session cookie', () => {
 
 describe('session cookie review fixes', () => {
   test('cookie-authenticated requests keep the real socket address, not the shared unknown bucket', async () => {
+    // Its own database: rate buckets are durable rows keyed by client address, so buckets left by
+    // other files (or a rerun within the minute) on 127.0.0.1 would otherwise exhaust the budget.
     const limited = await createHarness({
       devGuildHeader: false,
+      isolatedDb: true,
       app: { rateLimits: DEFAULT_RATE_LIMITS },
     })
     try {
       const base = limited.listen().replace('ws:', 'http:')
-      const { guildId, key } = await found(harness)
-      const { cookie } = await signIn(harness, guildId, key)
+      const { guildId, key } = await found(limited)
+      const { cookie } = await signIn(limited, guildId, key)
       // stream-ticket: the unknown bucket allows 10 a minute, the client bucket 30.
       const statuses: number[] = []
       for (let i = 0; i < 14; i++) {
