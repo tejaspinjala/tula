@@ -160,10 +160,21 @@ export function createApp(deps: AppDeps): Hono {
       if (c.req.param('id') !== caller) {
         return c.json({ error: 'not_found' }, 404)
       }
-      if (!hub.hasRoom(caller)) {
+      // Reserve the slot before upgrading so simultaneous upgrades cannot exceed the cap.
+      const slot = hub.reserve(caller)
+      if (!slot) {
         return c.json({ error: 'too_many_streams' }, 429)
       }
-      await next()
+      c.set('streamSlot' as never, slot as never)
+      try {
+        await next()
+      } catch (error) {
+        slot()
+        throw error
+      }
+      if (c.res.status >= 400) {
+        slot()
+      }
     },
     upgradeWebSocket((c) => {
       const guild = c.req.param('id') ?? ''
@@ -174,6 +185,7 @@ export function createApp(deps: AppDeps): Hono {
         .safeParse(c.req.query('last_seq') ?? '0')
       const cursor = parsed.success ? parsed.data : 0
       let subscription: ReturnType<typeof hub.subscribe> | undefined
+      const slot = c.get('streamSlot' as never) as (() => void) | undefined
       return {
         onOpen: (_evt, ws) => {
           subscription = hub.subscribe(guild, cursor, {
@@ -182,6 +194,7 @@ export function createApp(deps: AppDeps): Hono {
               (ws.raw as { getBufferedAmount?: () => number })?.getBufferedAmount?.() ?? 0,
             close: (code, reason) => ws.close(code, reason),
           })
+          slot?.()
           const sub = subscription
           deps.db
             .withGuildStream(guild, (tx) => headSeq(tx))

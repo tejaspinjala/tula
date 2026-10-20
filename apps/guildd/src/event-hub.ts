@@ -50,6 +50,7 @@ export function createEventHub(db: Db, options: EventHubOptions = {}) {
   const maxPerGuild = options.maxSocketsPerGuild ?? 8
   const maxBuffered = options.maxBufferedBytes ?? 1024 * 1024
   const guilds = new Map<string, GuildState>()
+  const reserved = new Map<string, number>()
   let listening: Promise<{ unlisten: () => Promise<void> }> | undefined
   let timer: ReturnType<typeof setInterval> | undefined
 
@@ -59,6 +60,7 @@ export function createEventHub(db: Db, options: EventHubOptions = {}) {
         continue
       }
       if (sub.socket.bufferedAmount() > maxBuffered) {
+        sub.ready = false
         sub.socket.close(1013, 'consumer too slow')
         return
       }
@@ -117,8 +119,35 @@ export function createEventHub(db: Db, options: EventHubOptions = {}) {
   }
 
   return {
-    /** Whether the guild has room for another socket. */
-    hasRoom: (guild: string) => (guilds.get(guild)?.subs.size ?? 0) < maxPerGuild,
+    /**
+     * Synchronously takes one of the guild's socket slots ahead of the upgrade, or returns null
+     * when the guild is full. Call the returned release once the socket is subscribed or the
+     * upgrade is abandoned; it is idempotent and also fires on its own after 10 s.
+     */
+    reserve(guild: string): (() => void) | null {
+      const used = (guilds.get(guild)?.subs.size ?? 0) + (reserved.get(guild) ?? 0)
+      if (used >= maxPerGuild) {
+        return null
+      }
+      reserved.set(guild, (reserved.get(guild) ?? 0) + 1)
+      let released = false
+      const release = () => {
+        if (released) {
+          return
+        }
+        released = true
+        clearTimeout(expiry)
+        const left = (reserved.get(guild) ?? 1) - 1
+        if (left <= 0) {
+          reserved.delete(guild)
+        } else {
+          reserved.set(guild, left)
+        }
+      }
+      const expiry = setTimeout(release, 10_000)
+      expiry.unref?.()
+      return release
+    },
     /** Registers a socket whose last applied seq is `cursor`; delivery waits for `start()`. */
     subscribe(guild: string, cursor: number, socket: StreamSocket): Subscription {
       let state = guilds.get(guild)

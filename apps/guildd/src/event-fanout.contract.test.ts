@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { createApp, websocket } from './app'
 import { createDb, type Db } from './db/client'
+import { createEventHub } from './event-hub'
 import { appendEvent } from './events'
 import { createHarness } from './testing/harness'
 
@@ -18,11 +19,17 @@ const wsOpen = (url: string, guild: string) =>
   })
 
 /** An app over a Db that counts stream fetches, with the fallback poll effectively off. */
-function countingApp(extra: { maxSocketsPerGuild?: number } = {}) {
+function countingApp(
+  extra: { maxSocketsPerGuild?: number; eventPollMs?: number; maxSocketBufferBytes?: number } = {}
+) {
   const real = createDb(harness.appUrl)
-  const counts = { stream: 0 }
+  const counts = { stream: 0, http: 0 }
   const counting: Db = {
     ...real,
+    withGuild: (g, fn) => {
+      counts.http++
+      return real.withGuild(g, fn)
+    },
     withGuildStream: (g, fn) => {
       counts.stream++
       return real.withGuildStream(g, fn)
@@ -50,7 +57,7 @@ function countingApp(extra: { maxSocketsPerGuild?: number } = {}) {
 
 describe('event stream fan-out', () => {
   test('idle sockets beyond the HTTP pool size do not starve other routes', async () => {
-    const s = countingApp()
+    const s = countingApp({ eventPollMs: 50 })
     const sockets: WebSocket[] = []
     try {
       for (let g = 0; g < 3; g++) {
@@ -60,6 +67,10 @@ describe('event stream fan-out', () => {
         }
       }
       expect(sockets.length).toBeGreaterThan(10)
+      // Idle sockets must not touch the pool that serves HTTP, even across many fallback polls.
+      const httpBefore = s.counts.http
+      await Bun.sleep(300)
+      expect(s.counts.http - httpBefore).toBe(0)
       const started = performance.now()
       const health = await s.app.request('/health')
       const founded = await s.app.request('/guilds', {
@@ -127,6 +138,57 @@ describe('event stream fan-out', () => {
         ws.close()
       }
       await s.close()
+    }
+  })
+
+  test('simultaneous upgrades over the cap never admit more than the cap', async () => {
+    const s = countingApp({ maxSocketsPerGuild: 3 })
+    const id = await db.foundGuild({ name: 'Race', goal: 'g' })
+    const sockets: WebSocket[] = []
+    try {
+      const outcomes = await Promise.all(
+        Array.from(
+          { length: 10 },
+          () =>
+            new Promise<'open' | 'refused'>((resolve) => {
+              const ws = new WebSocket(`${s.base}/guilds/${id}/events`, {
+                headers: { 'x-guild-id': id },
+              } as never)
+              sockets.push(ws)
+              ws.onmessage = () => resolve('open')
+              ws.onerror = () => resolve('refused')
+            })
+        )
+      )
+      expect(outcomes.filter((o) => o === 'open').length).toBe(3)
+      expect(outcomes.filter((o) => o === 'refused').length).toBe(7)
+    } finally {
+      for (const ws of sockets) {
+        ws.close()
+      }
+      await s.close()
+    }
+  })
+
+  test('a slow consumer whose buffer exceeds the threshold is closed with 1013', async () => {
+    const hubDb = createDb(harness.appUrl)
+    const id = await db.foundGuild({ name: 'Slow', goal: 'g' })
+    const hub = createEventHub(hubDb, { pollMs: 600_000, maxBufferedBytes: 1000 })
+    const closed: Array<[number, string]> = []
+    const sent: string[] = []
+    const sub = hub.subscribe(id, 0, {
+      send: (d) => sent.push(d),
+      bufferedAmount: () => 5000,
+      close: (code, reason) => closed.push([code, reason]),
+    })
+    try {
+      sub.start()
+      await Bun.sleep(300)
+      expect(closed).toEqual([[1013, 'consumer too slow']])
+      expect(sent).toEqual([])
+    } finally {
+      sub.unsubscribe()
+      await hubDb.close()
     }
   })
 })
