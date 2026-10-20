@@ -229,7 +229,12 @@ export class MemorySealStore implements SealStore {
     }
   }
 
-  async markPosted(guildId: string, id: string, text: string): Promise<SealResult> {
+  async markPosted(
+    guildId: string,
+    id: string,
+    text: string,
+    auth: { reauthenticated: boolean }
+  ): Promise<SealResult> {
     const hash = await hashProposal(text)
     const stored = this.seals(guildId).get(id)
     if (!stored) {
@@ -239,6 +244,9 @@ export class MemorySealStore implements SealStore {
     const usable = seal.status === 'approved' || seal.status === 'released' || seal.stale
     if (!usable) {
       return { ok: false, reason: 'not_approved' }
+    }
+    if (seal.stale && !auth.reauthenticated) {
+      return { ok: false, reason: 'not_authorised' }
     }
     if (seal.actionHash !== hash) {
       return { ok: false, reason: 'hash_mismatch' }

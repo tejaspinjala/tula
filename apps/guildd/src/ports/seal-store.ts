@@ -119,9 +119,15 @@ export interface SealStore {
   releaseStale(guildId: string, id: string): Promise<SealResult>
   /**
    * Records `post.published_manually` for exactly `text` and consumes the Seal. Allowed from
-   * approved, released, or a stale reservation (Guild Master resolution), never a live one.
+   * approved, released, or a stale reservation (Guild Master resolution), never a live one. A stale reservation is
+   * decided under the row lock: without `auth.reauthenticated` it is refused `not_authorised`.
    */
-  markPosted(guildId: string, id: string, text: string): Promise<SealResult>
+  markPosted(
+    guildId: string,
+    id: string,
+    text: string,
+    auth: { reauthenticated: boolean }
+  ): Promise<SealResult>
   /** Persists `expired` on up to 100 lapsed requested Seals (emitting `seal.expired`); returns how many. */
   expireDue(guildId: string): Promise<number>
 }

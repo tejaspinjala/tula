@@ -106,8 +106,13 @@ export class SealEngine {
   }
 
   /** The Guild Master posted exactly `text` by hand: emits `post.published_manually`. */
-  markPosted(guildId: string, id: string, text: string): Promise<SealResult> {
-    return this.store.markPosted(guildId, id, text)
+  markPosted(
+    guildId: string,
+    id: string,
+    text: string,
+    auth: { reauthenticated: boolean }
+  ): Promise<SealResult> {
+    return this.store.markPosted(guildId, id, text, auth)
   }
 
   /** One Seal, or null. */

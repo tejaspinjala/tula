@@ -201,6 +201,44 @@ describe('Seal inbox over HTTP', () => {
     expect(sealBody.parse(await posted.json()).status).toBe('consumed')
   })
 
+  test("guild B's session and proof cannot resolve guild A's stale Seal", async () => {
+    const a = await signedIn()
+    const b = await signedIn()
+    const seal = await a.request('post me')
+    await a.act(seal.id, 'approve', { actionHash: seal.actionHash })
+    await harness.adapters.seals.reserve(a.guildId, seal.id, 'post me')
+    harness.adapters.clock.advance(SEAL_RESERVATION_MS)
+    const attempts: Array<[string, string, unknown]> = [
+      [`/guilds/${a.guildId}/seals/${seal.id}/posted`, 'posted', { text: 'post me' }],
+      [`/guilds/${a.guildId}/seals/${seal.id}/release-stale`, 'release-stale', {}],
+      [`/guilds/${b.guildId}/seals/${seal.id}/posted`, 'posted', { text: 'post me' }],
+      [`/guilds/${b.guildId}/seals/${seal.id}/release-stale`, 'release-stale', {}],
+    ]
+    for (const [path, , body] of attempts) {
+      const res = await post(path, body, { ...b.auth, 'x-reauth-proof': await b.proof() })
+      expect(res.status).toBe(404)
+    }
+    expect(await harness.adapters.seals.get(a.guildId, seal.id)).toMatchObject({
+      status: 'reserved',
+      stale: true,
+    })
+  })
+
+  test('a stale Seal is refused without a proof even when the check races the lapse', async () => {
+    const who = await signedIn()
+    const seal = await who.request('post me')
+    await who.act(seal.id, 'approve', { actionHash: seal.actionHash })
+    await harness.adapters.seals.reserve(who.guildId, seal.id, 'post me')
+    harness.adapters.clock.advance(SEAL_RESERVATION_MS)
+    const res = await post(
+      `/guilds/${who.guildId}/seals/${seal.id}/posted`,
+      { text: 'post me' },
+      who.auth
+    )
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'reauth_required' })
+  })
+
   test('another guild cannot see or stamp a Seal', async () => {
     await expectGuildIsolation(devHarness, {
       build: (caller, target) => [`/guilds/${target}/seals`, { headers: { 'x-guild-id': caller } }],

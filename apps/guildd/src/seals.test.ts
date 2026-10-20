@@ -89,7 +89,11 @@ describe('SealEngine', () => {
       ok: false,
       reason: 'hash_mismatch',
     })
-    expect(await seals.markPosted(guild, seal.id, 'hello, but different')).toEqual({
+    expect(
+      await seals.markPosted(guild, seal.id, 'hello, but different', {
+        reauthenticated: false,
+      })
+    ).toEqual({
       ok: false,
       reason: 'hash_mismatch',
     })

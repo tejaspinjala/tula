@@ -292,7 +292,12 @@ export class PgSealStore implements SealStore {
     return seal
   }
 
-  async markPosted(guildId: string, id: string, text: string): Promise<SealResult> {
+  async markPosted(
+    guildId: string,
+    id: string,
+    text: string,
+    auth: { reauthenticated: boolean }
+  ): Promise<SealResult> {
     const hash = await hashProposal(text)
     const now = this.clock.now()
     return this.db.withGuild(guildId, async (tx) => {
@@ -304,6 +309,9 @@ export class PgSealStore implements SealStore {
       const usable = current.status === 'approved' || current.status === 'released' || current.stale
       if (!usable) {
         return { ok: false, reason: 'not_approved' }
+      }
+      if (current.stale && !auth.reauthenticated) {
+        return { ok: false, reason: 'not_authorised' }
       }
       if (current.actionHash !== hash) {
         return { ok: false, reason: 'hash_mismatch' }

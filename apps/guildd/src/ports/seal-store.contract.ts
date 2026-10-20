@@ -10,6 +10,8 @@ export interface SealStoreFixture {
 }
 
 const TEXT = 'Ship the launch post: hello world'
+const NO_AUTH = { reauthenticated: false }
+const AUTH = { reauthenticated: true }
 
 async function approve(store: SealStore, guild: string, id: string) {
   const seal = await store.get(guild, id)
@@ -164,7 +166,7 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       await approve(store, g, seal.id)
       const other = 'a different payload'
       expect(await store.reserve(g, seal.id, other)).toEqual({ ok: false, reason: 'hash_mismatch' })
-      expect(await store.markPosted(g, seal.id, other)).toEqual({
+      expect(await store.markPosted(g, seal.id, other, NO_AUTH)).toEqual({
         ok: false,
         reason: 'hash_mismatch',
       })
@@ -267,12 +269,17 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       await approve(store, g, seal.id)
       await reserveToken(store, g, seal.id)
       expect(await store.releaseStale(g, seal.id)).toEqual({ ok: false, reason: 'not_stale' })
-      expect(await store.markPosted(g, seal.id, TEXT)).toEqual({
+      expect(await store.markPosted(g, seal.id, TEXT, AUTH)).toEqual({
         ok: false,
         reason: 'not_approved',
       })
       clock.advance(SEAL_RESERVATION_MS)
-      expect(await store.markPosted(g, seal.id, TEXT)).toMatchObject({
+      expect(await store.markPosted(g, seal.id, TEXT, NO_AUTH)).toEqual({
+        ok: false,
+        reason: 'not_authorised',
+      })
+      expect((await store.get(g, seal.id))?.status).toBe('reserved')
+      expect(await store.markPosted(g, seal.id, TEXT, AUTH)).toMatchObject({
         ok: true,
         seal: { status: 'consumed' },
       })
@@ -292,14 +299,14 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       const { store, newGuild } = await make()
       const g = await newGuild()
       const { seal } = await seed(store, g)
-      expect(await store.markPosted(g, seal.id, TEXT)).toEqual({
+      expect(await store.markPosted(g, seal.id, TEXT, NO_AUTH)).toEqual({
         ok: false,
         reason: 'not_approved',
       })
       await approve(store, g, seal.id)
       const posts = await Promise.all([
-        store.markPosted(g, seal.id, TEXT),
-        store.markPosted(g, seal.id, TEXT),
+        store.markPosted(g, seal.id, TEXT, NO_AUTH),
+        store.markPosted(g, seal.id, TEXT, NO_AUTH),
       ])
       expect(posts.filter((r) => r.ok)).toHaveLength(1)
       expect((await store.get(g, seal.id))?.status).toBe('consumed')

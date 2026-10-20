@@ -7,6 +7,8 @@
 alter table seals add column reservation_token_hash text;
 
 -- Not validated against rows written before this migration; every new or updated row is checked.
+-- `not valid` leaves any pre-0022 reserved row tokenless: it fails closed (no token can match, so
+-- only release-stale or posted, both Guild Master re-auth actions, resolves it).
 alter table seals add constraint seals_reservation_token
   check ((status = 'reserved') = (reservation_token_hash is not null)) not valid;
 

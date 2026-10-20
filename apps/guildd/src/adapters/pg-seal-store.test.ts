@@ -46,7 +46,7 @@ async function setup() {
 test('seal events carry ids and hashes only, never the text or evidence', async () => {
   const { guild, store, seal, hash } = await setup()
   await store.decide(guild, seal.id, { verdict: 'approved', expectedHash: hash, note: 'private' })
-  await store.markPosted(guild, seal.id, 'secret-proposal-text')
+  await store.markPosted(guild, seal.id, 'secret-proposal-text', { reauthenticated: false })
   const events = await owner`
     select type, payload from events where guild_id = ${guild} and type ~ '^(seal|post)\\.' order by seq`
   expect(events.map((e) => e.type)).toEqual([
