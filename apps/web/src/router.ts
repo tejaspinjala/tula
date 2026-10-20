@@ -68,7 +68,11 @@ export function useRoute(): { page: PageId | null; navigate: (path: string) => v
     return () => window.removeEventListener('popstate', sync)
   }, [])
   const navigate = useCallback((path: string) => {
-    window.history.pushState({}, '', path)
+    // Closing twice (Esc and a button) must not stack identical history entries.
+    const here = `${window.location.pathname}${window.location.search}`
+    if (path !== here) {
+      window.history.pushState({}, '', path)
+    }
     setPage(pageFor(window.location.pathname, window.location.search))
   }, [])
   return { page, navigate }
