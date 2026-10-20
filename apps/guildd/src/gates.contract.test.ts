@@ -4,7 +4,9 @@ import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
-const harness = await createHarness({ devGuildHeader: true })
+/** Member ids allowed to bar every guild; tests add the operator they sign in as. */
+const operators: string[] = []
+const harness = await createHarness({ devGuildHeader: true, app: { platformOperators: operators } })
 afterAll(async () => {
   await harness.close()
 })
@@ -59,7 +61,8 @@ async function signedIn() {
     })
     return proofBody.parse(await done.json()).proof
   }
-  return { guildId, auth, proof }
+  const session = await harness.adapters.identity.resolveSession(token)
+  return { guildId, auth, proof, memberId: session?.memberId ?? '' }
 }
 
 const lease = { leaseMs: 60_000, maxActive: 10 }
@@ -144,6 +147,7 @@ describe('Bar the Gates routes', () => {
   test('a global bar stops every guild, and lifting it needs re-authentication', async () => {
     const a = await signedIn()
     const b = await signedIn()
+    operators.push(a.memberId)
     await post(b.guildId)
     try {
       const res = await send('POST', '/gates/bar', a.auth)
@@ -159,6 +163,43 @@ describe('Bar the Gates routes', () => {
       await send('POST', '/gates/lift', { ...a.auth, 'x-reauth-proof': await a.proof() })
     }
     expect(await harness.adapters.quests.claim(b.guildId, lease)).not.toBeNull()
+  })
+
+  test('only a platform operator can bar or lift every guild, not any Guild Master', async () => {
+    const op = await signedIn()
+    const other = await signedIn()
+    operators.push(op.memberId)
+    const proofOf = async (who: typeof op) => ({ ...who.auth, 'x-reauth-proof': await who.proof() })
+    try {
+      expect((await send('POST', '/gates/bar', other.auth)).status).toBe(403)
+      expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
+      expect((await send('POST', '/gates/bar', op.auth)).status).toBe(201)
+      expect((await send('POST', '/gates/lift', await proofOf(other))).status).toBe(403)
+      expect(await harness.adapters.gates.status(other.guildId)).toEqual({
+        guild: false,
+        global: true,
+      })
+    } finally {
+      await send('POST', '/gates/lift', await proofOf(op))
+      operators.splice(operators.indexOf(op.memberId), 1)
+    }
+    expect(await harness.adapters.gates.status(other.guildId)).toEqual({
+      guild: false,
+      global: false,
+    })
+  })
+
+  test('with no platform operator configured, the global routes refuse everyone', async () => {
+    const who = await signedIn()
+    expect((await send('POST', '/gates/bar', who.auth)).status).toBe(403)
+    expect(
+      (await send('POST', '/gates/lift', { ...who.auth, 'x-reauth-proof': await who.proof() }))
+        .status
+    ).toBe(403)
+    expect(await harness.adapters.gates.status(who.guildId)).toEqual({
+      guild: false,
+      global: false,
+    })
   })
 
   test("one guild's session cannot bar or lift another guild", async () => {

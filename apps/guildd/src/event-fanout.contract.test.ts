@@ -63,6 +63,7 @@ function countingApp(
     gateway: harness.adapters.gateway,
     gates: harness.adapters.gates,
     sandboxes: harness.adapters.sandboxes,
+    platformOperators: [],
     keys,
     devGuildHeader: true,
     eventPollMs: 600_000,

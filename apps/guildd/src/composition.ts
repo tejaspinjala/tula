@@ -29,7 +29,7 @@ import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
-import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
+import { loadEnv, loadPlatformOperators, loadVapidEnv, loadWebauthnEnv } from './env'
 import { Gates } from './gates'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
@@ -155,6 +155,7 @@ export async function compose(
     routingLog: overrides.routingLog ?? new PgRoutingLog(db),
     gateway,
     sandboxes,
+    platformOperators: overrides.platformOperators ?? loadPlatformOperators(),
     gates:
       overrides.gates ??
       new Gates({

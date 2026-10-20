@@ -186,9 +186,23 @@ export function loadVapidEnv(source: Record<string, string | undefined> = proces
   return publicKey && privateKey && subject ? { publicKey, privateKey, subject } : undefined
 }
 
-/** The member ids allowed to bar or lift every guild at once (`PLATFORM_OPERATORS`, comma-separated uuids). */
+const operatorsSchema = z
+  .string()
+  .default('')
+  .transform((raw) =>
+    raw
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id !== '')
+  )
+  .pipe(z.array(z.uuid()))
+
+/**
+ * The member ids allowed to bar or lift every guild at once (`PLATFORM_OPERATORS`, comma-separated
+ * uuids; unset or empty means nobody). Throws at boot on anything that is not a uuid.
+ */
 export function loadPlatformOperators(
-  _source: Record<string, string | undefined> = process.env
+  source: Record<string, string | undefined> = process.env
 ): string[] {
-  return ['unset']
+  return operatorsSchema.parse(source.PLATFORM_OPERATORS)
 }

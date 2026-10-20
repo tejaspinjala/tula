@@ -89,6 +89,8 @@ export interface AppDeps {
   gateway: ModelGateway
   /** Composition-only: the model provider the gateway wraps (Anthropic API key by default). */
   modelProvider?: ModelProvider
+  /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
+  platformOperators: readonly string[]
   /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
   gates: Gates
   /** The isolated worker that runs Quest code; Bar the Gates kills its sandboxes. */
