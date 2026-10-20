@@ -39,6 +39,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
   'events-history': { client: NO_LIMIT, guild: NO_LIMIT },
   'missives-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'session-check': { client: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */

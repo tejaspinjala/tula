@@ -482,6 +482,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/workflows/:wid/validate', limited('workflow-write'))
   app.post('/guilds/:id/workflows/:wid/versions/:version/confirm', limited('workflow-write'))
   app.post('/guilds/:id/workflows/:wid/runs', limited('workflow-run'))
+  app.get('/session', limited('session-check'))
+  app.post('/session/logout', limited('session-check'))
   app.post('/session/reauth/begin', limited('reauth'))
   app.post('/session/reauth/finish', limited('reauth'))
 
