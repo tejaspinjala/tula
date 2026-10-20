@@ -32,18 +32,17 @@ export interface ResearchStore {
   release(guildId: string, callId: string): Promise<void>
   /** The slots a Quest holds. */
   count(guildId: string, questId: string): Promise<number>
-  /** Records the Treasury spend a slot reserved, so a sweep can release it. Idempotent. */
-  attachSpend(guildId: string, callId: string, spendId: string): Promise<void>
   /** Marks the call over (its spend settled or given back, or none was needed). Idempotent. */
   settle(guildId: string, callId: string): Promise<void>
   /**
-   * Under the guild's sweep lock, frees every unsettled slot made before `before`, calling
-   * `releaseSpend` for each one's reserved spend first. Returns how many slots it freed.
-   * Idempotent: a freed slot is never visited again, and `releaseSpend` must itself be idempotent.
+   * The ids of up to `limit` slots still unsettled and made before `before`, oldest first: calls a
+   * crash may have left half done. A caller that finds another pass running gets an empty list
+   * (the work is idempotent, so skipping is safe).
    */
-  sweep(
-    guildId: string,
-    before: Date,
-    releaseSpend: (spendId: string) => Promise<void>
-  ): Promise<number>
+  stale(guildId: string, before: Date, limit: number): Promise<string[]>
+  /**
+   * Ends a stale slot: `freed` also frees it from the cap, `settled` keeps it (the call had in
+   * fact been charged). Idempotent.
+   */
+  close(guildId: string, callId: string, outcome: 'freed' | 'settled'): Promise<void>
 }

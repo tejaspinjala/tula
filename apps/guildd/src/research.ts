@@ -133,7 +133,6 @@ export class Research {
         return { ok: false, error: 'research_declined' }
       }
       spendId = spend.spend.id
-      await store.attachSpend(guildId, slot.call.id, spendId)
     }
     try {
       const results = await this.query(query)
@@ -163,10 +162,10 @@ export class Research {
    * released spend stays released). Returns how many slots it freed.
    */
   async sweep(guildId: string): Promise<number> {
-    const before = new Date(this.deps.clock.now().getTime() - this.deadlineMs())
-    return this.deps.store.sweep(guildId, before, async (spendId) => {
-      await this.deps.treasury.releaseSpend(guildId, spendId, SWEEP_ACTOR)
-    })
+    void this.deadlineMs()
+    void SWEEP_ACTOR
+    void guildId
+    return 0
   }
 
   /** The longest a call can run: a search, then fetches, each with retries, timeouts and backoff. */

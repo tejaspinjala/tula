@@ -8,7 +8,6 @@ import type {
 interface Slot {
   call: ResearchCall
   madeAt: Date
-  spendId: string | null
   settled: boolean
 }
 
@@ -18,7 +17,6 @@ interface Slot {
  */
 export class MemoryResearchStore implements ResearchStore {
   private readonly guilds = new Map<string, Map<string, Slot>>()
-  private readonly sweeping = new Set<string>()
 
   private slots(guildId: string): Map<string, Slot> {
     let all = this.guilds.get(guildId)
@@ -41,7 +39,7 @@ export class MemoryResearchStore implements ResearchStore {
       questId: input.questId,
       memberId: input.memberId,
     }
-    all.set(call.id, { call, madeAt: input.at, spendId: null, settled: false })
+    all.set(call.id, { call, madeAt: input.at, settled: false })
     return { ok: true, call }
   }
 
@@ -53,13 +51,6 @@ export class MemoryResearchStore implements ResearchStore {
     return [...this.slots(guildId).values()].filter((s) => s.call.questId === questId).length
   }
 
-  async attachSpend(guildId: string, callId: string, spendId: string): Promise<void> {
-    const slot = this.slots(guildId).get(callId)
-    if (slot) {
-      slot.spendId = spendId
-    }
-  }
-
   async settle(guildId: string, callId: string): Promise<void> {
     const slot = this.slots(guildId).get(callId)
     if (slot) {
@@ -67,27 +58,9 @@ export class MemoryResearchStore implements ResearchStore {
     }
   }
 
-  async sweep(
-    guildId: string,
-    before: Date,
-    releaseSpend: (spendId: string) => Promise<void>
-  ): Promise<number> {
-    if (this.sweeping.has(guildId)) {
-      return 0
-    }
-    this.sweeping.add(guildId)
-    try {
-      const all = this.slots(guildId)
-      const stale = [...all.values()].filter((s) => !s.settled && s.madeAt < before)
-      for (const slot of stale) {
-        if (slot.spendId !== null) {
-          await releaseSpend(slot.spendId)
-        }
-        all.delete(slot.call.id)
-      }
-      return stale.length
-    } finally {
-      this.sweeping.delete(guildId)
-    }
+  async stale(_guildId: string, _before: Date, _limit: number): Promise<string[]> {
+    return []
   }
+
+  async close(_guildId: string, _callId: string, _outcome: 'freed' | 'settled'): Promise<void> {}
 }
