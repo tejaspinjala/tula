@@ -347,7 +347,7 @@ ul[aria-label] {
 .bag-frame {
   max-height: calc(100dvh - var(--px) * 8);
 }
-.bag-frame .px-frame-in {
+.bag-frame > .px-frame-ring > .px-frame-in {
   display: flex;
   flex-direction: column;
   max-height: calc(100dvh - var(--px) * 16);
