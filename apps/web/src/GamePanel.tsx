@@ -425,6 +425,7 @@ export function GamePanel({
         fetcher={fetch}
         state={talk}
         dispatch={dispatchTalk}
+        onDismiss={() => setTimeout(focusWorld, 0)}
         scene={scene}
         quests={quests}
         navigate={navigate}

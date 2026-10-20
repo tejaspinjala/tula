@@ -72,13 +72,13 @@ export function DialogueBox({ speaker, lines, onDone, cps = 40 }: DialogueBoxPro
       <button
         type="button"
         className="px-dialogue"
-        aria-label={`${speaker} is speaking. Continue`}
+        aria-label={`${speaker}: ${line}. Continue`}
         onClick={advance}
         onKeyDown={onKeyDown}
       >
         <span className="px-dialogue-speaker" aria-hidden="true">
           {speaker}
-        </span>
+        </span>{' '}
         <span className="px-dialogue-text" aria-hidden="true">
           <span className="px-dialogue-shown">{line.slice(0, count)}</span>
           <span className="px-dialogue-rest">{line.slice(count)}</span>

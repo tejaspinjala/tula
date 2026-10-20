@@ -53,9 +53,7 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
     ? Math.round((treasury.limits.dailyCapCents - treasury.spentTodayCents) / 100)
     : 0
   const sealLabel =
-    waiting === null
-      ? 'Seals'
-      : `Seals: ${waiting.count === 0 ? 'none' : `${waiting.count}${waiting.more ? '+' : ''}`} waiting`
+    waiting === null ? 'Seals' : `Seals ${waiting.count}${waiting.more ? '+' : ''} waiting`
 
   return (
     <header className="hud">

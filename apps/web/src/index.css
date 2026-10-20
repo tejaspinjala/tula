@@ -102,6 +102,8 @@ textarea {
   padding: var(--space-2) var(--space-3);
   min-height: var(--touch);
   box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
 }
 
 input[type="range"] {
@@ -116,8 +118,7 @@ input[type="radio"] {
 }
 
 /* Buttons: raised pixel buttons that sink into their shadow when pressed. */
-button,
-.btn {
+button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -136,14 +137,12 @@ button,
   box-sizing: border-box;
 }
 
-button:hover:not(:disabled),
-.btn:hover {
+button:hover:not(:disabled) {
   background: var(--px-wood-100);
   color: var(--px-on-hover);
 }
 
-button:active:not(:disabled),
-.btn:active {
+button:active:not(:disabled) {
   transform: translateY(calc(var(--px) * 2));
   box-shadow: none;
 }
@@ -155,30 +154,10 @@ button:disabled {
   box-shadow: none;
 }
 
-.btn-primary,
-.btn.btn-primary {
-  background: var(--px-gold-500);
-  color: var(--px-on-gold);
-}
-
-.btn-primary:hover,
-.btn.btn-primary:hover {
-  background: var(--px-wood-100);
-  color: var(--px-on-hover);
-}
-
-.btn-danger {
-  background: var(--danger-solid);
-  color: var(--px-on-danger);
-}
-
-.btn-danger:hover {
-  background: var(--px-danger-400);
-  color: var(--px-on-hover);
-}
-
 label {
   font-weight: 500;
+  max-width: 100%;
+  min-width: 0;
 }
 
 summary {
@@ -189,59 +168,11 @@ summary {
 }
 
 /* Cards, titles and text helpers. */
-.card {
-  background: var(--surface);
-  border: calc(var(--px) * 2) solid var(--border);
-  padding: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-.card-title {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  margin: 0;
-}
-
-.sub-title {
-  font-size: var(--text-base);
-  font-weight: 700;
-  margin: var(--space-6) 0 0;
-}
-
-.view-title {
-  font-family: var(--font-serif);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  margin: 0;
-}
-
-.item {
-  background: var(--surface-2);
-  border: calc(var(--px) * 2) solid var(--border);
-  padding: var(--space-3);
-  list-style: none;
-}
-
-.item + .item {
-  margin-top: var(--space-2);
-}
-
 ul[aria-label] {
   padding: 0;
   margin: 0;
 }
 
-.column-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  margin: 0;
-}
-
-/* Guild Hall (the Phaser canvas): sized by classes only, since the CSP blocks inline styles. */
-.world {
-  position: absolute;
-  inset: 0;
-}
 .game-frame {
   position: absolute;
   inset: 0;
@@ -569,19 +500,6 @@ thead th {
 }
 
 /* Quest Board: stacked on a phone, five columns on a wide screen. */
-.board {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-/* App shell: header on top, tab bar at the foot of a phone, a left rail on desktop. */
-.shell {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-}
 .shell:focus {
   outline: none;
 }
@@ -619,13 +537,16 @@ thead th {
   overflow-x: auto;
 }
 
+/* Tables wrap inside their cells, so even a 320 px screen needs no sideways scroll (which a
+   keyboard could not reach). */
 .table-scroll table {
-  min-width: 28rem;
+  width: 100%;
+  table-layout: auto;
 }
 
-/* Headings never break mid-word; the table scrolls instead. */
-.table-scroll th {
-  white-space: nowrap;
+.table-scroll th,
+.table-scroll td {
+  overflow-wrap: anywhere;
 }
 
 /* A tab never shrinks to nothing, so with the More menu open the tab bar wraps onto its own row
@@ -651,12 +572,6 @@ thead th {
 
 .skip-link:focus {
   transform: none;
-}
-
-@media (min-width: 48rem) {
-  .board {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 64rem) {
@@ -741,35 +656,6 @@ thead th {
   }
 }
 
-/* A disclosure: a bordered summary with a turning chevron. */
-.disclosure {
-  margin-top: var(--space-3);
-  border: calc(var(--px) * 2) solid var(--border);
-  padding: 0 var(--space-3);
-}
-
-.disclosure > summary {
-  list-style: none;
-  font-weight: 600;
-  gap: var(--space-2);
-}
-
-.disclosure > summary::-webkit-details-marker {
-  display: none;
-}
-
-.disclosure > summary::before {
-  content: "\25B8";
-}
-
-.disclosure[open] > summary::before {
-  transform: rotate(90deg);
-}
-
-.disclosure > :not(summary) {
-  margin-bottom: var(--space-3);
-}
-
 .guild-id {
   display: inline-flex;
   flex-wrap: wrap;
@@ -802,8 +688,4 @@ ul.evidence-list {
   border: calc(var(--px) * 2) solid currentcolor;
   font-family: var(--font-label);
   text-transform: uppercase;
-}
-
-.card {
-  box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }

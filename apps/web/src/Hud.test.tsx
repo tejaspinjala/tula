@@ -101,7 +101,7 @@ test('the Seal badge counts the Seals waiting and opens the Seals page', async (
   )
   await tick(20)
   const badge = [...m.host.querySelectorAll('button')].find(
-    (b) => b.getAttribute('aria-label') === 'Seals: 3 waiting'
+    (b) => b.getAttribute('aria-label') === 'Seals 3 waiting'
   )
   expect(badge?.textContent).toContain('3')
   await click(badge as HTMLElement)
@@ -114,7 +114,7 @@ test('with no Seal waiting the badge says so', async () => {
   waiting = 0
   const m = await mount(hud())
   await tick(20)
-  expect(m.host.querySelector('[aria-label="Seals: none waiting"]')).not.toBeNull()
+  expect(m.host.querySelector('[aria-label="Seals 0 waiting"]')).not.toBeNull()
   await m.unmount()
 })
 

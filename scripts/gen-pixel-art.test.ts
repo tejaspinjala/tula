@@ -25,3 +25,9 @@ test('the committed art is exactly what the generator draws', async () => {
     expect(Buffer.from(committed).equals(Buffer.from(png))).toBe(true)
   }
 })
+
+test('it draws the title Hall silhouette as a 96 by 64 PNG', async () => {
+  const art = await renderArt()
+  const hall = art.get('title-hall.png')
+  expect(hall && size(hall)).toEqual({ width: 96, height: 64 })
+})

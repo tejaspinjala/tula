@@ -7,20 +7,20 @@ mod settings;
 
 use std::path::PathBuf;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const CHANGE_ADDRESS: &str = "change-server-address";
 const TOGGLE_FULLSCREEN: &str = "toggle-fullscreen";
 
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("settings.json"))
 }
 
-fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
+fn main_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     app.get_webview_window("main")
 }
 
-fn open_window(app: &AppHandle, target: WebviewUrl) -> tauri::Result<()> {
+fn open_window<R: Runtime>(app: &AppHandle<R>, target: WebviewUrl) -> tauri::Result<()> {
     if let Some(window) = main_window(app) {
         let _ = window.close();
     }
@@ -43,7 +43,7 @@ fn open_server_or_prompt(app: &AppHandle) -> tauri::Result<()> {
 
 /// Called by the local first-run page: validates, stores and opens the address.
 #[tauri::command]
-fn set_server_url(app: AppHandle, address: String) -> Result<(), String> {
+fn set_server_url<R: Runtime>(app: AppHandle<R>, address: String) -> Result<(), String> {
     let path = settings_path(&app)?;
     let url = settings::save(&path, &address)?;
     // Defer: the calling window is the one being replaced.
@@ -52,6 +52,11 @@ fn set_server_url(app: AppHandle, address: String) -> Result<(), String> {
         let _ = open_window(&handle, WebviewUrl::External(url));
     });
     Ok(())
+}
+
+/// The one embedded app context (the macro may expand only once per crate).
+fn context<R: Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
 }
 
 fn main() {
@@ -95,6 +100,82 @@ fn main() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running Guildhall desktop");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::test::{get_ipc_response, mock_builder, INVOKE_KEY};
+    use tauri::webview::InvokeRequest;
+
+    fn call(origin: &str) -> Result<tauri::ipc::InvokeResponseBody, serde_json::Value> {
+        let app = mock_builder()
+            .invoke_handler(tauri::generate_handler![set_server_url])
+            .build(context())
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(
+            &app,
+            "main",
+            WebviewUrl::External(origin.parse().unwrap()),
+        )
+        .build()
+        .unwrap();
+        get_ipc_response(
+            &webview,
+            InvokeRequest {
+                cmd: "set_server_url".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: origin.parse().unwrap(),
+                body: InvokeBody::Json(serde_json::json!({ "address": "" })),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn a_remote_origin_may_not_call_set_server_url() {
+        let err = call("https://evil.example.com/").unwrap_err();
+        assert!(err.to_string().contains("not allowed"), "{err}");
+    }
+
+    #[test]
+    fn set_server_url_is_granted_only_to_a_local_capability() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let mut granted = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            let capability: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let grants = capability["permissions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p == "allow-set-server-url");
+            if grants {
+                granted += 1;
+                assert_eq!(capability["local"], true, "must be a local capability");
+                assert!(capability.get("remote").is_none(), "must have no remote urls");
+            }
+        }
+        assert_eq!(granted, 1, "exactly one capability grants set_server_url");
+    }
+
+    #[test]
+    fn pages_get_no_global_tauri_object_and_a_strict_csp() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_ne!(conf["app"]["withGlobalTauri"], true);
+        assert_eq!(conf["app"]["security"]["csp"]["default-src"], "'self'");
+    }
+
+    #[test]
+    fn the_local_page_may_call_set_server_url() {
+        // Reaches the command (which rejects the empty address) instead of the ACL.
+        let err = call("tauri://localhost/index.html").unwrap_err();
+        assert!(!err.to_string().contains("not allowed"), "{err}");
+    }
 }

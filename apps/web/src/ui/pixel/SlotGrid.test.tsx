@@ -85,7 +85,9 @@ test('with a dragType every slot is draggable and carries its id', async () => {
   )
   const slot = m.host.querySelector<HTMLElement>('[role="option"]')
   expect(slot?.getAttribute('draggable')).toBe('true')
-  expect(slot?.querySelector('.px-slot-glyph')?.textContent).toBe('HALL')
+  // The glyph is drawn from an attribute, so the option's text is its name only (label-in-name).
+  expect(slot?.querySelector('.px-slot-glyph')?.getAttribute('data-glyph')).toBe('HALL')
+  expect(slot?.textContent).toBe('')
   const data = new DataTransfer()
   const event = new Event('dragstart', { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'dataTransfer', { value: data })

@@ -4,6 +4,7 @@ import { loadGates } from '../gates'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { loadQuests } from '../quests'
 import { loadTripwires } from '../tripwires'
+import { WorkSection } from '../WorkSection'
 import {
   type ConfigIssue,
   confirmVersion,
@@ -119,12 +120,9 @@ export function BuilderPanel({
 
   if (!draft || !saved) {
     return (
-      <section aria-labelledby="builder-heading" className="card">
-        <h2 id="builder-heading" className="card-title">
-          Guild builder
-        </h2>
-        {failed ? <p role="alert">{failed}</p> : <p className="muted">Loading...</p>}
-      </section>
+      <WorkSection id="builder" title="Guild builder">
+        {failed ? <p role="alert">{failed}</p> : <p>Loading...</p>}
+      </WorkSection>
     )
   }
 

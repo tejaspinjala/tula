@@ -44,7 +44,10 @@ pub fn save(path: &Path, input: &str) -> Result<Url, String> {
     }
     let body = serde_json::to_string_pretty(&Settings { server_url: url.to_string() })
         .map_err(|e| e.to_string())?;
-    std::fs::write(path, body).map_err(|e| e.to_string())?;
+    // Write a sibling temp file then rename, so a crash never leaves a truncated settings file.
+    let temp = path.with_extension("json.tmp");
+    std::fs::write(&temp, body).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp, path).map_err(|e| e.to_string())?;
     Ok(url)
 }
 
@@ -64,6 +67,19 @@ mod tests {
     fn plain_http_is_refused_except_for_localhost() {
         assert!(parse_server_url("http://guild.example.com").is_err());
         assert!(parse_server_url("http://localhost:8832").is_ok());
+    }
+
+    #[test]
+    fn a_truncated_file_loads_as_first_run_and_save_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("guildhall-desktop-trunc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        std::fs::write(&file, "{\"serverUrl\": \"https://gui").unwrap();
+        assert!(load(&file).is_none());
+        save(&file, "https://guild.example.com").unwrap();
+        assert_eq!(load(&file).unwrap().as_str(), "https://guild.example.com/");
+        assert!(!dir.join("settings.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

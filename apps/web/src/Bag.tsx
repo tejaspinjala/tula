@@ -19,6 +19,7 @@ import { TreasuryPanel } from './TreasuryPanel'
 import { TripwirePanel } from './TripwirePanel'
 import { CursorMenu, Frame, PixelButton, ThemeControls } from './ui/pixel'
 import { VaultPanel } from './VaultPanel'
+import { FlatWorkContext } from './WorkSection'
 import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 /** Props of {@link Bag}. */
@@ -157,8 +158,16 @@ export function Bag({
     wasVisible.current = visible
   }, [visible])
 
+  const heading = useRef<HTMLHeadingElement>(null)
   const title = hall ? 'Hall tools' : (BAG_PAGES.find((p) => p.id === page)?.label ?? 'Bag')
   const inMenu = page === null && !hall
+
+  // Choosing a page replaces the menu the cursor was on: keyboard focus follows to the page title.
+  useEffect(() => {
+    if (visible && !inMenu) {
+      heading.current?.focus()
+    }
+  }, [visible, inMenu])
 
   const select = (id: string) => {
     if (id === SIGN_OUT) {
@@ -196,7 +205,12 @@ export function Bag({
     >
       <Frame variant={inMenu ? 'dialog' : 'wood'} className="bag-frame">
         <div className="bag-head">
-          <h2 id={page ? `${page}-title` : 'bag-title'} className="bag-title">
+          <h2
+            id={page ? `${page}-title` : 'bag-title'}
+            className="bag-title"
+            ref={heading}
+            tabIndex={-1}
+          >
             {title}
           </h2>
           <div className="bag-actions">
@@ -208,7 +222,9 @@ export function Bag({
         {hall && <div className="bag-body">{hallControls}</div>}
         {page !== null && (
           <div className="bag-body">
-            <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
+            <FlatWorkContext.Provider value>
+              <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
+            </FlatWorkContext.Provider>
           </div>
         )}
       </Frame>

@@ -4,5 +4,5 @@
   "description": "The local first-run page only; the remote Guildhall origin gets no native access.",
   "windows": ["main"],
   "local": true,
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "allow-set-server-url"]
 }
