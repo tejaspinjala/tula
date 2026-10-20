@@ -30,7 +30,7 @@ export interface SceneMember {
   questId: string | null
   bubble: SceneBubble | null
   /** The Guild Master's override of the look this Member's id seeds. */
-  look?: LookChoice
+  look?: LookChoice | undefined
 }
 
 /** One room: a Hall, with its Members; locked Halls are shown closed. */
@@ -114,7 +114,12 @@ export function deriveScene(input: SceneInput): SceneState {
   const members: Record<string, SceneMember> = {}
   const rooms: SceneRoom[] = roster.halls.map((hall) => {
     // The roster lists the Captain apart from the Members; the Captain works in the room too.
-    const everyone = [
+    const everyone: Array<{
+      id: string
+      name: string
+      rank: string
+      look?: LookChoice | undefined
+    }> = [
       ...(hall.captain && !hall.members.some((m) => m.id === hall.captain?.id)
         ? [{ id: hall.captain.id, name: hall.captain.name, rank: 'captain' }]
         : []),
@@ -129,6 +134,7 @@ export function deriveScene(input: SceneInput): SceneState {
         status: 'idle',
         questId: null,
         bubble: null,
+        ...(m.look ? { look: m.look } : {}),
       }
     }
     return {

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { LookPicker, LookPreview } from '../game/LookPicker'
+import { choiceFor } from '../game/look'
 import {
   addMember,
   type BuilderConfig,
@@ -10,6 +12,7 @@ import {
   rename,
   setCaptain,
   setHallSettings,
+  setLook,
   setRank,
 } from './model'
 
@@ -114,6 +117,7 @@ function MemberEditor({
   const siblings = hall?.members ?? []
   const at = siblings.findIndex((m) => m.id === member.id)
   const neighbour = siblings[at + 2]
+  const look = member.look ?? choiceFor(member.id)
   return (
     <>
       <label>
@@ -142,6 +146,16 @@ function MemberEditor({
           ))}
         </select>
       </label>
+      <fieldset className="look-editor">
+        <legend>Look</legend>
+        <LookPreview look={look} label={`${member.name}'s look`} />
+        <LookPicker look={look} onChange={(next) => onChange(setLook(config, member.id, next))} />
+        {member.look && (
+          <button type="button" onClick={() => onChange(setLook(config, member.id, null))}>
+            Reset look
+          </button>
+        )}
+      </fieldset>
       <label>
         Move to Hall
         <select

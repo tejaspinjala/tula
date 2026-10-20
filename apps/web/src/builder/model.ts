@@ -1,8 +1,11 @@
 import { z } from 'zod'
-import type { LookChoice } from '../game/look'
+import { type LookChoice, lookChoice } from '../game/look'
 
 const agent = z.object({ id: z.string(), name: z.string() })
-const member = agent.extend({ rank: z.enum(['apprentice', 'journeyman', 'adept']) })
+const member = agent.extend({
+  rank: z.enum(['apprentice', 'journeyman', 'adept']),
+  look: lookChoice.optional(),
+})
 const hall = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -150,9 +153,21 @@ export function setRank(c: BuilderConfig, id: string, rank: BuilderMember['rank'
   }
 }
 
-/** Sets a Member's look override, or clears it with null (stub). */
-export function setLook(c: BuilderConfig, _id: string, _look: LookChoice | null): BuilderConfig {
-  return c
+/** Sets a Member's look override, or clears it with null (back to the look its id seeds). */
+export function setLook(c: BuilderConfig, id: string, look: LookChoice | null): BuilderConfig {
+  return {
+    ...c,
+    halls: c.halls.map((h) => ({
+      ...h,
+      members: h.members.map((m) => {
+        if (m.id !== id) {
+          return m
+        }
+        const { look: _previous, ...rest } = m
+        return look ? { ...rest, look } : rest
+      }),
+    })),
+  }
 }
 
 /** Sets one Hall's settings (locked, private eligibility). */
