@@ -154,6 +154,69 @@ describe('Research.sweep', () => {
     expect(await store.count(guild, questId)).toBe(0)
   })
 
+  describe('with a stubbed Treasury', () => {
+    async function staleSlot(releaseSpendByKey: Treasury['releaseSpendByKey']) {
+      const { clock, config, treasury, store } = build()
+      const guild = crypto.randomUUID()
+      await config.seed(guild)
+      const questId = crypto.randomUUID()
+      await store.reserve(guild, {
+        hallId: 'h-forge',
+        questId,
+        memberId: 'm-ada',
+        maxPerQuest: 3,
+        at: clock.now(),
+      })
+      const sweeper = new Research({
+        search: new MemorySearchProvider({ results: HITS }),
+        fetcher: new MemoryPageFetcher({}),
+        store,
+        treasury: {
+          requestSpend: treasury.requestSpend.bind(treasury),
+          settleSpend: treasury.settleSpend.bind(treasury),
+          releaseSpend: treasury.releaseSpend.bind(treasury),
+          denySpend: treasury.denySpend.bind(treasury),
+          releaseSpendByKey,
+        },
+        config,
+        clock,
+        costCents: COST,
+        sleep: async () => {},
+        random: () => 0.5,
+      })
+      clock.advance(TEN_MINUTES)
+      return { clock, guild, questId, store, sweeper }
+    }
+
+    test('wrong_state on both reads closes the slot as settled and frees nothing', async () => {
+      const wrong = async () => ({ ok: false as const, reason: 'wrong_state' as const })
+      const { clock, guild, questId, store, sweeper } = await staleSlot(wrong)
+      expect(await sweeper.sweep(guild)).toBe(0)
+      expect(await store.count(guild, questId)).toBe(1)
+      const before = new Date(clock.now().getTime() + TEN_MINUTES)
+      expect(await store.stale(guild, before, 10)).toEqual([])
+    })
+
+    test('a second read that throws leaves the slot stale for the next sweep', async () => {
+      let calls = 0
+      const flaky = async () => {
+        calls += 1
+        if (calls === 2) {
+          throw new Error('treasury down')
+        }
+        return calls === 1
+          ? { ok: false as const, reason: 'wrong_state' as const }
+          : { ok: false as const, reason: 'not_found' as const }
+      }
+      const { clock, guild, questId, store, sweeper } = await staleSlot(flaky)
+      await expect(sweeper.sweep(guild)).rejects.toThrow('treasury down')
+      const later = new Date(clock.now().getTime() + TEN_MINUTES)
+      expect(await store.stale(guild, later, 10)).toHaveLength(1)
+      expect(await sweeper.sweep(guild)).toBe(1)
+      expect(await store.count(guild, questId)).toBe(0)
+    })
+  })
+
   test('a slot with no spend at all is freed', async () => {
     const { clock, config, store, research } = build()
     const guild = crypto.randomUUID()
