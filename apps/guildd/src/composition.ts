@@ -210,6 +210,7 @@ export async function compose(
   const routingLog = overrides.routingLog ?? new PgRoutingLog(db)
   const adapters: AppDeps = {
     ...overrides,
+    ...(research ? { research } : {}),
     subscriptionEnabled: subscriptionProvider !== undefined,
     guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
     pushStore,

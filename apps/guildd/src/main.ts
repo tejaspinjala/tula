@@ -26,11 +26,13 @@ await adapters.gates.resumeAnnouncements()
 
 // Off unless DISPATCH_INTERVAL_MS is set. A plain setInterval is fine: the loop keeps no durable
 // state (the queue and Seals are the state, and dispatch is idempotent), so nothing is lost on restart.
+const { research } = adapters
 const loop =
   env.DISPATCH_INTERVAL_MS === undefined
     ? null
     : startDispatchLoop({
         dispatcher: adapters.dispatcher,
+        guildSweeps: research ? [(guildId) => research.sweep(guildId)] : [],
         guildIds: (after, limit) => adapters.db.guildIds(after, limit),
         intervalMs: env.DISPATCH_INTERVAL_MS,
         timer: {
