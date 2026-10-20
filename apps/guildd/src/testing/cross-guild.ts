@@ -8,7 +8,10 @@ type Requester = { request: (path: string, init?: RequestInit) => Promise<Respon
 /** One route under cross-guild test. */
 export interface CrossGuildProbe {
   /** Builds the route's request made by guild `caller` aimed at the data of guild `target`. */
-  build: (caller: string, target: string) => [path: string, init?: RequestInit]
+  build: (
+    caller: string,
+    target: string
+  ) => [path: string, init?: RequestInit] | Promise<[path: string, init?: RequestInit]>
   /** Reads guild `guildId`'s own view of the data the probe could touch, for before/after equality. */
   snapshot: (guildId: string) => Promise<unknown>
 }
@@ -33,8 +36,10 @@ export async function expectGuildIsolation(harness: Requester, probe: CrossGuild
   const ghost = crypto.randomUUID()
   const before = await probe.snapshot(b)
 
-  const atB = await harness.request(...probe.build(a, b))
-  const atGhost = await harness.request(...probe.build(a, ghost))
+  const [pathB, initB] = await probe.build(a, b)
+  const [pathGhost, initGhost] = await probe.build(a, ghost)
+  const atB = await harness.request(pathB, initB)
+  const atGhost = await harness.request(pathGhost, initGhost)
   const bodyAtB = await atB.text()
 
   expect(atB.status).not.toBe(200)
