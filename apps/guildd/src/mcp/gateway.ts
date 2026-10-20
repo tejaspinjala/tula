@@ -11,6 +11,7 @@ import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
+import { QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
 import {
@@ -546,8 +547,12 @@ export class McpGateway {
       return refuse('done_condition_unmet')
     }
     try {
-      const done = await this.deps.quests.complete(guild, quest.id, lease.attempt)
-      return ok({ state: done.state, handoffHash: stored.hash })
+      const needsSeal =
+        QUEST_TEMPLATES.find((t) => t.id === quest.templateId)?.requiresSeal ?? false
+      const after = needsSeal
+        ? await this.deps.quests.submitForSeal(guild, quest.id, lease.attempt)
+        : await this.deps.quests.complete(guild, quest.id, lease.attempt)
+      return ok({ state: after.state, handoffHash: stored.hash })
     } catch (error) {
       if (error instanceof QuestError) {
         return refuse(error.code)

@@ -40,11 +40,18 @@ export interface NewSeal {
   text: string
   /** The evidence shown beside the text. */
   evidence: string
+  /**
+   * The Quest's Seal round (1-based, default 1). A revision after a denial is a new round and a
+   * new Seal row, even for the same text; a retry within one round is the same Seal.
+   */
+  round?: number
 }
 
 /** A Seal as read now; never carries a reservation token or its hash. */
 export interface Seal extends NewSeal {
   id: string
+  /** The Quest round this Seal belongs to. */
+  round: number
   /** SHA-256 of `text`, computed by the store; the only payload this Seal can authorise. */
   actionHash: string
   status: SealStatus
@@ -92,8 +99,10 @@ export type ReserveResult =
  * `reserved` as stale once the reservation has lapsed. Authority is the engine's job.
  */
 export interface SealStore {
-  /** Requests a Seal. Idempotent per quest and hash: a retry returns the existing Seal. */
+  /** Requests a Seal. Idempotent per quest, round and hash: a retry returns the existing Seal. */
   request(guildId: string, input: NewSeal): Promise<Seal>
+  /** The Seal of the Quest's latest round, or null when the Quest never asked. */
+  forQuest(guildId: string, questId: string): Promise<Seal | null>
   /** The Seal, or null when absent for this guild. */
   get(guildId: string, id: string): Promise<Seal | null>
   /** Seals in id order strictly after `after`, optionally only those in `status`. */

@@ -81,6 +81,7 @@ export const FAIL_REASONS = [
   'routing_blocked',
   'worker_crash',
   'sandbox_unavailable',
+  'seal_rejected',
   'unknown',
 ] as const
 
@@ -91,6 +92,9 @@ export type FailReason = (typeof FAIL_REASONS)[number]
 export function failReason(value: string): FailReason {
   return FAIL_REASONS.find((r) => r === value) ?? 'unknown'
 }
+
+/** How a Seal ended for the Quest that asked: consumed or posted, or denied or expired. */
+export type SealOutcome = 'posted' | 'rejected'
 
 /** Why a queue operation was refused. */
 export type QuestErrorCode =
@@ -164,6 +168,14 @@ export interface QuestQueue {
   renew(guildId: string, id: string, attempt: number, leaseMs: number): Promise<Quest>
   /** Holds the Quest for a Seal. `round_limit` once the rounds are spent. Idempotent. */
   submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest>
+  /**
+   * Settles a Quest held for a Seal, keyed by quest id (no lease needed): `posted` (the Seal was
+   * consumed or posted) finishes it; `rejected` (denied or expired) sends it back to `queued` for
+   * a revision round, or to `dead` once its rounds are spent (`round >= roundLimit`). Idempotent:
+   * a Quest no longer `awaiting_seal` is returned unchanged. A Quest in any state but
+   * `awaiting_seal`, `done`, `queued` or `dead` is `invalid_state`.
+   */
+  settleSeal(guildId: string, id: string, outcome: SealOutcome): Promise<Quest>
   /** Marks the Quest done. Idempotent: finishing a done Quest changes nothing. */
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
@@ -314,6 +326,39 @@ export function failTransition(
       leaseExpiresAt: null,
       lastError,
       notBefore: new Date(now.getTime() + delayMs).toISOString(),
+    },
+    event: 'quest.retry_scheduled',
+  }
+}
+
+/**
+ * Settles a Quest held for a Seal. `posted` finishes it; `rejected` queues a revision round, or
+ * dead-letters it when `round >= roundLimit`. Anything not `awaiting_seal` is returned unchanged
+ * when it already left that state by this route (done, queued, dead), else `invalid_state`.
+ */
+export function sealSettleTransition(quest: Quest, outcome: SealOutcome, now: Date): Transition {
+  if (quest.state !== 'awaiting_seal') {
+    if (quest.state === 'active') {
+      throw new QuestError('invalid_state')
+    }
+    return { quest, event: null }
+  }
+  if (outcome === 'posted') {
+    return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
+  }
+  if (quest.round >= quest.roundLimit) {
+    return {
+      quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'seal_rejected' },
+      event: 'quest.dead',
+    }
+  }
+  return {
+    quest: {
+      ...quest,
+      state: 'queued',
+      leaseExpiresAt: null,
+      lastError: 'seal_rejected',
+      notBefore: now.toISOString(),
     },
     event: 'quest.retry_scheduled',
   }

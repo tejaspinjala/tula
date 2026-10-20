@@ -215,6 +215,62 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await queue.complete(g, id, 1)).state).toBe('done')
     })
 
+    describe('settling a Quest held for a Seal', () => {
+      async function held(queue: QuestQueue, g: string, over: Partial<NewQuest> = {}) {
+        const { quest: posted } = await queue.post(g, quest(over))
+        const claimed = await queue.claim(g, { ...LEASE, questId: posted.id })
+        await queue.submitForSeal(g, posted.id, claimed?.attempts ?? 0)
+        return posted.id
+      }
+
+      test('a posted Seal finishes the Quest, keyed by quest id, and repeating changes nothing', async () => {
+        const { queue, events, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g)
+        const done = await queue.settleSeal(g, id, 'posted')
+        expect(done.state).toBe('done')
+        expect(await queue.settleSeal(g, id, 'posted')).toEqual(done)
+        expect((await events(g)).filter((e) => e === 'quest.done')).toHaveLength(1)
+      })
+
+      test('a rejected Seal sends the Quest back for a revision round while rounds remain', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g, { roundLimit: 2 })
+        const back = await queue.settleSeal(g, id, 'rejected')
+        expect(back).toMatchObject({ state: 'queued', round: 1, attempts: 1 })
+        expect(await queue.settleSeal(g, id, 'rejected')).toEqual(back)
+        const again = await queue.claim(g, LEASE)
+        expect(again).toMatchObject({ id, attempts: 2 })
+        expect((await queue.submitForSeal(g, id, 2)).round).toBe(2)
+      })
+
+      test('a rejected Seal dead-letters the Quest once its rounds are spent, freeing its Campaign', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g, { roundLimit: 1, campaignId: 'c1' })
+        const { quest: next } = await queue.post(g, quest({ campaignId: 'c1' }))
+        expect(await queue.claim(g, LEASE)).toBeNull()
+        const dead = await queue.settleSeal(g, id, 'rejected')
+        expect(dead.state).toBe('dead')
+        expect((await queue.deadLetters(g, { limit: 10 })).quests.map((q) => q.id)).toEqual([id])
+        expect((await queue.claim(g, LEASE))?.id).toBe(next.id)
+      })
+
+      test('a Quest that is not awaiting a Seal cannot be settled', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const { quest: q } = await queue.post(g, quest())
+        await queue.claim(g, LEASE)
+        await expect(queue.settleSeal(g, q.id, 'posted')).rejects.toMatchObject({
+          code: 'invalid_state',
+        })
+        await expect(queue.settleSeal(g, crypto.randomUUID(), 'posted')).rejects.toMatchObject({
+          code: 'not_found',
+        })
+      })
+    })
+
     test('each transition appends one event, and idempotent repeats append none', async () => {
       const { queue, clock, events, newGuild } = await make()
       const g = await newGuild()
