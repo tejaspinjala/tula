@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import hallMap from './hall.tiled.json'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import { type HallLayout, hallLayout, seatsIn } from './layout'
+import { apprenticeSeats, type HallLayout, hallLayout, questBoardIn, seatsIn } from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import type { SceneMember, SceneState } from './scene'
 import {
@@ -29,7 +29,13 @@ const FRAME = { doorClosed: 32, doorOpen: 37, scroll: 899, coin: 1025 } as const
 /** How long a speech bubble stays up, in ms. */
 const BUBBLE_MS = 4500
 /** Longest Quest title a bubble shows before it is cut. */
-const BUBBLE_CHARS = 24
+const BUBBLE_CHARS = 60
+/** Width a bubble wraps at, in px. */
+const BUBBLE_WRAP = 120
+/** Most scrolls drawn on a Quest Board; the rest are a count. */
+const BOARD_SCROLLS = 4
+/** How long a Member takes to walk to the Quest Board and back to their desk, in ms. */
+const WALK_MS = 600
 /** Most scrolls drawn on the Seal desk; the rest are a count. */
 const MAX_SCROLLS = 5
 
@@ -60,7 +66,18 @@ interface MemberView {
   bubbleTimer: Phaser.Time.TimerEvent | null
   /** The last bubble seq drawn, so a bubble shows once. */
   bubbleSeq: number
+  /** The last claim seq acted on, so a claim walks to the Quest Board once. */
+  claimSeq: number
+  /** Where the sprite is headed (px), so a repeated render does not restart its walk. */
+  tx: number
+  ty: number
   mode: 'idle' | 'working' | null
+}
+
+/** An apprentice: a Sub-Quest's helper standing in its parent's room until the child settles. */
+interface ApprenticeView {
+  root: Phaser.GameObjects.Container
+  hallId: string
 }
 
 /** Keys that walk the Guild Master (lower-case `KeyboardEvent.key`). */
@@ -90,7 +107,9 @@ export class HallScene extends Phaser.Scene {
   private dynamic: Phaser.GameObjects.GameObject[] = []
   private pending: SceneState | null = null
   private ready = false
-  private baselineSeq: number | null = null
+  private readonly apprentices = new Map<string, ApprenticeView>()
+  /** True until the first state is drawn: what already happened is shown, not animated. */
+  private seeding = true
   private gateSprites: Phaser.GameObjects.Image[] = []
   private zoomLevel = 1
   private followed: string | null = null
@@ -183,6 +202,12 @@ export class HallScene extends Phaser.Scene {
 
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
   override update(_time: number, delta: number): void {
+    for (const view of this.members.values()) {
+      const lift = view.bubble?.getData('lift')
+      if (view.bubble && typeof lift === 'number') {
+        view.bubble.setPosition(view.root.x, view.root.y - lift)
+      }
+    }
     if (!this.player) {
       return
     }
@@ -370,11 +395,10 @@ export class HallScene extends Phaser.Scene {
     if (!this.ready) {
       return
     }
-    if (this.baselineSeq === null) {
-      this.baselineSeq = state.appliedSeq
-    }
     this.drawDynamic(state)
     this.drawMembers(state)
+    this.drawApprentices(state)
+    this.seeding = false
   }
 
   /** Zooms the camera by a step (clamped), keeping the hall centred. */
@@ -478,6 +502,33 @@ export class HallScene extends Phaser.Scene {
             : hall.name
         add(this.label(room.x * s + 4, room.y * s + 2, tag.slice(0, 22), 16))
       }
+      if (hall && !hall.locked) {
+        // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
+        const spot = questBoardIn(this.layout, room)
+        add(
+          this.add
+            .rectangle(spot.x * s + 8, spot.y * s + 8, s, s, 0x7a4b24, 1)
+            .setStrokeStyle(1, 0x3b2410)
+            .setDepth(4)
+        )
+        const shown = Math.min(hall.board, BOARD_SCROLLS)
+        for (let i = 0; i < shown; i++) {
+          add(
+            this.add
+              .image(
+                spot.x * s + 3 + (i % 2) * 7,
+                spot.y * s + 4 + Math.floor(i / 2) * 7,
+                TILES,
+                FRAME.scroll
+              )
+              .setScale(0.45)
+              .setDepth(5)
+          )
+        }
+        if (hall.board > BOARD_SCROLLS) {
+          add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
+        }
+      }
       if (door && (!hall || hall.locked)) {
         for (let dx = 0; dx < door.w; dx++) {
           add(
@@ -559,7 +610,12 @@ export class HallScene extends Phaser.Scene {
           x: slot.x + 1 + (n % Math.max(1, slot.w - 2)),
           y: slot.y + 2,
         }
-        this.placeMember(member, member.status === 'working' ? work : seat, s)
+        this.placeMember(
+          member,
+          member.status === 'working' ? work : seat,
+          s,
+          questBoardIn(this.layout, slot)
+        )
       })
     })
     // The Steward sits at their desk.
@@ -574,7 +630,7 @@ export class HallScene extends Phaser.Scene {
         rank: 'steward',
         status: 'idle',
         questId: null,
-        bubble: null,
+        bubble: state.members[state.stewardId]?.bubble ?? null,
         claimSeq: null,
       },
       { x: stew.x + 1, y: stew.y + stew.h },
@@ -589,7 +645,85 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  private placeMember(member: SceneMember, tile: { x: number; y: number }, s: number): void {
+  /**
+   * Apprentices: one small helper per in-flight Sub-Quest, walking in from its parent's seat when
+   * spawned and fading out when the child settles. Reduced motion swaps them in and out.
+   */
+  private drawApprentices(state: SceneState): void {
+    const s = this.layout.tileSize
+    const live = new Set<string>()
+    state.rooms.forEach((room, index) => {
+      const slot = this.layout.rooms[index]
+      const crew = state.apprentices.filter((a) => a.hallId === room.hallId)
+      if (!slot || crew.length === 0) {
+        return
+      }
+      const seats = apprenticeSeats(this.layout, slot, crew.length)
+      crew.forEach((apprentice, n) => {
+        const seat = seats[n]
+        if (!seat) {
+          return
+        }
+        live.add(apprentice.childId)
+        const x = seat.x * s + s / 2
+        const y = seat.y * s + s / 2
+        const found = this.apprentices.get(apprentice.childId)
+        if (found) {
+          if (!this.tweens.isTweening(found.root)) {
+            found.root.setPosition(x, y)
+          }
+          return
+        }
+        const look = lookFor(apprentice.childId)
+        const layers = [look.body, look.outfit, look.hair].map((frame) =>
+          this.add.image(0, 0, CHARS, frame)
+        )
+        // The parent Quest's owner is the Member working it; the apprentice walks in from them.
+        const owner = Object.values(state.members).find((m) => m.questId === apprentice.parentId)
+        const parent = owner ? this.members.get(owner.id)?.root : undefined
+        const animate = !this.options.reducedMotion && !this.seeding
+        const root = this.add
+          .container(animate && parent ? parent.x : x, animate && parent ? parent.y : y, layers)
+          .setScale(0.75)
+          .setDepth(14)
+        root.setName(`apprentice:${apprentice.childId}`)
+        if (animate) {
+          root.setAlpha(0)
+          this.tweens.add({ targets: root, x, y, alpha: 1, duration: WALK_MS, ease: 'Linear' })
+        }
+        this.apprentices.set(apprentice.childId, { root, hallId: room.hallId })
+      })
+    })
+    for (const [id, view] of this.apprentices) {
+      if (live.has(id)) {
+        continue
+      }
+      this.apprentices.delete(id)
+      this.tweens.killTweensOf(view.root)
+      if (this.options.reducedMotion) {
+        view.root.destroy()
+      } else {
+        this.tweens.add({
+          targets: view.root,
+          alpha: 0,
+          duration: WALK_MS,
+          onComplete: () => view.root.destroy(),
+        })
+      }
+    }
+  }
+
+  /** The apprentice's game object, by child Quest id (null when none is drawn). */
+  apprenticeObject(childId: string): Phaser.GameObjects.Container | null {
+    return this.apprentices.get(childId)?.root ?? null
+  }
+
+  private placeMember(
+    member: SceneMember,
+    tile: { x: number; y: number },
+    s: number,
+    board?: { x: number; y: number }
+  ): void {
     let view = this.members.get(member.id)
     const x = tile.x * s + s / 2
     const y = tile.y * s + s / 2
@@ -600,15 +734,44 @@ export class HallScene extends Phaser.Scene {
       )
       const root = this.add.container(x, y, layers).setDepth(15)
       root.setName(member.id)
-      view = { root, bubble: null, bubbleTimer: null, bubbleSeq: 0, mode: null }
+      view = {
+        root,
+        bubble: null,
+        bubbleTimer: null,
+        bubbleSeq: member.bubble?.seq ?? 0,
+        claimSeq: member.claimSeq ?? 0,
+        tx: x,
+        ty: y,
+        mode: null,
+      }
       this.members.set(member.id, view)
       root.setPosition(x, y)
-    } else if (view.root.x !== x || view.root.y !== y) {
-      if (this.options.reducedMotion) {
-        view.root.setPosition(x, y)
-      } else {
+    } else {
+      // A new claim walks the Member to their Hall's Quest Board first; reduced motion swaps.
+      const claimed = member.claimSeq !== null && member.claimSeq > view.claimSeq
+      view.claimSeq = member.claimSeq ?? 0
+      if (view.tx !== x || view.ty !== y || claimed) {
+        view.tx = x
+        view.ty = y
         this.tweens.killTweensOf(view.root)
-        this.tweens.add({ targets: view.root, x, y, duration: 700, ease: 'Linear' })
+        if (this.options.reducedMotion || this.seeding) {
+          view.root.setPosition(x, y)
+        } else if (claimed && board) {
+          const bx = board.x * s + s / 2
+          const by = board.y * s + s / 2
+          const root = view.root
+          this.tweens.add({
+            targets: root,
+            x: bx,
+            y: by,
+            duration: WALK_MS,
+            ease: 'Linear',
+            onComplete: () =>
+              this.tweens.add({ targets: root, x, y, duration: WALK_MS, ease: 'Linear' }),
+          })
+        } else {
+          this.tweens.add({ targets: view.root, x, y, duration: 700, ease: 'Linear' })
+        }
       }
     }
     if (view.mode !== member.status) {
@@ -620,7 +783,12 @@ export class HallScene extends Phaser.Scene {
 
   private showBubble(member: SceneMember, view: MemberView, x: number, y: number): void {
     const bubble = member.bubble
-    if (!bubble || bubble.seq <= view.bubbleSeq || bubble.seq <= (this.baselineSeq ?? 0)) {
+    if (!bubble) {
+      // Scrubbing back past a bubble lets the same event speak again when replayed forward.
+      view.bubbleSeq = 0
+      return
+    }
+    if (bubble.seq === view.bubbleSeq) {
       return
     }
     view.bubbleSeq = bubble.seq
@@ -628,10 +796,18 @@ export class HallScene extends Phaser.Scene {
     view.bubbleTimer?.remove()
     const text =
       bubble.text.length > BUBBLE_CHARS ? `${bubble.text.slice(0, BUBBLE_CHARS - 1)}~` : bubble.text
-    const label = this.add.bitmapText(0, 0, FONT, text, 16).setTint(0x1a1a2a).setOrigin(0.5, 0.5)
+    const label = this.add
+      .bitmapText(0, 0, FONT, text, 16)
+      .setTint(0x1a1a2a)
+      .setOrigin(0.5, 0.5)
+      .setMaxWidth(BUBBLE_WRAP)
+      .setCenterAlign()
     const w = label.width + 8
-    const back = this.add.rectangle(0, 0, w, 20, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y - 26, [back, label]).setDepth(30)
+    const h = label.height + 4
+    const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    const root = this.add.container(x, y - 16 - h / 2, [back, label]).setDepth(30)
+    // The bubble rides above the sprite, so it stays with a Member who is walking to the board.
+    root.setData('lift', 16 + h / 2)
     view.bubble = root
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()
