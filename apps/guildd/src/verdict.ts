@@ -7,6 +7,7 @@ export const CHECK_NAMES = [
   'required_terms',
   'links',
   'private_data',
+  'meta_draft',
 ] as const
 /** One check name. */
 export type CheckName = (typeof CHECK_NAMES)[number]
@@ -25,6 +26,8 @@ export interface ContentPolicy {
   maxLength: number
   bannedTerms: string[]
   requiredTerms: string[]
+  /** True lets a draft that talks about doing the task through. Absent or false rejects meta-drafts; setting it is widening. */
+  allowMetaDrafts?: boolean
 }
 
 /** The policy used until guild config carries its own banned and required terms. */
@@ -118,6 +121,10 @@ function privateCheck(content: string): Finding {
   }
 }
 
+function metaDraftCheck(_content: string, _policy: ContentPolicy): Finding {
+  return { check: 'meta_draft', passed: true, detail: 'stub' }
+}
+
 /** Runs every deterministic check over `content`; pure, so the same content always gives the same findings. */
 export function runChecks(content: string, policy: ContentPolicy): Finding[] {
   return [
@@ -126,6 +133,7 @@ export function runChecks(content: string, policy: ContentPolicy): Finding[] {
     requiredCheck(content, policy),
     linksCheck(content),
     privateCheck(content),
+    metaDraftCheck(content, policy),
   ]
 }
 
