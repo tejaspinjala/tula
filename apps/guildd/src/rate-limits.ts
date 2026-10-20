@@ -21,6 +21,7 @@ export type RateRoute =
   | 'proposal-post'
   | 'push-subscribe'
   | 'learning-scan'
+  | 'events-history'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -78,6 +79,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'push-subscribe': writeLimits(20, 60),
   // A scan makes outbound GitHub calls and writes rows, so it is bounded per client and guild.
   'learning-scan': writeLimits(3, 6),
+  // History reads page through the whole chain and fold it, so they are bounded per client and guild.
+  'events-history': writeLimits(60, 240),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },

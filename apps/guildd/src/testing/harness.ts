@@ -28,6 +28,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'proposal-post': { client: NO_LIMIT, guild: NO_LIMIT },
   'push-subscribe': { client: NO_LIMIT, guild: NO_LIMIT },
   'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
+  'events-history': { client: NO_LIMIT, guild: NO_LIMIT },
 }
 
 /** Options for {@link createHarness}. */
