@@ -61,7 +61,7 @@ export function sceneSummary(scene: SceneState): string {
   parts.push(
     scene.scrolls.length === 0
       ? 'No Quests await a Seal.'
-      : `${scene.scrolls.length} Quests await a Seal: ${scene.scrolls.map((s) => s.title).join(', ')}.`
+      : `${scene.scrolls.length} ${scene.scrolls.length === 1 ? 'Quest awaits' : 'Quests await'} a Seal: ${scene.scrolls.map((s) => s.title).join(', ')}.`
   )
   parts.push(`Treasury spend: ${formatCents(scene.coinsCents)}.`)
   return parts.join(' ')

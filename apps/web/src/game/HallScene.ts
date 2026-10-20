@@ -235,7 +235,7 @@ export class HallScene extends Phaser.Scene {
     add(
       this.label(
         (gate.x - 5) * s,
-        (gate.y - 0.8) * s,
+        (gate.y + gate.h + 0.2) * s,
         state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
         16,
         state.gateClosed ? 0xff6666 : 0x99ff99
@@ -246,6 +246,8 @@ export class HallScene extends Phaser.Scene {
       const scrollSprite = add(
         this.add
           .image((seal.x + i) * s + 8, seal.y * s + 8, TILES, FRAME.scroll)
+
+          .setScale(1.5)
           .setDepth(12)
           .setInteractive({ useHandCursor: true })
       )
