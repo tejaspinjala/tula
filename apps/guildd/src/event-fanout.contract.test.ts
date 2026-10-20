@@ -47,6 +47,7 @@ function countingApp(
     treasury: harness.adapters.treasury,
     learning: harness.adapters.learning,
     proposals: harness.adapters.proposals,
+    workflows: harness.adapters.workflows,
     rateLimiter: harness.adapters.rateLimiter,
     rateLimits: UNLIMITED_RATE_LIMITS,
     secrets: harness.adapters.secrets,
