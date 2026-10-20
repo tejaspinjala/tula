@@ -443,6 +443,14 @@ export abstract class TreasuryCore {
     })
   }
 
+  async releaseSpendByKey(
+    _guildId: string,
+    _key: string,
+    _actorMember: string
+  ): Promise<SpendResult> {
+    return { ok: false, reason: 'not_found' }
+  }
+
   async getSpend(guildId: string, spendId: string): Promise<Spend | null> {
     return this.run(guildId, 'read', (tx) => tx.spendById(spendId))
   }

@@ -180,6 +180,12 @@ export interface TreasuryStore {
   ): Promise<SpendResult>
   /** Releases a reserved spend: nothing was spent. */
   releaseSpend(guildId: string, spendId: string, actorMember: string): Promise<SpendResult>
+  /**
+   * Gives back the spend recorded under `key`: a reservation is released, a waiting request is
+   * denied, an already released or denied one is returned unchanged. `not_found` when no spend has
+   * that key; `wrong_state` when it was settled.
+   */
+  releaseSpendByKey(guildId: string, key: string, actorMember: string): Promise<SpendResult>
   /** One spend request, or null. */
   getSpend(guildId: string, spendId: string): Promise<Spend | null>
   /** Spend requests, oldest first, after the `after` cursor. */
