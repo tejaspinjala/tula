@@ -15,7 +15,8 @@ no dev server, no CORS, and passkeys work on `localhost` (ADR-0007).
 
 The command checks Postgres and the object store are reachable (30 s deadline each), migrates
 (120 s), builds the web app (300 s), then starts guildd with `WEB_DIST=apps/web/dist`,
-`WEBAUTHN_ORIGIN=http://localhost:<PORT>` (8787) and `WEBAUTHN_RP_ID=localhost`. It derives
+`WEBAUTHN_ORIGIN=http://localhost:<PORT>` (8787), `WEBAUTHN_RP_ID=localhost` and
+`FOUNDING_MODE=once` (unless you set it; see Reach it through a Cloudflare Tunnel). It derives
 `APP_DATABASE_URL` from `DATABASE_URL` and `APP_DB_PASSWORD` (user `guildhall_app`). Anything else
 below is passed through from your environment. First boot: set `OBJECT_STORE_CREATE_BUCKET=true`.
 
@@ -43,6 +44,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `CHECKPOINT_DIR` | `.guildhall/checkpoints` | required | Signed audit-chain checkpoints; use storage the database host cannot rewrite. |
 | `DISPATCH_INTERVAL_MS` | unset | optional | Milliseconds between dispatch passes; unset turns the in-process loop off. |
 | `TRUST_PROXY` | `false` | set to `true` behind exactly one proxy | Key rate limits on the last `X-Forwarded-For` hop. |
+| `PUBLIC_ORIGIN` | unset | optional, `start:selfhost` only | `https://` origin of the tunnel or proxy. Sets `WEBAUTHN_ORIGIN` to it, `WEBAUTHN_RP_ID` to its hostname and `TRUST_PROXY=true`; `HOST` stays `127.0.0.1`. |
 | `FOUNDING_MODE` | `open` | `once` when guildd is reachable from the internet | Who may found a guild: `open` (anyone), `once` (403 `founding_closed` once any guild exists), `closed` (always 403). `start:selfhost` defaults it to `once`. |
 | `DEV_GUILD_HEADER` | `false` | must be `false` | Trust `x-guild-id` as the caller (development only). |
 | `VAPID_PUBLIC_KEY` | unset | required | Web push public key (base64url, 65 bytes). |
@@ -122,6 +124,26 @@ until a guild exists. `start:selfhost` pins `HOST=127.0.0.1`. To reach it from o
 not set `HOST=0.0.0.0` bare: put a TLS reverse proxy in front, set `TRUST_PROXY=true` (exactly one
 proxy), and set production WebAuthn settings (`NODE_ENV=production`, `WEBAUTHN_RP_ID` and
 `WEBAUTHN_ORIGIN` for the public https origin).
+
+## Reach it through a Cloudflare Tunnel
+
+Do this only for yourself: anyone who can found a guild here can run Quests on your Claude plan and
+Docker, and serving others through a subscription breaks Anthropic's terms (ADR-0008).
+
+1. Install `cloudflared` and pick a tunnel.
+   - Quick tunnel: `cloudflared tunnel --url http://localhost:8787`. It prints a random
+     `https://<name>.trycloudflare.com` hostname that changes on every restart. Passkeys are bound
+     to the hostname, so a restart strands them. Fine for a trial.
+   - Named tunnel with a stable hostname (recommended if you want to keep a passkey): create it in
+     your Cloudflare account and route a hostname you own to `http://localhost:8787`.
+2. Start Guildhall with the tunnel's origin: `PUBLIC_ORIGIN=https://<hostname> bun run start:selfhost`.
+   It must be `https://`. This sets `WEBAUTHN_ORIGIN`, `WEBAUTHN_RP_ID` (the hostname) and
+   `TRUST_PROXY=true`, keeps `HOST=127.0.0.1` (the tunnel connects locally) and prints the URL.
+3. Found your guild first, then leave `FOUNDING_MODE=once` (the `start:selfhost` default): once any
+   guild exists `POST /guilds` answers 403 `founding_closed`. `closed` refuses always. If you lose
+   your passkey, restart with an explicit `FOUNDING_MODE=open`, re-found, then go back to `once`.
+4. Optional extra gate: put Cloudflare Access in front of the hostname so only your identity
+   reaches guildd at all.
 
 ## Summon
 
