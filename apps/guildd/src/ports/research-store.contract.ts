@@ -8,6 +8,8 @@ export interface ResearchStoreFixture {
 }
 
 const T0 = new Date('2026-01-01T00:00:00.000Z')
+const T1 = new Date('2026-01-01T01:00:00.000Z')
+const CUTOFF = new Date('2026-01-01T00:30:00.000Z')
 
 function call(over: Partial<NewResearchCall> = {}): NewResearchCall {
   return {
@@ -87,6 +89,56 @@ export function researchStoreContract(name: string, make: () => Promise<Research
       expect(await store.count(a, questId)).toBe(1)
       // The other guild's cap is its own.
       expect((await store.reserve(b, call({ questId, maxPerQuest: 1 }))).ok).toBe(true)
+    })
+
+    test('a sweep frees an unsettled slot older than the cutoff and hands back its spend', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const questId = crypto.randomUUID()
+      const stale = await store.reserve(g, call({ questId, maxPerQuest: 5 }))
+      const settled = await store.reserve(g, call({ questId, maxPerQuest: 5 }))
+      const fresh = await store.reserve(g, call({ questId, maxPerQuest: 5, at: T1 }))
+      if (!stale.ok || !settled.ok || !fresh.ok) {
+        throw new Error('expected slots')
+      }
+      await store.attachSpend(g, stale.call.id, 'spend-stale')
+      await store.attachSpend(g, settled.call.id, 'spend-settled')
+      await store.settle(g, settled.call.id)
+      const released: string[] = []
+      const freed = await store.sweep(g, CUTOFF, async (spendId) => {
+        released.push(spendId)
+      })
+      expect(freed).toBe(1)
+      expect(released).toEqual(['spend-stale'])
+      expect(await store.count(g, questId)).toBe(2)
+      // Idempotent: a second sweep finds nothing.
+      expect(await store.sweep(g, CUTOFF, async (id) => void released.push(id))).toBe(0)
+      expect(released).toEqual(['spend-stale'])
+    })
+
+    test('a sweep frees a stale slot that never reached a spend', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const questId = crypto.randomUUID()
+      await store.reserve(g, call({ questId }))
+      expect(await store.sweep(g, CUTOFF, async () => {})).toBe(1)
+      expect(await store.count(g, questId)).toBe(0)
+    })
+
+    test('a sweep never frees another guild’s slots', async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      const questId = crypto.randomUUID()
+      const mine = await store.reserve(a, call({ questId }))
+      if (!mine.ok) {
+        throw new Error('expected a slot')
+      }
+      await store.attachSpend(a, mine.call.id, 'spend-a')
+      const released: string[] = []
+      expect(await store.sweep(b, CUTOFF, async (id) => void released.push(id))).toBe(0)
+      expect(released).toEqual([])
+      expect(await store.count(a, questId)).toBe(1)
     })
   })
 }
