@@ -217,11 +217,22 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       const g = await newGuild()
       await queue.post(g, quest())
       const q = await queue.claim(g, LEASE)
-      const failed = await queue.fail(g, q?.id ?? '', 1, 'boom')
-      expect(failed).toMatchObject({ state: 'queued', lastError: 'boom' })
+      const failed = await queue.fail(g, q?.id ?? '', 1, 'provider_error')
+      expect(failed).toMatchObject({ state: 'queued', lastError: 'provider_error' })
       expect(await queue.claim(g, LEASE)).toBeNull()
       clock.advance(751)
       expect(await queue.claim(g, LEASE)).toMatchObject({ id: q?.id, attempts: 2 })
+    })
+
+    test('caller text never reaches the stored error: only a coded reason does', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      await queue.post(g, quest())
+      const q = await queue.claim(g, LEASE)
+      const secret = 'Bearer sk-live-4eC39HqLyjWDarjtT1zdp7dc'
+      const failed = await queue.fail(g, q?.id ?? '', 1, secret)
+      expect(failed.lastError).toBe('unknown')
+      expect(JSON.stringify(await queue.list(g, { limit: 10 }))).not.toContain('sk-live')
     })
 
     test('a Quest that keeps failing lands in the dead-letter list', async () => {
@@ -231,15 +242,15 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       for (const attempt of [1, 2]) {
         clock.advance(10_000)
         await queue.claim(g, LEASE)
-        await queue.fail(g, posted.id, attempt, `boom ${attempt}`)
+        await queue.fail(g, posted.id, attempt, 'timeout')
       }
       const dead = await queue.deadLetters(g, { limit: 10 })
       expect(dead.quests.map((d) => [d.id, d.state, d.lastError])).toEqual([
-        [posted.id, 'dead', 'boom 2'],
+        [posted.id, 'dead', 'timeout'],
       ])
       clock.advance(1_000_000)
       expect(await queue.claim(g, LEASE)).toBeNull()
-      const again = await queue.fail(g, posted.id, 2, 'boom 2')
+      const again = await queue.fail(g, posted.id, 2, 'timeout')
       expect(again.state).toBe('dead')
     })
 

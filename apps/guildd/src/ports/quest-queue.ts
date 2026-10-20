@@ -69,8 +69,26 @@ export interface Quest {
   leaseExpiresAt: string | null
   /** The Quest is not delivered before this instant (retry backoff). */
   notBefore: string
-  lastError: string | null
+  /** Coded reason of the last failure; never caller text. */
+  lastError: FailReason | null
   createdAt: string
+}
+
+/** The only failure reasons a Quest records; free text from a worker is never stored or returned. */
+export const FAIL_REASONS = [
+  'timeout',
+  'provider_error',
+  'routing_blocked',
+  'worker_crash',
+  'unknown',
+] as const
+
+/** See {@link FAIL_REASONS}. */
+export type FailReason = (typeof FAIL_REASONS)[number]
+
+/** Maps any caller-supplied value onto the allow-list; anything else becomes `unknown`. */
+export function failReason(value: string): FailReason {
+  return FAIL_REASONS.find((r) => r === value) ?? 'unknown'
 }
 
 /** Why a queue operation was refused. */
@@ -147,7 +165,7 @@ export interface QuestQueue {
   submitForSeal(guildId: string, id: string, attempt: number): Promise<Quest>
   /** Marks the Quest done. Idempotent: finishing a done Quest changes nothing. */
   complete(guildId: string, id: string, attempt: number): Promise<Quest>
-  /** Records a failed attempt: retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
+  /** Records a failed attempt with a coded reason (see {@link FAIL_REASONS}; other text is stored as `unknown`): retried after a jittered delay, or dead-lettered when attempts are spent. Idempotent per attempt. */
   fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest>
   /** One Quest, or null. */
   get(guildId: string, id: string): Promise<Quest | null>
@@ -256,7 +274,7 @@ export function isExhausted(quest: Quest, now: Date): boolean {
 /** Dead-letters a Quest whose lease lapsed with its attempts spent. */
 export function expireTransition(quest: Quest): Transition {
   return {
-    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'lease expired' },
+    quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError: 'timeout' },
     event: 'quest.dead',
   }
 }
@@ -273,7 +291,7 @@ export function failTransition(
     return { quest, event: null }
   }
   held(quest, attempt)
-  const lastError = error.slice(0, 500)
+  const lastError = failReason(error)
   if (quest.attempts >= quest.maxAttempts) {
     return {
       quest: { ...quest, state: 'dead', leaseExpiresAt: null, lastError },
