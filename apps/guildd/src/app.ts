@@ -882,14 +882,18 @@ export function createApp(deps: AppDeps): Hono {
       limit: page.data.limit,
       ...(page.data.after ? { after: page.data.after } : {}),
     }
-    return c.json(
-      dead
-        ? await deps.quests.deadLetters(who.guild, paging)
-        : await deps.quests.list(who.guild, {
-            ...paging,
-            ...(page.data.state ? { state: page.data.state } : {}),
-          })
+    const listed = dead
+      ? await deps.quests.deadLetters(who.guild, paging)
+      : await deps.quests.list(who.guild, {
+          ...paging,
+          ...(page.data.state ? { state: page.data.state } : {}),
+        })
+    // The Sub-Quest links of this page, so the Quest Board can nest children under their parent.
+    const links = await deps.quests.linksFor(
+      who.guild,
+      listed.quests.map((q) => q.id)
     )
+    return c.json({ ...listed, links })
   }
 
   // Model gateway: a run calls with its per-run token (not a session), and the real provider key
