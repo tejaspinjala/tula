@@ -33,6 +33,8 @@ export const CHALLENGE_TTL_MS = 5 * 60 * 1000
 
 /** How long a founding token stays valid (15 minutes). */
 export const FOUNDING_TTL_MS = 15 * 60 * 1000
+/** How long a one-time enrolment token stays valid (15 minutes). */
+export const ENROL_TTL_MS = 15 * 60 * 1000
 /** Outstanding ceremony challenges kept per guild and per kind; the oldest of a kind are evicted beyond this. */
 export const MAX_OUTSTANDING_CHALLENGES = 20
 
@@ -105,6 +107,30 @@ export interface IdentityProvider {
     response: RegistrationResponseJSON,
     auth?: { sessionToken?: string }
   ): Promise<{ credentialId: string }>
+  /**
+   * Mints the guild's one-time enrolment token for a new device (replacing any earlier one),
+   * `<guild id>.<at least 128 random bits>`. Returned once; only its hash is kept. Run by the host
+   * operator (shell access is the trust root), never reachable over HTTP.
+   */
+  issueEnrolmentToken(guildId: string): Promise<{ token: string; expiresAt: Date }>
+  /**
+   * Starts registering one discoverable passkey with an enrolment `token`. A wrong, expired,
+   * spent or other-guild token all throw `registration_closed`, indistinguishably.
+   */
+  beginEnrolment(
+    guildId: string,
+    token: string
+  ): Promise<{ challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }>
+  /**
+   * Verifies the attestation, then in one transaction spends the token and stores the passkey, and
+   * opens a session for the guild. Throws `registration_closed` if the token was spent or expired
+   * meanwhile; the challenge is consumed either way.
+   */
+  finishEnrolment(
+    guildId: string,
+    challengeId: string,
+    response: RegistrationResponseJSON
+  ): Promise<IdentitySession>
   /** Starts a passkey sign-in for the guild. */
   beginSignIn(
     guildId: string

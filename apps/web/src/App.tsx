@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  enrolTokenFromHash,
   type FoundingState,
   fetchGuild,
   foundingOpen,
   type PasskeyBrowser,
   restoreSession,
   type Session,
+  takeEnrolToken,
   webAuthnBrowser,
 } from './passkeys'
 import { Shell } from './Shell'
@@ -23,6 +25,11 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
   const [restored, setRestored] = useState(false)
+  // A one-time enrolment link carries its token in the fragment; it is read once and cleared.
+  const [enrolToken] = useState(() => enrolTokenFromHash(window.location.hash))
+  useEffect(() => {
+    takeEnrolToken(window)
+  }, [])
 
   const [founding, setFounding] = useState<FoundingState>('closed')
   const [guild, setGuild] = useState<{ id: string; name: string } | null>(null)
@@ -91,6 +98,7 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
             fetcher={fetch}
             browser={browser}
             founding={founding}
+            enrolToken={enrolToken}
             onSession={setSession}
           />
         </main>

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import { FoundGuildPanel } from './FoundGuildPanel'
 import {
+  enrolPasskey,
   type FoundingState,
   type PasskeyBrowser,
   passkeyFailure,
@@ -12,7 +13,7 @@ import {
 } from './passkeys'
 import { CursorMenu, DialogueBox, Frame, PixelButton } from './ui/pixel'
 
-type Mode = 'menu' | 'older' | 'found' | 'about'
+type Mode = 'menu' | 'older' | 'found' | 'about' | 'enrol'
 
 const ABOUT = [
   'A passkey is a sign-in kept on your device and unlocked with your fingerprint, face or screen lock.',
@@ -23,21 +24,25 @@ const ABOUT = [
  * The title menu: ▶ Continue (a usernameless passkey sign-in), New guild (while founding is open),
  * Older passkey (sign in to a named guild, for passkeys made before resident keys were required)
  * and About passkeys (a Member explains in a dialogue box). Every failure is one in-world line,
- * told apart by `passkeyFailure`.
+ * told apart by `passkeyFailure`. Opened from a one-time link (`enrolToken`), it starts on the
+ * enrol screen instead: one button registers this device's passkey and signs in.
  */
 export function SignInPanel({
   fetcher,
   browser,
   founding = 'closed',
+  enrolToken,
   onSession,
 }: {
   fetcher: Fetcher
   browser: PasskeyBrowser
   founding?: FoundingState
+  /** The one-time token from an enrolment link, already cleared from the address bar. */
+  enrolToken?: string | null
   onSession: (session: Session) => void
 }) {
   const guildInput = useId()
-  const [mode, setMode] = useState<Mode>('menu')
+  const [mode, setMode] = useState<Mode>(enrolToken ? 'enrol' : 'menu')
   const [guildId, setGuildId] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -48,7 +53,7 @@ export function SignInPanel({
     try {
       onSession(await action())
     } catch (caught) {
-      setError(passkeyLine(passkeyFailure(caught), 'sign-in'))
+      setError(passkeyLine(passkeyFailure(caught), mode === 'enrol' ? 'enrol' : 'sign-in'))
     } finally {
       setBusy(false)
     }
@@ -94,6 +99,26 @@ export function SignInPanel({
 
   if (mode === 'about') {
     return <DialogueBox speaker="Member" lines={ABOUT} onDone={back} />
+  }
+
+  if (mode === 'enrol' && enrolToken) {
+    return (
+      <Frame variant="dialog" className="title-panel">
+        <p className="title-line">This link opens your guild on a new device.</p>
+        <div className="title-actions">
+          <PixelButton
+            disabled={busy}
+            onClick={() => run(() => enrolPasskey(enrolToken, fetcher, browser))}
+          >
+            Join the guild on this device
+          </PixelButton>
+          <PixelButton onClick={back}>Back</PixelButton>
+        </div>
+        <p role="alert" className="title-line">
+          {error}
+        </p>
+      </Frame>
+    )
   }
 
   if (mode === 'found') {

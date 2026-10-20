@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { ENROL_TTL_MS } from './ports/identity'
+import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
@@ -118,5 +119,18 @@ describe('enrolling a passkey on a new device over HTTP', () => {
     } finally {
       await limited.close()
     }
+  })
+
+  test('a token of one guild aimed at another answers as it does for a guild that does not exist', async () => {
+    await expectGuildIsolation(harness, {
+      build: async (caller, target) => {
+        const { token } = await harness.adapters.identity.issueEnrolmentToken(caller)
+        return [
+          `/guilds/${target}/enrol/begin`,
+          { method: 'POST', headers: { ...json, 'x-enrol-token': token }, body: '{}' },
+        ]
+      },
+      snapshot: (guildId) => harness.adapters.identity.hasCredentials(guildId),
+    })
   })
 })

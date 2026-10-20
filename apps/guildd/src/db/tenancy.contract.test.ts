@@ -90,6 +90,7 @@ describe('hardening', () => {
     expect(canDelete).toEqual({
       identity_challenges: true,
       identity_credentials: false,
+      identity_enrolments: true,
       identity_founding: true,
       identity_sessions: false,
     })

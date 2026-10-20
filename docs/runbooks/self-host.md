@@ -107,6 +107,31 @@ so finish founding before you close it. Too many attempts shows a rate-limit mes
 minute. Later, sign in with the passkey (Passkey section, with the guild id). Sensitive actions (Vault writes, widening config, lifting Gates)
 ask for re-authentication with the passkey.
 
+## Signing in from a new device
+
+A second laptop with no synced passkey and no live session cannot sign in on its own. Try these in
+order.
+
+1. **Phone QR (hybrid).** On the sign-in screen choose **Continue**. Your browser offers "use a
+   phone or tablet": scan the QR code with the phone that holds the passkey and approve. Nothing
+   changes on the server.
+2. **A one-time link from the host.** If the phone is not at hand, on the machine that runs
+   Guildhall (the shell there is already the trust root) run, with the same environment as
+   `start:selfhost` (so `PUBLIC_ORIGIN` sets the link's origin):
+
+   ```sh
+   bun run guild:enrol-link            # the only guild
+   bun run guild:enrol-link --guild <guild id>   # when the host has several
+   ```
+
+   It prints `https://<origin>/#enrol=<token>`. Open it on the new device within 15 minutes. The
+   title screen clears the fragment from the address bar and offers **Join the guild on this
+   device**; the device makes one passkey, you are signed in, and the link is spent. The token is
+   random (128 bits or more), kept on the server only as a hash, and carried in the URL fragment,
+   which browsers never send to a server and guildd never logs. A reused, expired or wrong link is
+   refused with one message. Minting again replaces the earlier link. Both minting and redeeming
+   are written to the audit log without any secret.
+
 ## Models: adding a provider
 
 Open the Vault and add a provider key once; it is envelope-encrypted and only the gateway can

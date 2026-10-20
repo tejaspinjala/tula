@@ -14,6 +14,7 @@ import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
   type CheckpointAssertion,
+  ENROL_TTL_MS,
   FOUNDING_TTL_MS,
   IdentityError,
   type IdentityProvider,
@@ -94,6 +95,57 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return { token, expiresAt }
   }
 
+  async issueEnrolmentToken(guildId: string) {
+    const token = `${guildId}.${randomToken()}`
+    const expiresAt = new Date(this.config.clock.now().getTime() + ENROL_TTL_MS)
+    await this.store.issueEnrolment(guildId, await hashOf(token), expiresAt, {
+      type: 'identity.enrolment_token_issued',
+      payload: {},
+    })
+    return { token, expiresAt }
+  }
+
+  async beginEnrolment(guildId: string, token: string) {
+    const hash = await hashOf(token)
+    // Wrong, expired, spent and other-guild tokens all land here, with the same refusal.
+    if (!(await this.store.hasEnrolment(guildId, hash, this.config.clock.now()))) {
+      throw new IdentityError('registration_closed')
+    }
+    const existing = await this.store.listCredentials(guildId)
+    const options = await this.registrationOptions(guildId, existing)
+    const challengeId = await this.saveChallenge(guildId, 'enrol', options.challenge, null, hash)
+    return { challengeId, options }
+  }
+
+  async finishEnrolment(guildId: string, challengeId: string, response: RegistrationResponseJSON) {
+    const challenge = await this.takeChallenge(guildId, challengeId, 'enrol')
+    if (!challenge.foundingHash) {
+      throw new IdentityError('invalid_challenge')
+    }
+    const stored = await this.verifiedCredential(guildId, challenge.challenge, response)
+    try {
+      const enrolled = await this.store.enrolCredential(
+        guildId,
+        stored,
+        challenge.foundingHash,
+        this.config.clock.now(),
+        [
+          { type: 'identity.enrolment_token_spent', payload: { credentialId: stored.id } },
+          { type: 'identity.passkey_registered', payload: { credentialId: stored.id } },
+        ]
+      )
+      if (!enrolled) {
+        throw new IdentityError('registration_closed')
+      }
+    } catch (error) {
+      if (z.object({ code: z.literal('23505') }).safeParse(error).success) {
+        throw new IdentityError('credential_exists')
+      }
+      throw error
+    }
+    return this.openSession(guildId)
+  }
+
   async beginRegistration(
     guildId: string,
     auth: { sessionToken?: string; foundingToken?: string } = {}
@@ -114,16 +166,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
         throw new IdentityError('registration_closed')
       }
     }
-    const options = await generateRegistrationOptions({
-      rpID: this.config.rpId,
-      rpName: this.config.rpName,
-      userName: 'guild-master',
-      userDisplayName: 'Guild Master',
-      userID: new TextEncoder().encode(guildId),
-      attestationType: 'none',
-      excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
-      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-    })
+    const options = await this.registrationOptions(guildId, existing)
     const challengeId = await this.saveChallenge(
       guildId,
       'register',
@@ -147,28 +190,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
         throw new IdentityError('registration_closed')
       }
     }
-    const verified = await verifyRegistrationResponse({
-      response,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: this.config.origin,
-      expectedRPID: this.config.rpId,
-      requireUserVerification: true,
-    }).catch(() => null)
-    if (!verified?.verified) {
-      throw new IdentityError('verification_failed')
-    }
-    const { credential } = verified.registrationInfo
-    const stored: StoredCredential = {
-      id: credential.id,
-      publicKey: new Uint8Array(credential.publicKey),
-      counter: credential.counter,
-      transports: credential.transports ?? [],
-    }
-    // Credential ids are unique across guilds (migration 0058); refuse before the founding token is spent.
-    const holder = await this.store.guildForCredential(stored.id)
-    if (holder && holder !== guildId) {
-      throw new IdentityError('credential_exists')
-    }
+    const stored = await this.verifiedCredential(guildId, challenge.challenge, response)
     try {
       if (challenge.foundingHash) {
         const founded = await this.store.foundCredential(
@@ -197,7 +219,50 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       }
       throw error
     }
-    return { credentialId: credential.id }
+    return { credentialId: stored.id }
+  }
+
+  private registrationOptions(guildId: string, existing: StoredCredential[]) {
+    return generateRegistrationOptions({
+      rpID: this.config.rpId,
+      rpName: this.config.rpName,
+      userName: 'guild-master',
+      userDisplayName: 'Guild Master',
+      userID: new TextEncoder().encode(guildId),
+      attestationType: 'none',
+      excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+    })
+  }
+
+  /** Verifies an attestation and refuses a credential id another guild already holds (migration 0058). */
+  private async verifiedCredential(
+    guildId: string,
+    expectedChallenge: string,
+    response: RegistrationResponseJSON
+  ): Promise<StoredCredential> {
+    const verified = await verifyRegistrationResponse({
+      response,
+      expectedChallenge,
+      expectedOrigin: this.config.origin,
+      expectedRPID: this.config.rpId,
+      requireUserVerification: true,
+    }).catch(() => null)
+    if (!verified?.verified) {
+      throw new IdentityError('verification_failed')
+    }
+    const { credential } = verified.registrationInfo
+    const stored: StoredCredential = {
+      id: credential.id,
+      publicKey: new Uint8Array(credential.publicKey),
+      counter: credential.counter,
+      transports: credential.transports ?? [],
+    }
+    const holder = await this.store.guildForCredential(stored.id)
+    if (holder && holder !== guildId) {
+      throw new IdentityError('credential_exists')
+    }
+    return stored
   }
 
   async beginSignIn(guildId: string) {

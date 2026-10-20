@@ -21,12 +21,12 @@ export interface StoredCredential {
 /** A one-use ceremony challenge awaiting its response. */
 export interface StoredChallenge {
   id: string
-  kind: 'register' | 'signin' | 'reauth' | 'checkpoint'
+  kind: 'register' | 'signin' | 'reauth' | 'checkpoint' | 'enrol'
   /** Base64url challenge handed to the authenticator. */
   challenge: string
   /** The session a re-authentication challenge belongs to. */
   sessionId: string | null
-  /** Hash of the founding token that started a founding registration; null for other kinds. */
+  /** Hash of the founding token (kind `register`) or enrolment token (kind `enrol`) that started the ceremony; null for other kinds. */
   foundingHash: string | null
   expiresAt: Date
 }
@@ -91,6 +91,27 @@ export interface IdentityStore {
    * @returns false (changing nothing, appending nothing) when either condition fails.
    */
   foundCredential(
+    guildId: string,
+    credential: StoredCredential,
+    tokenHash: string,
+    now: Date,
+    events: IdentityEvent[]
+  ): Promise<boolean>
+  /** Stores or replaces the guild's enrolment token hash, appending `event` in the same transaction. */
+  issueEnrolment(
+    guildId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    event: IdentityEvent
+  ): Promise<void>
+  /** Whether `tokenHash` is the guild's unexpired enrolment token (not consumed). */
+  hasEnrolment(guildId: string, tokenHash: string, now: Date): Promise<boolean>
+  /**
+   * Atomically spends the unexpired enrolment token `tokenHash` and stores the credential, then
+   * appends `events`, all in one transaction.
+   * @returns false (changing nothing, appending nothing) when the token is absent, spent or expired.
+   */
+  enrolCredential(
     guildId: string,
     credential: StoredCredential,
     tokenHash: string,
