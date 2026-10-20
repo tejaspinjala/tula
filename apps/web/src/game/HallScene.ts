@@ -575,6 +575,7 @@ export class HallScene extends Phaser.Scene {
         status: 'idle',
         questId: null,
         bubble: null,
+        claimSeq: null,
       },
       { x: stew.x + 1, y: stew.y + stew.h },
       s

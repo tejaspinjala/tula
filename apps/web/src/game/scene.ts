@@ -29,6 +29,8 @@ export interface SceneMember {
   status: 'idle' | 'working'
   questId: string | null
   bubble: SceneBubble | null
+  /** The seq of the claim that put this Member to work (a new seq walks them to the Quest Board). */
+  claimSeq: number | null
   /** The Guild Master's override of the look this Member's id seeds. */
   look?: LookChoice | undefined
 }
@@ -40,6 +42,17 @@ export interface SceneRoom {
   locked: boolean
   paused: boolean
   memberIds: string[]
+  /** Quests on this Hall's Quest Board (queued or in flight); a team Campaign fills it. */
+  board: number
+}
+
+/** A Sub-Quest's apprentice: joins the parent's room when spawned, leaves when the child settles. */
+export interface SceneApprentice {
+  childId: string
+  parentId: string
+  hallId: string
+  title: string | null
+  seq: number
 }
 
 /** Everything the game draws, derived from the event log; the game decides nothing. */
@@ -49,6 +62,10 @@ export interface SceneState {
   stewardId: string
   /** Quests awaiting a Seal, shown as scrolls at the Seal desk. */
   scrolls: { questId: string; title: string }[]
+  /** Apprentices of spawned Sub-Quests still in flight. */
+  apprentices: SceneApprentice[]
+  /** Team Campaigns with Quests still on the boards. */
+  campaigns: string[]
   gateClosed: boolean
   /** Treasury spend so far, in cents. */
   coinsCents: number
@@ -62,6 +79,8 @@ export interface SceneInput {
   events: readonly ReplayEvent[]
   /** Fold events up to and including this seq; null folds them all. */
   upTo: number | null
+  /** Missive text by Missive id, fetched from the Hall route (events carry ids only). */
+  missiveTexts?: Readonly<Record<string, string>> | undefined
 }
 
 const hallPayload = z.object({ hallId: z.string() })
@@ -134,6 +153,7 @@ export function deriveScene(input: SceneInput): SceneState {
         status: 'idle',
         questId: null,
         bubble: null,
+        claimSeq: null,
         ...(m.look ? { look: m.look } : {}),
       }
     }
@@ -143,6 +163,7 @@ export function deriveScene(input: SceneInput): SceneState {
       locked: hall.locked,
       paused: paused.has(hall.id),
       memberIds: everyone.map((m) => m.id),
+      board: 0,
     }
   })
   for (const questId of replay.quests.active) {
@@ -164,6 +185,8 @@ export function deriveScene(input: SceneInput): SceneState {
     members,
     stewardId: roster.steward.id,
     scrolls,
+    apprentices: [],
+    campaigns: [],
     gateClosed,
     coinsCents,
     appliedSeq: replay.appliedSeq,

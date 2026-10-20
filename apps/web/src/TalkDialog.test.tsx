@@ -9,7 +9,16 @@ const session = { token: 't1', guildId: '11111111-1111-4111-8111-111111111111' }
 const ana: Target = { kind: 'member', id: 'ana' }
 const desk: Target = { kind: 'sealDesk' }
 const scene: SceneState = {
-  rooms: [{ hallId: 'heralds', name: 'Heralds', locked: false, paused: false, memberIds: ['ana'] }],
+  rooms: [
+    {
+      hallId: 'heralds',
+      name: 'Heralds',
+      locked: false,
+      paused: false,
+      memberIds: ['ana'],
+      board: 0,
+    },
+  ],
   members: {
     ana: {
       id: 'ana',
@@ -19,10 +28,13 @@ const scene: SceneState = {
       status: 'working',
       questId: 'q1',
       bubble: null,
+      claimSeq: null,
     },
   },
   stewardId: 'steward',
   scrolls: [{ questId: 'q2', title: 'Announce the launch' }],
+  apprentices: [],
+  campaigns: [],
   gateClosed: false,
   coinsCents: 0,
   appliedSeq: 5,
