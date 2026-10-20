@@ -4,68 +4,174 @@ import type {
   PushStore,
   PushSubscription,
   PushSubscriptionPage,
+  StoredPushSubscription,
 } from '../ports/push-store'
 
-const todo = (): never => {
-  throw new Error('not implemented')
+interface Delivery {
+  state: 'pending' | 'sent' | 'failed'
+  attempts: number
+  leaseUntil: number
 }
 
-/** Memory {@link PushStore}. */
+interface GuildPush {
+  subscriptions: Map<string, StoredPushSubscription>
+  deliveries: Map<string, Delivery>
+  cursor: number
+  lockTail: Promise<void>
+}
+
+/**
+ * Memory {@link PushStore}. Every operation checks and writes with no `await` between, so claims
+ * are atomic, and the dispatch lock chains callers per guild. State is per instance.
+ */
 export class MemoryPushStore implements PushStore {
+  private readonly guilds = new Map<string, GuildPush>()
+
+  private of(guildId: string): GuildPush {
+    let state = this.guilds.get(guildId)
+    if (!state) {
+      state = {
+        subscriptions: new Map(),
+        deliveries: new Map(),
+        cursor: 0,
+        lockTail: Promise.resolve(),
+      }
+      this.guilds.set(guildId, state)
+    }
+    return state
+  }
+
+  private forget(state: GuildPush, endpoint: string): void {
+    for (const key of state.deliveries.keys()) {
+      if (key.endsWith(`|${endpoint}`)) {
+        state.deliveries.delete(key)
+      }
+    }
+    state.subscriptions.delete(endpoint)
+  }
+
   async add(
-    _guildId: string,
-    _memberId: string,
-    _subscription: PushSubscription,
-    _sinceSeq: number
+    guildId: string,
+    memberId: string,
+    subscription: PushSubscription,
+    sinceSeq: number
   ): Promise<'added' | 'updated' | 'conflict'> {
-    return todo()
+    const state = this.of(guildId)
+    const existing = state.subscriptions.get(subscription.endpoint)
+    if (existing && existing.memberId !== memberId) {
+      return 'conflict'
+    }
+    state.subscriptions.set(subscription.endpoint, {
+      ...subscription,
+      memberId,
+      sinceSeq: existing?.sinceSeq ?? sinceSeq,
+    })
+    return existing ? 'updated' : 'added'
   }
 
   async remove(
-    _guildId: string,
-    _memberId: string,
-    _endpoint: string
+    guildId: string,
+    memberId: string,
+    endpoint: string
   ): Promise<'removed' | 'not_found' | 'conflict'> {
-    return todo()
+    const state = this.of(guildId)
+    const existing = state.subscriptions.get(endpoint)
+    if (!existing) {
+      return 'not_found'
+    }
+    if (existing.memberId !== memberId) {
+      return 'conflict'
+    }
+    this.forget(state, endpoint)
+    return 'removed'
   }
 
-  async drop(_guildId: string, _endpoint: string): Promise<boolean> {
-    return todo()
+  async drop(guildId: string, endpoint: string): Promise<boolean> {
+    const state = this.of(guildId)
+    const existed = state.subscriptions.has(endpoint)
+    this.forget(state, endpoint)
+    return existed
   }
 
   async list(
-    _guildId: string,
-    _page: { after?: string; limit: number }
+    guildId: string,
+    page: { after?: string; limit: number }
   ): Promise<PushSubscriptionPage> {
-    return todo()
+    const after = page.after
+    const sorted = [...this.of(guildId).subscriptions.values()]
+      .filter((s) => after === undefined || s.endpoint > after)
+      .sort((x, y) => (x.endpoint < y.endpoint ? -1 : 1))
+    const subscriptions = sorted.slice(0, page.limit).map((s) => ({ ...s }))
+    const last = subscriptions.at(-1)
+    return { subscriptions, next: sorted.length > page.limit && last ? last.endpoint : null }
   }
 
   async claimDelivery(
-    _guildId: string,
-    _sealId: string,
-    _endpoint: string,
-    _lease: DeliveryLease
+    guildId: string,
+    sealId: string,
+    endpoint: string,
+    lease: DeliveryLease
   ): Promise<DeliveryClaim> {
-    return todo()
+    const state = this.of(guildId)
+    if (!state.subscriptions.has(endpoint)) {
+      return 'done'
+    }
+    const now = lease.now.getTime()
+    const key = `${sealId}|${endpoint}`
+    const delivery = state.deliveries.get(key)
+    if (!delivery) {
+      state.deliveries.set(key, {
+        state: 'pending',
+        attempts: 1,
+        leaseUntil: now + lease.leaseMs,
+      })
+      return 'claimed'
+    }
+    if (delivery.state !== 'pending') {
+      return 'done'
+    }
+    if (delivery.leaseUntil > now) {
+      return 'busy'
+    }
+    if (delivery.attempts >= lease.maxAttempts) {
+      delivery.state = 'failed'
+      return 'done'
+    }
+    delivery.attempts += 1
+    delivery.leaseUntil = now + lease.leaseMs
+    return 'claimed'
   }
 
-  async completeDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
-    todo()
+  async completeDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+    const delivery = this.of(guildId).deliveries.get(`${sealId}|${endpoint}`)
+    if (delivery) {
+      delivery.state = 'sent'
+    }
   }
 
-  async releaseDelivery(_guildId: string, _sealId: string, _endpoint: string): Promise<void> {
-    todo()
+  async releaseDelivery(guildId: string, sealId: string, endpoint: string): Promise<void> {
+    const delivery = this.of(guildId).deliveries.get(`${sealId}|${endpoint}`)
+    if (delivery?.state === 'pending') {
+      delivery.leaseUntil = 0
+    }
   }
 
-  async cursor(_guildId: string): Promise<number> {
-    return todo()
+  async cursor(guildId: string): Promise<number> {
+    return this.of(guildId).cursor
   }
 
-  async advanceCursor(_guildId: string, _seq: number): Promise<void> {
-    todo()
+  async advanceCursor(guildId: string, seq: number): Promise<void> {
+    const state = this.of(guildId)
+    state.cursor = Math.max(state.cursor, seq)
   }
 
-  async withDispatchLock<T>(_guildId: string, _fn: () => Promise<T>): Promise<T> {
-    return todo()
+  withDispatchLock<T>(guildId: string, fn: () => Promise<T>): Promise<T> {
+    const state = this.of(guildId)
+    const run = state.lockTail.then(fn)
+    state.lockTail = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
   }
 }
