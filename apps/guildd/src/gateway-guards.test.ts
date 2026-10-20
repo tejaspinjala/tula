@@ -7,6 +7,7 @@ import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { MemoryNoteStore } from './adapters/memory-note-store'
 import { MemoryObjectStore } from './adapters/memory-object-store'
+import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySecretStore } from './adapters/memory-secret-store'
@@ -17,6 +18,7 @@ import { gatewayGuardsContract } from './gateway-guards.contract'
 import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
+import { ProposalEngine } from './proposals'
 
 const KEY = 'sk-memory-key'
 
@@ -56,6 +58,7 @@ gatewayGuardsContract('memory', async () => {
     objectStore: new MemoryObjectStore(),
     handoffs: new MemoryHandoffStore(),
     toolsets: new MemoryToolsetStore(),
+    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
     keys,
     clock,
     tripwires,

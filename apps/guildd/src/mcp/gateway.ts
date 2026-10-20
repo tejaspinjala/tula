@@ -11,6 +11,7 @@ import type { ObjectStore } from '../ports/object-store'
 import { hasLiveLease, type Quest, QuestError, type QuestQueue } from '../ports/quest-queue'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
+import type { ProposalEngine } from '../proposals'
 import { QUEST_TEMPLATES } from '../quests'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
@@ -39,6 +40,8 @@ export interface McpGatewayDeps {
   objectStore: ObjectStore
   handoffs: HandoffStore
   toolsets: ToolsetStore
+  /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
+  proposals: ProposalEngine
   keys: KeyProvider
   clock: Clock
   /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */

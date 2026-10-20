@@ -63,6 +63,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     objectStore: new MemoryObjectStore(),
     handoffs: new MemoryHandoffStore(),
     toolsets: new MemoryToolsetStore(),
+    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
     keys,
     clock,
     tripwires,

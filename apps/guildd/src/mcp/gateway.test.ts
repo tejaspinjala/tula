@@ -7,10 +7,12 @@ import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
 import { MemoryKeyProvider } from '../adapters/memory-key-provider'
 import { MemoryNoteStore } from '../adapters/memory-note-store'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
+import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemoryToolsetStore } from '../adapters/memory-toolset-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import type { Quest } from '../ports/quest-queue'
+import { ProposalEngine } from '../proposals'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
 import { McpGateway, type McpGatewayDeps } from './gateway'
 import { TOOL_CATALOG, type ToolDef } from './tools'
@@ -35,6 +37,7 @@ async function setup(overrides: Partial<McpGatewayDeps> = {}) {
     objectStore,
     handoffs,
     toolsets,
+    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
     keys,
     clock,
     tripwires: new MemoryTripwireStore(clock),
@@ -377,6 +380,171 @@ describe('MCP gateway', () => {
       // The catalogue gains read_brief; the Campaign's frozen list stays as it was.
       const out = await callTool(s.transport, 'read_brief', { lease: claimed.data.lease })
       expect(out.rpcError).toBe('unknown_tool')
+    })
+  })
+
+  describe('submit_proposal', () => {
+    const announce = (s: Setup) =>
+      s.post({
+        templateId: 'herald-announcement',
+        rank: 'apprentice',
+        dataClass: 'public',
+        ownerId: 'heralds-member-1',
+        doneCondition: 'An announcement draft is ready for a Seal',
+        roundLimit: 3,
+      })
+    const draft = { text: 'Guild update: the hall opens at dawn.', evidenceLinks: [] }
+
+    test('files the draft as a Proposal for the leased Quest, with the Verdict bound to its hash', async () => {
+      const s = await setup()
+      const quest = await announce(s)
+      const { lease: l } = await s.claim(quest)
+      const out = await callTool(s.transport, 'submit_proposal', { lease: l, ...draft })
+      expect(out.isError).toBe(false)
+      const stored = await s.deps.proposals.latestForQuest(s.guild, quest.id)
+      expect(stored).toMatchObject({
+        questId: quest.id,
+        author: 'heralds-member-1',
+        kind: 'post',
+        content: draft.text,
+      })
+      expect(out.data).toMatchObject({ hash: stored?.hash, passed: true })
+      expect((await s.deps.proposals.verdictFor(s.guild, String(stored?.hash)))?.passed).toBe(true)
+    })
+
+    test('evidence links join the filed text and meet the same Verdict checks', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await announce(s))
+      const out = await callTool(s.transport, 'submit_proposal', {
+        lease: l,
+        text: 'Read more.',
+        evidenceLinks: ['https://example.com/a'],
+      })
+      expect(out.isError).toBe(false)
+      const stored = await s.deps.proposals.latestForQuest(s.guild, lease.parse(l).questId)
+      expect(stored?.content).toContain('Read more.')
+      expect(stored?.content).toContain('https://example.com/a')
+    })
+
+    test('a failing draft is stored with a failing Verdict, not refused', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await announce(s))
+      const out = await callTool(s.transport, 'submit_proposal', {
+        lease: l,
+        text: 'contact me at someone@example.com',
+        evidenceLinks: [],
+      })
+      expect(out.isError).toBe(false)
+      expect(out.data.passed).toBe(false)
+    })
+
+    test('the same draft twice is one Proposal; a changed one is a new Proposal', async () => {
+      const s = await setup()
+      const quest = await announce(s)
+      const { lease: l } = await s.claim(quest)
+      const first = await callTool(s.transport, 'submit_proposal', { lease: l, ...draft })
+      const again = await callTool(s.transport, 'submit_proposal', { lease: l, ...draft })
+      expect(again.data.hash).toBe(first.data.hash)
+      const edited = await callTool(s.transport, 'submit_proposal', {
+        lease: l,
+        text: 'Guild update: the hall opens at noon.',
+        evidenceLinks: [],
+      })
+      expect(edited.data.hash).not.toBe(first.data.hash)
+      const page = await s.deps.proposals.list(s.guild, { limit: 10 })
+      expect(page.proposals).toHaveLength(2)
+    })
+
+    test('rejects oversized text, too many or non-https links', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await announce(s))
+      const bad = [
+        { text: '', evidenceLinks: [] },
+        { text: 'x'.repeat(20001), evidenceLinks: [] },
+        { text: 'ok', evidenceLinks: ['http://example.com'] },
+        { text: 'ok', evidenceLinks: ['javascript:alert(1)'] },
+        { text: 'ok', evidenceLinks: [`https://example.com/${'a'.repeat(2100)}`] },
+        { text: 'ok', evidenceLinks: Array.from({ length: 11 }, (_, i) => `https://e.com/${i}`) },
+      ]
+      for (const args of bad) {
+        const out = await callTool(s.transport, 'submit_proposal', { lease: l, ...args })
+        expect(out.rpcError).toBe('invalid_arguments')
+      }
+      expect((await s.deps.proposals.list(s.guild, { limit: 10 })).proposals).toHaveLength(0)
+    })
+
+    test('a barred guild, a forged lease and a lapsed lease are refused with nothing stored', async () => {
+      const gates = new MemoryGateStore()
+      const s = await setup({ gates })
+      const { lease: l } = await s.claim(await announce(s))
+      const forged = await callTool(s.transport, 'submit_proposal', {
+        lease: { ...lease.parse(l), token: 'nope' },
+        ...draft,
+      })
+      expect(forged.rpcError).toBe('invalid_lease')
+      s.clock.advance(60 * 60 * 1000)
+      const lapsed = await callTool(s.transport, 'submit_proposal', { lease: l, ...draft })
+      expect(lapsed.rpcError).toBe('lease_expired')
+      await gates.bar({ guildId: s.guild, memberId: 'owner' }, 'guild')
+      const barred = await callTool(s.transport, 'submit_proposal', { lease: l, ...draft })
+      expect(barred).toMatchObject({ status: 401, rpcError: 'gates_barred' })
+      expect((await s.deps.proposals.list(s.guild, { limit: 10 })).proposals).toHaveLength(0)
+    })
+
+    test('a lease cannot file a Proposal for another Quest, or into another guild', async () => {
+      const s = await setup()
+      const { lease: mine } = await s.claim(await announce(s))
+      const other = crypto.randomUUID()
+      await s.deps.config.seed(other)
+      const theirs = (
+        await s.deps.quests.post(other, {
+          jobKey: crypto.randomUUID(),
+          templateId: 'herald-announcement',
+          hallId: 'heralds',
+          rank: 'apprentice',
+          dataClass: 'public',
+          title: 'Theirs',
+          ownerId: 'heralds-member-1',
+          doneCondition: 'An announcement draft is ready for a Seal',
+          roundLimit: 3,
+        })
+      ).quest
+      const out = await callTool(s.transport, 'submit_proposal', {
+        lease: { ...lease.parse(mine), questId: theirs.id },
+        ...draft,
+      })
+      expect(out.rpcError).toBe('invalid_lease')
+      expect(await s.deps.proposals.latestForQuest(other, theirs.id)).toBeNull()
+      expect((await s.deps.proposals.list(other, { limit: 10 })).proposals).toHaveLength(0)
+    })
+
+    test('a Campaign started before the tool existed never sees it', async () => {
+      const s = await setup()
+      const old = new McpGateway({
+        ...s.deps,
+        catalog: TOOL_CATALOG.filter((t) => t.name !== 'submit_proposal'),
+      })
+      const first = await announce(s)
+      const claimed = await callTool((r) => old.handle(r), 'claim_quest', {
+        assignment: await old.assign(s.guild, first),
+      })
+      const out = await callTool(s.transport, 'submit_proposal', {
+        lease: claimed.data.lease,
+        ...draft,
+      })
+      expect(out.rpcError).toBe('unknown_tool')
+    })
+
+    test('read_brief tells the worker whether the Quest needs a Seal', async () => {
+      const s = await setup()
+      const { lease: sealed } = await s.claim(await announce(s))
+      expect((await callTool(s.transport, 'read_brief', { lease: sealed })).data.requiresSeal).toBe(
+        true
+      )
+      const { lease: plain } = await s.claim(await s.post())
+      expect((await callTool(s.transport, 'read_brief', { lease: plain })).data.requiresSeal).toBe(
+        false
+      )
     })
   })
 
