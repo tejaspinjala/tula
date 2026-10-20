@@ -9,6 +9,7 @@ const base = `/api/guilds/${guild}/workflows`
 GlobalRegistrator.register()
 const { createRoot } = await import('react-dom/client')
 const { WorkflowPanel } = await import('./WorkflowPanel')
+const { holdReconnectTimers } = await import('../stream-test-kit')
 
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
@@ -134,7 +135,7 @@ function world(options: Options = {}) {
 
 const doc = globalThis.document
 
-async function mount(w: ReturnType<typeof world>, desktop: boolean) {
+async function mount(w: ReturnType<typeof world>, desktop: boolean, live = false) {
   const host = doc.createElement('div')
   doc.body.appendChild(host)
   const root = createRoot(host)
@@ -146,7 +147,7 @@ async function mount(w: ReturnType<typeof world>, desktop: boolean) {
         browser={w.browser}
         desktop={desktop}
         validateDelayMs={0}
-        live={false}
+        live={live}
       />
     )
   })
@@ -251,4 +252,27 @@ test('on a phone the graph is read only: no palette or save, but Run and the ove
 test('opening a Workflow shows the overlay of its newest run, so leaving and coming back keeps it', async () => {
   const host = await mount(world(), true)
   expect(host.querySelector('[data-node-id="start"]')?.textContent).toContain('Running')
+})
+
+test('the run stream reconnects on the shared jittered backoff and says so in-world after 3 failures in a row', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = Object.assign(async () => Response.json({ error: 'down' }, { status: 503 }), {
+    preconnect: realFetch.preconnect,
+  })
+  const timers = holdReconnectTimers()
+  try {
+    const host = await mount(world(), true, true)
+    for (let i = 0; i < 2; i += 1) {
+      expect(host.textContent).not.toContain('messenger')
+      await act(async () => {
+        timers.fireNext()
+        await new Promise((r) => setTimeout(r, 30))
+      })
+    }
+    expect(timers.delays.slice(0, 3)).toEqual([250, 500, 1000])
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('messenger')
+  } finally {
+    timers.restore()
+    globalThis.fetch = realFetch
+  }
 })
