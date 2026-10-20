@@ -1,5 +1,6 @@
 import { learningRepoAllowlist } from './guild-config'
 import { extractSuggestions } from './learning'
+import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import { EnvoyError, type EnvoyErrorCode, type GitHubEnvoy } from './ports/github-envoy'
 import type { Note, NoteStore } from './ports/note-store'
@@ -14,7 +15,7 @@ import type {
 export interface ScanResult {
   repos: number
   added: number
-  failed: Array<{ repo: string; code: EnvoyErrorCode }>
+  failed: Array<{ repo: string; code: EnvoyErrorCode | 'deadline' }>
 }
 
 /** Result of accepting or dismissing a suggestion. */
@@ -40,6 +41,10 @@ export class LearningEngine {
     envoy: GitHubEnvoy
     config: ConfigStore
     notes: NoteStore
+    /** Measures a scan against its deadline. */
+    clock?: Clock
+    /** Most milliseconds a scan may run before it stops reading further repos; defaults to 30000. */
+    scanDeadlineMs?: number
   }) {
     this.store = deps.store
     this.envoy = deps.envoy

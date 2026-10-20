@@ -9,6 +9,8 @@ import { LearningEngine } from './learning-engine'
 import { EnvoyError, type GitHubEnvoy } from './ports/github-envoy'
 
 const GUILD = crypto.randomUUID()
+/** The scenario's clock, for an Envoy built before the engine exists. */
+const clockRef: { current?: MemoryClock } = {}
 const pull = (n: number) => ({
   number: n,
   title: `Change ${n}`,
@@ -41,8 +43,15 @@ async function setup(repos: string[], envoyOverride?: GitHubEnvoy) {
   )
   const store = new MemorySuggestionStore(clock)
   const notes = new MemoryNoteStore()
-  const engine = new LearningEngine({ store, envoy: envoyOverride ?? inner, config, notes })
-  return { engine, store, notes, reads }
+  const engine = new LearningEngine({
+    store,
+    envoy: envoyOverride ?? inner,
+    config,
+    notes,
+    clock,
+    scanDeadlineMs: 30_000,
+  })
+  return { engine, store, notes, reads, clock }
 }
 
 describe('LearningEngine', () => {
@@ -126,5 +135,69 @@ describe('LearningEngine', () => {
     }
     await expect(engine.accept(GUILD, id)).rejects.toThrow('archive down')
     expect((await store.get(GUILD, id))?.status).toBe('pending')
+  })
+
+  test('a note store that persists then throws: accepting again still makes exactly one note', async () => {
+    const { engine, store, notes } = await setup(['o/r'])
+    await engine.scan(GUILD)
+    const id = (await store.list(GUILD, { limit: 1 })).suggestions[0]?.id ?? ''
+    const add = notes.add.bind(notes)
+    let first = true
+    notes.add = async (...args) => {
+      const note = await add(...args)
+      if (first) {
+        first = false
+        throw new Error('connection lost after commit')
+      }
+      return note
+    }
+    await expect(engine.accept(GUILD, id)).rejects.toThrow('connection lost')
+    expect((await engine.accept(GUILD, id)).ok).toBe(true)
+    expect((await notes.list(GUILD, { limit: 10 })).notes).toHaveLength(1)
+    const stored = await store.get(GUILD, id)
+    expect(stored?.status).toBe('accepted')
+    expect(stored?.noteId).toBe((await notes.list(GUILD, { limit: 10 })).notes[0]?.id ?? 'none')
+  })
+
+  test('a failed link to the note is not reopened: accepting again links the existing note', async () => {
+    const { engine, store, notes } = await setup(['o/r'])
+    await engine.scan(GUILD)
+    const id = (await store.list(GUILD, { limit: 1 })).suggestions[0]?.id ?? ''
+    const record = store.recordNote.bind(store)
+    let first = true
+    store.recordNote = async (...args) => {
+      if (first) {
+        first = false
+        throw new Error('link failed')
+      }
+      return record(...args)
+    }
+    await expect(engine.accept(GUILD, id)).rejects.toThrow('link failed')
+    expect(await store.get(GUILD, id)).toMatchObject({ status: 'accepted', noteId: null })
+    expect((await engine.accept(GUILD, id)).ok).toBe(true)
+    const all = (await notes.list(GUILD, { limit: 10 })).notes
+    expect(all).toHaveLength(1)
+    expect((await store.get(GUILD, id))?.noteId).toBe(all[0]?.id ?? 'none')
+    expect(await engine.accept(GUILD, id)).toEqual({ ok: false, reason: 'already_decided' })
+  })
+
+  test('a scan past its deadline stops reading and reports the unread repos', async () => {
+    const slow: GitHubEnvoy = {
+      mergedPulls: async () => {
+        clockRef.current?.advance(40_000)
+        return [pull(1)]
+      },
+      adrEntries: async () => [],
+    }
+    const { engine, clock } = await setup(['o/a', 'o/b', 'o/c'], slow)
+    clockRef.current = clock
+    expect(await engine.scan(GUILD)).toEqual({
+      repos: 3,
+      added: 1,
+      failed: [
+        { repo: 'o/b', code: 'deadline' },
+        { repo: 'o/c', code: 'deadline' },
+      ],
+    })
   })
 })
