@@ -21,7 +21,7 @@ export interface CursorMenuProps {
  */
 export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) {
   const [cursor, setCursor] = useState(0)
-  const rows = useRef<(HTMLLIElement | null)[]>([])
+  const rows = useRef<(HTMLDivElement | null)[]>([])
 
   function move(to: number, focus = true) {
     const next = (to + items.length) % items.length
@@ -66,9 +66,9 @@ export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) 
   }
 
   return (
-    <ul className="px-menu" role="listbox" aria-label={label} onKeyDown={onKeyDown}>
+    <div className="px-menu" role="listbox" aria-label={label}>
       {items.map((item, index) => (
-        <li
+        <div
           key={item.id}
           ref={(node) => {
             rows.current[index] = node
@@ -78,6 +78,8 @@ export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) 
           aria-selected={index === cursor}
           aria-disabled={item.disabled === true ? true : undefined}
           tabIndex={index === cursor ? 0 : -1}
+          onKeyDown={onKeyDown}
+          onFocus={() => setCursor(index)}
           onMouseOver={() => setCursor(index)}
           onClick={() => {
             setCursor(index)
@@ -85,8 +87,8 @@ export function CursorMenu({ label, items, onSelect, onBack }: CursorMenuProps) 
           }}
         >
           {item.label}
-        </li>
+        </div>
       ))}
-    </ul>
+    </div>
   )
 }

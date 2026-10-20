@@ -30,7 +30,8 @@ async function show(extra: { onSelect?: (id: string) => void; onBack?: () => voi
   }
   const options = () => [...m.host.querySelectorAll<HTMLElement>('[role="option"]')]
   const selected = () => options().findIndex((o) => o.getAttribute('aria-selected') === 'true')
-  return { m, list, options, selected }
+  const cur = () => options()[selected()] ?? list
+  return { m, cur, options, selected }
 }
 
 test('the cursor starts on the first row; exactly one row is in the tab order and it is the selected one', async () => {
@@ -42,23 +43,23 @@ test('the cursor starts on the first row; exactly one row is in the tab order an
 })
 
 test('Up and Down move the cursor and wrap at both ends', async () => {
-  const { m, list, options, selected } = await show()
-  await press(list, 'ArrowDown')
+  const { m, cur, options, selected } = await show()
+  await press(cur(), 'ArrowDown')
   expect(selected()).toBe(1)
   expect(document.activeElement).toBe(options()[1] ?? null)
-  await press(list, 'ArrowDown')
-  await press(list, 'ArrowDown')
+  await press(cur(), 'ArrowDown')
+  await press(cur(), 'ArrowDown')
   expect(selected()).toBe(0)
-  await press(list, 'ArrowUp')
+  await press(cur(), 'ArrowUp')
   expect(selected()).toBe(2)
   await m.unmount()
 })
 
 test('Home and End jump to the first and last rows', async () => {
-  const { m, list, selected } = await show()
-  await press(list, 'End')
+  const { m, cur, selected } = await show()
+  await press(cur(), 'End')
   expect(selected()).toBe(2)
-  await press(list, 'Home')
+  await press(cur(), 'Home')
   expect(selected()).toBe(0)
   await m.unmount()
 })
@@ -66,12 +67,12 @@ test('Home and End jump to the first and last rows', async () => {
 test('Enter selects the row under the cursor; Esc and Backspace go back', async () => {
   const chosen: string[] = []
   let backs = 0
-  const { m, list } = await show({ onSelect: (id) => chosen.push(id), onBack: () => backs++ })
-  await press(list, 'ArrowDown')
-  await press(list, 'Enter')
+  const { m, cur } = await show({ onSelect: (id) => chosen.push(id), onBack: () => backs++ })
+  await press(cur(), 'ArrowDown')
+  await press(cur(), 'Enter')
   expect(chosen).toEqual(['seals'])
-  await press(list, 'Escape')
-  await press(list, 'Backspace')
+  await press(cur(), 'Escape')
+  await press(cur(), 'Backspace')
   expect(backs).toBe(2)
   await m.unmount()
 })
