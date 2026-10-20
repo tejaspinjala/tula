@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
+import { ModelClassifier } from './adapters/model-classifier'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import type { Classifier } from './ports/classifier'
 import { type RouteInput, route } from './routing'
@@ -85,16 +86,44 @@ describe('routing step 1', () => {
     })
   })
 
-  test('a free-text goal is classified and the decision is logged', async () => {
+  test('a classifier claiming public for free text in a work Hall cannot leave private routing', async () => {
     const classifier = counting(
       new MemoryClassifier({ hallId: 'heralds', rank: 'apprentice', dataClass: 'public' })
     )
     const d = deps(classifier)
-    const out = await route(input({ work: { kind: 'free_text', goal: 'write a post' } }), d)
+    const config = configWith({
+      providers: [{ id: 'cloud', auth: 'api_key', privateEligible: false }],
+      routingProfiles: [{ id: 'cloud-cheap', provider: 'cloud', tier: 'cheap' }],
+    })
+    const out = await route(input({ config, work: { kind: 'free_text', goal: 'write a post' } }), d)
     expect(classifier.calls).toBe(1)
-    expect(out).toMatchObject({ status: 'routed', profileId: 'cloud-cheap' })
+    expect(out).toEqual({ status: 'blocked', reason: 'private_provider_unavailable' })
     const [entry] = (await d.log.list(GUILD, { limit: 10 })).entries
-    expect(entry).toMatchObject({ source: 'classifier', rank: 'apprentice', dataClass: 'public' })
+    expect(entry).toMatchObject({
+      source: 'classifier',
+      dataClass: 'private',
+      classifierClaim: { dataClass: 'public' },
+    })
+  })
+
+  test('free text with an explicit Guild Master data class routes on that class', async () => {
+    const d = deps(
+      new MemoryClassifier({ hallId: 'heralds', rank: 'apprentice', dataClass: 'public' })
+    )
+    const out = await route(
+      input({ work: { kind: 'free_text', goal: 'write a post', dataClass: 'internal' } }),
+      d
+    )
+    expect(out).toMatchObject({ status: 'routed', providerId: 'cloud', dataClass: 'internal' })
+  })
+
+  test('a ModelClassifier bound to a non-private provider is refused', () => {
+    const model = { complete: async () => '{}' }
+    expect(() => new ModelClassifier(model, configWith())).toThrow()
+    const privateCheap = configWith({
+      routingProfiles: [{ id: 'home-cheap', provider: 'home', tier: 'cheap' }],
+    })
+    expect(() => new ModelClassifier(model, privateCheap)).not.toThrow()
   })
 
   test('a classifier failure uses the deterministic fallback, logged as such', async () => {
@@ -164,7 +193,10 @@ describe('routing step 1', () => {
 
   test('the classifier cannot raise rank: adept is capped at apprentice, claim logged', async () => {
     const d = deps(new MemoryClassifier({ hallId: 'heralds', rank: 'adept', dataClass: 'public' }))
-    const out = await route(input({ work: { kind: 'free_text', goal: 'x' } }), d)
+    const out = await route(
+      input({ work: { kind: 'free_text', goal: 'x', dataClass: 'internal' } }),
+      d
+    )
     expect(out).toMatchObject({ status: 'routed', rank: 'apprentice', profileId: 'cloud-cheap' })
     const [entry] = (await d.log.list(GUILD, { limit: 10 })).entries
     expect(entry).toMatchObject({
