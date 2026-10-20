@@ -410,9 +410,9 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       const decoy = await s.identity.beginSignIn(unknown)
       expect(Object.keys(decoy).sort()).toEqual(Object.keys(real).sort())
       expect(Object.keys(decoy.options).sort()).toEqual(Object.keys(real.options).sort())
-      expect(decoy.options.allowCredentials).toHaveLength(
-        real.options.allowCredentials?.length ?? 0
-      )
+      const entryKeys = (o: typeof real.options) =>
+        (o.allowCredentials ?? []).map((c) => Object.keys(c).sort().join())
+      expect(new Set(entryKeys(decoy.options))).toEqual(new Set(entryKeys(real.options)))
       expect(decoy.challengeId).toMatch(/^[0-9a-f-]{36}$/)
       expect(decoy.options.rpId).toBe(real.options.rpId)
       // Stable per guild, so repeated probes cannot tell a decoy from a real credential list.
@@ -429,10 +429,32 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       ).toBe('invalid_challenge')
     })
 
+    test('decoy options vary across guilds in credential count, id length and transports', async () => {
+      const s = await registered()
+      const shapes = new Set<string>()
+      for (let i = 0; i < 40; i++) {
+        const { options } = await s.identity.beginSignIn(crypto.randomUUID())
+        const creds = options.allowCredentials ?? []
+        expect(creds.length).toBeGreaterThanOrEqual(1)
+        expect(creds.length).toBeLessThanOrEqual(2)
+        shapes.add(
+          JSON.stringify([
+            creds.length,
+            creds.map((c) => Buffer.from(c.id, 'base64url').length),
+            creds.map((c) => c.transports ?? null),
+          ])
+        )
+        for (const c of creds) {
+          expect([16, 32, 64]).toContain(Buffer.from(c.id, 'base64url').length)
+        }
+      }
+      expect(shapes.size).toBeGreaterThan(4)
+    })
+
     test('sign-in begin for a malformed guild id also answers with decoy options', async () => {
       const s = await registered()
       const decoy = await s.identity.beginSignIn('not-a-guild')
-      expect(decoy.options.allowCredentials).toHaveLength(1)
+      expect(decoy.options.allowCredentials?.length).toBeGreaterThanOrEqual(1)
     })
 
     test('unauthenticated sign-in begins never evict a pending reauth challenge', async () => {

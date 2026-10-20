@@ -128,6 +128,47 @@ describe('rate limits on unauthenticated identity routes', () => {
     expect((await post(path, {}, {}, from('10.0.0.2'))).status).toBe(200)
   })
 
+  test('a blocked client does not spend the guild bucket, so one address cannot lock a guild', async () => {
+    const { post, found } = await harnessWith({
+      'signin-begin': { client: tight(30), guild: tight(120) },
+    })
+    const { id } = await found()
+    const path = `/guilds/${id}/sign-in/begin`
+    const from = (address: string) => ({ requestIP: () => ({ address }) })
+    const statuses: number[] = []
+    for (let i = 0; i < 200; i++) {
+      statuses.push((await post(path, {}, {}, from('10.0.0.1'))).status)
+    }
+    expect(statuses.filter((s) => s === 200)).toHaveLength(30)
+    expect(statuses.filter((s) => s === 429)).toHaveLength(170)
+    expect((await post(path, {}, {}, from('10.0.0.2'))).status).toBe(200)
+  })
+
+  test('sign-in finish is limited per client: the 31st call is refused with Retry-After', async () => {
+    const { post, found } = await harnessWith({ 'signin-finish': { client: tight(30) } })
+    const { id } = await found()
+    const path = `/guilds/${id}/sign-in/finish`
+    for (let i = 0; i < 30; i++) {
+      expect((await post(path)).status).toBe(400)
+    }
+    const refused = await post(path)
+    expect(refused.status).toBe(429)
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(1)
+  })
+
+  test('callers with no known address share a stricter bucket', async () => {
+    const { post, found } = await harnessWith({
+      'signin-begin': { client: tight(5), unknown: tight(1) },
+    })
+    const { id } = await found()
+    const path = `/guilds/${id}/sign-in/begin`
+    expect((await post(path)).status).toBe(200)
+    expect((await post(path)).status).toBe(429)
+    const from = { requestIP: () => ({ address: '10.0.0.1' }) }
+    expect((await post(path, {}, {}, from)).status).toBe(200)
+    expect((await post(path, {}, {}, { requestIP: () => null })).status).toBe(429)
+  })
+
   test('a guild limit holds across clients, and is per guild', async () => {
     const { post, found } = await harnessWith(
       { 'signin-begin': { client: tight(100), guild: tight(2) } },

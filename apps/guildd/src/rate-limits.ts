@@ -1,14 +1,21 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import { z } from 'zod'
-import { clientAddress } from './client-ip'
+import { clientAddress, UNKNOWN_CLIENT } from './client-ip'
 import type { RateLimiter, RateRule } from './ports/rate-limiter'
 
 /** The unauthenticated identity routes that are rate limited. */
-export type RateRoute = 'signin-begin' | 'passkeys-begin' | 'passkeys-finish' | 'founding'
+export type RateRoute =
+  | 'signin-begin'
+  | 'signin-finish'
+  | 'passkeys-begin'
+  | 'passkeys-finish'
+  | 'founding'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
   client: RateRule
+  /** Stricter rule for callers whose address is unknown (they all share one bucket); defaults to client. */
+  unknown?: RateRule
   guild?: RateRule
 }
 
@@ -23,19 +30,23 @@ const MINUTE = 60_000
  * also the most an attacker can spend to lock the Guild Master out of sign-in for a minute.
  */
 export const DEFAULT_RATE_LIMITS: RateLimits = {
-  'signin-begin': {
-    client: { limit: 30, windowMs: MINUTE },
-    guild: { limit: 120, windowMs: MINUTE },
+  'signin-begin': ceremonyLimits(),
+  'signin-finish': ceremonyLimits(),
+  'passkeys-begin': ceremonyLimits(),
+  'passkeys-finish': ceremonyLimits(),
+  founding: {
+    client: { limit: 10, windowMs: MINUTE },
+    unknown: { limit: 3, windowMs: MINUTE },
   },
-  'passkeys-begin': {
+}
+
+/** 30 per client (10 for callers with no known address) and 120 per guild, per minute. */
+function ceremonyLimits(): RouteLimits {
+  return {
     client: { limit: 30, windowMs: MINUTE },
+    unknown: { limit: 10, windowMs: MINUTE },
     guild: { limit: 120, windowMs: MINUTE },
-  },
-  'passkeys-finish': {
-    client: { limit: 30, windowMs: MINUTE },
-    guild: { limit: 120, windowMs: MINUTE },
-  },
-  founding: { client: { limit: 10, windowMs: MINUTE } },
+  }
 }
 
 const socketInfo = z.object({ address: z.string() })
@@ -58,8 +69,9 @@ function socketAddress(c: Context): string | undefined {
 }
 
 /**
- * Middleware that counts the request against the client bucket (and the guild bucket, when the
- * route has a valid `:id` guild) and answers 429 with `Retry-After` once either is exhausted.
+ * Middleware that counts the request against the client bucket and then, only if that allowed it,
+ * the guild bucket (when the route has a valid `:id` guild); answers 429 with `Retry-After` once
+ * either is exhausted. Callers with no known address share `limits.unknown` (stricter).
  * The client address comes from {@link clientAddress}: the socket peer, or the last
  * `X-Forwarded-For` hop only when `trustProxy` (env `TRUST_PROXY`) is set.
  */
@@ -75,15 +87,23 @@ export function rateLimit(
       forwardedFor: c.req.header('x-forwarded-for'),
       trustProxy,
     })
-    const decisions = [await limiter.hit(`${route}:ip:${client}`, limits.client)]
+    const refuse = (retryAfterSeconds: number) => {
+      c.header('Retry-After', String(retryAfterSeconds))
+      return c.json({ error: 'rate_limited' }, 429)
+    }
+    const rule = client === UNKNOWN_CLIENT ? (limits.unknown ?? limits.client) : limits.client
+    // The client bucket goes first: a blocked client must not spend the guild bucket, or one
+    // address could exhaust it and lock the Guild Master out.
+    const byClient = await limiter.hit(`${route}:ip:${client}`, rule)
+    if (!byClient.allowed) {
+      return refuse(byClient.retryAfterSeconds)
+    }
     const guild = z.uuid().safeParse(c.req.param('id'))
     if (limits.guild && guild.success) {
-      decisions.push(await limiter.hit(`${route}:guild:${guild.data}`, limits.guild))
-    }
-    const blocked = decisions.filter((d) => !d.allowed)
-    if (blocked.length > 0) {
-      c.header('Retry-After', String(Math.max(...blocked.map((d) => d.retryAfterSeconds))))
-      return c.json({ error: 'rate_limited' }, 429)
+      const byGuild = await limiter.hit(`${route}:guild:${guild.data}`, limits.guild)
+      if (!byGuild.allowed) {
+        return refuse(byGuild.retryAfterSeconds)
+      }
     }
     await next()
   }

@@ -22,6 +22,20 @@ describe('clientAddress', () => {
     )
   })
 
+  test('IPv6 addresses are keyed by their /64, so one prefix is one client', () => {
+    const key = (socket: string) =>
+      clientAddress({ socket, forwardedFor: undefined, trustProxy: false })
+    expect(key('2001:db8:1:2:aaaa::1')).toBe(key('2001:0db8:0001:0002:bbbb:cccc:dddd:eeee'))
+    expect(key('2001:db8:1:3::1')).not.toBe(key('2001:db8:1:2::1'))
+    expect(key('2001:db8:1:2::1')).toContain('/64')
+  })
+
+  test('an IPv4-mapped IPv6 address is keyed as the IPv4 address', () => {
+    expect(
+      clientAddress({ socket: '::ffff:203.0.113.9', forwardedFor: undefined, trustProxy: false })
+    ).toBe('203.0.113.9')
+  })
+
   test('with no address at all every caller shares one strict bucket', () => {
     expect(clientAddress({ socket: undefined, forwardedFor: undefined, trustProxy: false })).toBe(
       'unknown'
