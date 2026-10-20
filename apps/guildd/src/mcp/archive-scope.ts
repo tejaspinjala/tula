@@ -5,12 +5,20 @@ import type { Note, NoteStore } from '../ports/note-store'
  * cursor. The Hall filter is applied by the store (a real column), so a title cannot spoof it and
  * notes with no Hall (the Guild Master's own) are never returned.
  */
+/** Throws unless `hallId` is a non-empty string: an unscoped read would show every Hall's notes. */
+function assertHall(hallId: string): void {
+  if (typeof hallId !== 'string' || hallId.length === 0) {
+    throw new Error('archive scope needs a Hall')
+  }
+}
+
 export async function hallNotes(
   notes: NoteStore,
   guildId: string,
   hallId: string,
   options: { query?: string | undefined; after?: string | undefined; limit: number }
 ): Promise<{ notes: Note[]; next: string | null }> {
+  assertHall(hallId)
   const page = {
     ...(options.after === undefined ? {} : { after: options.after }),
     limit: options.limit,
@@ -28,5 +36,6 @@ export async function hallNote(
   hallId: string,
   id: string
 ): Promise<Note | null> {
+  assertHall(hallId)
   return (await notes.get(guildId, id, hallId))?.note ?? null
 }

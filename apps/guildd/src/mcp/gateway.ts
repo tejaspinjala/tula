@@ -476,7 +476,9 @@ export class McpGateway {
       parsed.data
     )
     if (stored.hash !== hashHandoff(parsed.data)) {
-      return refuse('handoff_conflict')
+      return refuse('handoff_conflict', {
+        message: 'A Handoff is final per attempt; a different one needs a new attempt.',
+      })
     }
     if (!parsed.data.met || parsed.data.openItems.length > 0) {
       return refuse('done_condition_unmet')

@@ -107,6 +107,7 @@ export class PgNoteStore implements NoteStore {
             and v.version = n.current_version
         where l.guild_id = ${guildId} and l.target_key = ${titleKey(note.title)}
           and n.note_id <> ${id}
+          and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)
         order by n.note_id`
       return {
         note,

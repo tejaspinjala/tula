@@ -62,7 +62,12 @@ export class MemoryNoteStore implements NoteStore {
     const backlinks: Backlink[] = []
     for (const [otherId, other] of this.notes(guildId)) {
       const latest = other.versions.at(-1)
-      if (otherId !== id && latest && wikiLinks(latest.body).includes(titleKey(current.title))) {
+      if (
+        otherId !== id &&
+        (hall === undefined || other.hall === hall) &&
+        latest &&
+        wikiLinks(latest.body).includes(titleKey(current.title))
+      ) {
         backlinks.push({ id: otherId, title: latest.title })
       }
     }

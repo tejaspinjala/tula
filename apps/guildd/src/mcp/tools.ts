@@ -96,7 +96,7 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
   {
     name: 'complete_quest',
     roles: ALL_ROLES,
-    description: 'Finish the Quest with a schema-checked Handoff.',
+    description: 'Finish the Quest with a schema-checked Handoff. A Handoff is final per attempt.',
     args: completeQuestArgs,
   },
 ]

@@ -287,6 +287,32 @@ describe('MCP gateway', () => {
       expect((await s.quests.get(s.guild, second.id))?.state).toBe('active')
     })
 
+    test('a Handoff is final per attempt, and a new attempt may complete', async () => {
+      const s = await setup()
+      const quest = await s.post()
+      const { lease: first } = await s.claim(quest)
+      const hash = await put(s)(lease.parse(first), 'x')
+      await callTool(s.transport, 'complete_quest', {
+        lease: first,
+        handoff: { ...handoffFor(hash), met: false },
+      })
+      const retry = await callTool(s.transport, 'complete_quest', {
+        lease: first,
+        handoff: handoffFor(hash),
+      })
+      expect(retry.data.error).toBe('handoff_conflict')
+      expect(String(retry.data.message)).toContain('final per attempt')
+      s.clock.advance(60 * 60 * 1000)
+      const { lease: second } = await s.claim(quest)
+      const hash2 = await put(s)(lease.parse(second), 'z')
+      const done = await callTool(s.transport, 'complete_quest', {
+        lease: second,
+        handoff: handoffFor(hash2),
+      })
+      expect(done.isError).toBe(false)
+      expect((await s.quests.get(s.guild, quest.id))?.state).toBe('done')
+    })
+
     test('completing twice with the same Handoff is one effect; a different one is refused', async () => {
       const s = await setup()
       const { lease: l } = await s.claim(await s.post())
@@ -348,6 +374,27 @@ describe('MCP gateway', () => {
         noteId: crypto.randomUUID(),
       })
       expect(ghost.data).toEqual(byId.data)
+    })
+
+    test('list, search and id reads never show null-Hall or other-Hall notes', async () => {
+      const s = await setup()
+      const { lease: l } = await s.claim(await s.post())
+      const base = { kind: 'text', body: 'ledger', claim: 'assumption' } as const
+      const mine = await s.notes.add(s.guild, { ...base, title: 'Mine' }, 'heralds')
+      const rest = await s.notes.add(s.guild, { ...base, title: 'Rest-made' })
+      const other = await s.notes.add(s.guild, { ...base, title: 'Other' }, 'health')
+      for (const args of [{}, { query: 'ledger' }]) {
+        const out = await callTool(s.transport, 'read_archive', { lease: l, ...args })
+        const ids = z
+          .array(z.object({ id: z.string() }))
+          .parse(out.data.notes)
+          .map((n) => n.id)
+        expect(ids).toEqual([mine.id])
+      }
+      for (const hidden of [rest.id, other.id]) {
+        const out = await callTool(s.transport, 'read_archive', { lease: l, noteId: hidden })
+        expect(out.data.error).toBe('not_found')
+      }
     })
 
     test('a fact needs evidence, and an apprentice has no write tool', async () => {

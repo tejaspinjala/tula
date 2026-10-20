@@ -153,5 +153,15 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       // Unfiltered reads (the Guild Master\u2019s REST routes) still see everything.
       expect((await store.list(g, page)).notes).toHaveLength(3)
     })
+
+    test('with a Hall filter, backlinks come only from notes of that Hall', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'A', body: 'target' }, 'a')
+      await store.add(g, { ...fact, title: 'Linker', body: 'see [[A]]' }, 'b')
+      const own = await store.add(g, { ...fact, title: 'Own', body: 'see [[A]]' }, 'a')
+      expect((await store.get(g, target.id, 'a'))?.backlinks.map((b) => b.id)).toEqual([own.id])
+      expect((await store.get(g, target.id))?.backlinks).toHaveLength(2)
+    })
   })
 }
