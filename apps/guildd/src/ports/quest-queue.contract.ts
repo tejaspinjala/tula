@@ -245,6 +245,27 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         expect((await queue.submitForSeal(g, id, 2)).round).toBe(2)
       })
 
+      test('settling for a round the Quest is no longer on is refused and changes nothing', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g, { roundLimit: 3 })
+        await expect(queue.settleSeal(g, id, 'rejected', { round: 2 })).rejects.toMatchObject({
+          code: 'invalid_state',
+        })
+        expect((await queue.get(g, id))?.state).toBe('awaiting_seal')
+      })
+
+      test('a terminal rejection dead-letters at once with its coded reason', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g, { roundLimit: 3 })
+        const dead = await queue.settleSeal(g, id, 'rejected', {
+          terminal: true,
+          reason: 'requester_reserved',
+        })
+        expect(dead).toMatchObject({ state: 'dead', lastError: 'requester_reserved' })
+      })
+
       test('a rejected Seal dead-letters the Quest once its rounds are spent, freeing its Campaign', async () => {
         const { queue, newGuild } = await make()
         const g = await newGuild()

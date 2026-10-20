@@ -5,7 +5,7 @@ import type { SealEngine } from './seals'
 
 /** Collaborators of {@link reconcileSeals}. */
 export interface CoreLoopDeps {
-  quests: QuestQueue
+  quests: Pick<QuestQueue, 'list' | 'settleSeal'>
   seals: Pick<SealStore, 'forQuest' | 'expireDue'>
 }
 

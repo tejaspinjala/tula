@@ -211,4 +211,70 @@ describe('requestPendingSeals', () => {
     expect((await s.seals.forQuest(s.guild, s.quest.id))?.status).toBe('requested')
     expect(await requestPendingSeals(deps, s.guild)).toEqual({ requested: 0 })
   })
+
+  test('a Quest whose requester is reserved is dead-lettered and the others still get their Seals', async () => {
+    const config = new MemoryConfigStore(new MemoryClock(new Date('2030-01-01T00:00:00.000Z')))
+    const s = await setup()
+    await config.seed(s.guild)
+    const identityStore = new MemoryIdentityStore()
+    identityStore.found(s.guild)
+    const identity = new WebAuthnIdentityProvider(identityStore, {
+      clock: s.clock,
+      keys: new MemoryKeyProvider(),
+      rpId: 'localhost',
+      rpName: 'Guildhall',
+      origin: 'http://localhost:5173',
+    })
+    const proposals = new ProposalEngine({ store: new MemoryProposalStore(s.clock) })
+    // The poisoned Quest is posted first, so it is met first; its owner is the reserved name.
+    const { quest: bad } = await s.quests.post(s.guild, {
+      jobKey: 'bad',
+      templateId: 'herald-announcement',
+      hallId: 'heralds',
+      rank: 'apprentice',
+      dataClass: 'public',
+      title: 'Poisoned',
+      ownerId: 'guild-master',
+      doneCondition: 'An announcement draft is ready for a Seal',
+      roundLimit: 2,
+    })
+    const claimed = await s.quests.claim(s.guild, { leaseMs: 60_000, maxActive: 5 })
+    expect(claimed?.id).toBe(bad.id)
+    await s.quests.submitForSeal(s.guild, bad.id, claimed?.attempts ?? 0)
+    for (const questId of [bad.id, s.quest.id]) {
+      await proposals.propose(s.guild, {
+        questId,
+        author: 'heralds-member-1',
+        kind: 'post',
+        content: `Hello ${questId}`,
+      })
+    }
+    const deps = {
+      quests: s.quests,
+      sealStore: s.seals,
+      proposals,
+      seals: new SealEngine({ store: s.seals, config, identity }),
+    }
+    expect(await requestPendingSeals(deps, s.guild)).toEqual({ requested: 1 })
+    expect((await s.seals.forQuest(s.guild, s.quest.id))?.status).toBe('requested')
+    expect(await s.quests.get(s.guild, bad.id)).toMatchObject({
+      state: 'dead',
+      lastError: 'requester_reserved',
+    })
+  })
+
+  test('a Quest that cannot be settled does not stop the pass settling the rest', async () => {
+    const s = await setup()
+    const seal = await s.ask(1)
+    await s.seals.decide(s.guild, seal.id, { verdict: 'denied', expectedHash: seal.actionHash })
+    const failing = {
+      list: s.quests.list.bind(s.quests),
+      settleSeal: async (): Promise<never> => {
+        throw new Error('boom')
+      },
+    }
+    await expect(reconcileSeals({ quests: failing, seals: s.seals }, s.guild)).resolves.toEqual({
+      settled: 0,
+    })
+  })
 })

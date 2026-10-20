@@ -102,6 +102,10 @@ export function failReason(value: string): FailReason {
 /** Options of {@link QuestQueue.settleSeal}: the coded reason a rejection records (default `seal_rejected`). */
 export interface SealSettleOptions {
   reason?: FailReason
+  /** Settle only if the Quest is still on this Seal round; otherwise refused `invalid_state`. */
+  round?: number
+  /** A rejection that dead-letters at once, whatever rounds remain. */
+  terminal?: boolean
 }
 
 /** How a Seal ended for the Quest that asked: consumed or posted, or denied or expired. */
