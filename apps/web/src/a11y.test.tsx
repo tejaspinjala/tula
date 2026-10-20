@@ -79,7 +79,7 @@ beforeAll(() => {
         return Response.json(history)
       }
       if (url.endsWith('/gates')) {
-        return Response.json({ guild: true, global: false })
+        return Response.json({ guild: true, global: false, operator: true })
       }
       if (url.includes('/learning/suggestions')) {
         return Response.json({ suggestions: [suggestion], next: null })

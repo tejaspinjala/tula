@@ -139,7 +139,7 @@ describe('Summon failure paths', () => {
     const quest = await harness.adapters.quests.findByJobKey(g, SUMMON_JOB_KEY)
     expect(quest?.state).toBe('queued')
     expect(quest?.leaseExpiresAt).toBeNull()
-    expect(String(quest?.lastError)).toBe('sandbox_unavailable')
+    expect(String(quest?.lastError)).toBe('routing_blocked')
   })
 })
 

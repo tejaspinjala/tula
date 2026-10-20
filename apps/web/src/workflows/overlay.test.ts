@@ -14,6 +14,15 @@ test('validation errors map to their node; the rest are about the whole graph', 
   expect(split.graphLevel).toEqual(['a workflow needs at least one trigger'])
 })
 
+test('a node waiting on its Sub-Quests reads "Awaiting children"', () => {
+  const overlay = runOverlay(
+    [{ id: 'draft', type: 'agent', status: 'awaiting_children', questId: 'q1' }],
+    new Map(),
+    new Map()
+  )
+  expect(overlay.get('draft')).toMatchObject({ tone: 'warn', text: 'Awaiting children' })
+})
+
 test('the run overlay carries status in words and tone, with attempts and cost from the Quest', () => {
   const overlay = runOverlay(
     [

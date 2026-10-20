@@ -104,8 +104,8 @@ export class Gates {
     // The killed workers' leases would otherwise linger until they lapse and block a restart after a lift.
     const releasing =
       scope === 'global'
-        ? this.deps.quests.releaseAllLeases('sandbox_unavailable')
-        : this.deps.quests.releaseLeases(actor.guildId, 'sandbox_unavailable')
+        ? this.deps.quests.releaseAllLeases('routing_blocked')
+        : this.deps.quests.releaseLeases(actor.guildId, 'routing_blocked')
     const [kill, revokedRuns] = await Promise.all([killing, revoking, releasing])
     if (scope === 'global') {
       this.announceInBackground(barId, false)

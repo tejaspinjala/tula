@@ -1147,7 +1147,14 @@ export function createApp(deps: AppDeps): Hono {
     if ('res' in who) {
       return who.res
     }
-    return c.json(await deps.gates.status(who.guild))
+    // `operator` tells the ledger whether this caller may bar or lift every guild, so it shows
+    // those controls to platform operators only; the global routes enforce it regardless.
+    const token = sessionTokenOf(c)
+    const session = token ? await deps.identity.resolveSession(token) : null
+    return c.json({
+      ...(await deps.gates.status(who.guild)),
+      operator: session !== null && isGuildMaster(session) && isOperator(session.memberId),
+    })
   })
 
   // "Summon your first member": the check stays incomplete until its test Quest has run on the

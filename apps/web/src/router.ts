@@ -46,7 +46,7 @@ export function useRoute(): { view: ViewId; navigate: (path: string) => void } {
   useEffect(() => {
     const sync = () => {
       if (!isKnownPath(window.location.pathname)) {
-        window.history.replaceState({}, '', '/')
+        window.history.replaceState({}, '', `/${window.location.search}`)
       }
       setView(viewFor(window.location.pathname, window.location.search))
     }

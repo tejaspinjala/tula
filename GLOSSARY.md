@@ -39,7 +39,7 @@ One unit of work with exactly one owner and a done-condition.
 _Avoid_: task, ticket
 
 **Sub-Quest**:
-A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; it inherits its parent's data class.
+A Quest a Member spawns while working another Quest (its parent), run by its own worker and reported back to the parent. Bounded by the guild's `maxChildrenPerQuest` and `maxSpawnDepth`; its data class is the stricter of its parent's and its template's.
 _Avoid_: subtask, child task
 
 **Campaign**:
