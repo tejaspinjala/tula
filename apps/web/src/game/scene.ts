@@ -91,7 +91,12 @@ export interface SceneInput {
   upTo: number | null
   /** Missive text by Missive id, fetched from the Hall route (events carry ids only). */
   missiveTexts?: Readonly<Record<string, string>> | undefined
+  /** The wall clock (ms) of a live view: a Missive older than {@link BUBBLE_FRESH_MS} pops no bubble. Omit when replaying. */
+  now?: number | undefined
 }
+
+/** How old a Missive may be, in ms, and still pop a speech bubble. */
+export const BUBBLE_FRESH_MS = 30_000
 
 const hallPayload = z.object({ hallId: z.string() })
 const questPayload = z.object({ questId: z.string() })
@@ -148,6 +153,7 @@ export function deriveScene(input: SceneInput): SceneState {
   const spawns: { parentId: string; childId: string; seq: number }[] = []
   const campaigns = new Set<string>()
   const sayings = new Map<string, SceneBubble>()
+  const saidAt = new Map<string, number>()
   const activities = new Map<string, { questId: string; name: Activity; seq: number }>()
   const doneAt = new Map<string, number>()
   const paused = new Set<string>()
@@ -205,6 +211,7 @@ export function deriveScene(input: SceneInput): SceneState {
       const text = p.success ? input.missiveTexts?.[p.data.missiveId] : undefined
       if (p.success && text !== undefined) {
         sayings.set(p.data.from, { text, seq: event.seq })
+        saidAt.set(p.data.from, Date.parse(event.occurredAt))
       }
     } else if (event.type === 'hall.paused' || event.type === 'hall.resumed') {
       const p = hallPayload.safeParse(event.payload)
@@ -292,7 +299,11 @@ export function deriveScene(input: SceneInput): SceneState {
     if (member) {
       const said = { text: saying.text.slice(0, EXCERPT_CHARS), seq: saying.seq }
       member.saying = said
-      if (member.bubble === null || said.seq > member.bubble.seq) {
+      const spoken = saidAt.get(memberId)
+      // Only a live (or just-now) Missive pops a bubble; an old one would replay on every page load.
+      const stale =
+        input.now !== undefined && spoken !== undefined && input.now - spoken > BUBBLE_FRESH_MS
+      if (!stale && (member.bubble === null || said.seq > member.bubble.seq)) {
         member.bubble = said
       }
     }

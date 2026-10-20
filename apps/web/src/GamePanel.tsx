@@ -220,6 +220,7 @@ export function GamePanel({
             events,
             upTo: at >= events.length ? null : (events[at - 1]?.seq ?? 0),
             missiveTexts,
+            now: at >= events.length ? Date.now() : undefined,
           })
         : null,
     [roster, quests, events, at, missiveTexts]
