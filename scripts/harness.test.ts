@@ -109,3 +109,16 @@ describe('protect-files hook', () => {
     }
   )
 })
+
+describe('agent worktrees', () => {
+  // The Agent tool creates worker worktrees under .claude/worktrees inside the main checkout;
+  // verify run there must not lint their nested biome.json or run their tests.
+  test('are ignored by git (and so by bun test) and by Biome', async () => {
+    const gitignore = await Bun.file(join(root, '.gitignore')).text()
+    expect(gitignore.split('\n')).toContain('.claude/worktrees/')
+    const biome = (await Bun.file(join(root, 'biome.json')).json()) as {
+      files: { includes: string[] }
+    }
+    expect(biome.files.includes).toContain('!.claude/worktrees')
+  })
+})
