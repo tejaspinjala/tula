@@ -65,18 +65,26 @@ export class MemoryTreasuryStore extends TreasuryCore implements TreasuryStore {
         }
         return sums
       },
-      spentOn: async (day) =>
-        0 -
-        state.entries
-          .filter(
-            (e) =>
-              e.day === day &&
-              e.bucket === 'operating' &&
-              (e.kind === 'spend_reserve' ||
-                e.kind === 'spend_settle' ||
-                e.kind === 'spend_release')
-          )
-          .reduce((sum, e) => sum + e.amountCents, 0),
+      // A refund counts against the day its spend was reserved on (see the Postgres adapter).
+      spentOn: async (day) => {
+        const reservedOn = new Map<string, string>()
+        for (const e of state.entries) {
+          if (e.kind === 'spend_reserve' && e.spendId) {
+            reservedOn.set(e.spendId, e.day)
+          }
+        }
+        let spent = 0
+        for (const e of state.entries) {
+          const counts =
+            e.bucket === 'operating' &&
+            (e.kind === 'spend_reserve' || e.kind === 'spend_settle' || e.kind === 'spend_release')
+          const attributed = e.kind === 'spend_reserve' ? e.day : reservedOn.get(e.spendId ?? '')
+          if (counts && attributed === day) {
+            spent -= e.amountCents
+          }
+        }
+        return spent
+      },
       entriesByKey: async (key) => state.entries.filter((e) => e.idemKey === key),
       append: async (entry) => {
         state.entries.push(entry)

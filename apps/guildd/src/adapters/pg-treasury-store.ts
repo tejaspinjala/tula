@@ -140,11 +140,17 @@ export class PgTreasuryStore extends TreasuryCore implements TreasuryStore {
         }
         return sums
       },
+      // A refund (settle or release) counts against the day its spend was RESERVED on, so a
+      // refund after UTC midnight can never open headroom in the new day's cap.
       spentOn: async (day) => {
         const [row] = await tx`
-          select coalesce(-sum(amount_cents), 0) as spent from treasury_ledger
-          where guild_id = ${guildId} and day = ${day}::date and bucket = 'operating'
-            and kind in ('spend_reserve', 'spend_settle', 'spend_release')`
+          select coalesce(-sum(l.amount_cents), 0) as spent
+          from treasury_ledger l
+          left join treasury_ledger r
+            on r.guild_id = l.guild_id and r.spend_id = l.spend_id and r.kind = 'spend_reserve'
+          where l.guild_id = ${guildId} and l.bucket = 'operating'
+            and l.kind in ('spend_reserve', 'spend_settle', 'spend_release')
+            and (case when l.kind = 'spend_reserve' then l.day else r.day end) = ${day}::date`
         return z.object({ spent: z.coerce.number() }).parse(row).spent
       },
       entriesByKey: async (key) =>
