@@ -3,12 +3,22 @@ import { isIPv4, isIPv6 } from 'node:net'
 /** Bucket used when no address is known; callers share it and get a stricter limit. */
 export const UNKNOWN_CLIENT = 'unknown'
 
+/** Key for text that looks like IPv6 but cannot be expanded; never the raw (attacker-chosen) string. */
+const INVALID_IPV6 = 'invalid-ipv6'
+
 /** Expands an IPv6 address to its eight 16-bit groups, or null when it is not valid. */
 function groupsOf(address: string): string[] | null {
-  const [text] = address.split('%')
-  if (!text || !isIPv6(text)) {
+  const [raw] = address.split('%')
+  if (!raw || !isIPv6(raw)) {
     return null
   }
+  // An embedded dotted quad (`1:2:3:4:5:6:1.2.3.4`) stands for the last two groups.
+  const quad = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(raw)
+  const hex = (a: string, b: string) => (Number(a) * 256 + Number(b)).toString(16)
+  const text =
+    quad?.[1] && quad[2] && quad[3] && quad[4] && quad[5]
+      ? `${quad[1]}${hex(quad[2], quad[3])}:${hex(quad[4], quad[5])}`
+      : raw
   const [head = '', tail] = text.split('::')
   const side = (part: string) => (part === '' ? [] : part.split(':'))
   const first = side(head)
@@ -24,12 +34,20 @@ function groupsOf(address: string): string[] | null {
  * typically controls a whole /64 and could otherwise rotate through addresses freely.
  */
 function bucketKey(address: string): string {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
-  if (mapped?.[1] && isIPv4(mapped[1])) {
-    return mapped[1]
+  if (!address.includes(':')) {
+    return address
   }
   const groups = groupsOf(address)
-  return groups ? `${groups.slice(0, 4).join(':')}::/64` : address
+  if (!groups) {
+    return INVALID_IPV6
+  }
+  if (groups.slice(0, 5).every((g) => g === '0000') && groups[5] === 'ffff') {
+    const high = Number.parseInt(groups[6] ?? '0', 16)
+    const low = Number.parseInt(groups[7] ?? '0', 16)
+    const v4 = `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`
+    return isIPv4(v4) ? v4 : INVALID_IPV6
+  }
+  return `${groups.slice(0, 4).join(':')}::/64`
 }
 
 /**

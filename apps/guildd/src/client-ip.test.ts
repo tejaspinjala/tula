@@ -36,6 +36,26 @@ describe('clientAddress', () => {
     ).toBe('203.0.113.9')
   })
 
+  test('a hex IPv4-mapped IPv6 address is keyed as the dotted IPv4 address', () => {
+    expect(
+      clientAddress({ socket: '::ffff:7f00:1', forwardedFor: undefined, trustProxy: false })
+    ).toBe('127.0.0.1')
+  })
+
+  test('an IPv6 address with an embedded dotted quad expands correctly to its /64', () => {
+    const key = (socket: string) =>
+      clientAddress({ socket, forwardedFor: undefined, trustProxy: false })
+    expect(key('1:2:3:4:5:6:1.2.3.4')).toBe(key('1:2:3:4::9'))
+    expect(key('1:2:3:4:5:6:1.2.3.4')).not.toBe(key('1:2:3:5::9'))
+  })
+
+  test('something that looks like IPv6 but cannot be expanded shares one fallback bucket', () => {
+    const key = (socket: string) =>
+      clientAddress({ socket, forwardedFor: undefined, trustProxy: false })
+    expect(key('1:2:3:4:5:6:7:8:9')).toBe(key('zz::::garbage:'))
+    expect(key('1:2:3:4:5:6:7:8:9')).not.toContain('garbage')
+  })
+
   test('with no address at all every caller shares one strict bucket', () => {
     expect(clientAddress({ socket: undefined, forwardedFor: undefined, trustProxy: false })).toBe(
       'unknown'

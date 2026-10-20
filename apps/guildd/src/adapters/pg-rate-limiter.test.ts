@@ -45,6 +45,17 @@ test('a hit is one bump and does not prune, unless the random draw selects it', 
   expect(chosen.calls).toEqual(['bump', 'prune'])
 })
 
+test('a failed prune does not fail a counted hit', async () => {
+  const fake: Pick<Db, 'bumpRateLimit' | 'pruneRateLimits'> = {
+    bumpRateLimit: async () => 4,
+    pruneRateLimits: async () => {
+      throw new Error('prune failed')
+    },
+  }
+  const decision = await new PgRateLimiter(fake, new MemoryClock(T0), () => 0).hit('b', rule)
+  expect(decision.allowed).toBe(false)
+})
+
 test('the pruner removes expired windows, and an expired window is not resurrected', async () => {
   const bucket = `prune:${crypto.randomUUID()}`
   const clock = new MemoryClock(new Date('2020-01-01T00:00:00.000Z'))

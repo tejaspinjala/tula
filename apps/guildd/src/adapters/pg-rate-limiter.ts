@@ -25,7 +25,8 @@ export class PgRateLimiter implements RateLimiter {
     const start = Math.floor(now / rule.windowMs) * rule.windowMs
     const hits = await this.db.bumpRateLimit(bucket, new Date(start))
     if (this.random() < 1 / PRUNE_ONE_IN) {
-      await this.db.pruneRateLimits(new Date(start - PRUNE_AFTER_MS))
+      // Housekeeping only: a failed prune must not fail a hit that was already counted.
+      await this.db.pruneRateLimits(new Date(start - PRUNE_AFTER_MS)).catch(() => undefined)
     }
     return {
       allowed: hits <= rule.limit,
