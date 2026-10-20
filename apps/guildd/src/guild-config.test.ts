@@ -116,6 +116,18 @@ describe('classifyChange', () => {
       guildConfig.safeParse({ ...base, caps: { ...base.caps, maxMissivesPerQuest: 201 } }).success
     ).toBe(false)
   })
+  test('the id `hall` is reserved for Missives: no Member or Captain may take it', () => {
+    const [first, ...rest] = base.halls
+    if (!first) {
+      throw new Error('the default config has a Hall')
+    }
+    const asMember = { ...first, members: [{ id: 'hall', name: 'X', rank: 'apprentice' as const }] }
+    const asCaptain = { ...first, captain: { id: 'hall', name: 'X' } }
+    for (const bad of [asMember, asCaptain]) {
+      expect(guildConfig.safeParse({ ...base, halls: [bad, ...rest] }).success).toBe(false)
+    }
+    expect(guildConfig.safeParse(base).success).toBe(true)
+  })
   test('a Hall member cap is unlimited when unset; raising it is widening, lowering applies at once', () => {
     const withCap = (n: number | undefined): GuildConfig => ({
       ...base,
