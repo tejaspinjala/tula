@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
+import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
@@ -16,22 +25,36 @@ import { fetchStreamTicket, loadQuests, questStreamUrl } from './quests'
 import type { ReplayEvent } from './replay'
 import { loadRoster, type Roster } from './roster'
 import { TalkDialog } from './TalkDialog'
+import { ItemGet, PixelButton } from './ui/pixel'
 
 const MAX_RECONNECT_MS = 10_000
+const BANNER_MS = 4000
+
+/** What the home hands to whatever draws over the world (the HUD and the Bag). */
+export interface WorldSlots {
+  /** The zoom, teleport, replay and character controls, for the Bag's Hall page. */
+  hallControls: ReactNode
+  /** Returns keyboard focus to the world after an overlay closes. */
+  focusWorld: () => void
+}
 
 /**
- * The Guild Hall: a pixel game (Phaser 4, loaded on demand) that renders the live event stream.
- * It only renders: no governance and no writes, only navigation to the ledger. The scrubber
- * replays the log with the same fold the Timeline uses; an accessible live region says what the
- * canvas shows; the game pauses while the tab is hidden.
+ * The Guild Hall as home: a full-screen pixel game (Phaser 4, loaded on demand) that renders the
+ * live event stream. It only renders: no governance and no writes, only navigation to Bag pages.
+ * The scrubber replays the log with the same fold the Ledger of Deeds uses; accessible live
+ * regions say what the canvas shows; live events arrive as ItemGet banners; the game pauses
+ * while the tab is hidden. Overlays are drawn by `children`, inside the world.
  */
 export function GamePanel({
   session,
   navigate,
+  children,
 }: {
-  session: Session | null
+  session: Session
   navigate: (path: string) => void
+  children: (slots: WorldSlots) => ReactNode
 }) {
+  const [banner, setBanner] = useState<Banner | null>(null)
   const [roster, setRoster] = useState<Roster | null>(null)
   const [quests, setQuests] = useState<(SceneQuest & { state: string })[]>([])
   const [talk, dispatchTalk] = useReducer(talkReducer, initialTalk)
@@ -103,6 +126,7 @@ export function GamePanel({
         attempt = 0
         const event = readEventFrame(String(message.data))
         if (event) {
+          setBanner(bannerFor(event))
           if (event.type.startsWith('quest.')) {
             // The Quest facts (title, owner) come from the board; refresh before drawing.
             refreshQuests().then(() => !closed && append(event))
@@ -253,119 +277,115 @@ export function GamePanel({
     }
   }, [look])
 
+  // A banner stays long enough to read, then clears (a newer event replaces it sooner).
+  useEffect(() => {
+    if (!banner) {
+      return
+    }
+    const id = setTimeout(() => setBanner(null), BANNER_MS)
+    return () => clearTimeout(id)
+  }, [banner])
+
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
+  const focusWorld = useCallback(() => frame.current?.focus(), [])
+
+  const hallControls = (
+    <div className="hall-tools">
+      <div className="game-controls">
+        <PixelButton onClick={() => handle.current?.zoomBy(0.5)}>Zoom in</PixelButton>
+        <PixelButton onClick={() => handle.current?.zoomBy(-0.5)}>Zoom out</PixelButton>
+        <PixelButton onClick={() => handle.current?.fit()}>Fit hall</PixelButton>
+        <label className="game-teleport">
+          Teleport to
+          <select
+            value=""
+            onChange={(e) => {
+              const value = e.target.value
+              if (value !== '') {
+                handle.current?.teleport(value === 'entrance' ? null : Number(value))
+              }
+            }}
+          >
+            <option value="">choose a room</option>
+            <option value="entrance">Entrance</option>
+            {(scene?.rooms ?? []).map((room, slot) => (
+              <option key={room.hallId} value={slot} disabled={room.locked}>
+                {teleportLabel(room)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="game-scrub">
+          Replay
+          <input
+            type="range"
+            min={0}
+            max={events.length}
+            value={at}
+            onChange={(e) => {
+              const value = Number(e.target.value)
+              setPosition(value >= events.length ? null : value)
+            }}
+          />
+        </label>
+        <span className="muted">
+          {position === null ? 'live' : `event ${at} of ${events.length}`}
+        </span>
+        <PixelButton onClick={() => setCustomizing((open) => !open)}>
+          Customize character
+        </PixelButton>
+      </div>
+      {customizing && (
+        <CharacterPanel
+          session={session}
+          fetcher={fetch}
+          saved={look}
+          onPreview={(draft) => handle.current?.setLook(draft)}
+          onSaved={(stored) => {
+            setLook(stored)
+            setCustomizing(false)
+          }}
+          onCancel={() => setCustomizing(false)}
+        />
+      )}
+    </div>
+  )
 
   return (
-    <section aria-labelledby="game-heading" className="card">
-      <h2 id="game-heading" className="card-title">
-        The hall, live
-      </h2>
-      {!session && <p className="mt-4">Sign in with a passkey to see the guild hall.</p>}
-      {session && (
-        <>
-          <div className="game-controls">
-            <button type="button" onClick={() => handle.current?.zoomBy(0.5)}>
-              Zoom in
-            </button>
-            <button type="button" onClick={() => handle.current?.zoomBy(-0.5)}>
-              Zoom out
-            </button>
-            <button type="button" onClick={() => handle.current?.fit()}>
-              Fit hall
-            </button>
-            <label className="game-teleport">
-              Teleport to
-              <select
-                value=""
-                onChange={(e) => {
-                  const value = e.target.value
-                  if (value !== '') {
-                    handle.current?.teleport(value === 'entrance' ? null : Number(value))
-                  }
-                }}
-              >
-                <option value="">choose a room</option>
-                <option value="entrance">Entrance</option>
-                {(scene?.rooms ?? []).map((room, slot) => (
-                  <option key={room.hallId} value={slot} disabled={room.locked}>
-                    {teleportLabel(room)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="game-scrub">
-              Replay
-              <input
-                type="range"
-                min={0}
-                max={events.length}
-                value={at}
-                onChange={(e) => {
-                  const value = Number(e.target.value)
-                  setPosition(value >= events.length ? null : value)
-                }}
-              />
-            </label>
-            <span className="muted">
-              {position === null ? 'live' : `event ${at} of ${events.length}`}
-            </span>
-            <button type="button" onClick={() => setCustomizing((open) => !open)}>
-              Customize character
-            </button>
-          </div>
-          {customizing && (
-            <CharacterPanel
-              session={session}
-              fetcher={fetch}
-              saved={look}
-              onPreview={(draft) => handle.current?.setLook(draft)}
-              onSaved={(stored) => {
-                setLook(stored)
-                setCustomizing(false)
-              }}
-              onCancel={() => setCustomizing(false)}
-            />
-          )}
-          {/* Above the canvas, so on a phone it is never under the bottom navigation. */}
-          <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
-            {talk.near && talk.open === null && (
-              <button
-                type="button"
-                className="btn"
-                onClick={() => dispatchTalk({ type: 'interact' })}
-              >
-                {talk.near.kind === 'sealDesk'
-                  ? 'Open the Seal desk (E)'
-                  : `Talk to ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
-              </button>
-            )}
-          </p>
-          <div ref={frame} className="game-frame" data-testid="game-frame" />
-          <p role="status" aria-live="polite" className="muted" data-testid="game-summary">
-            {summary}
-          </p>
-          <p role="status" aria-live="polite" className="muted" data-testid="game-location">
-            {announceRoom(
-              roomSlot === null ? null : scene?.rooms[roomSlot]?.name,
-              roomSlot !== null
-            )}
-          </p>
-          <TalkDialog
-            session={session}
-            fetcher={fetch}
-            state={talk}
-            dispatch={dispatchTalk}
-            scene={scene}
-            quests={quests}
-            navigate={navigate}
-          />
-          {(failed || loadError) && (
-            <p role="alert" className="muted">
-              The guild hall could not load everything; retrying through the stream.
-            </p>
-          )}
-        </>
+    <section aria-label="The Guild Hall" className="world">
+      <div ref={frame} className="game-frame" tabIndex={-1} data-testid="game-frame" />
+      <p className="sr-only" role="status" aria-live="polite" data-testid="game-summary">
+        {summary}
+      </p>
+      <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
+        {announceRoom(roomSlot === null ? null : scene?.rooms[roomSlot]?.name, roomSlot !== null)}
+      </p>
+      {/* The talk prompt floats above the walk controls, so on a phone it is never under them. */}
+      <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">
+        {talk.near && talk.open === null && (
+          <PixelButton onClick={() => dispatchTalk({ type: 'interact' })}>
+            {talk.near.kind === 'sealDesk'
+              ? 'Open the Seal desk (E)'
+              : `Talk to ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+          </PixelButton>
+        )}
+      </p>
+      {banner && <ItemGet verb={banner.verb} noun={banner.noun} danger={banner.danger} />}
+      {(failed || loadError) && (
+        <p role="alert" className="world-alert">
+          The guild hall could not load everything; retrying through the stream.
+        </p>
       )}
+      <TalkDialog
+        session={session}
+        fetcher={fetch}
+        state={talk}
+        dispatch={dispatchTalk}
+        scene={scene}
+        quests={quests}
+        navigate={navigate}
+      />
+      {children({ hallControls, focusWorld })}
     </section>
   )
 }
