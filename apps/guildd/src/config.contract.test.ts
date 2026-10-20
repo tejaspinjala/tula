@@ -283,6 +283,24 @@ describe('guild config over HTTP', () => {
     expect(body.truncated).toBe(true)
   })
 
+  test('an unknown-key refusal shortens an over-long key to 64 characters and flags it', async () => {
+    const who = await signedIn()
+    const long = 'k'.repeat(300)
+    const config = { ...defaultConfig(), caps: { ...defaultConfig().caps, [long]: 1 } }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect(res.status).toBe(422)
+    const body = z
+      .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
+      .parse(await res.json())
+    expect(body.unknownKeys).toEqual([`caps.${'k'.repeat(300)}`.slice(0, 63) + '…'])
+    expect(body.truncated).toBe(true)
+    const short = { ...defaultConfig(), bogus: 1 }
+    const ok = await send(harness, 'PUT', `${who.base}/config`, { config: short }, who.auth)
+    expect(
+      z.object({ unknownKeys: z.array(z.string()) }).parse(await ok.json()).unknownKeys
+    ).toEqual(['bogus'])
+  })
+
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
