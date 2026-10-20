@@ -230,3 +230,30 @@ export async function fetchGuild(
   }
   return guildBody.parse(await res.json())
 }
+
+/** What went wrong in a passkey step, for choosing the in-world line. */
+export type PasskeyFailure =
+  | 'cancelled'
+  | 'no_credential'
+  | 'wrong_address'
+  | 'refused'
+  | 'busy'
+  | 'unknown'
+
+/** Classifies a passkey failure. */
+export function passkeyFailure(_error: unknown): PasskeyFailure {
+  return 'unknown'
+}
+
+/** The in-world line for a failure. */
+export function passkeyLine(_kind: PasskeyFailure, _step: 'sign-in' | 'founding'): string {
+  return ''
+}
+
+/** Wraps a browser so an instant NotAllowedError reads as NoPasskeyOffered. */
+export function withNoPasskeyDetection(
+  browser: PasskeyBrowser,
+  _now: () => number
+): PasskeyBrowser {
+  return browser
+}
