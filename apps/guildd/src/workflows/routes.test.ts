@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
 import { MemoryProposalStore } from '../adapters/memory-proposal-store'
@@ -18,11 +19,12 @@ async function setup(role: string) {
   const config = new MemoryConfigStore(clock)
   const guild = crypto.randomUUID()
   await config.seed(guild)
+  const tripwires = new MemoryTripwireStore(clock)
   const engine = new WorkflowEngine({
     store: new MemoryWorkflowStore(clock),
     config,
     quests: new MemoryQuestQueue(clock, () => 0.5),
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
     seals: new MemorySealStore(clock),
   })
@@ -39,7 +41,7 @@ async function setup(role: string) {
     sessionGuildFor: guard,
     guildMasterSessionFor: guard,
   })
-  return { app, engine, guild }
+  return { app, engine, guild, tripwires }
 }
 
 test('confirming a pending version needs the Guild Master and a proof', async () => {
@@ -59,4 +61,31 @@ test('confirming a pending version needs the Guild Master and a proof', async ()
       status === 200 ? 'active' : 'pending'
     )
   }
+})
+
+test('a run that fails part-way returns its runKey, so a retry resumes the same run', async () => {
+  const { app, engine, guild, tripwires } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  const confirmed = await app.request(`/guilds/${guild}/workflows/wf/versions/1/confirm`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
+  })
+  expect(confirmed.status).toBe(200)
+  await tripwires.pause(guild, { hallId: 'heralds', tripwire: 'manual', observed: 1, threshold: 1 })
+  const run = () =>
+    app.request(`/guilds/${guild}/workflows/wf/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+  const failed = await run()
+  expect(failed.status).toBe(422)
+  const body = z.object({ error: z.string(), runKey: z.string().min(1) }).parse(await failed.json())
+  expect(body.error).toBe('hall_paused')
+  const retry = await app.request(`/guilds/${guild}/workflows/wf/runs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ runKey: body.runKey }),
+  })
+  expect(z.object({ runKey: z.string() }).parse(await retry.json()).runKey).toBe(body.runKey)
 })
