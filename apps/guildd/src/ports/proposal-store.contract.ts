@@ -76,10 +76,9 @@ export function proposalStoreContract(name: string, make: () => Promise<Proposal
     test('same-tick proposals of the same content create exactly one Proposal', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
+      const racing = draft('Racing')
       const all = await Promise.all(
-        Array.from({ length: 5 }, () =>
-          store.propose(g, draft('Racing'), { passed: true, findings: PASS })
-        )
+        Array.from({ length: 5 }, () => store.propose(g, racing, { passed: true, findings: PASS }))
       )
       expect(new Set(all.map((p) => p.id)).size).toBe(1)
       expect((await store.list(g, { limit: 50 })).proposals).toHaveLength(1)
