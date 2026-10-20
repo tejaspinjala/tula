@@ -878,6 +878,9 @@ export class McpGateway {
     if (!hall) {
       return refuse('unknown_hall')
     }
+    if (a.to === caller.member) {
+      return refuse('missive_to_self')
+    }
     if (a.to !== WHOLE_HALL) {
       const inHall = [...(hall.captain ? [hall.captain.id] : []), ...hall.members.map((m) => m.id)]
       if (!inHall.includes(a.to)) {

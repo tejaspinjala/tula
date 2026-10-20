@@ -1277,6 +1277,16 @@ describe('MCP gateway', () => {
       ])
     })
 
+    test('a Member cannot send a Missive to itself and nothing is stored', async () => {
+      const s = await setup()
+      const ada = await joined(s, 'heralds-member-2')
+      expect(await send(s, ada, 'heralds-member-2', 'note to self')).toMatchObject({
+        isError: true,
+        data: { error: 'missive_to_self' },
+      })
+      expect(missiveRows.parse((await readOf(s, ada)).data.missives)).toEqual([])
+    })
+
     test('a Member does not read a Missive addressed to someone else', async () => {
       const s = await setup()
       const ada = await joined(s, 'heralds-member-2')
