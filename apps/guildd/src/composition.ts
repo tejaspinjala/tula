@@ -13,6 +13,7 @@ import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
+import { PgPostCostReader } from './adapters/pg-post-cost-reader'
 import { PgProposalStore } from './adapters/pg-proposal-store'
 import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
@@ -163,6 +164,7 @@ export async function compose(
     seals,
     sealStore,
     modelLedger,
+    postCosts: new PgPostCostReader(db),
     secrets,
     proposals,
     notes,

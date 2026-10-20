@@ -1,32 +1,10 @@
-import type { ModelLedger } from './ports/model-ledger'
-import type { QuestQueue } from './ports/quest-queue'
-import type { SealStore } from './ports/seal-store'
+import type { CostPerPostPage, PostCostReader } from './ports/post-cost-reader'
+
+export type { CampaignPostCost, CostPerPostPage, PostCost } from './ports/post-cost-reader'
 
 /** Collaborators of {@link costPerPost}. */
 export interface CostPerPostDeps {
-  ledger: Pick<ModelLedger, 'report'>
-  quests: Pick<QuestQueue, 'get'>
-  sealStore: Pick<SealStore, 'list'>
-}
-
-/** Accepted posts and what they cost, in millionths of a cent. */
-export interface PostCost {
-  posts: number
-  costMicros: number
-  /** The whole-number average (rounded down); zero posts cannot appear, so never divides by zero. */
-  costPerPostMicros: number
-}
-
-/** The cost of one Campaign's accepted posts; `campaignId` null groups Quests outside any Campaign. */
-export interface CampaignPostCost extends PostCost {
-  campaignId: string | null
-}
-
-/** One page of {@link costPerPost}. */
-export interface CostPerPostPage {
-  overall: PostCost
-  campaigns: CampaignPostCost[]
-  next: string | null
+  postCosts: Pick<PostCostReader, 'byCampaign'>
 }
 
 /**
@@ -35,68 +13,10 @@ export interface CostPerPostPage {
  * grouped per Campaign. `overall` covers every Campaign; `campaigns` is one page, ordered by
  * Campaign id with the no-Campaign group first, and `after` is the previous page's cursor.
  */
-export async function costPerPost(
+export function costPerPost(
   deps: CostPerPostDeps,
   guildId: string,
   page: { limit: number; after?: string }
 ): Promise<CostPerPostPage> {
-  const groups = new Map<string, { campaignId: string | null; posts: number; costMicros: number }>()
-  const spend = new Map<string, number>()
-  let spendCursor: string | undefined
-  do {
-    const rows = await deps.ledger.report(guildId, 'quest', {
-      limit: 100,
-      ...(spendCursor === undefined ? {} : { after: spendCursor }),
-    })
-    for (const row of rows.rows) {
-      spend.set(row.key, row.costMicros)
-    }
-    spendCursor = rows.next ?? undefined
-  } while (spendCursor !== undefined)
-  // Every Quest with a consumed Seal is a post, metered or not (no spend costs 0).
-  const counted = new Set<string>()
-  let cursor: string | undefined
-  do {
-    const seals = await deps.sealStore.list(guildId, {
-      limit: 100,
-      status: 'consumed',
-      ...(cursor === undefined ? {} : { after: cursor }),
-    })
-    for (const seal of seals.seals) {
-      if (counted.has(seal.questId)) {
-        continue
-      }
-      counted.add(seal.questId)
-      const quest = await deps.quests.get(guildId, seal.questId)
-      const campaignId = quest?.campaignId ?? null
-      const group = groups.get(campaignId ?? '') ?? { campaignId, posts: 0, costMicros: 0 }
-      group.posts += 1
-      group.costMicros += spend.get(seal.questId) ?? 0
-      groups.set(campaignId ?? '', group)
-    }
-    cursor = seals.next ?? undefined
-  } while (cursor !== undefined)
-  const cost = (g: { posts: number; costMicros: number }): PostCost => ({
-    posts: g.posts,
-    costMicros: g.costMicros,
-    costPerPostMicros: Math.floor(g.costMicros / g.posts),
-  })
-  const ordered = [...groups.entries()]
-    .filter(([key]) => page.after === undefined || key > page.after)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  const slice = ordered.slice(0, page.limit)
-  const last = slice.at(-1)
-  const all = [...groups.values()]
-  return {
-    overall: all.length === 0 ? { posts: 0, costMicros: 0, costPerPostMicros: 0 } : cost(sum(all)),
-    campaigns: slice.map(([, g]) => ({ campaignId: g.campaignId, ...cost(g) })),
-    next: ordered.length > page.limit && last ? last[0] : null,
-  }
-}
-
-function sum(groups: ReadonlyArray<{ posts: number; costMicros: number }>) {
-  return groups.reduce(
-    (acc, g) => ({ posts: acc.posts + g.posts, costMicros: acc.costMicros + g.costMicros }),
-    { posts: 0, costMicros: 0 }
-  )
+  return deps.postCosts.byCampaign(guildId, page)
 }

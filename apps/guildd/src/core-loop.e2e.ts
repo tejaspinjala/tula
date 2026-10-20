@@ -9,6 +9,7 @@ import type { Gates } from './gates'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { ModelLedger } from './ports/model-ledger'
+import type { PostCostReader } from './ports/post-cost-reader'
 import type { NewQuest, Quest, QuestQueue } from './ports/quest-queue'
 import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
@@ -37,6 +38,7 @@ export interface E2eWorld {
   mcp: McpGateway
   gates: Gates
   ledger: ModelLedger
+  postCosts: PostCostReader
   provider: MemoryModelProvider
   sandboxes: RecordingSandboxRunner
   /** A guild with one api-key provider priced at 3 and 15 per million tokens, and its Guild Master's member id. */
@@ -168,11 +170,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
 
       const spend = await w.ledger.report(guildId, 'quest', { limit: 100 })
       expect(spend.rows.find((r) => r.key === quest.id)?.costMicros).toBe(CALL_COST_MICROS)
-      const cost = await costPerPost(
-        { ledger: w.ledger, quests: w.quests, sealStore: w.sealStore },
-        guildId,
-        { limit: 10 }
-      )
+      const cost = await costPerPost({ postCosts: w.postCosts }, guildId, { limit: 10 })
       expect(cost.overall).toEqual({
         posts: 1,
         costMicros: CALL_COST_MICROS,

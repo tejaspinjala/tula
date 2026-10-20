@@ -68,6 +68,7 @@ function countingApp(
     dispatcher: harness.adapters.dispatcher,
     sealStore: harness.adapters.sealStore,
     modelLedger: harness.adapters.modelLedger,
+    postCosts: harness.adapters.postCosts,
     platformOperators: [],
     keys,
     devGuildHeader: true,
