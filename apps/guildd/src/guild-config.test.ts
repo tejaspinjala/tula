@@ -217,3 +217,31 @@ describe('classifyChange fails closed', () => {
     expect(classifyChange(base, memberExtra)).toBe('widening')
   })
 })
+
+describe('routing profile model and price', () => {
+  const withProfile = (extra: object): unknown => ({
+    ...defaultConfig(),
+    providers: [{ id: 'cloud', auth: 'api_key', privateEligible: false }],
+    routingProfiles: [{ id: 'cloud-mid', provider: 'cloud', tier: 'mid', ...extra }],
+  })
+
+  test('a profile may carry the model id and per-million-token prices', () => {
+    const parsed = guildConfig.parse(
+      withProfile({
+        model: 'some-model',
+        price: { inputMicrosPerMTok: 3_000_000, outputMicrosPerMTok: 15_000_000 },
+      })
+    )
+    expect(parsed.routingProfiles[0]?.model).toBe('some-model')
+    expect(parsed.routingProfiles[0]?.price?.outputMicrosPerMTok).toBe(15_000_000)
+  })
+
+  test('editing a price or model is widening; the default config has no model id', () => {
+    const before = guildConfig.parse(withProfile({ model: 'm' }))
+    const after = guildConfig.parse(
+      withProfile({ model: 'm', price: { inputMicrosPerMTok: 1, outputMicrosPerMTok: 1 } })
+    )
+    expect(classifyChange(before, after)).toBe('widening')
+    expect(JSON.stringify(defaultConfig())).not.toContain('model')
+  })
+})

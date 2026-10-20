@@ -46,11 +46,26 @@ export const provider = z.object({
   privateEligible: z.boolean().default(false),
 })
 
-/** A routing profile: which provider serves which model tier (cheap, mid, deep). */
+/**
+ * Token prices in millionths of a dollar per million tokens (so $3 per million is 3_000_000).
+ * Prices live in guild config, never in engine code: the spec leaves them an open item (O4).
+ */
+export const tokenPrice = z.object({
+  inputMicrosPerMTok: z.number().int().min(0).max(1_000_000_000),
+  outputMicrosPerMTok: z.number().int().min(0).max(1_000_000_000),
+})
+
+/**
+ * A routing profile: which provider serves which model tier (cheap, mid, deep). `model` is the
+ * provider's model id, the only place one lives; `price` is required for `api_key` providers
+ * to meter dollars (the gateway refuses an unpriced api_key call, so caps cannot be bypassed).
+ */
 export const routingProfile = z.object({
   id: slug,
   provider: slug,
   tier: z.enum(['cheap', 'mid', 'deep']),
+  model: z.string().trim().min(1).max(200).optional(),
+  price: tokenPrice.optional(),
 })
 
 /** A recurring schedule, as a five-field cron expression. */
