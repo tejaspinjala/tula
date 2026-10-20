@@ -20,6 +20,10 @@ const inputSchema = z.object({
   OBJECT_STORE_SECRET_KEY: z.string().min(1),
   OBJECT_STORE_ENDPOINT: z.url().default('http://localhost:9000'),
   PORT: z.coerce.number().int().min(1).max(65535).default(DEFAULT_PORT),
+  /** Who may found a guild; `once` unless the caller says otherwise (`open` re-founds after a lost passkey). */
+  FOUNDING_MODE: z.enum(['open', 'once', 'closed']).default('once'),
+  /** Public https origin of a tunnel or proxy in front of guildd; passkeys are bound to its hostname. */
+  PUBLIC_ORIGIN: z.url({ protocol: /^https$/ }).optional(),
 })
 
 /** What start:selfhost will run: where the stack should be, and guildd's environment. */
@@ -59,6 +63,7 @@ export function selfhostPlan(
   const appUrl = new URL(input.DATABASE_URL)
   appUrl.username = 'guildhall_app'
   appUrl.password = input.APP_DB_PASSWORD
+  const publicOrigin = input.PUBLIC_ORIGIN ? new URL(input.PUBLIC_ORIGIN) : null
   return {
     databaseHost: hostPort(input.DATABASE_URL, 5432),
     objectStoreHost: hostPort(input.OBJECT_STORE_ENDPOINT, 80),
@@ -69,8 +74,11 @@ export function selfhostPlan(
       PORT: String(input.PORT),
       HOST: '127.0.0.1',
       WEB_DIST: join(root, 'apps/web/dist'),
-      WEBAUTHN_ORIGIN: `http://localhost:${input.PORT}`,
-      WEBAUTHN_RP_ID: 'localhost',
+      FOUNDING_MODE: input.FOUNDING_MODE,
+      WEBAUTHN_ORIGIN: publicOrigin ? publicOrigin.origin : `http://localhost:${input.PORT}`,
+      WEBAUTHN_RP_ID: publicOrigin ? publicOrigin.hostname : 'localhost',
+      // The tunnel is exactly one proxy hop; rate limits key on the client it forwards.
+      ...(publicOrigin ? { TRUST_PROXY: 'true' } : {}),
     },
   }
 }
