@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FoundGuildPanel } from './FoundGuildPanel'
 import {
+  type FoundingState,
   fetchGuild,
   foundingOpen,
   type PasskeyBrowser,
@@ -18,14 +19,14 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
 
-  const [open, setOpen] = useState(false)
+  const [founding, setFounding] = useState<FoundingState>('closed')
   const [guild, setGuild] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     fetch('/api/health')
       .then((res) => setStatus(res.ok ? 'ok' : 'down'))
       .catch(() => setStatus('down'))
-    foundingOpen(fetch).then(setOpen)
+    foundingOpen(fetch).then(setFounding)
   }, [])
 
   useEffect(() => {
@@ -47,9 +48,41 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
           <h1 className="brand">Guildhall ledger</h1>
         </header>
         <main id="main" tabIndex={-1} className="signed-out-main">
-          <p className="muted">guildd: {status}</p>
+          <section aria-labelledby="about-heading" className="card">
+            <h2 id="about-heading" className="card-title">
+              What is Guildhall?
+            </h2>
+            <p className="mt-2">
+              Guildhall is where you run a guild of AI agents. They do the work as Quests, and
+              anything that touches the outside world waits for your Seal.
+            </p>
+            <details className="disclosure">
+              <summary>What is a passkey?</summary>
+              <p>
+                A passkey is a sign-in kept on your device and unlocked with your fingerprint, face
+                or screen lock. There is no password to remember or leak.
+              </p>
+            </details>
+          </section>
+          {status === 'down' && (
+            <p role="alert" className="mt-4">
+              guildd: down. The server is not answering.
+            </p>
+          )}
           <SignInPanel fetcher={fetch} browser={browser} onSession={setSession} />
-          {open && <FoundGuildPanel fetcher={fetch} browser={browser} onSession={setSession} />}
+          {founding === 'open' && (
+            <FoundGuildPanel fetcher={fetch} browser={browser} onSession={setSession} />
+          )}
+          {founding === 'busy' && (
+            <section aria-labelledby="found-busy-heading" className="card">
+              <h2 id="found-busy-heading" className="card-title">
+                Found your guild
+              </h2>
+              <p role="status" className="mt-2">
+                Founding is busy right now: try again shortly.
+              </p>
+            </section>
+          )}
         </main>
       </div>
     )

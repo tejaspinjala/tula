@@ -143,3 +143,47 @@ export function readQuestFrame(raw: string): { refresh: boolean; seq: number | n
   }
   return { refresh: parsed.data.event.type.startsWith('quest.'), seq: parsed.data.event.seq }
 }
+
+/** Which round a Quest is on, for display. */
+export function roundText(quest: Pick<BoardQuest, 'round' | 'roundLimit'>): string {
+  const round = Math.min(Math.max(quest.round, 1), quest.roundLimit)
+  return `Round ${round} of ${quest.roundLimit}`
+}
+
+/** A Quest template the Guild Master can post from (mirrors guildd's code-defined templates). */
+export interface QuestTemplateChoice {
+  id: string
+  name: string
+  hallId: string
+  hallName: string
+}
+
+/** The templates the post form offers, by Hall. */
+export const QUEST_TEMPLATES: readonly QuestTemplateChoice[] = [
+  { id: 'herald-brief', name: 'Herald brief', hallId: 'heralds', hallName: 'Heralds Hall' },
+  {
+    id: 'herald-announcement',
+    name: 'Herald announcement',
+    hallId: 'heralds',
+    hallName: 'Heralds Hall',
+  },
+]
+
+/** Posts a Quest from a template (`POST /guilds/:id/quests`); `jobKey` makes a retry harmless. */
+export async function postQuest(
+  session: Session,
+  input: { templateId: string; title: string; jobKey: string },
+  fetcher: Fetcher
+): Promise<BoardQuest> {
+  const res = await fetcher(`/api/guilds/${session.guildId}/quests`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return { ...questBody.parse(data), parentId: null }
+}

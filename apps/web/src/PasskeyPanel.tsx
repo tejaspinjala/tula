@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { GuildId } from './GuildId'
 import {
   PasskeyRequestError,
   reauthenticate,
@@ -81,20 +82,13 @@ export function PasskeyPanel({
           >
             Sign in
           </button>
-          {session && (
-            <button
-              type="button"
-              onClick={() => {
-                onSession(null)
-                setMessage('Signed out')
-              }}
-            >
-              Sign out
-            </button>
-          )}
         </div>
+        {session && (
+          <p>
+            Signed in to guild <GuildId id={session.guildId} />
+          </p>
+        )}
         <p role="status" aria-live="polite">
-          {session ? `Signed in to guild ${session.guildId}. ` : ''}
           {message}
         </p>
       </div>
