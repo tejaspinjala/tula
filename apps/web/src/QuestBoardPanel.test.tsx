@@ -9,6 +9,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 const { QuestBoardPanel } = await import('./QuestBoardPanel')
 const { roundText } = await import('./quests')
+const { holdReconnectTimers } = await import('./stream-test-kit')
 
 const posts: unknown[] = []
 const quest = {
@@ -84,4 +85,29 @@ test('the board shows Round 1 of 2 and a form posts a Quest from a Hall and temp
   expect(posts).toHaveLength(1)
   expect(posts[0]).toMatchObject({ templateId: 'herald-brief', title: 'Write the brief' })
   await act(async () => root.unmount())
+})
+
+test('the stream reconnects on the shared jittered backoff and says so in-world after 3 failures in a row', async () => {
+  const timers = holdReconnectTimers()
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(<QuestBoardPanel session={session} />)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    for (let i = 0; i < 3; i += 1) {
+      expect(host.textContent).not.toContain('messenger')
+      await act(async () => {
+        timers.fireNext()
+        await new Promise((resolve) => setTimeout(resolve, 40))
+      })
+    }
+    expect(timers.delays.slice(0, 3)).toEqual([250, 500, 1000])
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('messenger')
+  } finally {
+    timers.restore()
+    await act(async () => root.unmount())
+  }
 })
