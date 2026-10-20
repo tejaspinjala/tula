@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run verify
+
+  pr-rules:
+    name: pr-rules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Untrusted PR fields go through env, never inline expressions, so they cannot inject shell.
+      - name: Conventional Commits PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! printf '%s\n' "$TITLE" | grep -qE '^(feat|fix|refactor|perf|build|ci|docs|test|chore|revert)(\([a-z0-9-]+\))?!?: .+'; then
+            echo "PR title must match '<type>(<scope>)?: <summary>'" >&2
+            exit 1
+          fi
+      - name: Only release or hotfix branches target main
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ "$BASE" = "main" ] && ! printf '%s\n' "$HEAD" | grep -qE '^(release|hotfix)/'; then
+            echo "PRs into main must come from release/* or hotfix/* (got $HEAD)" >&2
+            exit 1
+          fi
