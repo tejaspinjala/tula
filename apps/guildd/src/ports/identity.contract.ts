@@ -652,6 +652,24 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         ).toBe('unknown_credential')
       })
 
+      test('a credential id already held by another guild cannot be registered, and the holder still signs in', async () => {
+        const s = await registered()
+        const other = await s.newGuild()
+        const { token } = await s.identity.issueFoundingToken(other)
+        const reg = await s.identity.beginRegistration(other, { foundingToken: token })
+        expect(
+          await failure(
+            s.identity.finishRegistration(other, reg.challengeId, await s.key.register(reg.options))
+          )
+        ).toBe('credential_exists')
+        const begin = await s.identity.beginDiscoverableSignIn()
+        const session = await s.identity.finishDiscoverableSignIn(
+          begin.challengeId,
+          await s.key.assert(begin.options)
+        )
+        expect(session.guildId).toBe(s.guildId)
+      })
+
       test('an unknown credential is refused like a bad signature', async () => {
         const s = await registered()
         const stranger = await SoftwareAuthenticator.create(s.rpId, s.origin)

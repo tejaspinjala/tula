@@ -41,4 +41,14 @@ describe('guild_for_credential (migration 0057)', () => {
     expect(row?.public_exec).toBe(false)
     expect(row?.app_exec).toBe(true)
   })
+
+  test('credential ids are unique across guilds, by an index that leads with credential_id', async () => {
+    const [row] = await harness.owner`select indexdef from pg_indexes
+      where tablename = 'identity_credentials' and indexdef ilike 'create unique index%(credential_id)%'`
+    expect(row).toBeDefined()
+    const a = await harness.foundGuild({ name: 'C', goal: 'g' })
+    const b = await harness.foundGuild({ name: 'D', goal: 'g' })
+    await addCredential(a, 'shared-id')
+    expect(addCredential(b, 'shared-id')).rejects.toThrow()
+  })
 })
