@@ -26,6 +26,7 @@ export type GatewayErrorCode =
   | 'hall_paused'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
+  /** The bar could not be read mid-call, so the call was aborted (fail closed); the reservation stays charged. */
   | 'gates_unavailable'
   | 'cap_reached'
   | 'unknown_profile'
@@ -396,16 +397,32 @@ export class ModelGateway {
     let response: ModelResponse
     // Bar the Gates mid-call: the bar is read from the store while the call is in flight, and
     // aborts it. The reservation stays as the charge (the failure path below never settles).
+    // Fails closed: a bar check that errors aborts the call as `gates_unavailable`, since the bar
+    // cannot be known. A tick is skipped while the previous check is still pending.
     const barred = new AbortController()
+    let abortCode: 'gates_barred' | 'gates_unavailable' = 'gates_barred'
+    let checking = false
     const poll = setInterval(() => {
-      this.deps.gates.isBarred(guildId).then(
-        (yes) => {
-          if (yes) {
+      if (checking) {
+        return
+      }
+      checking = true
+      this.deps.gates
+        .isBarred(guildId)
+        .then(
+          (yes) => {
+            if (yes) {
+              barred.abort()
+            }
+          },
+          () => {
+            abortCode = 'gates_unavailable'
             barred.abort()
           }
-        },
-        () => undefined
-      )
+        )
+        .finally(() => {
+          checking = false
+        })
     }, this.deps.barPollMs ?? DEFAULT_BAR_POLL_MS)
     try {
       response = await backend.complete(
@@ -415,7 +432,7 @@ export class ModelGateway {
       )
     } catch (e) {
       if (barred.signal.aborted) {
-        throw new GatewayError('gates_barred')
+        throw new GatewayError(abortCode)
       }
       if (e instanceof ModelProviderError) {
         throw new GatewayError(
