@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { PgSealStore } from './adapters/pg-seal-store'
 import { eventsAfter } from './events'
 import { hashProposal, SEAL_RESERVATION_MS } from './ports/seal-store'
 import { expectGuildIsolation } from './testing/cross-guild'
@@ -74,10 +75,13 @@ async function signedIn() {
     )
     return proofBody.parse(await done.json()).proof
   }
-  async function request(text: string) {
-    return harness.adapters.seals.requestSeal(guildId, {
+  async function request(text: string, requestedBy = 'herald-1') {
+    // The store directly: the engine refuses a member as requester, but the route must still
+    // refuse a decider equal to the requester if such a Seal ever exists.
+    const a = harness.adapters
+    return new PgSealStore(a.db, a.keys, a.clock).request(guildId, {
       questId: crypto.randomUUID(),
-      requestedBy: 'herald-1',
+      requestedBy,
       kind: 'post',
       text,
       evidence: 'verdict: pass',
@@ -87,10 +91,33 @@ async function signedIn() {
     const headers = withProof ? { ...auth, 'x-reauth-proof': await proof() } : auth
     return post(`/guilds/${guildId}/seals/${sealId}/${verb}`, body, headers)
   }
-  return { guildId, auth, request, act, proof }
+  async function memberId() {
+    const principal = await harness.adapters.identity.resolveSession(token)
+    return principal?.memberId ?? ''
+  }
+  return { guildId, auth, request, act, proof, memberId }
 }
 
 describe('Seal inbox over HTTP', () => {
+  test('a session whose principal requested the Seal cannot approve or deny it', async () => {
+    const who = await signedIn()
+    const mine = await who.request('my own post', await who.memberId())
+    for (const verb of ['approve', 'deny']) {
+      const res = await who.act(mine.id, verb, { actionHash: mine.actionHash })
+      expect(res.status).toBe(403)
+    }
+    expect((await harness.adapters.seals.get(who.guildId, mine.id))?.status).toBe('requested')
+  })
+
+  test("a decision records the deciding principal's member id in the audit event", async () => {
+    const who = await signedIn()
+    const seal = await who.request('post me')
+    await who.act(seal.id, 'approve', { actionHash: seal.actionHash })
+    const events = await harness.adapters.db.withGuild(who.guildId, (tx) => eventsAfter(tx, 0, 100))
+    const approved = events.find((e) => e.type === 'seal.approved')
+    expect(approved?.payload).toMatchObject({ sealId: seal.id, decidedBy: await who.memberId() })
+  })
+
   test('the inbox shows the exact text, evidence and hash, paginated', async () => {
     const who = await signedIn()
     await who.request('first post')

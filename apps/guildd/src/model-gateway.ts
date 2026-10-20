@@ -48,8 +48,8 @@ export type OpenRunResult =
   | { status: 'started'; token: string; expiresAt: string }
   | { status: 'queued'; reason: CapReason }
   | { status: 'exists' }
-  /** The Hall is paused (Tripwire or Guild Master): no token is issued. */
-  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' }
+  /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
+  | { status: 'refused'; reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
 export interface AdmittedRun {
@@ -166,7 +166,9 @@ export class ModelGateway {
    * The Quest must exist in this guild, be in the given Hall, active on that attempt with a live
    * lease (`quest_not_found` otherwise), and its Hall must not be paused. Idempotent per
    * Quest attempt: an active run reports `exists` (its token is shown only once); a queued run
-   * is retried against the caps.
+   * is retried against the caps; a revoked run (a Hall pause revoked it) is reissued a fresh
+   * token once the Hall is not paused, still bound to the live attempt and lease, but a cap
+   * reports `exists` rather than queueing it.
    */
   async openRun(
     guildId: string,
@@ -186,13 +188,19 @@ export class ModelGateway {
     }
     const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
-    if (existing && existing.state !== 'queued') {
+    if (existing?.state === 'active') {
       return { status: 'exists' }
+    }
+    if (existing?.state === 'revoked' && existing.revokeReason !== 'hall_paused') {
+      return { status: 'refused', reason: 'token_revoked' }
     }
     const { config } = await this.deps.config.current(guildId)
     const { profile } = resolveProfile(config, run.profileId)
     const capped = await this.capReason(guildId, config)
     const issue = this.issue(guildId)
+    if (capped && existing?.state === 'revoked') {
+      return { status: 'exists' }
+    }
     if (capped) {
       await this.deps.ledger.openRun(guildId, {
         ...run,
@@ -206,7 +214,8 @@ export class ModelGateway {
     }
     const started = { status: 'started', token: issue.token, expiresAt: issue.expiresAt } as const
     if (existing) {
-      // Only a queued run reaches here; activating it is atomic, so a racing retry starts it once.
+      // Only a queued or revoked run reaches here; activating it is atomic, so a racing retry
+      // starts it once.
       return (await this.deps.ledger.activate(guildId, run.runId, issue.hash, issue.expiresAt))
         ? started
         : { status: 'exists' }

@@ -31,9 +31,17 @@ export interface StoredChallenge {
   expiresAt: Date
 }
 
+/** A guild member and their server-side role. */
+export interface StoredMember {
+  memberId: string
+  role: 'guild_master'
+}
+
 /** A session as stored: the token only as a hash. */
 export interface StoredSession {
   id: string
+  /** The member the session was opened for; its role is looked up server-side, never stored here. */
+  memberId: string
   tokenHash: string
   expiresAt: Date
   reauthHash: string | null
@@ -86,6 +94,10 @@ export interface IdentityStore {
   clearReauth(guildId: string, sessionId: string, hash: string): Promise<boolean>
   /** Returns and deletes the challenge in one step, so it can be used once. */
   takeChallenge(guildId: string, id: string): Promise<StoredChallenge | null>
+  /** The guild's Guild Master, the only human member in this slice; stable for the guild's life. */
+  guildMaster(guildId: string): Promise<StoredMember>
+  /** A member of the guild with the role the server holds for them, or null. */
+  findMember(guildId: string, memberId: string): Promise<StoredMember | null>
   /** Stores a session, appending `event` in the same transaction. */
   saveSession(guildId: string, session: StoredSession, event: IdentityEvent): Promise<void>
   /** Finds a session by the hash of its token. */

@@ -125,6 +125,20 @@ describe('gateway routes', () => {
     expect(errorBody.parse(await res.json()).error).toBe('token_revoked')
   })
 
+  test('a call into a paused Hall is 409 hall_paused', async () => {
+    const { g } = await found('G2b')
+    const token = await start(g, 'r1')
+    await harness.adapters.tripwires.pause(g, {
+      hallId: 'heralds',
+      tripwire: 'manual',
+      observed: 0,
+      threshold: 0,
+    })
+    const res = await call(token)
+    expect(res.status).toBe(409)
+    expect(errorBody.parse(await res.json()).error).toBe('hall_paused')
+  })
+
   test('a call past the daily cap is 429 cap_reached', async () => {
     const { g } = await found('G3', { dailyTokens: 200, dailySpendCents: 1000 })
     provider.script({ ok: true, text: 'x', usage: { inputTokens: 150, outputTokens: 100 } })

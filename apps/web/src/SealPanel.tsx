@@ -1,6 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
-import { decideSeal, type InboxSeal, listSeals, markPosted, releaseStale } from './seals'
+import { enablePush } from './push'
+import {
+  decideSeal,
+  getSeal,
+  type InboxSeal,
+  listSeals,
+  markPosted,
+  releaseStale,
+  sealIdFromSearch,
+} from './seals'
 
 /**
  * The Seal inbox: each pending Seal shows its exact text, evidence and hash. The Guild Master
@@ -26,12 +35,41 @@ export function SealPanel({ session }: { session: Session | null }) {
     }
   }
 
+  // A tapped push notification opens the ledger at `?seal=<id>`: that Seal is fetched by id and shown first.
+  const focusId = sealIdFromSearch(window.location.search)
+
   const refresh = async (current: Session) => {
     const waiting = (await listSeals(current, fetch)).seals
     const approved = (await listSeals(current, fetch, 20, 'approved')).seals
     const reserved = (await listSeals(current, fetch, 20, 'reserved')).seals
-    setSeals([...waiting, ...approved, ...reserved.filter((s) => s.stale)])
+    const all = [...waiting, ...approved, ...reserved.filter((s) => s.stale)]
+    const linked = focusId ? all.find((s) => s.id === focusId) : undefined
+    if (focusId && !linked) {
+      all.unshift(await getSeal(current, focusId, fetch))
+    }
+    setSeals(all)
   }
+
+  useEffect(() => {
+    if (!session || !focusId) {
+      return
+    }
+    let live = true
+    getSeal(session, focusId, fetch)
+      .then((seal) => {
+        if (live) {
+          setSeals((all) => [seal, ...all.filter((s) => s.id !== seal.id)])
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setMessage('The linked Seal could not be loaded')
+        }
+      })
+    return () => {
+      live = false
+    }
+  }, [session, focusId])
 
   function replace(updated: InboxSeal) {
     setSeals((all) => all.map((s) => (s.id === updated.id ? updated : s)))
@@ -50,6 +88,25 @@ export function SealPanel({ session }: { session: Session | null }) {
             onClick={() => run('Load Seals', refresh)}
           >
             Load Seals
+          </button>
+          <button
+            type="button"
+            className="min-h-11 rounded border p-2"
+            onClick={() =>
+              run('Enable push', async (current) => {
+                const registration = await navigator.serviceWorker.ready
+                const result = await enablePush(current, {
+                  fetcher: fetch,
+                  push: registration.pushManager,
+                  permission: () => Notification.requestPermission(),
+                })
+                if (result !== 'enabled') {
+                  throw new Error(result)
+                }
+              })
+            }
+          >
+            Notify me of new Seals
           </button>
           <ul aria-label="Seals" className="flex flex-col gap-3">
             {seals.map((seal) => (

@@ -73,8 +73,10 @@ async function count(guildId: string, table: string): Promise<number> {
 
 test('a failing event append rolls back saveSession, setReauth, issueFounding and foundCredential', async () => {
   const guildId = await foundTestGuild(db, { name: 'Atomic', goal: 'g' })
+  const master = await store.guildMaster(guildId)
   const session = {
     id: crypto.randomUUID(),
+    memberId: master.memberId,
     tokenHash: 'th',
     expiresAt: new Date(T0.getTime() + 60_000),
     reauthHash: null,

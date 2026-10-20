@@ -57,6 +57,13 @@ export interface IdentitySession {
   expiresAt: Date
 }
 
+/** Who a session acts as. In this slice the Guild Master is the only human member. */
+export interface Principal {
+  guildId: string
+  memberId: string
+  role: 'guild_master'
+}
+
 /** Short-lived proof that the Guild Master re-authenticated with the passkey. */
 export interface ReauthProof {
   /** Opaque proof, sent with a sensitive action. */
@@ -145,8 +152,16 @@ export interface IdentityProvider {
     checkpointHash: string,
     assertion: CheckpointAssertion
   ): Promise<boolean>
-  /** The guild a live session is bound to, or null when unknown or expired. */
-  resolveSession(sessionToken: string): Promise<{ guildId: string } | null>
+  /**
+   * The principal a live session acts as (guild, member and the member's server-side role), or
+   * null when the session is unknown or expired. The role never comes from the request.
+   */
+  resolveSession(sessionToken: string): Promise<Principal | null>
+  /** A member of the guild with the role the server holds for them, or null. */
+  findMember(
+    guildId: string,
+    memberId: string
+  ): Promise<{ memberId: string; role: 'guild_master' } | null>
   /** True only for the current, unexpired proof issued to this live session; does not consume it. */
   checkReauth(sessionToken: string, proof: string): Promise<boolean>
   /** Like `checkReauth`, but a true answer also spends the proof: it works exactly once. */

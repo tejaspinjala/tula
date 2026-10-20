@@ -59,6 +59,10 @@ export interface Db {
   bumpRateLimit(bucket: string, windowStart: Date): Promise<number>
   /** Deletes rate-limit windows that started before `before`; a later hit starts a fresh count. */
   pruneRateLimits(before: Date): Promise<void>
+  /**
+   * Guild ids in the `push_guilds` registry (not tenant data, see migration 0041: opaque guild ids
+   * only; `PgPushStore.add` writes the row in the subscription's own transaction), after `after`, in id order, at most `limit`. */
+  pushGuilds(after: string | undefined, limit: number): Promise<string[]>
   /** Closes the pools. */
   close(): Promise<void>
 }
@@ -117,6 +121,12 @@ export function createDb(
     },
     async pruneRateLimits(before) {
       await sql`delete from rate_limits where window_start < ${before}`
+    },
+    async pushGuilds(after, limit) {
+      const rows = await sql`select guild_id from push_guilds
+        where (${after ?? null}::uuid is null or guild_id > ${after ?? null}::uuid)
+        order by guild_id limit ${limit}`
+      return rows.map((r) => z.string().parse(r.guild_id))
     },
     withGuild: scoped(sql),
     withGuildStream: scoped(streamSql),

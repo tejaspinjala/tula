@@ -27,6 +27,7 @@ const runRow = z.object({
   provider_id: z.string(),
   profile_id: z.string(),
   state: z.enum(['queued', 'active', 'revoked']),
+  revoke_reason: z.enum(['hall_paused', 'manual']).nullable(),
   expires_at: iso,
 })
 const usageRow = z.object({
@@ -46,6 +47,7 @@ const toRun = (r: z.infer<typeof runRow>): RunRecord => ({
   providerId: r.provider_id,
   profileId: r.profile_id,
   state: r.state,
+  revokeReason: r.revoke_reason,
   expiresAt: r.expires_at,
 })
 
@@ -91,8 +93,8 @@ export class PgModelLedger implements ModelLedger {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        update model_runs set state = 'active', token_hash = ${tokenHash}, expires_at = ${expiresAt}
-        where guild_id = ${guildId} and run_id = ${runId} and state = 'queued'
+        update model_runs set state = 'active', revoke_reason = null, token_hash = ${tokenHash}, expires_at = ${expiresAt}
+        where guild_id = ${guildId} and run_id = ${runId} and (state = 'queued' or (state = 'revoked' and revoke_reason = 'hall_paused'))
         returning run_id`
     )
     return rows.length === 1
@@ -102,7 +104,7 @@ export class PgModelLedger implements ModelLedger {
     const [row] = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, revoke_reason, expires_at
         from model_runs where guild_id = ${guildId} and token_hash = ${tokenHash}`
     )
     return row ? toRun(runRow.parse(row)) : null
@@ -112,7 +114,7 @@ export class PgModelLedger implements ModelLedger {
     const [row] = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, revoke_reason, expires_at
         from model_runs where guild_id = ${guildId} and run_id = ${runId}`
     )
     return row ? toRun(runRow.parse(row)) : null
@@ -122,7 +124,7 @@ export class PgModelLedger implements ModelLedger {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        update model_runs set state = 'revoked'
+        update model_runs set state = 'revoked', revoke_reason = 'manual'
         where guild_id = ${guildId} and run_id = ${runId} returning run_id`
     )
     return rows.length === 1
@@ -132,7 +134,7 @@ export class PgModelLedger implements ModelLedger {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        update model_runs set state = 'revoked'
+        update model_runs set state = 'revoked', revoke_reason = 'hall_paused'
         where guild_id = ${guildId} and hall_id = ${hallId} and state <> 'revoked'
         returning run_id`
     )
@@ -143,7 +145,7 @@ export class PgModelLedger implements ModelLedger {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, expires_at
+        select run_id, quest_id, attempt, hall_id, provider_id, profile_id, state, revoke_reason, expires_at
         from model_runs where guild_id = ${guildId} and state = 'queued'
         order by seq limit ${Math.min(Math.max(limit, 0), MAX_USAGE_PAGE)}`
     )

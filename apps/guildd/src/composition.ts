@@ -4,12 +4,14 @@ import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
 import { FileKeyProvider } from './adapters/file-key-provider'
 import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { MemoryClassifier } from './adapters/memory-classifier'
+import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgProposalStore } from './adapters/pg-proposal-store'
+import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
 import { PgRoutingLog } from './adapters/pg-routing-log'
@@ -17,18 +19,22 @@ import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
 import { PgStreamTicketStore } from './adapters/pg-stream-ticket-store'
 import { PgToolsetStore } from './adapters/pg-toolset-store'
+import { PgTreasuryStore } from './adapters/pg-treasury-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
+import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
-import { loadEnv, loadWebauthnEnv } from './env'
+import { loadEnv, loadVapidEnv, loadWebauthnEnv } from './env'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 
 import { ProposalEngine } from './proposals'
+import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
+import { Treasury } from './treasury'
 
 /**
  * The single composition root: wires adapters into the app.
@@ -60,27 +66,48 @@ export async function compose(
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
+  const vapid = loadVapidEnv()
+  const pushStore = overrides.pushStore ?? new PgPushStore(db)
+  // Without VAPID keys (development only; production fails at boot) pushes go to the memory notifier.
+  const pushNotifier =
+    overrides.pushNotifier ??
+    (vapid
+      ? new WebPushNotifier({
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey,
+          subject: vapid.subject,
+        })
+      : new MemoryPushNotifier())
+  const identity =
+    overrides.identity ??
+    new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
+      clock,
+      keys,
+      rpId: rp.WEBAUTHN_RP_ID,
+      rpName: 'Guildhall',
+      origin: rp.WEBAUTHN_ORIGIN,
+    })
   const adapters: AppDeps = {
     ...overrides,
+    pushStore,
+    pushNotifier,
+    pushRelay:
+      overrides.pushRelay ??
+      createSealPushRelay({ db, store: pushStore, notifier: pushNotifier, clock }),
+    vapidPublicKey: overrides.vapidPublicKey ?? vapid?.publicKey ?? null,
     clock,
     db,
     devGuildHeader,
     objectStore,
-    identity:
-      overrides.identity ??
-      new WebAuthnIdentityProvider(new PgIdentityStore(db, keys), {
-        clock,
-        keys,
-        rpId: rp.WEBAUTHN_RP_ID,
-        rpName: 'Guildhall',
-        origin: rp.WEBAUTHN_ORIGIN,
-      }),
+    identity,
     keys,
     anchor,
     rateLimiter: overrides.rateLimiter ?? new PgRateLimiter(db, clock),
     trustProxy: overrides.trustProxy ?? trustProxy,
     config,
-    seals: overrides.seals ?? new SealEngine({ store: new PgSealStore(db, keys, clock), config }),
+    seals:
+      overrides.seals ??
+      new SealEngine({ store: new PgSealStore(db, keys, clock), config, identity }),
     secrets,
     proposals:
       overrides.proposals ?? new ProposalEngine({ store: new PgProposalStore(db, keys, clock) }),
@@ -100,6 +127,8 @@ export async function compose(
         tripwires,
       }),
     tripwires,
+    treasury:
+      overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config }),
     streamTickets: overrides.streamTickets ?? new PgStreamTicketStore(db, clock),
     // No cheap model is wired yet (and no model id lives in engine code): the deterministic
     // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.

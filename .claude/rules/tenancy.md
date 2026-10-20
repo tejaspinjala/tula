@@ -9,11 +9,13 @@ paths:
 
 - Every tenant table has `guild_id uuid not null`, `ENABLE` and `FORCE ROW LEVEL SECURITY`, and at
   least one policy (`using` and `with check`) comparing `guild_id` to
-  `nullif(current_setting('app.guild_id', true), '')::uuid`. Only `schema_migrations` and `rate_limits` (opaque client/guild-keyed counters, see migration 0016) are exempt.
+  `nullif(current_setting('app.guild_id', true), '')::uuid`. Only `schema_migrations`, `rate_limits` (opaque client/guild-keyed counters, see migration 0016) and `push_guilds` (opaque guild ids only; select and insert grants, no delete) are exempt.
 - Primary keys, unique constraints and foreign keys on tenant tables include `guild_id`, so no
   constraint can reveal another guild's rows.
 - Migrations run as the owner; the app connects as `guildhall_app` (non-owner, no bypass-RLS).
-  The migration owner must not be a superuser in deployed environments (superusers bypass RLS).
+  The migrator must have `BYPASSRLS` (a non-superuser role with it is fine; migration 0034 backfills
+  under forced RLS and fails loudly without it). `guildhall_app` never has it. See
+  `docs/runbooks/migrate-deploy.md`.
   The app password is set from `APP_DB_PASSWORD` by the migrate runner, never in a migration.
   Grant it table privileges explicitly in the same migration that creates the table.
 - Tenant context is `set_config('app.guild_id', ..., true)` (transaction-local), set only by

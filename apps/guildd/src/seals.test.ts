@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryIdentityStore } from './adapters/memory-identity-provider'
+import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { MemorySealStore } from './adapters/memory-seal-store'
+import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { hashProposal, SEAL_TTL_MS } from './ports/seal-store'
 import { GUILD_MASTER_ID, SealEngine } from './seals'
 
@@ -10,8 +13,18 @@ async function engine() {
   const config = new MemoryConfigStore(clock)
   const guild = crypto.randomUUID()
   await config.seed(guild)
-  const seals = new SealEngine({ store: new MemorySealStore(clock), config })
-  return { seals, guild, clock, config }
+  const identityStore = new MemoryIdentityStore()
+  identityStore.found(guild)
+  const identity = new WebAuthnIdentityProvider(identityStore, {
+    clock,
+    keys: new MemoryKeyProvider(),
+    rpId: 'localhost',
+    rpName: 'Guildhall',
+    origin: 'http://localhost:5173',
+  })
+  const seals = new SealEngine({ store: new MemorySealStore(clock), config, identity })
+  const masterId = (await identityStore.guildMaster(guild)).memberId
+  return { seals, guild, clock, config, masterId }
 }
 
 const proposal = { questId: crypto.randomUUID(), requestedBy: 'herald-1', kind: 'post' }
@@ -39,6 +52,34 @@ describe('SealEngine', () => {
         seals.requestSeal(guild, { ...proposal, requestedBy, text: 'x', evidence: 'e' })
       ).rejects.toMatchObject({ code: 'requester_reserved' })
     }
+  })
+
+  test("a requester using a member's id, in any case, is refused at requestSeal", async () => {
+    const { seals, guild, masterId } = await engine()
+    for (const requestedBy of [masterId, masterId.toUpperCase(), ` ${masterId.toUpperCase()} `]) {
+      await expect(
+        seals.requestSeal(guild, { ...proposal, requestedBy, text: 'x', evidence: 'e' })
+      ).rejects.toMatchObject({ code: 'requester_reserved' })
+    }
+  })
+
+  test('a decider is the requester whatever the id case', async () => {
+    const { seals, guild, masterId } = await engine()
+    const seal = await seals.requestSeal(guild, {
+      ...proposal,
+      requestedBy: 'Herald-One',
+      text: 'x',
+      evidence: 'e',
+    })
+    expect(
+      await seals.decide(
+        guild,
+        seal.id,
+        { verdict: 'approved', expectedHash: seal.actionHash },
+        { role: 'guild_master', id: 'herald-one' }
+      )
+    ).toEqual({ ok: false, reason: 'not_authorised' })
+    expect(masterId).not.toBe('')
   })
 
   test('a distinct agent requester can be approved by the Guild Master', async () => {

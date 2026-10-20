@@ -98,3 +98,19 @@ test('the same content under two Quests emits proposal.created per Quest and one
     'proposal.created',
   ])
 })
+
+test('a Verdict needs a Proposal of the same content, and a Proposal needs a Verdict by commit', async () => {
+  const guild = await newGuild()
+  expect(
+    await refused(
+      `insert into verdicts (guild_id, proposal_hash, passed, findings, checked_at)
+       values ('${guild}', '${'c'.repeat(64)}', true, '[]'::jsonb, now())`
+    )
+  ).toContain('verdict_needs_proposal')
+  expect(
+    await refused(
+      `insert into proposals (guild_id, quest_id, author, kind, content, content_hash, created_at)
+       values ('${guild}', gen_random_uuid(), 'a', 'post', 'orphan', '${await hashProposal('orphan')}', now())`
+    )
+  ).toContain('proposal_needs_verdict')
+})

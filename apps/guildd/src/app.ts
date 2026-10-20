@@ -27,6 +27,8 @@ import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
+import type { PushNotifier } from './ports/push-notifier'
+import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
 import type { RoutingLog } from './ports/routing-log'
@@ -39,12 +41,16 @@ import {
   secretValue,
 } from './ports/secret-store'
 import type { StreamTicketStore } from './ports/stream-ticket'
+import { MAX_TREASURY_PAGE, type TreasuryRefusal } from './ports/treasury-store'
 import { MAX_TRIPWIRE_PAGE, type TripwireStore } from './ports/tripwire-store'
 import type { ProposalEngine } from './proposals'
+import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
-import { GUILD_MASTER_ID, type SealEngine } from './seals'
+import type { SealPushRelay } from './seal-push'
+import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
+import { isGuildMaster, type Treasury } from './treasury'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -83,6 +89,21 @@ export interface AppDeps {
   modelProvider?: ModelProvider
   /** Hall pauses: what a Tripwire (or the Guild Master) pauses; paused Halls take and start no Quests. */
   tripwires: TripwireStore
+  /** The Guild Master's push subscriptions, delivery claims and dispatch cursors. */
+  pushStore: PushStore
+  /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
+  pushNotifier: PushNotifier
+  /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
+  pushRelay: SealPushRelay
+  /** Push service hosts a subscription may name; tests only, production uses the fixed list. */
+  pushAllowedHosts?: readonly string[]
+  /** VAPID public key a browser subscribes with, or null when push is not configured. */
+  vapidPublicKey: string | null
+  /**
+   * The paper Treasury: deterministic spend rules and an append-only chained ledger. Only routes
+   * reach it (writes need a session, approvals re-authentication); no agent-facing tool does.
+   */
+  treasury: Treasury
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
@@ -112,6 +133,21 @@ const foundGuildBody = z.object({
   name: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(2000),
 })
+
+/** Bytes in the base64url string, or -1 when it is not base64url. */
+function base64urlLength(value: string): number {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? Buffer.from(value, 'base64url').length : -1
+}
+
+/** The device keys a browser's PushSubscription carries: a P-256 point and a 16-byte secret. */
+const pushKeys = z.object({
+  p256dh: z
+    .string()
+    .refine((v) => base64urlLength(v) === 65 && Buffer.from(v, 'base64url')[0] === 4),
+  auth: z.string().refine((v) => base64urlLength(v) === 16),
+})
+const pushSubscribeBody = z.object({ endpoint: z.string().max(2048), keys: pushKeys })
+const pushUnsubscribeBody = z.object({ endpoint: z.string().max(2048) })
 
 const uuid = z.uuid()
 const verifyQuery = z.object({
@@ -160,6 +196,27 @@ const sealDecisionBody = z.object({
   note: z.string().trim().min(1).max(2000).optional(),
 })
 const sealPostedBody = z.object({ text: z.string().min(1).max(20000) })
+const treasuryPage = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_TREASURY_PAGE).default(50),
+})
+const idempotencyKey = z.string().trim().min(1).max(200)
+const cents = z.number().int().min(1).max(100_000_000)
+const revenueBody = z.object({
+  key: idempotencyKey,
+  amountCents: cents,
+  evidence: z.string().max(2000),
+})
+const spendRequestBody = z.object({
+  key: idempotencyKey,
+  amountCents: cents,
+  purpose: z.string().trim().min(1).max(2000),
+})
+const settleBody = z.object({ actualCents: z.number().int().min(0).max(100_000_000) })
+const reserveReleaseBody = z.object({ key: idempotencyKey, amountCents: cents })
 const hallParam = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const pausePage = z.object({
   after: z
@@ -286,6 +343,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
+  app.post('/guilds/:id/push/subscriptions', limited('push-subscribe'))
+  app.delete('/guilds/:id/push/subscriptions', limited('push-subscribe'))
   app.post('/guilds/:id/audit/checkpoints/begin', limited('checkpoint-begin'))
   app.post('/guilds/:id/audit/checkpoints/finish', limited('checkpoint-finish'))
   // Token-bearing, not session-bearing, and there is no guild in the path: client bucket only.
@@ -807,6 +866,59 @@ export function createApp(deps: AppDeps): Hono {
       : c.json({ error: 'not_paused' }, 404)
   })
 
+  // Web push for the Guild Master's installed PWA. A device subscribes with the browser's
+  // PushSubscription; the push for a Seal request carries ids only (see `seal-push.ts`).
+  app.get('/guilds/:id/push/key', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return deps.vapidPublicKey
+      ? c.json({ publicKey: deps.vapidPublicKey })
+      : c.json({ error: 'push_not_configured' }, 404)
+  })
+
+  app.post('/guilds/:id/push/subscriptions', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = pushSubscribeBody.safeParse(await c.req.json().catch(() => null))
+    if (
+      !body.success ||
+      !isPushEndpoint(body.data.endpoint, deps.pushAllowedHosts ?? PUSH_SERVICE_HOSTS)
+    ) {
+      return c.json({ error: 'invalid_subscription' }, 400)
+    }
+    // Events up to now are never pushed to this device; nothing here waits on a push service.
+    const sinceSeq = await deps.db.withGuild(who.guild, headSeq)
+    const added = await deps.pushStore.add(
+      who.guild,
+      who.member,
+      { endpoint: body.data.endpoint, p256dh: body.data.keys.p256dh, auth: body.data.keys.auth },
+      sinceSeq
+    )
+    return added === 'conflict'
+      ? c.json({ error: 'endpoint_taken' }, 409)
+      : c.json({ endpoint: body.data.endpoint }, 201)
+  })
+
+  app.delete('/guilds/:id/push/subscriptions', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = pushUnsubscribeBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_subscription' }, 400)
+    }
+    const removed = await deps.pushStore.remove(who.guild, who.member, body.data.endpoint)
+    if (removed === 'conflict') {
+      return c.json({ error: 'endpoint_taken' }, 409)
+    }
+    return removed === 'removed' ? c.body(null, 204) : c.json({ error: 'not_found' }, 404)
+  })
+
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.
   app.post('/guilds/:id/events/ticket', async (c) => {
     const who = await sessionGuildFor(c)
@@ -820,7 +932,9 @@ export function createApp(deps: AppDeps): Hono {
   // writes config, and agents have no session, so no agent-facing route can change it. A widening
   // change is stored pending and only `confirm`, behind re-authentication, puts it in force.
   /** The calling session's guild when it is `:id`, else a ready response. */
-  async function sessionGuildFor(c: Context): Promise<{ guild: string } | { res: Response }> {
+  async function sessionGuildFor(
+    c: Context
+  ): Promise<{ guild: string; member: string; role: string } | { res: Response }> {
     const token = bearerToken(c.req.header('authorization'))
     const session = token ? await deps.identity.resolveSession(token) : null
     if (!session) {
@@ -829,7 +943,20 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== session.guildId) {
       return { res: c.json({ error: 'not_found' }, 404) }
     }
-    return { guild: session.guildId }
+    return { guild: session.guildId, member: session.memberId, role: session.role }
+  }
+
+  /** {@link sessionGuildFor}, then only the Guild Master passes; any other principal gets a 403. */
+  async function guildMasterSessionFor(
+    c: Context
+  ): Promise<{ guild: string; member: string } | { res: Response }> {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who
+    }
+    return isGuildMaster(who)
+      ? { guild: who.guild, member: who.member }
+      : { res: c.json({ error: 'forbidden' }, 403) }
   }
 
   function configFailure(c: Context, error: unknown): Response {
@@ -1334,9 +1461,8 @@ export function createApp(deps: AppDeps): Hono {
           expectedHash: body.data.actionHash,
           ...(body.data.note ? { note: body.data.note } : {}),
         },
-        // Only a re-authenticated Guild Master session reaches here, so the decider is the
-        // reserved Guild Master principal; requestSeal refuses that id as a requester.
-        { role: 'guild_master', id: GUILD_MASTER_ID }
+        // The decider is the session's real principal; the engine refuses it as its own requester.
+        { role: check.principal.role, id: check.principal.memberId }
       )
       return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
     })
@@ -1391,6 +1517,228 @@ export function createApp(deps: AppDeps): Hono {
     }
     const result = await deps.seals.releaseStale(check.guildId, id.data)
     return result.ok ? c.json(result.seal) : sealRefusal(c, result.reason)
+  })
+
+  // The paper Treasury (mode: paper; no payment provider is ever called). Reads follow
+  // `callerGuild`. Every write needs a real session (never the dev header; agents have none).
+  // Approving a spend that waits for the Guild Master, and releasing the reserve, also need a fresh
+  // re-authentication. The rules (limit, daily cap, funds) are code in the Treasury, never a model.
+  const REFUSAL_STATUS: Record<TreasuryRefusal, 404 | 409 | 422> = {
+    not_found: 404,
+    wrong_state: 409,
+    insufficient_funds: 409,
+    invalid_amount: 422,
+    evidence_required: 422,
+    exceeds_reserved: 422,
+    idempotency_conflict: 409,
+  }
+
+  /** A session whose principal is the Guild Master and whose guild is `:id`, else a ready response. */
+  async function treasuryWriter(
+    c: Context
+  ): Promise<{ guild: string; memberId: string } | { res: Response }> {
+    const token = bearerToken(c.req.header('authorization'))
+    const session = token ? await deps.identity.resolveSession(token) : null
+    if (!session) {
+      return { res: c.json({ error: 'unauthenticated' }, 401) }
+    }
+    if (c.req.param('id') !== session.guildId) {
+      return { res: c.json({ error: 'not_found' }, 404) }
+    }
+    if (!isGuildMaster(session)) {
+      return { res: c.json({ error: 'forbidden' }, 403) }
+    }
+    return { guild: session.guildId, memberId: session.memberId }
+  }
+
+  async function treasuryRoute(c: Context, run: () => Promise<Response>): Promise<Response> {
+    try {
+      return await run()
+    } catch (error) {
+      return configFailure(c, error)
+    }
+  }
+
+  app.get('/guilds/:id/treasury', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    return treasuryRoute(c, async () => c.json(await deps.treasury.overview(who.guild)))
+  })
+
+  for (const [path, read] of [
+    ['entries', (g: string, p: { after?: number; limit: number }) => deps.treasury.entries(g, p)],
+    ['spends', (g: string, p: { after?: number; limit: number }) => deps.treasury.spends(g, p)],
+  ] as const) {
+    app.get(`/guilds/:id/treasury/${path}`, async (c) => {
+      const who = await archiveCaller(c)
+      if (who instanceof Response) {
+        return who
+      }
+      const page = treasuryPage.safeParse({
+        after: c.req.query('after'),
+        limit: c.req.query('limit'),
+      })
+      if (!page.success) {
+        return c.json({ error: 'invalid_page' }, 400)
+      }
+      return treasuryRoute(c, async () =>
+        c.json(
+          await read(who.guild, {
+            limit: page.data.limit,
+            ...(page.data.after ? { after: Number(page.data.after) } : {}),
+          })
+        )
+      )
+    })
+  }
+
+  app.get('/guilds/:id/treasury/verify', async (c) => {
+    const who = await archiveCaller(c)
+    if (who instanceof Response) {
+      return who
+    }
+    return treasuryRoute(c, async () => c.json(await deps.treasury.verify(who.guild)))
+  })
+
+  app.post('/guilds/:id/treasury/revenue', async (c) => {
+    const who = await treasuryWriter(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = revenueBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.recordRevenue(who.guild, {
+        ...body.data,
+        actorMember: who.memberId,
+      })
+      return result.ok
+        ? c.json({ entries: result.entries }, result.created ? 201 : 200)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
+  })
+
+  app.post('/guilds/:id/treasury/spends', async (c) => {
+    const who = await treasuryWriter(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = spendRequestBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.requestSpend(who.guild, {
+        ...body.data,
+        requestedBy: who.memberId,
+      })
+      return result.ok
+        ? c.json(result.spend, result.created ? 201 : 200)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
+  })
+
+  app.post('/guilds/:id/treasury/spends/:spendId/approve', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    const id = uuid.safeParse(c.req.param('spendId'))
+    if (c.req.param('id') !== check.guildId || !id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.approveSpend(
+        check.guildId,
+        id.data,
+        check.principal.memberId
+      )
+      return result.ok
+        ? c.json(result.spend)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
+  })
+
+  for (const verb of ['deny', 'release'] as const) {
+    app.post(`/guilds/:id/treasury/spends/:spendId/${verb}`, async (c) => {
+      const who = await treasuryWriter(c)
+      if ('res' in who) {
+        return who.res
+      }
+      const id = uuid.safeParse(c.req.param('spendId'))
+      if (!id.success) {
+        return c.json({ error: 'not_found' }, 404)
+      }
+      return treasuryRoute(c, async () => {
+        const result =
+          verb === 'deny'
+            ? await deps.treasury.denySpend(who.guild, id.data, who.memberId)
+            : await deps.treasury.releaseSpend(who.guild, id.data, who.memberId)
+        return result.ok
+          ? c.json(result.spend)
+          : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+      })
+    })
+  }
+
+  app.post('/guilds/:id/treasury/spends/:spendId/settle', async (c) => {
+    const who = await treasuryWriter(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const id = uuid.safeParse(c.req.param('spendId'))
+    const body = settleBody.safeParse(await c.req.json().catch(() => null))
+    if (!id.success) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.settleSpend(
+        who.guild,
+        id.data,
+        body.data.actualCents,
+        who.memberId
+      )
+      return result.ok
+        ? c.json(result.spend)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
+  })
+
+  // The reserve is released only by the Guild Master, with a fresh re-authentication.
+  app.post('/guilds/:id/treasury/reserve/release', async (c) => {
+    const check = await checkSensitive(deps.identity, c.req.raw.headers)
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status)
+    }
+    if (!isGuildMaster(check.principal)) {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (c.req.param('id') !== check.guildId) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const body = reserveReleaseBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return treasuryRoute(c, async () => {
+      const result = await deps.treasury.releaseReserve(check.guildId, {
+        ...body.data,
+        actorMember: check.principal.memberId,
+      })
+      return result.ok
+        ? c.json({ entries: result.entries }, result.created ? 201 : 200)
+        : c.json({ error: result.reason }, REFUSAL_STATUS[result.reason])
+    })
   })
 
   return app
