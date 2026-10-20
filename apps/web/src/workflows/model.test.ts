@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { QUEST_TEMPLATES } from '../../../guildd/src/quests'
 import type { WorkflowGraph } from '../../../guildd/src/workflows/graph'
 import { addNode, connect, paletteTypes, removeNode, saveBody } from './model'
 
@@ -42,4 +43,11 @@ test('removing a node drops its edges', () => {
   let graph = addNode(start, 'agent')
   graph = connect(graph, 'trigger', 'agent')
   expect(removeNode(graph, 'agent')).toEqual(start)
+})
+
+test('a new agent node uses a Quest template that requires a Seal, so a gate after it validates', () => {
+  const agent = addNode(start, 'agent').nodes.find((n) => n.type === 'agent')
+  const template = QUEST_TEMPLATES.find((t) => agent?.type === 'agent' && t.id === agent.templateId)
+  expect(template?.requiresSeal).toBe(true)
+  expect(agent?.type === 'agent' ? agent.hallId : null).toBe(template?.hallId ?? null)
 })
