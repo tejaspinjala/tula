@@ -2,7 +2,7 @@ import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
 import type { Db } from './db/client'
-import { eventsAfter, headSeq } from './events'
+import { appendEvent, eventsAfter, headSeq } from './events'
 import type { Clock } from './ports/clock'
 import type { ObjectStore } from './ports/object-store'
 
@@ -15,6 +15,10 @@ export interface AppDeps {
   devGuildHeader: boolean
   /** Milliseconds between event-log polls per live socket; defaults to 200. */
   eventPollMs?: number
+  /** Milliseconds before an ObjectStore call is abandoned with a 504; defaults to 10000. */
+  objectStoreTimeoutMs?: number
+  /** Largest accepted artifact in bytes; defaults to {@link MAX_ARTIFACT_BYTES}. */
+  maxArtifactBytes?: number
 }
 
 const { upgradeWebSocket, websocket } = createBunWebSocket()
@@ -30,11 +34,59 @@ const foundGuildBody = z.object({
 const uuid = z.uuid()
 const artifactClass = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
 const artifactHash = z.string().regex(/^[0-9a-f]{64}$/)
-const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
+/** Default artifact size cap; main.ts sizes Bun's request-body limit from it. */
+export const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
+
+/** Thrown when an ObjectStore call outlives its timeout. */
+class StoreTimeoutError extends Error {}
+
+/** Reads a request body, stopping as soon as it exceeds `limit`; null means over the limit. */
+async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number) {
+  const chunks: Uint8Array[] = []
+  let total = 0
+  if (body) {
+    const reader = body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      total += value.byteLength
+      if (total > limit) {
+        await reader.cancel()
+        return null
+      }
+      chunks.push(value)
+    }
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
 
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
+  const maxBytes = deps.maxArtifactBytes ?? MAX_ARTIFACT_BYTES
+  const storeTimeoutMs = deps.objectStoreTimeoutMs ?? 10_000
+
+  /** Bounds an ObjectStore call so a stalled backend cannot hold a request open. */
+  function withStoreTimeout<T>(call: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new StoreTimeoutError()), storeTimeoutMs)
+    })
+    return Promise.race([call, timeout]).finally(() => clearTimeout(timer))
+  }
+  app.onError((err, c) =>
+    err instanceof StoreTimeoutError
+      ? c.json({ error: 'object_store_timeout' }, 504)
+      : c.json({ error: 'internal_error' }, 500)
+  )
   app.get('/health', (c) => c.json({ status: 'ok', time: deps.clock.now().toISOString() }))
 
   app.post('/guilds', async (c) => {
@@ -90,19 +142,27 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_class' }, 400)
     }
     const declared = Number(c.req.header('content-length') ?? 0)
-    if (declared > MAX_ARTIFACT_BYTES) {
+    if (declared > maxBytes) {
       return c.json({ error: 'too_large' }, 413)
     }
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > MAX_ARTIFACT_BYTES) {
+    const bytes = await readCapped(c.req.raw.body, maxBytes)
+    if (!bytes) {
       return c.json({ error: 'too_large' }, 413)
     }
-    const hash = await deps.objectStore.put(caller, bytes)
+    const hash = await withStoreTimeout(deps.objectStore.put(caller, bytes))
     const stored = await deps.db.withGuild(caller, async (tx) => {
-      await tx`
+      const inserted = await tx`
         insert into artifacts (guild_id, hash, size, class)
         values (${caller}, ${hash}, ${bytes.byteLength}, ${cls.data})
-        on conflict (guild_id, hash) do nothing`
+        on conflict (guild_id, hash) do nothing
+        returning hash`
+      if (inserted.length > 0) {
+        await appendEvent(tx, 'artifact.stored', {
+          hash,
+          class: cls.data,
+          size: bytes.byteLength,
+        })
+      }
       const [row] =
         await tx`select class from artifacts where guild_id = ${caller} and hash = ${hash}`
       return String(row?.class)
@@ -124,7 +184,7 @@ export function createApp(deps: AppDeps): Hono {
       caller,
       (tx) => tx`select class from artifacts where guild_id = ${caller} and hash = ${hash.data}`
     )
-    const bytes = rows[0] ? await deps.objectStore.get(caller, hash.data) : null
+    const bytes = rows[0] ? await withStoreTimeout(deps.objectStore.get(caller, hash.data)) : null
     if (!rows[0] || !bytes) {
       return c.json({ error: 'not_found' }, 404)
     }

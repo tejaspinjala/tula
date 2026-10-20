@@ -1,7 +1,7 @@
 import postgres from 'postgres'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryObjectStore } from '../adapters/memory-object-store'
-import { websocket } from '../app'
+import { type AppDeps, websocket } from '../app'
 import { compose } from '../composition'
 import { createDb } from '../db/client'
 import { migrate, provisionAppRole } from '../db/migrate'
@@ -12,6 +12,8 @@ export interface HarnessOptions {
   now?: Date
   /** Whether `x-guild-id` identifies the caller; defaults to true in tests. */
   devGuildHeader?: boolean
+  /** Adapter or limit overrides for the app (db and clock are managed by the harness). */
+  app?: Partial<Pick<AppDeps, 'objectStore' | 'objectStoreTimeoutMs' | 'maxArtifactBytes'>>
 }
 
 const DEFAULT_URL = 'postgres://guildhall:guildhall@localhost:5432/guildhall'
@@ -53,10 +55,12 @@ export async function createHarness(options: HarnessOptions = {}) {
   const clock = new MemoryClock(options.now ?? new Date('2026-01-01T00:00:00.000Z'))
   const appUrl = urlFor('guildhall_app')
   const db = createDb(appUrl)
-  const objectStore = new MemoryObjectStore()
+  const memoryStore = new MemoryObjectStore()
+  const objectStore = options.app?.objectStore ?? memoryStore
   const { app } = compose({
     clock,
     db,
+    ...options.app,
     objectStore,
     devGuildHeader: options.devGuildHeader ?? true,
     eventPollMs: 25,
@@ -65,7 +69,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   return {
     /** Connection URL of the non-owner app role on the throwaway database. */
     appUrl,
-    adapters: { clock, db, objectStore },
+    adapters: { clock, db, objectStore, memoryStore },
     /** Owner-side connection for schema inspection and setup; never for exercising the app. */
     owner,
     /** Sends a request to guildd without opening a socket. */

@@ -36,13 +36,27 @@ describe('artifacts', () => {
 
   test('storing the same bytes twice is idempotent: one row, one object', async () => {
     const guild = await found('Twice')
-    const before = harness.adapters.objectStore.size
+    const before = harness.adapters.memoryStore.size
     await store(guild, 'same')
     const again = await store(guild, 'same', 'report', 'POST')
     expect(again.status).toBe(201)
-    expect(harness.adapters.objectStore.size).toBe(before + 1)
+    expect(harness.adapters.memoryStore.size).toBe(before + 1)
     const rows = await harness.owner`select 1 from artifacts where guild_id = ${guild}`
     expect(rows.length).toBe(1)
+  })
+
+  test('storing appends one artifact.stored event, and a re-upload appends none', async () => {
+    const guild = await found('Evented')
+    await store(guild, 'evented bytes')
+    await store(guild, 'evented bytes')
+    const events = await harness.owner`
+      select type, payload from events where guild_id = ${guild} and type = 'artifact.stored'`
+    expect(events.length).toBe(1)
+    expect(events[0]?.payload).toEqual({
+      hash: hashBytes(enc('evented bytes')),
+      class: 'report',
+      size: 13,
+    })
   })
 
   test('an unknown or malformed hash is a clean 404', async () => {
@@ -87,5 +101,56 @@ describe('artifacts', () => {
         return harness.owner`select hash, size, class from artifacts where guild_id = ${guildId}`
       },
     })
+  })
+})
+
+describe('artifact limits', () => {
+  test('a chunked body over the cap without content-length gets 413', async () => {
+    const capped = await createHarness({ app: { maxArtifactBytes: 1024 } })
+    try {
+      const guild = await capped.adapters.db.foundGuild({ name: 'Big', goal: 'g' })
+      const chunk = new Uint8Array(400)
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(chunk)
+        },
+      })
+      const res = await capped.request('/artifacts?class=report', {
+        method: 'PUT',
+        headers: { 'x-guild-id': guild },
+        body,
+        duplex: 'half',
+      } as RequestInit)
+      expect(res.status).toBe(413)
+      expect(capped.adapters.memoryStore.size).toBe(0)
+    } finally {
+      await capped.close()
+    }
+  })
+
+  test('an object store that hangs yields 504 on store and on fetch, not a hung request', async () => {
+    const hang = () => new Promise<never>(() => {})
+    const hung = await createHarness({
+      app: {
+        objectStoreTimeoutMs: 50,
+        objectStore: { put: hang, get: hang, head: hang },
+      },
+    })
+    try {
+      const guild = await hung.adapters.db.foundGuild({ name: 'Hang', goal: 'g' })
+      const put = await hung.request('/artifacts?class=report', {
+        method: 'PUT',
+        headers: { 'x-guild-id': guild },
+        body: enc('x'),
+      })
+      expect(put.status).toBe(504)
+      // A row so the GET reaches the store.
+      const hash = hashBytes(enc('x'))
+      await hung.owner`insert into artifacts (guild_id, hash, size, class) values (${guild}, ${hash}, 1, 'report')`
+      const got = await hung.request(`/artifacts/${hash}`, { headers: { 'x-guild-id': guild } })
+      expect(got.status).toBe(504)
+    } finally {
+      await hung.close()
+    }
   })
 })

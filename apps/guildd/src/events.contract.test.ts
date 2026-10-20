@@ -8,6 +8,13 @@ afterAll(() => harness.close())
 const { db } = harness.adapters
 
 describe('event log', () => {
+  test('appending for a guild that was never founded raises and writes nothing', async () => {
+    const ghost = crypto.randomUUID()
+    await expect(db.withGuild(ghost, (tx) => appendEvent(tx, 'test.ghost', {}))).rejects.toThrow()
+    const rows = await harness.owner`select 1 from events where guild_id = ${ghost}`
+    expect(rows.length).toBe(0)
+  })
+
   test('founding a guild appends exactly one guild.founded event with seq 1', async () => {
     const id = await db.foundGuild({ name: 'Ember', goal: 'Ship' })
     const events = await db.withGuild(id, (tx) => eventsAfter(tx, 0))
