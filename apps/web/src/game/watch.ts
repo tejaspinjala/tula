@@ -1,0 +1,22 @@
+/** The part of a ResizeObserver this module needs. */
+interface SizeObserver<T> {
+  observe: (target: T) => void
+  disconnect: () => void
+}
+
+/**
+ * Calls `onResize` whenever `target` changes size, and returns a function that stops watching.
+ * The frame moves when the HUD changes height, which the window `resize` event never reports.
+ */
+export function watchSize<T>(
+  target: T,
+  onResize: () => void,
+  Observer: (new (callback: () => void) => SizeObserver<T>) | undefined
+): () => void {
+  if (!Observer) {
+    return () => {}
+  }
+  const observer = new Observer(onResize)
+  observer.observe(target)
+  return () => observer.disconnect()
+}

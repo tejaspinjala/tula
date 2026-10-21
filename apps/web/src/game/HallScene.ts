@@ -4,7 +4,7 @@ import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
 import { courierRoute } from './courier'
 import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
-import { BASE_SLOTS, wingsFor } from './hallmap'
+import { BASE_SLOTS } from './hallmap'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
   apprenticeSeats,
@@ -12,8 +12,10 @@ import {
   bubbleCentreY,
   type HallLayout,
   hallLayout,
+  landing,
   mailboxIn,
   questBoardIn,
+  refitHall,
   roomTags,
   seatsIn,
   withClosedDoors,
@@ -178,6 +180,7 @@ export class HallScene extends Phaser.Scene {
   private hallDrawn: {
     layers: Phaser.GameObjects.GameObject[]
     map: Phaser.Tilemaps.Tilemap
+    key: string
   } | null = null
   /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
   private walkable: (x: number, y: number) => boolean = this.layout.walkable
@@ -427,7 +430,8 @@ export class HallScene extends Phaser.Scene {
 
   /** Grows or shrinks the hall map to fit `slots` rooms, redrawing its tiles when the wings change. */
   private fitHallTo(slots: number): void {
-    if (wingsFor(slots) === wingsFor(this.drawnSlots)) {
+    const { redraw, reframe } = refitHall(this.drawnSlots, slots, this.viewMap, this.followed)
+    if (!redraw) {
       return
     }
     this.drawnSlots = slots
@@ -436,8 +440,19 @@ export class HallScene extends Phaser.Scene {
       layer.destroy()
     }
     this.hallDrawn?.map.destroy()
+    if (this.hallDrawn) {
+      this.cache.tilemap.remove(this.hallDrawn.key)
+    }
     this.drawMap('hall')
-    this.frameMap()
+    // A shrunk map can leave the Guild Master off it: back to the entrance.
+    if (this.current === 'hall') {
+      this.at = landing(this.at, this.layout.walkable, ENTRANCE)
+    }
+    if (reframe) {
+      this.frameMap()
+    } else if (this.viewMap === 'hall') {
+      this.boundCamera()
+    }
     this.applyTint()
   }
 
@@ -460,7 +475,7 @@ export class HallScene extends Phaser.Scene {
       }
     }
     if (id === 'hall') {
-      this.hallDrawn = { layers, map }
+      this.hallDrawn = { layers, map, key }
     }
     for (const label of MAP_LABELS[id]) {
       this.label(x + label.x * 16, y + label.y * 16, label.text, 16)

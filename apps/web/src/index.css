@@ -251,10 +251,14 @@ ul[aria-label] {
 .hud .px-meter {
   flex: 1 1 100%;
 }
-@media (min-width: 64rem) {
+@media (min-width: 48rem) {
   .hud .px-meter {
     flex: 1 1 calc(var(--px) * 90);
+    min-width: calc(var(--px) * 170);
   }
+}
+.hud .px-meter-plate {
+  white-space: nowrap;
 }
 .hud-day {
   margin: 0;
@@ -685,7 +689,7 @@ ul.evidence-list {
   margin-top: var(--space-4);
 }
 
-@media (min-width: 64rem) {
+@media (min-width: 48rem) {
   .post-quest {
     grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   }

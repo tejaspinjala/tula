@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import hallMap from './hall.tiled.json'
-import { hallMapFor } from './hallmap'
+import { hallMapFor, wingsFor } from './hallmap'
 
 /** A rectangle in tiles. */
 export interface TileRect {
@@ -218,6 +218,26 @@ export function roomTags(
       closed: hall.locked,
     }
   })
+}
+
+/** What a change of roster size means for the drawn hall map. */
+export function refitHall(
+  drawnSlots: number,
+  slots: number,
+  viewMap: string,
+  followed: string | null
+): { redraw: boolean; reframe: boolean } {
+  const redraw = wingsFor(slots) !== wingsFor(drawnSlots)
+  return { redraw, reframe: redraw && viewMap === 'hall' && followed === null }
+}
+
+/** Where the Guild Master stands after the map changed: the same spot if still walkable, else the entrance. */
+export function landing(
+  at: { x: number; y: number },
+  walkable: (x: number, y: number) => boolean,
+  entrance: { x: number; y: number }
+): { x: number; y: number } {
+  return walkable(Math.floor(at.x), Math.floor(at.y)) ? at : { ...entrance }
 }
 
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */
