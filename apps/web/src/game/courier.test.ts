@@ -8,13 +8,26 @@ const centre = (r: { x: number; y: number; w: number; h: number }) => ({
   y: (r.y + r.h / 2) * layout.tileSize,
 })
 
-test('a courier leaves the source room by its door and ends in the middle of the target room', () => {
-  const route = courierRoute(layout, 0, 1) ?? []
-  expect(route).toHaveLength(4)
-  expect(route[0]).toEqual(centre(layout.rooms[0] ?? { x: 0, y: 0, w: 0, h: 0 }))
-  expect(route[1]).toEqual(centre(layout.doorways[0] ?? { x: 0, y: 0, w: 0, h: 0 }))
-  expect(route[2]).toEqual(centre(layout.doorways[1] ?? { x: 0, y: 0, w: 0, h: 0 }))
-  expect(route[3]).toEqual(centre(layout.rooms[1] ?? { x: 0, y: 0, w: 0, h: 0 }))
+test('a courier walks door to door through the hallway, never inside a room', () => {
+  for (const [from, to] of [
+    [0, 1],
+    [0, 4],
+    [4, 2],
+    [5, 3],
+  ] as const) {
+    const route = courierRoute(layout, from, to) ?? []
+    expect(route.length).toBeGreaterThanOrEqual(2)
+    expect(route[0]).toEqual(centre(layout.doorways[from] ?? { x: 0, y: 0, w: 0, h: 0 }))
+    expect(route.at(-1)).toEqual(centre(layout.doorways[to] ?? { x: 0, y: 0, w: 0, h: 0 }))
+    for (const p of route) {
+      const tx = p.x / layout.tileSize
+      const ty = p.y / layout.tileSize
+      const inside = layout.rooms.some(
+        (r) => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h
+      )
+      expect(inside).toBe(false)
+    }
+  }
 })
 
 test('a Hall with no room on the map sends no courier', () => {
