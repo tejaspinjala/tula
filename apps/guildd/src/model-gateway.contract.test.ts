@@ -52,7 +52,7 @@ async function found(name: string, caps = defaultConfig().caps) {
 const leased = new Map<string, { id: string; attempts: number }>()
 
 /** Posts and claims a Quest for the run called `name` in guild `g` (attempt 1). */
-async function leaseFor(g: string, name: string) {
+async function leaseFor(g: string, name: string, dataClass: 'internal' | 'private' = 'internal') {
   const key = `${g}:${name}`
   const known = leased.get(key)
   if (known) {
@@ -64,7 +64,7 @@ async function leaseFor(g: string, name: string) {
     templateId: 'herald-brief',
     hallId: 'heralds',
     rank: 'journeyman',
-    dataClass: 'internal',
+    dataClass,
     title: name,
     ownerId: 'heralds-member-2',
     doneCondition: 'done',
@@ -82,8 +82,8 @@ async function leaseFor(g: string, name: string) {
   return claimed
 }
 
-async function start(g: string, name: string) {
-  const quest = await leaseFor(g, name)
+async function start(g: string, name: string, dataClass: 'internal' | 'private' = 'internal') {
+  const quest = await leaseFor(g, name, dataClass)
   const out = await harness.adapters.gateway.openRun(g, {
     questId: quest.id,
     attempt: quest.attempts,
@@ -123,6 +123,36 @@ describe('gateway routes', () => {
     const res = await call(token)
     expect(res.status).toBe(401)
     expect(errorBody.parse(await res.json()).error).toBe('token_revoked')
+  })
+
+  test('a private Quest run is refused once its provider is no longer private-eligible, before the provider is called', async () => {
+    const { g } = await found('G2p')
+    const apply = async (privateEligible: boolean) => {
+      const next = guildConfig.parse({
+        ...defaultConfig(),
+        providers: [{ id: 'cloud', auth: 'api_key', privateEligible }],
+        routingProfiles: [
+          {
+            id: 'cloud-mid',
+            provider: 'cloud',
+            tier: 'mid',
+            model: 'configured-model',
+            price: { inputMicrosPerMTok: 3_000_000, outputMicrosPerMTok: 15_000_000 },
+          },
+        ],
+      })
+      const proposed = await harness.adapters.config.propose(g, next)
+      if (proposed.status === 'pending') {
+        await harness.adapters.config.confirm(g, proposed.version)
+      }
+    }
+    await apply(true)
+    const token = await start(g, 'priv', 'private')
+    await apply(false)
+    const seen = provider.seen.length
+    const res = await call(token)
+    expect(errorBody.parse(await res.json()).error).toBe('provider_not_private')
+    expect(provider.seen.length).toBe(seen)
   })
 
   test('a call into a paused Hall is 409 hall_paused', async () => {
