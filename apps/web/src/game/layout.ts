@@ -135,6 +135,12 @@ export function seatsIn(
   return seats
 }
 
+/** The five tiles the Council's elders stand on, left to right along the back row of the chamber. */
+export function elderSeats(layout: HallLayout): { x: number; y: number }[] {
+  const { x, y, w } = layout.council
+  return Array.from({ length: Math.min(5, w) }, (_seat, i) => ({ x: x + i, y }))
+}
+
 /** The tile of a room's Quest Board: the top row below the label, near the far corner. */
 export function questBoardIn(layout: HallLayout, room: TileRect): { x: number; y: number } {
   const y = room.y + 1

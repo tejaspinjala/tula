@@ -18,6 +18,7 @@ import {
   apprenticeSeats,
   bubbleCentreX,
   bubbleCentreY,
+  elderSeats,
   type HallLayout,
   hallLayout,
   landing,
@@ -123,6 +124,8 @@ export interface HallOptions {
   onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
   onMap?: ((map: MapId) => void) | undefined
+  /** Opens the Council panel (navigation only): a tap on the Council chamber. */
+  onOpenCouncil?: (() => void) | undefined
 }
 
 /** Where the Guild Master enters the hall: just inside the gate, in tiles. */
@@ -230,6 +233,11 @@ export class HallScene extends Phaser.Scene {
   /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
   private talkable = new Set<string>()
   private near: Target | null = null
+  /** The five elders of the Council chamber, left to right, and their "..." mark. */
+  private elders: Phaser.GameObjects.Container[] = []
+  private conferMark: Phaser.GameObjects.BitmapText | null = null
+  /** True while a Council session is open: the elders confer. */
+  private councilOpen = false
   private readonly keys: Keys = { left: false, right: false, up: false, down: false }
   private detachKeys: (() => void) | null = null
 
@@ -719,6 +727,15 @@ export class HallScene extends Phaser.Scene {
         y: Math.min(desk.y + desk.h - 0.5, Math.max(desk.y + 0.5, this.at.y)),
       },
     })
+    // The chamber is a blocked rectangle like the desk: reach its nearest edge.
+    const chamber = this.layout.council
+    targets.push({
+      target: { kind: 'council' },
+      at: {
+        x: Math.min(chamber.x + chamber.w - 0.5, Math.max(chamber.x + 0.5, this.at.x)),
+        y: Math.min(chamber.y + chamber.h - 0.5, Math.max(chamber.y + 0.5, this.at.y)),
+      },
+    })
     // A Hall's mailbox stands in its room: reach it from the tile beside it.
     this.pending?.rooms.forEach((hall, index) => {
       const room = this.layout.rooms[index]
@@ -982,6 +999,75 @@ export class HallScene extends Phaser.Scene {
     this.label(seal.x * s, (seal.y - 0.6) * s, 'SEALS')
     const coins = this.layout.coins
     this.add.image(coins.x * s + 8, coins.y * s + 8, TILES, FRAME.coin).setDepth(5)
+    this.drawCouncil()
+  }
+
+  /**
+   * The Council chamber: a dais and a long table in the corridor, five robed elders standing behind
+   * it and a label above. Drawn once; `setCouncilOpen` makes the elders confer.
+   */
+  private drawCouncil(): void {
+    const s = this.layout.tileSize
+    const c = this.layout.council
+    const g = this.add.graphics().setDepth(4)
+    g.fillStyle(0x4a3a5e, 1)
+    g.fillRect(c.x * s, c.y * s, c.w * s, c.h * s) // dais
+    g.fillStyle(0x7a4b24, 1)
+    g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, s - 5) // table
+    g.fillStyle(0x3b2410, 1)
+    g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, 1) // table edge
+    this.label(c.x * s, (c.y - 0.6) * s, 'COUNCIL')
+    const robes = [0x6c8ebf, 0xb8453a, 0x4f8a5b, 0xc9a227, 0x8a5fb0]
+    this.elders = elderSeats(this.layout).map((seat, index) => {
+      const look = lookFor(`council-elder-${index}`)
+      const layers = [look.body, look.outfit, look.hair].map((frame) =>
+        this.add.image(0, 0, CHARS, frame)
+      )
+      layers[1]?.setTint(robes[index] ?? 0xffffff)
+      layers[2]?.setTint(0xe6e6e6)
+      const elder = this.add.container(seat.x * s + s / 2, seat.y * s + s / 2, layers).setDepth(6)
+      elder.setName(`elder:${index}`)
+      return elder
+    })
+    const chamber = this.add
+      .zone(c.x * s, c.y * s, c.w * s, c.h * s)
+      .setOrigin(0, 0)
+      .setDepth(7)
+      .setInteractive({ useHandCursor: true })
+    chamber.on('pointerdown', () => this.options.onOpenCouncil?.())
+    this.conferMark = this.add
+      .bitmapText((c.x + 1.5) * s, (c.y - 1) * s, FONT, '...', 16)
+      .setTint(0xffffff)
+      .setDepth(20)
+      .setVisible(false)
+    this.applyConfer()
+  }
+
+  /** The elders confer (bob in turn, with a "..." above) while a Council session is open. */
+  setCouncilOpen(open: boolean): void {
+    this.councilOpen = open
+    this.applyConfer()
+  }
+
+  private applyConfer(): void {
+    const s = this.layout.tileSize
+    const baseY = this.layout.council.y * s + s / 2
+    this.elders.forEach((elder, index) => {
+      this.tweens.killTweensOf(elder)
+      elder.y = baseY
+      if (this.councilOpen && !this.options.reducedMotion) {
+        this.tweens.add({
+          targets: elder,
+          y: baseY - 2,
+          duration: 420,
+          delay: index * 110,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        })
+      }
+    })
+    this.conferMark?.setVisible(this.councilOpen)
   }
 
   /** Rooms, gate, scrolls and the coin counter: redrawn whenever the state changes. */

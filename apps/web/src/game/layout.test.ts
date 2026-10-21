@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import {
   bubbleCentreX,
   bubbleCentreY,
+  elderSeats,
   fitZoom,
   hallLayout,
   landing,
@@ -227,4 +228,14 @@ test('the Council chamber stands in the corridor: five tiles wide, blocked, clea
     expect(apart(r)).toBe(true)
   }
   expect(hallLayout(12).council).toEqual(c)
+})
+
+test('five elders stand one to a tile along the back of the chamber, inside it', () => {
+  const seats = elderSeats(layout)
+  expect(seats).toHaveLength(5)
+  expect(new Set(seats.map((s) => `${s.x},${s.y}`)).size).toBe(5)
+  const c = layout.council
+  for (const s of seats) {
+    expect(s.x >= c.x && s.x < c.x + c.w && s.y === c.y).toBe(true)
+  }
 })

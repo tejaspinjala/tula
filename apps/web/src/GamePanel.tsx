@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
+import { councilOpenNow, loadCouncilSessions } from './council'
 import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
@@ -19,7 +20,7 @@ import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
-import { LiveEvents } from './live-events'
+import { councilCount, LiveEvents } from './live-events'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -268,6 +269,7 @@ export function GamePanel({
           seed: session.guildId,
           onHandIn: () => setBanner({ verb: 'Quest', noun: 'complete', danger: false }),
           onOpenSeal: () => open.current('/seals'),
+          onOpenCouncil: () => open.current('/council'),
           onRoom: setRoomSlot,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
           onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
@@ -297,11 +299,29 @@ export function GamePanel({
     }
   }, [scene])
 
+  // The elders confer while a Council session is open: look at the newest sessions whenever a
+  // `council.*` event arrives (a read failing leaves them idle; the panel shows the error).
+  const [councilOpen, setCouncilOpen] = useState(false)
+  const councilEvents = councilCount(events)
+  useEffect(() => {
+    let live = true
+    loadCouncilSessions(session, fetch, { limit: 5 })
+      .then((got) => live && setCouncilOpen(councilOpenNow(got.sessions) && councilEvents >= 0))
+      .catch(() => live && setCouncilOpen(false))
+    return () => {
+      live = false
+    }
+  }, [session, councilEvents])
+  useEffect(() => {
+    handle.current?.setCouncilOpen(councilOpen)
+  }, [councilOpen])
+
   // The game may finish loading after the first scene is ready: render again when it appears.
   useEffect(() => {
     const id = setInterval(() => {
       if (scene && handle.current) {
         handle.current.render(scene)
+        handle.current.setCouncilOpen(councilOpen)
         if (look) {
           handle.current.setLook(look)
         }
@@ -309,7 +329,7 @@ export function GamePanel({
       }
     }, 250)
     return () => clearInterval(id)
-  }, [scene, look])
+  }, [scene, look, councilOpen])
 
   useEffect(() => {
     if (look) {
