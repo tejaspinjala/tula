@@ -62,6 +62,9 @@ export class PgConfigStore implements ConfigStore {
   }
 
   async propose(guildId: string, config: GuildConfig): Promise<ProposeResult> {
+    if (config.sealPolicy === 'autonomous') {
+      throw new ConfigError('seal_policy_locked', 0)
+    }
     return this.db.withGuild(guildId, (tx) => this.write(tx, guildId, config, 'change'))
   }
 

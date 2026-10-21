@@ -23,12 +23,14 @@ describe('stored autonomous Seal Policy', () => {
     const store = new PgConfigStore(db, new MemoryKeyProvider())
     const guild = await foundTestGuild(db, { name: 'Legacy', goal: 'g' })
     await store.seed(guild)
-    const doc = JSON.stringify({ ...defaultConfig(), sealPolicy: 'autonomous' })
     await db.withGuild(guild, async (tx) => {
+      const doc = tx.json(
+        JSON.parse(JSON.stringify({ ...defaultConfig(), sealPolicy: 'autonomous' }))
+      )
       await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
-        values (${guild}, 2, 'applied', 'change', 'widening', 1, ${doc}::jsonb)`
+        values (${guild}, 2, 'applied', 'change', 'widening', 1, ${doc})`
       await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
-        values (${guild}, 3, 'pending', 'change', 'widening', 2, ${doc}::jsonb)`
+        values (${guild}, 3, 'pending', 'change', 'widening', 2, ${doc})`
     })
     expect((await store.current(guild)).config.sealPolicy).toBe('always')
     expect((await store.get(guild, 3))?.config.sealPolicy).toBe('always')

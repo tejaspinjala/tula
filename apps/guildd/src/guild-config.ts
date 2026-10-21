@@ -391,6 +391,12 @@ export function parseStoredConfig(
   raw: unknown,
   warn: (message: string) => void = warnToStderr
 ): GuildConfig {
+  // `autonomous` is refused on write but may sit in rows stored before the lock: read it as the
+  // strictest level (fail closed) instead of bricking the guild's config.
+  if (typeof raw === 'object' && raw !== null && Reflect.get(raw, 'sealPolicy') === 'autonomous') {
+    warn('stored guild config has sealPolicy autonomous, read as always')
+    return parseStoredConfig({ ...raw, sealPolicy: 'always' }, warn)
+  }
   const strict = guildConfig.safeParse(raw)
   if (strict.success) {
     return strict.data

@@ -5,3 +5,5 @@ To keep cost per accepted result low, a routine Quest costs one Member run plus 
 We rejected having every hierarchy layer run as an LLM agent per Quest, which is closer to the fantasy but multiplies tokens roughly by the number of layers without adding judgment.
 
 Amendment: free text is private by default, and a model's data-class claim is advisory only (logged, never routed on) unless the Guild Master sets the class explicitly. The classifier model itself may only be bound to a private-eligible provider.
+
+Amended by ADR-0011.
