@@ -126,7 +126,12 @@ export const memberActivityPayload = z.strictObject({
 })
 /** A parsed `member.activity` payload. */
 export type MemberActivity = z.infer<typeof memberActivityPayload>
-const missivePayload = z.object({ missiveId: z.string(), from: z.string() })
+const missivePayload = z.object({
+  missiveId: z.string(),
+  from: z.string(),
+  hall: z.string().optional(),
+  toHall: z.string().optional(),
+})
 const spendPayload = z.object({ kind: z.string(), amountCents: z.number() })
 
 /** Treasury entry kinds that move operating spend: a reserve is negative, a settle refund or release positive. */
@@ -148,6 +153,7 @@ export function deriveScene(input: SceneInput): SceneState {
   const { roster, events, upTo } = input
   const replay = replayTo(events, upTo === null ? null : { seq: upTo })
   const byId = new Map(input.quests.map((q) => [q.id, q]))
+  const hallNames = new Map(roster.halls.map((h) => [h.id, h.name]))
   const claimSeq = new Map<string, number>()
   const claimHall = new Map<string, string>()
   const spawns: { parentId: string; childId: string; seq: number }[] = []
@@ -210,7 +216,12 @@ export function deriveScene(input: SceneInput): SceneState {
       const p = missivePayload.safeParse(event.payload)
       const text = p.success ? input.missiveTexts?.[p.data.missiveId] : undefined
       if (p.success && text !== undefined) {
-        sayings.set(p.data.from, { text, seq: event.seq })
+        // A Missive that crossed Halls names the Hall it came from.
+        const sender = p.data.toHall === undefined ? undefined : hallNames.get(p.data.hall ?? '')
+        sayings.set(p.data.from, {
+          text: sender === undefined ? text : `From ${sender}: ${text}`,
+          seq: event.seq,
+        })
         saidAt.set(p.data.from, Date.parse(event.occurredAt))
       }
     } else if (event.type === 'hall.paused' || event.type === 'hall.resumed') {

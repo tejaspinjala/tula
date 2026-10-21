@@ -7,6 +7,8 @@ const missiveBody = z.object({
   from: z.string(),
   to: z.string(),
   text: z.string(),
+  hallId: z.string(),
+  toHall: z.string().nullable(),
   sentAt: z.string(),
 })
 const pageBody = z.object({ missives: z.array(missiveBody), next: z.number().nullable() })
@@ -40,4 +42,21 @@ export async function loadMissives(
 /** The Missives `memberId` sent or received, plus those sent to the whole Hall (`hall`); the list is one Hall's. */
 export function missivesOf(missives: readonly HallMissive[], memberId: string): HallMissive[] {
   return missives.filter((m) => m.from === memberId || m.to === memberId || m.to === 'hall')
+}
+
+/**
+ * The label a ledger row carries when the Missive crossed Halls, seen from `viewedHall`: "from
+ * <Hall>" for one that arrived, "to <Hall>" for one that left; null for a Missive inside the Hall.
+ */
+export function crossHallLabel(
+  missive: HallMissive,
+  viewedHall: string,
+  hallName: (hallId: string) => string
+): string | null {
+  if (missive.toHall === null) {
+    return null
+  }
+  return missive.hallId === viewedHall
+    ? `to ${hallName(missive.toHall)}`
+    : `from ${hallName(missive.hallId)}`
 }

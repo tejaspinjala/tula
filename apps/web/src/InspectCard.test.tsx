@@ -67,6 +67,8 @@ const sent = (id: string, from: string, to: string, text: string) => ({
   from,
   to,
   text,
+  hallId: 'heralds',
+  toHall: null,
   sentAt: at,
 })
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { missiveCount, useLiveEvents } from './live-events'
-import { type HallMissive, loadMissives } from './missives'
+import { crossHallLabel, type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
 import { loadRoster, type Roster } from './roster'
 import { PixelButton } from './ui/pixel'
@@ -96,6 +96,7 @@ export function MissivesPanel({
     }
   }
   const nameOf = (id: string): string => (id === 'hall' ? 'the Hall' : (names.get(id) ?? id))
+  const hallName = (id: string): string => roster?.halls.find((h) => h.id === id)?.name ?? id
   const halls = roster?.halls.filter((h) => !h.locked) ?? []
   const hall = halls.find((h) => h.id === hallId)
   const people = hall ? [...(hall.captain ? [hall.captain] : []), ...hall.members] : []
@@ -147,7 +148,10 @@ export function MissivesPanel({
         <ul aria-label="Missives" className="mt-4 flex flex-col gap-2">
           {missives.map((m) => (
             <li key={m.id} data-testid="missive">
-              <strong>{nameOf(m.from)}</strong> to {nameOf(m.to)}{' '}
+              <strong>{nameOf(m.from)}</strong> to {nameOf(m.to)}
+              {crossHallLabel(m, hallId, hallName) !== null && (
+                <span className="muted"> ({crossHallLabel(m, hallId, hallName)})</span>
+              )}{' '}
               <time dateTime={m.sentAt} className="muted">
                 {m.sentAt.slice(11, 16)}
               </time>

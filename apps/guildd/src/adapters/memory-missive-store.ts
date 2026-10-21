@@ -15,6 +15,21 @@ interface Stored {
   sentAtMs: number
 }
 
+/** Whether a list for `query` includes the Missive: the Hall's ledger, narrowed to one Member's view. */
+function visibleTo(m: Missive, query: MissiveQuery): boolean {
+  const received = m.toHall === query.hallId
+  if (m.hallId !== query.hallId && !received) {
+    return false
+  }
+  if (query.member === undefined) {
+    return true
+  }
+  if (m.from === query.member) {
+    return true
+  }
+  return (m.toHall === null || received) && (m.to === query.member || m.to === WHOLE_HALL)
+}
+
 /**
  * Memory adapter for {@link MissiveStore}: state in this instance only; `send` checks and writes
  * with no await between, so same-tick repeats cannot both insert.
@@ -34,7 +49,14 @@ export class MemoryMissiveStore implements MissiveStore {
 
   async send(guildId: string, input: NewMissive): Promise<SendResult> {
     const all = this.missives(guildId)
-    const key = JSON.stringify([input.questId, input.attempt, input.from, input.to, input.text])
+    const key = JSON.stringify([
+      input.questId,
+      input.attempt,
+      input.from,
+      input.to,
+      input.toHall ?? null,
+      input.text,
+    ])
     const prior = all.find((s) => s.key === key)
     if (prior) {
       return { ok: true, missive: prior.missive, created: false }
@@ -46,6 +68,7 @@ export class MemoryMissiveStore implements MissiveStore {
       seq: this.nextSeq++,
       id: crypto.randomUUID(),
       hallId: input.hallId,
+      toHall: input.toHall ?? null,
       questId: input.questId,
       from: input.from,
       to: input.to,
@@ -60,11 +83,7 @@ export class MemoryMissiveStore implements MissiveStore {
     const visible = this.missives(guildId)
       .filter(
         (s) =>
-          s.missive.hallId === query.hallId &&
-          (query.member === undefined ||
-            s.missive.from === query.member ||
-            s.missive.to === query.member ||
-            s.missive.to === WHOLE_HALL) &&
+          visibleTo(s.missive, query) &&
           (query.since === undefined || s.sentAtMs > query.since.getTime()) &&
           (query.after === undefined || s.missive.seq < query.after)
       )

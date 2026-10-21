@@ -190,3 +190,24 @@ test('only a recent Missive pops a bubble; one minutes old stays out of the bubb
   expect(stale.members.m2?.bubble).toBeNull()
   expect(stale.members.m2?.saying?.text).toBe('The ledger is balanced.')
 })
+
+test('a cross-Hall Missive bubble names the sending Hall; one inside a Hall does not', () => {
+  seq = 0
+  const events = [
+    ev('missive.sent', {
+      missiveId: 'mv1',
+      from: 'm2',
+      to: 'v1',
+      hall: 'h-herald',
+      toHall: 'h-vault',
+    }),
+  ]
+  const missiveTexts = { mv1: 'Send the ledger.' }
+  const scene = deriveScene({ roster, quests, events, upTo: null, missiveTexts })
+  expect(scene.members.m2?.bubble?.text).toBe('From Heralds: Send the ledger.')
+  const inside = [ev('missive.sent', { missiveId: 'mv1', from: 'm2', hall: 'h-herald' })]
+  expect(
+    deriveScene({ roster, quests, events: inside, upTo: null, missiveTexts }).members.m2?.bubble
+      ?.text
+  ).toBe('Send the ledger.')
+})

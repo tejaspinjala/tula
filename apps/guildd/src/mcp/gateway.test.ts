@@ -1386,6 +1386,132 @@ describe('MCP gateway', () => {
       expect((await send(s, bo, 'hall', 'mine')).isError).toBe(false)
     })
 
+    describe('across Halls', () => {
+      const withScribes = (t: Setup) =>
+        reconfigure(t, t.guild, (c) => ({
+          ...c,
+          halls: [
+            ...c.halls,
+            {
+              id: 'scribes',
+              name: 'Scribes Hall',
+              kind: 'work',
+              locked: false,
+              privateEligible: false,
+              captain: null,
+              members: [
+                { id: 'scribes-member-1', name: 'Scribe', rank: 'journeyman' },
+                { id: 'scribes-member-2', name: 'Scribe Two', rank: 'journeyman' },
+              ],
+            },
+          ],
+        }))
+      const sendTo = (t: Setup, l: unknown, over: Record<string, unknown>) =>
+        callTool(t.transport, 'send_missive', { lease: l, text: 'over the wall', ...over })
+      const fromRows = z.array(
+        z.object({ from: z.string(), fromHall: z.string().nullable(), text: z.string() })
+      )
+
+      test('a Member sends to a Member of another Hall, who reads it labelled with the sending Hall inside the nonce frame', async () => {
+        const s = await setup()
+        await withScribes(s)
+        const ada = await joined(s, 'heralds-member-2')
+        expect(await sendTo(s, ada, { toHall: 'scribes', to: 'scribes-member-1' })).toMatchObject({
+          isError: false,
+          data: { created: true },
+        })
+        const scribe = lease.parse(
+          (await s.claim(await s.post({ hallId: 'scribes', ownerId: 'scribes-member-1' }))).lease
+        )
+        const out = await readOf(s, scribe)
+        const rows = fromRows.parse(out.data.missives)
+        expect(rows.map((m) => [m.from, m.fromHall])).toEqual([['heralds-member-2', 'heralds']])
+        expect(rows[0]?.text).toContain(`<${String(out.data.tag)}`)
+        expect(rows[0]?.text).toContain('over the wall')
+        const mate = lease.parse(
+          (await s.claim(await s.post({ hallId: 'scribes', ownerId: 'scribes-member-2' }))).lease
+        )
+        expect(fromRows.parse((await readOf(s, mate)).data.missives)).toEqual([])
+      })
+
+      test('a cross-Hall send to the whole Hall reaches every Member of the target Hall only', async () => {
+        const s = await setup()
+        await withScribes(s)
+        const ada = await joined(s, 'heralds-member-2')
+        await sendTo(s, ada, { toHall: 'scribes', to: 'hall' })
+        const mate = lease.parse(
+          (await s.claim(await s.post({ hallId: 'scribes', ownerId: 'scribes-member-2' }))).lease
+        )
+        expect(fromRows.parse((await readOf(s, mate)).data.missives)).toHaveLength(1)
+        const bo = await joined(s, 'heralds-member-1', 'apprentice')
+        expect(fromRows.parse((await readOf(s, bo)).data.missives)).toEqual([])
+      })
+
+      test('unknown_hall, not_in_hall and same_hall come back as tool errors and store nothing', async () => {
+        const s = await setup()
+        await withScribes(s)
+        const ada = await joined(s, 'heralds-member-2')
+        expect(await sendTo(s, ada, { toHall: 'nowhere', to: 'hall' })).toMatchObject({
+          isError: true,
+          data: { error: 'unknown_hall' },
+        })
+        expect(await sendTo(s, ada, { toHall: 'scribes', to: 'heralds-member-1' })).toMatchObject({
+          isError: true,
+          data: { error: 'not_in_hall' },
+        })
+        expect(await sendTo(s, ada, { toHall: 'heralds', to: 'hall' })).toMatchObject({
+          isError: true,
+          data: { error: 'same_hall' },
+        })
+        expect(await s.deps.missives.list(s.guild, { hallId: 'scribes', limit: 10 })).toEqual({
+          missives: [],
+          next: null,
+        })
+      })
+
+      test('a private-class Quest cannot send to a work Hall', async () => {
+        const s = await setup()
+        await withScribes(s)
+        const secret = lease.parse(
+          (await s.claim(await s.post({ dataClass: 'private', ownerId: 'heralds-member-2' }))).lease
+        )
+        expect(await sendTo(s, secret, { toHall: 'scribes', to: 'hall' })).toMatchObject({
+          isError: true,
+          data: { error: 'private_boundary' },
+        })
+        expect(await s.deps.missives.list(s.guild, { hallId: 'scribes', limit: 10 })).toEqual({
+          missives: [],
+          next: null,
+        })
+      })
+
+      test('cross-Hall sends count against the Missives-per-Quest cap', async () => {
+        const s = await setup()
+        await withScribes(s)
+        await reconfigure(s, s.guild, (c) => ({
+          ...c,
+          caps: { ...c.caps, maxMissivesPerQuest: 1 },
+        }))
+        const ada = await joined(s, 'heralds-member-2')
+        expect((await sendTo(s, ada, { toHall: 'scribes', to: 'hall' })).isError).toBe(false)
+        expect(
+          await sendTo(s, ada, { toHall: 'scribes', to: 'hall', text: 'again' })
+        ).toMatchObject({ isError: true, data: { error: 'missive_cap' } })
+      })
+
+      test('Bar the Gates refuses a cross-Hall send', async () => {
+        const gates = new MemoryGateStore()
+        const s = await setup({ gates })
+        await withScribes(s)
+        const ada = await joined(s, 'heralds-member-2')
+        await gates.bar({ guildId: s.guild, memberId: 'owner' }, 'guild')
+        expect(await sendTo(s, ada, { toHall: 'scribes', to: 'hall' })).toMatchObject({
+          status: 401,
+          rpcError: 'gates_barred',
+        })
+      })
+    })
+
     test('read_missives pages newest first with a cursor and honours since', async () => {
       const s = await setup()
       const ada = await joined(s, 'heralds-member-2')
