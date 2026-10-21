@@ -151,7 +151,7 @@ async function asked(s: Setup, question = 'Which tone should section 1 take?') {
 }
 
 describe('Inquiries through the MCP gateway', () => {
-  test('a Member asks another Hall, its Captain answers once, and the asker reads the answer framed', async () => {
+  test('a Member asks another Hall, its owner answers once, and the asker reads the answer framed', async () => {
     const s = await setup()
     const { asker, out, inquiryId, answerQuestId } = await asked(s)
     expect(out).toMatchObject({ status: 200, isError: false, data: { created: true } })
@@ -159,7 +159,7 @@ describe('Inquiries through the MCP gateway', () => {
     expect(answerQuest).toMatchObject({
       hallId: 'scribes',
       templateId: 'inquiry-answer',
-      ownerId: 'scribes-captain',
+      ownerId: 'scribes-member-1',
       dataClass: 'internal',
       state: 'queued',
     })
@@ -285,9 +285,9 @@ describe('Inquiries through the MCP gateway', () => {
 
   test('an overdue Inquiry expires through the sweep and refuses an answer', async () => {
     const s = await setup()
-    const { asker, inquiryId, answerQuestId } = await asked(s)
-    const answerer = await s.claimAnswerQuest(String(answerQuestId))
+    const { inquiryId, answerQuestId } = await asked(s)
     s.clock.advance(8 * DAY)
+    const answerer = await s.claimAnswerQuest(String(answerQuestId))
     expect(await s.inquiries.expireOverdue(s.guild, s.clock.now())).toBe(1)
     expect(await s.inquiries.expireOverdue(s.guild, s.clock.now())).toBe(0)
     expect(
@@ -297,8 +297,9 @@ describe('Inquiries through the MCP gateway', () => {
         answer: 'late',
       })
     ).toMatchObject({ isError: true, data: { error: 'inquiry_expired' } })
+    const fresh = await s.joined('heralds', 'heralds-captain')
     expect(
-      await callTool(s.transport, 'read_inquiry', { lease: asker.lease, inquiryId })
+      await callTool(s.transport, 'read_inquiry', { lease: fresh.lease, inquiryId })
     ).toMatchObject({ data: { status: 'expired' } })
   })
 
