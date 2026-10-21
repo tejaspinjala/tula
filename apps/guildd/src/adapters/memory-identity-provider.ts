@@ -1,10 +1,11 @@
 import type { TenantTx } from '../db/client'
-import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
+import { MAX_OUTSTANDING_CHALLENGES, MAX_OUTSTANDING_DESKTOP_CODES } from '../ports/identity'
 import type {
   IdentityEvent,
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDesktopCode,
   StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
@@ -19,6 +20,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly enrolments = new Map<string, { tokenHash: string; expiresAt: Date }>()
+  private readonly desktopCodes = new Map<string, StoredDesktopCode[]>()
   private readonly events = new Map<string, IdentityEvent[]>()
   private readonly masters = new Map<string, StoredMember>()
 
@@ -141,6 +143,43 @@ export class MemoryIdentityStore implements IdentityStore {
     }
     this.record(guildId, ...events)
     return true
+  }
+
+  async issueDesktopCode(
+    guildId: string,
+    code: StoredDesktopCode,
+    now: Date,
+    event: IdentityEvent
+  ) {
+    const live = (this.desktopCodes.get(guildId) ?? []).filter((c) => c.expiresAt > now)
+    const kept = [...live, code]
+      .sort((x, y) => y.expiresAt.getTime() - x.expiresAt.getTime())
+      .slice(0, MAX_OUTSTANDING_DESKTOP_CODES)
+    this.desktopCodes.set(guildId, kept)
+    this.record(guildId, event)
+  }
+
+  // No await between the checks and the writes, so this is atomic within the process.
+  async spendDesktopCode(
+    guildId: string,
+    codeHash: string,
+    stateHash: string,
+    now: Date,
+    event: IdentityEvent
+  ) {
+    const held = this.desktopCodes.get(guildId) ?? []
+    const found = held.find(
+      (c) => c.codeHash === codeHash && c.stateHash === stateHash && c.expiresAt > now
+    )
+    if (found === undefined) {
+      return null
+    }
+    this.desktopCodes.set(
+      guildId,
+      held.filter((c) => c !== found)
+    )
+    this.record(guildId, event)
+    return found.sessionExpiresAt
   }
 
   async clearReauth(guildId: string, sessionId: string, hash: string) {

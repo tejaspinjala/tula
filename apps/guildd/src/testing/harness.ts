@@ -18,6 +18,8 @@ export const UNLIMITED_RATE_LIMITS = {
   'passkeys-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   'enrol-begin': { client: NO_LIMIT, guild: NO_LIMIT },
   'enrol-finish': { client: NO_LIMIT, guild: NO_LIMIT },
+  'desktop-begin': { client: NO_LIMIT, guild: NO_LIMIT },
+  'desktop-exchange': { client: NO_LIMIT, guild: NO_LIMIT },
   'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   founding: { client: NO_LIMIT },
   'founding-status': { client: NO_LIMIT },

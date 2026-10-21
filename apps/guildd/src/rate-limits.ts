@@ -11,6 +11,8 @@ export type RateRoute =
   | 'passkeys-finish'
   | 'enrol-begin'
   | 'enrol-finish'
+  | 'desktop-begin'
+  | 'desktop-exchange'
   | 'founding'
   | 'founding-status'
   | 'reauth'
@@ -60,6 +62,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'passkeys-finish': ceremonyLimits(),
   'enrol-begin': ceremonyLimits(),
   'enrol-finish': ceremonyLimits(),
+  'desktop-begin': ceremonyLimits(),
+  'desktop-exchange': ceremonyLimits(),
   founding: {
     client: { limit: 10, windowMs: MINUTE },
     unknown: { limit: 3, windowMs: MINUTE },
@@ -228,6 +232,8 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'passkeys-finish': 'unauthenticated',
   'enrol-begin': 'unauthenticated',
   'enrol-finish': 'unauthenticated',
+  'desktop-begin': 'unauthenticated',
+  'desktop-exchange': 'unauthenticated',
   founding: 'unauthenticated',
   'founding-status': 'unauthenticated',
   reauth: 'unauthenticated',
