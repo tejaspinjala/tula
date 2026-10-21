@@ -1,19 +1,31 @@
 import type { Clock } from '../ports/clock'
-import type { PresenceState, PresenceStore } from '../ports/presence-store'
+import { isAway, type PresenceState, type PresenceStore } from '../ports/presence-store'
 
-/** Memory {@link PresenceStore}. */
+const PRESENT: PresenceState = { away: false, since: null, until: null }
+
+/** Memory {@link PresenceStore}: state in this instance only; each write is one synchronous step. */
 export class MemoryPresenceStore implements PresenceStore {
-  constructor(readonly clock: Clock) {}
+  private readonly states = new Map<string, PresenceState>()
 
-  async get(_guildId: string): Promise<PresenceState> {
-    throw new Error('not implemented')
+  constructor(private readonly clock: Clock) {}
+
+  async get(guildId: string): Promise<PresenceState> {
+    return { ...(this.states.get(guildId) ?? PRESENT) }
   }
 
-  async goAway(_guildId: string, _until: string | null): Promise<PresenceState> {
-    throw new Error('not implemented')
+  async goAway(guildId: string, until: string | null): Promise<PresenceState> {
+    const now = this.clock.now()
+    const current = this.states.get(guildId) ?? PRESENT
+    // Still away (return time not passed): keep when it began. Otherwise it begins now.
+    const since = isAway(current, now) && current.since ? current.since : now.toISOString()
+    const next: PresenceState = { away: true, since, until }
+    this.states.set(guildId, next)
+    return { ...next }
   }
 
-  async returnHome(_guildId: string): Promise<boolean> {
-    throw new Error('not implemented')
+  async returnHome(guildId: string): Promise<boolean> {
+    const was = this.states.get(guildId)?.away === true
+    this.states.delete(guildId)
+    return was
   }
 }

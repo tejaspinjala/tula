@@ -11,8 +11,11 @@ export interface PresenceState {
  * Whether the Guild Master counts as away at `now`. A passed return time counts as present, so
  * away mode ends by itself without a write. Pure; the Council reads presence through this.
  */
-export function isAway(_state: PresenceState, _now: Date): boolean {
-  return false
+export function isAway(state: PresenceState, now: Date): boolean {
+  if (!state.away) {
+    return false
+  }
+  return state.until === null || new Date(state.until).getTime() > now.getTime()
 }
 
 /**
