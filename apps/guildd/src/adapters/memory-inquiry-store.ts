@@ -8,6 +8,7 @@ import type {
   NewAnswer,
   NewInquiry,
 } from '../ports/inquiry-store'
+import { EXPIRY_SWEEP_BATCH } from '../ports/inquiry-store'
 import type { QuestQueue } from '../ports/quest-queue'
 
 interface Stored {
@@ -128,6 +129,9 @@ export class MemoryInquiryStore implements InquiryStore {
   async expireOverdue(guildId: string, at: Date): Promise<number> {
     let expired = 0
     for (const stored of this.inquiries(guildId)) {
+      if (expired >= EXPIRY_SWEEP_BATCH) {
+        break
+      }
       if (stored.inquiry.status === 'open' && stored.expiresAtMs <= at.getTime()) {
         stored.inquiry = { ...stored.inquiry, status: 'expired' }
         expired += 1

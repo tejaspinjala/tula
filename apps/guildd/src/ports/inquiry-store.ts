@@ -92,6 +92,9 @@ export interface InquiryPage {
   next: number | null
 }
 
+/** The most Inquiries one expiry sweep marks expired, so a sweep never holds a huge transaction. */
+export const EXPIRY_SWEEP_BATCH = 200
+
 /** Stores Inquiries per guild, with every call scoped to one guild. */
 export interface InquiryStore {
   /**
@@ -107,6 +110,9 @@ export interface InquiryStore {
   get(guildId: string, inquiryId: string): Promise<Inquiry | null>
   /** One page of the Inquiries a Hall asked or was asked, newest first. */
   list(guildId: string, query: InquiryQuery): Promise<InquiryPage>
-  /** Marks every open Inquiry past its deadline `expired`; idempotent; returns how many it expired. */
+  /**
+   * Marks open Inquiries past their deadline `expired`, at most {@link EXPIRY_SWEEP_BATCH} per call
+   * (oldest first); idempotent; returns how many it expired, so a caller repeats until it is 0.
+   */
   expireOverdue(guildId: string, at: Date): Promise<number>
 }

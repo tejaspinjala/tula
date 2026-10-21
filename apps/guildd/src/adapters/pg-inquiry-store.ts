@@ -11,6 +11,7 @@ import type {
   NewAnswer,
   NewInquiry,
 } from '../ports/inquiry-store'
+import { EXPIRY_SWEEP_BATCH } from '../ports/inquiry-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { hashBytes } from '../ports/object-store'
 import { type PgQuestQueue, toQuest } from './pg-quest-queue'
@@ -191,8 +192,15 @@ export class PgInquiryStore implements InquiryStore {
   async expireOverdue(guildId: string, at: Date): Promise<number> {
     return this.db.withGuild(guildId, async (tx) => {
       const expired = await tx`
-        update inquiries set status = 'expired'
-        where guild_id = ${guildId} and status = 'open' and expires_at <= ${at}
+        with batch as materialized (
+          select inquiry_id from inquiries
+          where guild_id = ${guildId} and status = 'open' and expires_at <= ${at}
+          order by seq
+          limit ${EXPIRY_SWEEP_BATCH}
+          for update skip locked)
+        update inquiries i set status = 'expired'
+        from batch
+        where i.guild_id = ${guildId} and i.inquiry_id = batch.inquiry_id
         returning *`
       for (const r of expired) {
         const inquiry = toInquiry(r)
