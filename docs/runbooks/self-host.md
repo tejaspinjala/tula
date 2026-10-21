@@ -243,6 +243,39 @@ Bag. Each Council line opens that session's votes. The event log (the scroll) re
 `council.escalated` and `council.halted`, with ids and small facts only; a Council approval also
 appears as `seal.council_approved`, never as `seal.approved`.
 
+## Private Halls
+
+Every guild starts with three private Halls: Health, Personal and Relationships. They are locked and
+have no Members. Private Halls take Quests only after you unlock one, mark a provider
+private-eligible and hire a Member (ADR-0012).
+
+**What goes where.** A private Quest (templates Health log, Personal plan and Relationship note; no
+Seal needed) runs only on a private-eligible provider. If none exists it waits on the Quest Board
+(it is not killed) and starts once you mark one. The Member files its result as a private note in
+that Hall's own Archive. The model classifier, which reads free text, runs only on a private-eligible
+provider; with none, free text simply stays private.
+
+**Choosing a private-eligible provider.** Open Settings, Providers. Each provider shows its state and
+one plain sentence saying where private text goes, for example "Private Quests would be sent to
+Anthropic through your Claude subscription on this Mac". That sentence is built from the provider's
+auth path and what guildd reports at `GET /guilds/:id/providers/status`; no model writes it. Turning
+it on is a widening change: confirm it with your passkey. Turning it off applies at once.
+
+**What the disclosure means.** Private-eligible does not mean the text stays on this Mac. The
+Guildhall never ranks a vendor or auth path as safe; it only records your choice. Any provider kind
+may be chosen, including the `claude -p` subscription (ADR-0008), whose text still reaches Anthropic.
+On a hosted Guildhall subscription providers are dropped, so one never serves private work there.
+
+**Unlocking and re-locking.** Unlock a Hall from the Hall builder (passkey) and hire Members there;
+the default roster is empty. Locking it again applies at once: its live leases are released, its
+running Member stops, and its Quests wait as paused with no retry attempt spent. Unlock it and they
+resume. The log records `hall.locked` and `hall.unlocked`.
+
+**What nobody else sees.** The Council never receives a private Quest, so no elder reads private
+text. A Dossier, an Inquiry answer or a Bug Report never carries a private Hall's content to a work
+Hall, and a work-Hall Member reading the Archive is told the note does not exist. "While you were
+away" names private Quests only to you. Another guild never sees any of it.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri 2 shell: a native window that opens your Guildhall server, with the pixel-art

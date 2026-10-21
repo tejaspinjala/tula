@@ -391,6 +391,121 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         }))
         await dispatchStarts(w, guildId, quest)
       })
+
+      test('re-locking the Hall again and again never uses up the retry budget: the Quest is paused, not dead', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        await unlockHealth(w, guildId, true)
+        const quest = await healthLog(w, guildId)
+        const setLocked = (locked: boolean) =>
+          w.configure(guildId, (c) => ({
+            ...c,
+            halls: c.halls.map((h) => (h.id === 'health' ? { ...h, locked } : h)),
+          }))
+        for (let round = 0; round < 3; round += 1) {
+          await dispatchStarts(w, guildId, quest)
+          await setLocked(true)
+          await w.dispatcher.dispatch(guildId)
+          expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+          await setLocked(false)
+          w.clock.advance(60 * 60 * 1000)
+        }
+        await dispatchStarts(w, guildId, quest)
+      })
+
+      test('Milestone 4: a re-lock pauses the running Health log, an unlock resumes it, a work-Hall Member reads none of it and another guild sees nothing', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild({ scribes: true })
+        await unlockHealth(w, guildId, true)
+        const quest = await healthLog(w, guildId)
+        await dispatchStarts(w, guildId, quest)
+        const firstLease = lease.parse(
+          JSON.parse(w.sandboxes.latest(quest.id).leaseHandle ?? 'null')
+        )
+        const mcp = (name: string, args: object) =>
+          callTool((request) => w.mcp.handle(request), name, args)
+        const setLocked = (locked: boolean) =>
+          w.configure(guildId, (c) => ({
+            ...c,
+            halls: c.halls.map((h) => (h.id === 'health' ? { ...h, locked } : h)),
+          }))
+
+        // Re-lock: the live lease goes back to the queue with no attempt spent, and the Quest lives.
+        await setLocked(true)
+        await w.dispatcher.dispatch(guildId)
+        expect(await w.quests.get(guildId, quest.id)).toMatchObject({
+          state: 'queued',
+          leaseExpiresAt: null,
+        })
+        expect(await mcp('read_brief', { lease: firstLease })).toMatchObject({
+          status: 401,
+          rpcError: 'lease_expired',
+        })
+        expect(await w.dispatcher.dispatch(guildId)).not.toMatchObject({ status: 'started' })
+        expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+
+        // Unlock: it resumes on a fresh lease and the Member files its private note.
+        await setLocked(false)
+        w.clock.advance(60 * 60 * 1000)
+        await dispatchStarts(w, guildId, quest)
+        const handle = lease.parse(JSON.parse(w.sandboxes.latest(quest.id).leaseHandle ?? 'null'))
+        expect(handle.token).not.toBe(firstLease.token)
+        const member = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Log',
+          output: () => 'Slept badly, felt anxious',
+          afterArtifact: async () => {
+            const filed = await mcp('write_archive', {
+              lease: handle,
+              title: 'Week log',
+              body: 'Slept badly, felt anxious',
+              claim: 'assumption',
+            })
+            expect(filed.isError).toBe(false)
+          },
+        })
+        expect((await member.runLeased(handle)).completion.isError).toBe(false)
+        expect(await stateOf(w, guildId, quest.id)).toBe('done')
+        const filed = await w.notes.list(guildId, {
+          limit: 10,
+          hall: 'health',
+          includePrivate: true,
+        })
+        expect(filed.notes.map((n) => n.dataClass)).toEqual(['private'])
+        const noteId = filed.notes[0]?.id ?? ''
+
+        // A Scribes Member refused on every read path.
+        const scribe = await post(w, guildId, {
+          templateId: 'herald-brief',
+          hallId: 'scribes',
+          rank: 'journeyman',
+          ownerId: 'scribes-member-1',
+          title: 'Style guide',
+          doneCondition: 'The style guide is written',
+        })
+        await dispatchStarts(w, guildId, scribe)
+        const sl = lease.parse(JSON.parse(w.sandboxes.latest(scribe.id).leaseHandle ?? 'null'))
+        const attempts = [
+          await mcp('read_archive', { lease: sl, noteId }),
+          await mcp('read_archive', { lease: sl }),
+          await mcp('read_archive', { lease: sl, query: 'anxious' }),
+          await mcp('read_archive', { lease: sl, hall: 'health' }),
+          await mcp('request_dossier', { lease: sl, questId: quest.id }),
+          await mcp('read_brief', { lease: sl }),
+        ]
+        for (const out of attempts) {
+          expect(JSON.stringify(out)).not.toContain('anxious')
+          expect(JSON.stringify(out)).not.toContain('Week log')
+        }
+        expect(attempts[0]).toMatchObject({ isError: true, data: { error: 'not_found' } })
+        expect(attempts[4]).toMatchObject({ isError: true, data: { error: 'private_boundary' } })
+
+        // Another guild sees nothing of it.
+        const other = await w.newGuild()
+        expect(await w.quests.get(other.guildId, quest.id)).toBeNull()
+        expect(
+          (await w.notes.list(other.guildId, { limit: 10, includePrivate: true })).notes
+        ).toEqual([])
+      })
     })
 
     test('waiting for a private-eligible provider does not shrink the retry budget: the first transient failure afterwards retries', async () => {

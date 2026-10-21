@@ -419,7 +419,8 @@ export class PgQuestQueue implements QuestQueue {
       await this.lock(tx, guildId)
       const rows = await tx`
         update quests set state = 'queued', lease_expires_at = null,
-          not_before = ${this.clock.now()}, last_error = ${reason}
+          not_before = ${this.clock.now()}, last_error = ${reason},
+          max_attempts = max_attempts + 1
         where guild_id = ${guildId} and state = 'active'
           and (${halls ?? null}::text[] is null or hall_id = any (${halls ?? null}::text[]))
         returning quest_id`
