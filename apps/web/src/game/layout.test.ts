@@ -239,3 +239,17 @@ test('five elders stand one to a tile along the back of the chamber, inside it',
     expect(s.x >= c.x && s.x < c.x + c.w && s.y === c.y).toBe(true)
   }
 })
+
+test('the coin spot reserves room for its label and keeps two tiles clear of the Council dais', () => {
+  const coins = layout.coins
+  const dais = layout.council
+  // Icon plus a label such as "$1000.00": about five tiles.
+  expect(coins.w).toBeGreaterThanOrEqual(5)
+  const margin = 2
+  const apart =
+    coins.x + coins.w + margin <= dais.x ||
+    dais.x + dais.w + margin <= coins.x ||
+    coins.y + coins.h + margin <= dais.y ||
+    dais.y + dais.h + margin <= coins.y
+  expect(apart).toBe(true)
+})
