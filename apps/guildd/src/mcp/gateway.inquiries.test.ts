@@ -17,6 +17,7 @@ import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import type { GuildConfig } from '../guild-config'
 import type { DataClass, Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
+import { gatewayExtras } from '../testing/gateway-extras'
 import { callTool } from '../testing/scripted-member'
 import { McpGateway } from './gateway'
 
@@ -38,6 +39,10 @@ async function setup() {
   if (proposed.status === 'pending') {
     await config.confirm(guild, proposed.version)
   }
+  const objectStore = new MemoryObjectStore()
+  const handoffs = new MemoryHandoffStore()
+  const proposalStore = new MemoryProposalStore(clock)
+  const tripwires = new MemoryTripwireStore(clock)
   const gateway = new McpGateway({
     activity,
     quests,
@@ -45,13 +50,22 @@ async function setup() {
     notes,
     missives: new MemoryMissiveStore(),
     inquiries,
-    objectStore: new MemoryObjectStore(),
-    handoffs: new MemoryHandoffStore(),
+    objectStore,
+    handoffs,
     toolsets: new MemoryToolsetStore(),
-    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
+    proposals: new ProposalEngine({ store: proposalStore, config }),
+    ...gatewayExtras({
+      quests,
+      config,
+      handoffs,
+      objectStore,
+      proposals: proposalStore,
+      tripwires,
+      clock,
+    }),
     keys: new MemoryKeyProvider(),
     clock,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     gates,
     retireRun: async () => {},
   })

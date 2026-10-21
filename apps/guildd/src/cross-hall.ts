@@ -31,8 +31,10 @@ export interface CrossHallInput {
 /**
  * The one cross-Hall addressing rule. Resolves the target Hall (and optional Member) among the
  * caller guild's Halls, so another guild's Hall is indistinguishable from an unknown one, then
- * applies the private boundary: a private source Hall or a private-class Quest may not reach a work
- * Hall. Deterministic, never a model decision.
+ * applies the private boundary by direction. `push` (data flows source to target): a private source
+ * Hall or a private-class Quest may not reach a work Hall. `pull` (data flows back from the target
+ * to the source): a private target Hall or private subject data may not reach a source that is
+ * neither in a private Hall nor a private-class Quest. Deterministic, never a model decision.
  */
 export function resolveCrossHall(input: CrossHallInput): CrossHallResolution {
   const source = input.halls.find((h) => h.id === input.sourceHall)
@@ -43,9 +45,14 @@ export function resolveCrossHall(input: CrossHallInput): CrossHallResolution {
   if (source.id === target.id) {
     return { ok: false, error: 'same_hall' }
   }
-  if (
-    target.kind === 'work' &&
-    (source.kind === 'private' || input.sourceDataClass === 'private')
+  const sourceIsPrivate = source.kind === 'private' || input.sourceDataClass === 'private'
+  if (input.flow === 'push') {
+    if (target.kind === 'work' && sourceIsPrivate) {
+      return { ok: false, error: 'private_boundary' }
+    }
+  } else if (
+    (target.kind === 'private' || input.subjectDataClass === 'private') &&
+    !sourceIsPrivate
   ) {
     return { ok: false, error: 'private_boundary' }
   }

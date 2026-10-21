@@ -90,12 +90,12 @@ export interface McpGatewayDeps {
   handoffs: HandoffStore
   /** Governed web research for `research`; absent when no provider is configured (the tool is then unavailable). */
   research?: Research
-  /** Makes Dossiers for `request_dossier`; absent, the tool is unavailable. */
-  dossiers?: DossierService
-  /** Files Bug Reports for `file_bug_report`; absent, the tool is unavailable. */
-  bugReports?: BugReportService
+  /** Makes Dossiers for `request_dossier`. */
+  dossiers: DossierService
+  /** Files Bug Reports for `file_bug_report`. */
+  bugReports: BugReportService
   /** Reads the Bug Report a Fix Quest belongs to, so its closing shows as activity naming both Halls. */
-  bugReportStore?: Pick<BugReportStore, 'forFixQuest' | 'closeFixed'>
+  bugReportStore: Pick<BugReportStore, 'forFixQuest' | 'closeFixed'>
   /** Records each tool call as a `member.activity` event (ids and a closed name only). */
   activity: ActivityLog
   toolsets: ToolsetStore
@@ -1051,9 +1051,6 @@ export class McpGateway {
     a: z.infer<typeof fileBugReportArgs>
   ): Promise<ToolReply> {
     const { bugReports } = this.deps
-    if (!bugReports) {
-      return refuse('bug_report_unavailable')
-    }
     const { guild, quest } = caller
     const { config } = await this.deps.config.current(guild)
     const filed = await bugReports.file(
@@ -1095,7 +1092,7 @@ export class McpGateway {
    * done-condition are fixed code-authored text.
    */
   private async readBugReport(caller: Caller): Promise<ToolReply> {
-    const report = await this.deps.bugReportStore?.forFixQuest(caller.guild, caller.quest.id)
+    const report = await this.deps.bugReportStore.forFixQuest(caller.guild, caller.quest.id)
     if (caller.quest.templateId !== 'fix-quest' || !report) {
       return refuse('not_a_fix_quest')
     }
@@ -1116,7 +1113,7 @@ export class McpGateway {
    * naming the owning Hall and the Hall that filed (nothing when the Guild Master filed).
    */
   private async noteFixClosed(caller: Caller): Promise<void> {
-    const report = await this.deps.bugReportStore?.forFixQuest(caller.guild, caller.quest.id)
+    const report = await this.deps.bugReportStore.forFixQuest(caller.guild, caller.quest.id)
     if (report?.status === 'fixed' && report.filer.kind === 'member') {
       await this.noteActivity(caller, 'bug_report_fixed', report.filer.hallId)
     }
@@ -1131,29 +1128,32 @@ export class McpGateway {
   private async askHall(caller: Caller, a: z.infer<typeof askHallArgs>): Promise<ToolReply> {
     const { guild, quest } = caller
     const { config } = await this.deps.config.current(guild)
-    const resolved = resolveCrossHall({
-      flow: 'push',
+    // Both directions are judged: the question goes out (push), and the answer flows back to the
+    // asker (pull), so a private Hall's answer never reaches a Quest that is neither private-class
+    // nor in a private Hall.
+    const route = {
       halls: config.halls,
       sourceHall: quest.hallId,
       sourceDataClass: quest.dataClass,
       toHall: a.toHall,
-    })
-    if (!resolved.ok) {
-      return refuse(resolved.error)
+    }
+    const resolved = resolveCrossHall({ ...route, flow: 'push' })
+    const back = resolveCrossHall({ ...route, flow: 'pull' })
+    const refusal = resolved.ok ? (back.ok ? null : back.error) : resolved.error
+    if (!resolved.ok || refusal !== null) {
+      // A locked Hall is reported as locked before the private boundary, as it always was.
+      const locked = config.halls.some((h) => h.id === a.toHall)
+        ? hallAcceptsQuests(config, a.toHall)
+        : null
+      return refuse(
+        refusal === 'private_boundary' && locked && !locked.ok
+          ? locked.error
+          : (refusal ?? 'unknown_hall')
+      )
     }
     const accepts = hallAcceptsQuests(config, resolved.hall.id)
     if (!accepts.ok) {
       return refuse(accepts.error)
-    }
-    // A private answer must not flow back to a Quest that may not hold private data: only a
-    // private-class asker, or one in a private Hall, may ask a private Hall (as for spawn_subquest).
-    const sourceKind = config.halls.find((h) => h.id === quest.hallId)?.kind
-    if (
-      resolved.hall.kind === 'private' &&
-      quest.dataClass !== 'private' &&
-      sourceKind !== 'private'
-    ) {
-      return refuse('private_boundary')
     }
     if (await this.deps.tripwires.isPaused(guild, resolved.hall.id)) {
       return refuse('hall_paused')
@@ -1309,20 +1309,20 @@ export class McpGateway {
    */
   private async requestDossier(caller: Caller, questId: string): Promise<ToolReply> {
     const { dossiers } = this.deps
-    if (!dossiers) {
-      return refuse('dossier_unavailable')
-    }
     const { guild, quest } = caller
     const subject = await this.deps.quests.get(guild, questId)
     if (!subject) {
       return refuse('unknown_quest')
     }
     const { config } = await this.deps.config.current(guild)
+    // The Dossier flows back to the requester, so this is a pull: the subject's Hall and data class
+    // are the data side, the requesting Quest is the receiving side.
     const target = resolveCrossHall({
-      flow: 'push',
+      flow: 'pull',
       halls: config.halls,
       sourceHall: quest.hallId,
-      sourceDataClass: subject.dataClass,
+      sourceDataClass: quest.dataClass,
+      subjectDataClass: subject.dataClass,
       toHall: subject.hallId,
     })
     if (!target.ok) {
@@ -1524,7 +1524,7 @@ export class McpGateway {
         : await this.deps.quests.complete(guild, quest.id, lease.attempt)
       if (after.state === 'done') {
         // Only now that the Quest is done does its Bug Report close; idempotent, so a retried call repairs a failed close.
-        await this.deps.bugReportStore?.closeFixed(
+        await this.deps.bugReportStore.closeFixed(
           guild,
           quest.id,
           stored.hash,

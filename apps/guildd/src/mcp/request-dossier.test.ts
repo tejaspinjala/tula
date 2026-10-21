@@ -21,6 +21,7 @@ import type { GuildConfig } from '../guild-config'
 import { type Handoff, hashHandoff } from '../ports/handoff-store'
 import type { Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
+import { gatewayExtras } from '../testing/gateway-extras'
 import { callTool } from '../testing/scripted-member'
 import { McpGateway } from './gateway'
 import { roleToolNames } from './tools'
@@ -54,6 +55,17 @@ async function setup() {
     store: dossierStore,
     clock,
   })
+  const tripwires = new MemoryTripwireStore(clock)
+  const { bugReports, bugReportStore } = gatewayExtras({
+    quests,
+    config,
+    handoffs,
+    objectStore,
+    proposals: proposalStore,
+    tripwires,
+    clock,
+  })
+  const bugExtras = { bugReports, bugReportStore }
   const gateway = new McpGateway({
     activity,
     quests,
@@ -67,10 +79,11 @@ async function setup() {
     proposals: new ProposalEngine({ store: proposalStore, config }),
     keys: new MemoryKeyProvider(),
     clock,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     gates,
     retireRun: async () => {},
     dossiers,
+    ...bugExtras,
   })
   const transport = (request: object) => gateway.handle(request)
   const reconfigure = async (edit: (c: GuildConfig) => GuildConfig): Promise<void> => {
