@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { formatCents } from '../treasury'
 import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
+import { courierRoute } from './courier'
 import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
@@ -44,6 +45,7 @@ const TILES = 'tiles'
 const CHARS = 'chars'
 const FONT = 'font'
 const GLOW = 'glow'
+const COURIER = 'courier'
 /** Where each map sits in the one Phaser world, in px: far apart so a camera sees only one. */
 const OFFSETS: Record<MapId, Vec> = {
   hall: { x: 0, y: 0 },
@@ -173,6 +175,10 @@ export class HallScene extends Phaser.Scene {
   private readonly apprentices = new Map<string, ApprenticeView>()
   /** True until the first state is drawn: what already happened is shown, not animated. */
   private seeding = true
+  /** The newest courier seq already walked (or skipped while seeding), so each trip walks once. */
+  private courierSeq = 0
+  /** Couriers still walking, by seq: their addressee's bubble waits for them. */
+  private readonly walkingCouriers = new Map<number, string | null>()
   private gateSprites: Phaser.GameObjects.Image[] = []
   private zoomLevel = 1
   private followed: string | null = null
@@ -218,6 +224,7 @@ export class HallScene extends Phaser.Scene {
     }
     this.drawFixtures()
     this.makeGlow()
+    this.makeCourier()
     // The routine moves on with the clock: re-plan the Members every ten seconds.
     this.time.addEvent({
       delay: 10_000,
@@ -412,6 +419,83 @@ export class HallScene extends Phaser.Scene {
     for (const label of MAP_LABELS[id]) {
       this.label(x + label.x * 16, y + label.y * 16, label.text, 16)
     }
+  }
+
+  /**
+   * The courier, drawn in code (no image asset): a small figure in a cap carrying a parcel, as
+   * hard-edged pixel rectangles from the sprite palette.
+   */
+  private makeCourier(): void {
+    const g = this.add.graphics()
+    const paint = (colour: number, x: number, y: number, w: number, h: number) => {
+      g.fillStyle(colour, 1)
+      g.fillRect(x, y, w, h)
+    }
+    paint(0x3b2410, 5, 0, 6, 2) // cap
+    paint(0xe8b98a, 5, 2, 6, 4) // face
+    paint(0x2f5d8a, 4, 6, 8, 6) // coat
+    paint(0x3b2410, 5, 12, 2, 3) // legs
+    paint(0x3b2410, 9, 12, 2, 3)
+    paint(0xf2e6c8, 11, 7, 5, 4) // the letter
+    paint(0xb8453a, 13, 8, 1, 1) // its seal
+    g.generateTexture(COURIER, 16, 16)
+    g.destroy()
+  }
+
+  /**
+   * A courier walks from the sending Hall's room, out its door, to the receiving Hall's door and
+   * in, once per cross-Hall event. Nothing walks while the first state is only being shown, and
+   * with reduced motion the letter simply arrives. The addressee's "From" bubble is held back
+   * until the courier arrives.
+   */
+  private drawCouriers(state: SceneState): void {
+    for (const courier of state.couriers) {
+      if (courier.seq <= this.courierSeq) {
+        continue
+      }
+      this.courierSeq = courier.seq
+      if (this.seeding || this.options.reducedMotion) {
+        continue
+      }
+      const route = courierRoute(
+        this.layout,
+        state.rooms.findIndex((r) => r.hallId === courier.fromHall),
+        state.rooms.findIndex((r) => r.hallId === courier.toHall)
+      )
+      const start = route?.[0]
+      if (!route || !start) {
+        continue
+      }
+      const sprite = this.add.image(start.x, start.y, COURIER).setDepth(15)
+      sprite.setName(`courier:${courier.seq}`)
+      this.walkingCouriers.set(courier.seq, courier.toMemberId)
+      const step = (n: number) => {
+        const to = route[n]
+        if (!to) {
+          sprite.destroy()
+          this.walkingCouriers.delete(courier.seq)
+          if (this.pending) {
+            this.render(this.pending)
+          }
+          return
+        }
+        this.tweens.add({
+          targets: sprite,
+          x: to.x,
+          y: to.y,
+          duration: WALK_MS,
+          ease: 'Linear',
+          onComplete: () => step(n + 1),
+        })
+      }
+      step(1)
+    }
+  }
+
+  /** The courier's game object, by the seq of the event that sent it (null when none is walking). */
+  courierObject(seq: number): Phaser.GameObjects.Image | null {
+    const found = this.children.getByName(`courier:${seq}`)
+    return found instanceof Phaser.GameObjects.Image ? found : null
   }
 
   /** A stepped lantern glow: four hard-edged rings of warm light, no gradient. */
@@ -692,6 +776,7 @@ export class HallScene extends Phaser.Scene {
     this.walkable = withClosedDoors(this.layout, state.rooms)
     this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
+    this.drawCouriers(state)
     this.drawMembers(state)
     this.drawApprentices(state)
     this.seeding = false
@@ -1152,7 +1237,10 @@ export class HallScene extends Phaser.Scene {
       )
       this.syncMember(view)
     }
-    this.showBubble(view, member.bubble, view.root.x, view.root.y)
+    // The addressee of a cross-Hall Missive speaks once the courier has arrived.
+    const awaiting =
+      member.bubble !== null && this.walkingCouriers.get(member.bubble.seq) === member.id
+    this.showBubble(view, awaiting ? null : member.bubble, view.root.x, view.root.y)
   }
 
   /** Puts the Member's game object where their walker is: map, tile, scroll and sleep mark. */
