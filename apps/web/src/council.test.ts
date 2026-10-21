@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import {
+  councilChamberState,
   councilCostText,
   councilOpenNow,
   councilSessionLabel,
@@ -112,6 +113,19 @@ test('an open session halted by Bar the Gates reads as halted and does not make 
       { status: 'open', halted: false },
     ])
   ).toBe(true)
+})
+
+test('the chamber confers while a session is open, shows halted while only halted ones are, else idles', () => {
+  expect(councilChamberState([])).toBe('idle')
+  expect(councilChamberState([{ status: 'approved', halted: false }])).toBe('idle')
+  expect(councilChamberState([{ status: 'open', halted: false }])).toBe('conferring')
+  expect(councilChamberState([{ status: 'open', halted: true }])).toBe('halted')
+  expect(
+    councilChamberState([
+      { status: 'open', halted: true },
+      { status: 'open', halted: false },
+    ])
+  ).toBe('conferring')
 })
 
 test('the Quest title and the halted flag parse from a session', async () => {

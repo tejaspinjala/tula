@@ -104,6 +104,16 @@ export function questName(quest: { questId: string; questTitle: string | null })
   return quest.questTitle ?? shortenId(quest.questId)
 }
 
+/** What the map's chamber shows: the elders confer, stand halted by Bar the Gates, or idle. */
+export type CouncilChamberState = 'idle' | 'conferring' | 'halted'
+
+/** The chamber's state for the newest sessions. */
+export function councilChamberState(
+  sessions: readonly { status: string; halted: boolean }[]
+): CouncilChamberState {
+  return 'idle'
+}
+
 /** Whether any of these sessions is still open: the elders confer while one is. */
 export function councilOpenNow(sessions: readonly { status: string; halted: boolean }[]): boolean {
   return sessions.some((s) => s.status === 'open' && !s.halted)
