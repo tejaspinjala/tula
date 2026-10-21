@@ -116,3 +116,70 @@ test('the inquiry-answer template is internal: the Guild Master cannot post it',
   ).toEqual({ ok: false, error: 'unknown_template' })
   expect((await queue.list(guild, { limit: 10 })).quests).toEqual([])
 })
+
+const PRIVATE_TEMPLATES = [
+  ['health-log', 'health'],
+  ['personal-plan', 'personal'],
+  ['relationship-note', 'relationships'],
+] as const
+
+test('the Health log, Personal plan and Relationship note templates are private, need no Seal, and each has its own private Hall', () => {
+  for (const [id, hallId] of PRIVATE_TEMPLATES) {
+    expect(QUEST_TEMPLATES.find((t) => t.id === id)).toMatchObject({
+      hallId,
+      dataClass: 'private',
+      requiresSeal: false,
+    })
+  }
+})
+
+async function withHall(hallId: string, over: { locked: boolean; privateEligible: boolean }) {
+  const s = await setup()
+  const base = defaultConfig()
+  const halls = base.halls.map((h) =>
+    h.id === hallId
+      ? {
+          ...h,
+          ...over,
+          members: [{ id: `${hallId}-member`, name: 'M', rank: 'journeyman' as const }],
+        }
+      : h
+  )
+  const proposed = await s.config.propose(s.guild, { ...base, halls })
+  if (proposed.status === 'pending') {
+    await s.config.confirm(s.guild, proposed.version)
+  }
+  return s
+}
+
+test.each(PRIVATE_TEMPLATES)(
+  'posting %s into its locked Hall is refused as hall_locked',
+  async (templateId, hallId) => {
+    const s = await withHall(hallId, { locked: true, privateEligible: true })
+    const result = await postQuest(s, s.guild, { templateId, jobKey: 'k', title: 'T' })
+    expect(result).toEqual({ ok: false, error: 'hall_locked' })
+  }
+)
+
+test.each(PRIVATE_TEMPLATES)(
+  'posting %s into an unlocked Hall that is not private-eligible is refused as hall_not_private_eligible',
+  async (templateId, hallId) => {
+    const s = await withHall(hallId, { locked: false, privateEligible: false })
+    const result = await postQuest(s, s.guild, { templateId, jobKey: 'k', title: 'T' })
+    expect(result).toEqual({ ok: false, error: 'hall_not_private_eligible' })
+    expect((await s.queue.list(s.guild, { limit: 10 })).quests).toEqual([])
+  }
+)
+
+test.each(PRIVATE_TEMPLATES)(
+  'posting %s into its unlocked private-eligible Hall queues a private Quest owned by its Member',
+  async (templateId, hallId) => {
+    const s = await withHall(hallId, { locked: false, privateEligible: true })
+    const result = await postQuest(s, s.guild, { templateId, jobKey: 'k', title: 'T' })
+    expect(result.ok && result.quest).toMatchObject({
+      hallId,
+      dataClass: 'private',
+      ownerId: `${hallId}-member`,
+    })
+  }
+)
