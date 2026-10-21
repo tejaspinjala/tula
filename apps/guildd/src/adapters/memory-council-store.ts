@@ -1,35 +1,88 @@
-import type {
-  CouncilSession,
-  CouncilStore,
-  CouncilVote,
-  NewCouncilVote,
-  OpenSessionResult,
+import {
+  COUNCIL_VOICES,
+  type CouncilSession,
+  type CouncilStore,
+  type CouncilVote,
+  type NewCouncilVote,
+  type OpenSessionResult,
 } from '../ports/council-store'
 
 /** Memory {@link CouncilStore}: state in this instance only; each write is one synchronous step. */
 export class MemoryCouncilStore implements CouncilStore {
-  throw(): never {
-    throw new Error('not implemented')
-  }
+  /** Sessions by `guild:proposalHash`, the unique key. */
+  private readonly sessions = new Map<string, CouncilSession>()
+  /** Session ids to their guild, so another guild's id resolves to nothing. */
+  private readonly owners = new Map<string, string>()
+  private readonly voteRows = new Map<string, CouncilVote>()
 
   async open(
-    _g: string,
-    _i: { questId: string; proposalHash: string; day: string; sessionCap: number }
+    guildId: string,
+    input: { questId: string; proposalHash: string; day: string; sessionCap: number }
   ): Promise<OpenSessionResult> {
-    return this.throw()
+    const key = `${guildId}:${input.proposalHash}`
+    const existing = this.sessions.get(key)
+    if (existing) {
+      return { status: 'existing', session: { ...existing } }
+    }
+    let today = 0
+    for (const [k, s] of this.sessions) {
+      if (k.startsWith(`${guildId}:`) && s.day === input.day) {
+        today += 1
+      }
+    }
+    if (today >= input.sessionCap) {
+      return { status: 'cap_reached' }
+    }
+    const session: CouncilSession = {
+      id: crypto.randomUUID(),
+      questId: input.questId,
+      proposalHash: input.proposalHash,
+      day: input.day,
+      status: 'open',
+      reason: null,
+      createdAt: new Date().toISOString(),
+    }
+    this.sessions.set(key, session)
+    this.owners.set(session.id, guildId)
+    return { status: 'created', session: { ...session } }
   }
 
-  async recordVote(_guildId: string, _sessionId: string, _vote: NewCouncilVote): Promise<boolean> {
-    return this.throw()
+  async recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean> {
+    if (this.owners.get(sessionId) !== guildId) {
+      return false
+    }
+    const key = `${sessionId}:${vote.voice}`
+    if (this.voteRows.has(key)) {
+      return false
+    }
+    this.voteRows.set(key, { ...vote, reasons: [...vote.reasons], sessionId })
+    return true
   }
 
-  async votes(_g: string, _s: string): Promise<CouncilVote[]> {
-    return this.throw()
+  async votes(guildId: string, sessionId: string): Promise<CouncilVote[]> {
+    if (this.owners.get(sessionId) !== guildId) {
+      return []
+    }
+    return COUNCIL_VOICES.flatMap((voice) => {
+      const v = this.voteRows.get(`${sessionId}:${voice}`)
+      return v ? [{ ...v, reasons: [...v.reasons] }] : []
+    })
   }
 
-  async escalate(_g: string, _s: string, _r: string): Promise<boolean> {
-    return this.throw()
+  async escalate(guildId: string, sessionId: string, reason: string): Promise<boolean> {
+    if (this.owners.get(sessionId) !== guildId) {
+      return false
+    }
+    for (const s of this.sessions.values()) {
+      if (s.id === sessionId) {
+        if (s.status === 'escalated') {
+          return false
+        }
+        s.status = 'escalated'
+        s.reason = reason
+        return true
+      }
+    }
+    return false
   }
 }
-
-export type { CouncilSession }
