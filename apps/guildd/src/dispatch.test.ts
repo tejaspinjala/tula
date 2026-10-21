@@ -13,7 +13,7 @@ import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
-import { dispatch, dispatchAll, routeClaimed } from './dispatch'
+import { type DispatchErrorContext, dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import { GatewayError, ModelGateway, runIdFor } from './model-gateway'
 import { ConfigError } from './ports/config-store'
@@ -341,8 +341,8 @@ describe('dispatch', () => {
           throw new Error('docker down')
         },
       },
-      onError: (_e: unknown, ctx: { questId: string }) => {
-        reports.push(ctx.questId)
+      onError: (_e: unknown, ctx: DispatchErrorContext) => {
+        reports.push(ctx.kind === 'start_cleanup' ? ctx.questId : '')
       },
     }
     const private_ = await w.queue({ hallId: 'health', templateId: 'health-log' })
@@ -606,8 +606,10 @@ describe('dispatch', () => {
       ...w.deps,
       sandboxes: hang.runner,
       sandboxStartTimeoutMs: 20,
-      onError: (_e: unknown, ctx: { guildId: string; questId: string; sandboxId: string }) => {
-        reports.push(ctx)
+      onError: (_e: unknown, ctx: DispatchErrorContext) => {
+        if (ctx.kind === 'start_cleanup') {
+          reports.push(ctx)
+        }
       },
     }
     const stuck = await w.queue()
