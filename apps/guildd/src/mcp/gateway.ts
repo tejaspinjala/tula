@@ -1073,14 +1073,23 @@ export class McpGateway {
     if (!filed.ok) {
       return refuse(filed.error)
     }
+    // A non-private filer into a private Hall learns only that the report was taken, never an id
+    // of that Hall's (a duplicate or Fix Quest id would reveal what it holds).
+    const hides =
+      config.halls.find((h) => h.id === filed.report.owningHall)?.kind === 'private' &&
+      quest.dataClass !== 'private' &&
+      config.halls.find((h) => h.id === quest.hallId)?.kind !== 'private'
+    const base = {
+      id: filed.report.id,
+      status: filed.report.status,
+      owningHall: filed.report.owningHall,
+    }
     return {
-      ...ok({
-        id: filed.report.id,
-        status: filed.report.status,
-        owningHall: filed.report.owningHall,
-        duplicateOf: filed.report.duplicateOf,
-        fixQuestId: filed.report.fixQuestId,
-      }),
+      ...ok(
+        hides
+          ? base
+          : { ...base, duplicateOf: filed.report.duplicateOf, fixQuestId: filed.report.fixQuestId }
+      ),
       toHall: filed.report.owningHall,
     }
   }
@@ -1279,6 +1288,18 @@ export class McpGateway {
     const inquiry = await this.deps.inquiries.get(caller.guild, inquiryId)
     const hall = caller.quest.hallId
     if (!inquiry || (inquiry.fromHall !== hall && inquiry.toHall !== hall)) {
+      return refuse('not_found')
+    }
+    // A private Hall's question and answer reach only a private Hall or a private-class Quest;
+    // anyone else holding the id finds nothing, as for an unknown id.
+    const { config } = await this.deps.config.current(caller.guild)
+    const kindOf = (id: string) => config.halls.find((h) => h.id === id)?.kind
+    const answerQuest = await this.deps.quests.get(caller.guild, inquiry.answerQuestId)
+    const privateInquiry =
+      kindOf(inquiry.toHall) === 'private' ||
+      kindOf(inquiry.fromHall) === 'private' ||
+      answerQuest?.dataClass === 'private'
+    if (privateInquiry && kindOf(hall) !== 'private' && caller.quest.dataClass !== 'private') {
       return refuse('not_found')
     }
     const tag = `inquiry-${crypto.randomUUID().replaceAll('-', '')}`

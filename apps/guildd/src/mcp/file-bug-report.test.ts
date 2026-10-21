@@ -195,6 +195,33 @@ describe('file_bug_report', () => {
     expect((await s.quests.list(s.guild, { limit: 50 })).quests).toHaveLength(before)
   })
 
+  test('a non-private filer into a private Hall learns no foreign ids, even for a duplicate', async () => {
+    const s = await setup()
+    await s.reconfigure((c) => ({
+      ...c,
+      halls: [
+        ...c.halls,
+        {
+          id: 'vault',
+          name: 'Vault Hall',
+          kind: 'private',
+          locked: false,
+          privateEligible: false,
+          captain: null,
+          members: [{ id: 'vault-member-1', name: 'Keeper', rank: 'journeyman' }],
+        },
+      ],
+    }))
+    const first = await s.file(await s.joined(), { owningHall: 'vault' })
+    expect(first.isError).toBe(false)
+    expect(first.data.fixQuestId).toBeUndefined()
+    expect(first.data.duplicateOf).toBeUndefined()
+    const second = await s.file(await s.joined(), { owningHall: 'vault' })
+    expect(second).toMatchObject({ isError: false, data: { status: 'duplicate' } })
+    expect(second.data.duplicateOf).toBeUndefined()
+    expect(second.data.fixQuestId).toBeUndefined()
+  })
+
   test('past the per-Quest cap is refused bug_report_cap', async () => {
     const s = await setup()
     await s.reconfigure((c) => ({ ...c, caps: { ...c.caps, maxBugReportsPerQuest: 1 } }))
