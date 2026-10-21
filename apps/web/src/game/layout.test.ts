@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import {
   bubbleCentreX,
   bubbleCentreY,
+  elderSeats,
   fitZoom,
   hallLayout,
   landing,
@@ -207,4 +208,48 @@ test('a Guild Master left off the shrunk map lands at the entrance; one still on
   const room = small.rooms[1]
   const on = { x: (room?.x ?? 0) + 5.5, y: (room?.y ?? 0) + 5.5 }
   expect(landing(on, small.walkable, entrance)).toEqual(on)
+})
+
+test('the Council chamber stands in the corridor: five tiles wide, blocked, clear of the desks and doorways', () => {
+  const c = layout.council
+  expect(c.w).toBe(5)
+  for (let x = c.x; x < c.x + c.w; x++) {
+    expect(layout.walkable(x, c.y + 1)).toBe(false)
+  }
+  const apart = (r: TileRect) =>
+    c.x + c.w <= r.x || r.x + r.w <= c.x || c.y + c.h <= r.y || r.y + r.h <= c.y
+  for (const r of [
+    layout.stewardDesk,
+    layout.sealDesk,
+    layout.coins,
+    layout.gate,
+    ...layout.doorways,
+  ]) {
+    expect(apart(r)).toBe(true)
+  }
+  expect(hallLayout(12).council).toEqual(c)
+})
+
+test('five elders stand one to a tile along the back of the chamber, inside it', () => {
+  const seats = elderSeats(layout)
+  expect(seats).toHaveLength(5)
+  expect(new Set(seats.map((s) => `${s.x},${s.y}`)).size).toBe(5)
+  const c = layout.council
+  for (const s of seats) {
+    expect(s.x >= c.x && s.x < c.x + c.w && s.y === c.y).toBe(true)
+  }
+})
+
+test('the coin spot reserves room for its label and keeps two tiles clear of the Council dais', () => {
+  const coins = layout.coins
+  const dais = layout.council
+  // Icon plus a label such as "$1000.00": about five tiles.
+  expect(coins.w).toBeGreaterThanOrEqual(5)
+  const margin = 2
+  const apart =
+    coins.x + coins.w + margin <= dais.x ||
+    dais.x + dais.w + margin <= coins.x ||
+    coins.y + coins.h + margin <= dais.y ||
+    dais.y + dais.h + margin <= coins.y
+  expect(apart).toBe(true)
 })

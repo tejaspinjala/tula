@@ -11,6 +11,7 @@ test('the Bag lists every page in menu order, ending with Settings', () => {
     'Workflows',
     'Guild chat',
     'Mailbox',
+    'Council',
     'Gates',
     'Settings',
   ])
@@ -43,4 +44,8 @@ test('unknown paths are not known', () => {
   expect(isKnownPath('/no-such')).toBe(false)
   expect(isKnownPath('/')).toBe(true)
   expect(isKnownPath('/vault')).toBe(true)
+})
+
+test('the Council page opens at /council', () => {
+  expect(pageFor('/council', '')).toBe('council')
 })

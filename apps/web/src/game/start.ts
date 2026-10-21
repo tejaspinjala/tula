@@ -20,6 +20,8 @@ export interface GameHandle {
   setPhase: (phase: Phase | null) => void
   /** Dresses the Guild Master's character in a look, live. */
   setLook: (look: LookChoice) => void
+  /** Makes the Council's elders confer (true while a session is open) or stand idle. */
+  setCouncilState: (state: 'idle' | 'conferring' | 'halted') => void
   /** Follows a Member with the camera, into whatever map they are in (null returns to the overview). */
   follow: (memberId: string | null) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
@@ -90,6 +92,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     teleport: (slot) => scene.teleport(slot),
     goTo: (place) => scene.goTo(place),
     setPhase: (phase) => (phase ? scene.setPhase(phase) : scene.setPhase(phaseNow(), false)),
+    setCouncilState: (state) => scene.setCouncilState(state),
     follow: (memberId) => scene.follow(memberId),
     setLook: (look) => scene.setPlayerLook(look),
     setPaused: (paused) => {

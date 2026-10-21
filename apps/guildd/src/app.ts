@@ -9,8 +9,10 @@ import {
   verifyChain,
   verifyFrom,
 } from './audit-chain'
+import { awayDigest, MAX_DIGEST_PAGE } from './away-digest'
 import type { BugReportService } from './bug-reports'
 import { costPerPost } from './cost-per-post'
+import type { CouncilEngine } from './council'
 import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
 import type { DossierService } from './dossiers'
@@ -33,6 +35,7 @@ import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
+import { type CouncilStore, MAX_COUNCIL_PAGE } from './ports/council-store'
 import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
@@ -46,6 +49,7 @@ import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import type { PostCostReader } from './ports/post-cost-reader'
+import { isAway, type PresenceState, type PresenceStore } from './ports/presence-store'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
 import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
@@ -166,6 +170,12 @@ export interface AppDeps {
   pushStore: PushStore
   /** The Guild Master's saved character look, the same on every device. */
   guildMasterLooks: GuildMasterLookStore
+  /** The Guild Master's presence (away mode); the Council reads it through `isAway`. */
+  presence: PresenceStore
+  /** The Council of Elders' sessions and votes. */
+  councilStore: CouncilStore
+  /** The Council of Elders: convened by the Seal step on routine Proposals while the Guild Master is away. */
+  council: CouncilEngine
   /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
@@ -276,6 +286,14 @@ const missivePage = z.object({
     .transform(Number)
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
+})
+const digestPage = z.object({
+  after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  limit: z.coerce.number().int().min(1).max(MAX_DIGEST_PAGE).default(50),
+})
+const councilPage = z.object({
+  after: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_COUNCIL_PAGE).default(20),
 })
 const dossierPage = z.object({
   after: z
@@ -457,6 +475,28 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
   return bytes
 }
 
+/**
+ * The titles of the guild's Quests by id, read one at a time through the guild-scoped queue (so a
+ * Quest of another guild reads as missing). Ids that are not uuids and unknown Quests are left out.
+ */
+async function questTitles(
+  quests: Pick<QuestQueue, 'get'>,
+  guildId: string,
+  questIds: Iterable<string | null>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(questIds)].filter(
+    (id): id is string => id !== null && uuid.safeParse(id).success
+  )
+  const found = await Promise.all(ids.map((id) => quests.get(guildId, id)))
+  const titles = new Map<string, string>()
+  for (const quest of found) {
+    if (quest) {
+      titles.set(quest.id, quest.title)
+    }
+  }
+  return titles
+}
+
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
@@ -552,10 +592,15 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
+  app.get('/guilds/:id/council/sessions', limited('dossier-read'))
+  app.get('/guilds/:id/guild-master/away-digest', limited('dossier-read'))
   app.post('/guilds/:id/dossiers', limited('dossier-write'))
   app.get('/guilds/:id/halls/:hallId/bug-reports', limited('bug-report-read'))
   app.get('/guilds/:id/bug-reports/:reportId', limited('bug-report-read'))
   app.post('/guilds/:id/bug-reports', limited('bug-report-write'))
+  app.get('/guilds/:id/guild-master/presence', limited('presence-read'))
+  app.post('/guilds/:id/guild-master/away', limited('presence-write'))
+  app.post('/guilds/:id/guild-master/return', limited('presence-write'))
   app.get('/guilds/:id/workflows', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
@@ -1132,6 +1177,54 @@ export function createApp(deps: AppDeps): Hono {
     )
   })
 
+  // The Council of Elders' sessions for the Guild Master, newest first, each with its votes, the
+  // summed cost of its voices and, once escalated, the Seal its Quest is waiting on. Read-only.
+  app.get('/guilds/:id/council/sessions', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const page = councilPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const listed = await deps.councilStore.list(who.guild, {
+      limit: page.data.limit,
+      ...(page.data.after === undefined ? {} : { after: page.data.after }),
+    })
+    const titles = await questTitles(
+      deps.quests,
+      who.guild,
+      listed.sessions.map((s) => s.questId)
+    )
+    const halted = await deps.councilStore.haltedSessions(
+      who.guild,
+      listed.sessions.map((s) => s.id)
+    )
+    const sessions = await Promise.all(
+      listed.sessions.map(async (session) => {
+        const votes = await deps.councilStore.votes(who.guild, session.id)
+        const seal =
+          session.status === 'escalated'
+            ? await deps.sealStore.forQuest(who.guild, session.questId)
+            : null
+        const costs = votes.flatMap((v) => (v.costMicros === null ? [] : [v.costMicros]))
+        return {
+          ...session,
+          questTitle: titles.get(session.questId) ?? null,
+          halted: halted.has(session.id),
+          sealId: seal?.id ?? null,
+          costMicros: costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0),
+          votes: votes.map(({ sessionId: _s, ...vote }) => vote),
+        }
+      })
+    )
+    return c.json({ sessions, next: listed.next })
+  })
+
   app.get('/guilds/:id/dossiers/:dossierId', async (c) => {
     const who = await guildMasterSessionFor(c)
     if ('res' in who) {
@@ -1664,6 +1757,86 @@ export function createApp(deps: AppDeps): Hono {
     }
     await deps.guildMasterLooks.set(who.guild, body.data.look)
     return c.json({ look: body.data.look })
+  })
+
+  // Away mode (ADR-0011): the Guild Master steps away, optionally until a time, and returns with one
+  // tap. It needs a Guild Master session but no Seal: away mode narrows nothing, and the Council
+  // can only act inside caps already sealed. A passed return time reads as present.
+  const awayBody = z.object({ until: z.string().datetime().nullable().optional() }).strict()
+  function presenceView(state: PresenceState) {
+    return isAway(state, deps.clock.now()) ? state : { away: false, since: null, until: null }
+  }
+
+  app.get('/guilds/:id/guild-master/presence', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(presenceView(await deps.presence.get(who.guild)))
+  })
+
+  // "While you were away": a paginated read of the latest away window (Council approvals,
+  // escalations, Seals still waiting, Quests done, Treasury spend), oldest first. Read-only.
+  app.get('/guilds/:id/guild-master/away-digest', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const page = digestPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const digest = await deps.db.withGuild(who.guild, (tx) =>
+      awayDigest(tx, page.data, deps.clock.now(), async (sealId) => {
+        const seal = await deps.sealStore.get(who.guild, sealId)
+        return seal?.status === 'requested'
+      })
+    )
+    const titles = await questTitles(
+      deps.quests,
+      who.guild,
+      digest.entries.map((e) => e.questId)
+    )
+    return c.json({
+      ...digest,
+      entries: digest.entries.map((e) => ({
+        ...e,
+        questTitle: e.questId === null ? null : (titles.get(e.questId) ?? null),
+      })),
+    })
+  })
+
+  app.post('/guilds/:id/guild-master/away', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = awayBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_away' }, 400)
+    }
+    const until = body.data.until ? new Date(body.data.until).toISOString() : null
+    const nowMs = deps.clock.now().getTime()
+    // A return time must be in the future and at most 30 days ahead; no return time stays allowed.
+    if (
+      until !== null &&
+      (new Date(until).getTime() <= nowMs || new Date(until).getTime() > nowMs + 30 * 86_400_000)
+    ) {
+      return c.json({ error: 'invalid_away' }, 400)
+    }
+    return c.json(presenceView(await deps.presence.goAway(who.guild, until)))
+  })
+
+  app.post('/guilds/:id/guild-master/return', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    await deps.presence.returnHome(who.guild)
+    return c.json(presenceView(await deps.presence.get(who.guild)))
   })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.

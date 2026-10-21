@@ -4,7 +4,7 @@ import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { defaultConfig } from './guild-config'
-import { postQuest, QUEST_TEMPLATES } from './quests'
+import { FIX_QUEST_TEMPLATE, postQuest, QUEST_TEMPLATES } from './quests'
 import { SUMMON_TEMPLATE_ID } from './summon'
 
 async function setup() {
@@ -97,6 +97,12 @@ test('the Summon test Quest is posted from a template whose done-condition needs
   const template = QUEST_TEMPLATES.find((t) => t.id === SUMMON_TEMPLATE_ID)
   expect(template?.requiresSeal).toBe(false)
   expect(QUEST_TEMPLATES.find((t) => t.id === 'herald-announcement')?.requiresSeal).toBe(true)
+})
+
+test('only the Herald announcement template is routine-eligible; internal templates and the Fix Quest are not', () => {
+  const eligible = QUEST_TEMPLATES.filter((t) => t.routineEligible === true).map((t) => t.id)
+  expect(eligible).toEqual(['herald-announcement'])
+  expect(FIX_QUEST_TEMPLATE.routineEligible).not.toBe(true)
 })
 
 test('the inquiry-answer template is internal: the Guild Master cannot post it', async () => {

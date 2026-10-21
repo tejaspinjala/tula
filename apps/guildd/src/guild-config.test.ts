@@ -3,6 +3,8 @@ import {
   bugReportCap,
   campaignQuestCap,
   classifyChange,
+  councilApprovalCap,
+  councilSessionCap,
   defaultConfig,
   dossierCap,
   type GuildConfig,
@@ -23,6 +25,48 @@ import {
   spawnDepthCap,
   warnOnce,
 } from './guild-config'
+
+describe('Seal Policy and Council caps', () => {
+  test('autonomous is refused with a seal_policy_locked reason', () => {
+    const result = guildConfig.safeParse({ ...defaultConfig(), sealPolicy: 'autonomous' })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((i) => i.message).join(' ')).toContain('seal_policy_locked')
+  })
+  test('a stored autonomous config still loads, read as always, with a path-only warning', () => {
+    const warnings: string[] = []
+    const config = parseStoredConfig({ ...defaultConfig(), sealPolicy: 'autonomous' }, (m) =>
+      warnings.push(m)
+    )
+    expect(config.sealPolicy).toBe('always')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('sealPolicy')
+  })
+  test('the Council caps default to 5 approvals and 20 sessions a day', () => {
+    expect(councilApprovalCap(defaultConfig())).toBe(5)
+    expect(councilSessionCap(defaultConfig())).toBe(20)
+  })
+  test('the Council caps accept their ranges and refuse outside them', () => {
+    const withCaps = (caps: Record<string, number>) =>
+      guildConfig.safeParse({ ...defaultConfig(), caps: { ...defaultConfig().caps, ...caps } })
+    expect(withCaps({ maxCouncilApprovalsPerDay: 0, maxCouncilSessionsPerDay: 0 }).success).toBe(
+      true
+    )
+    expect(withCaps({ maxCouncilApprovalsPerDay: 50, maxCouncilSessionsPerDay: 200 }).success).toBe(
+      true
+    )
+    expect(withCaps({ maxCouncilApprovalsPerDay: 51 }).success).toBe(false)
+    expect(withCaps({ maxCouncilSessionsPerDay: 201 }).success).toBe(false)
+    expect(withCaps({ maxCouncilApprovalsPerDay: -1 }).success).toBe(false)
+  })
+  test('raising either Council cap is widening; lowering is not', () => {
+    const base = defaultConfig()
+    const caps = (c: Record<string, number>) => ({ ...base, caps: { ...base.caps, ...c } })
+    expect(classifyChange(base, caps({ maxCouncilApprovalsPerDay: 6 }))).toBe('widening')
+    expect(classifyChange(base, caps({ maxCouncilSessionsPerDay: 21 }))).toBe('widening')
+    expect(classifyChange(base, caps({ maxCouncilApprovalsPerDay: 4 }))).toBe('tightening')
+    expect(classifyChange(base, caps({ maxCouncilSessionsPerDay: 0 }))).toBe('tightening')
+  })
+})
 
 describe('seeded guild config', () => {
   const config = defaultConfig()

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { AwayBadge } from './AwayBadge'
 import type { Session } from './passkeys'
 import { listSeals } from './seals'
 import { formatCents, loadTreasuryOverview, type TreasuryView } from './treasury'
@@ -80,6 +81,7 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
           <h1 className="hud-plate">{guildName || 'Guildhall'}</h1>
           {treasury && <p className="hud-day">Day {treasury.day}</p>}
           {treasury && <Meter label="Treasury" value={left} max={cap} format={formatCents} />}
+          <AwayBadge key={refresh} session={session} />
           <PixelButton aria-label={sealLabel} onClick={onOpenSeals} className="hud-seals">
             Seals{waiting ? ` ${waiting.count}${waiting.more ? '+' : ''}` : ''}
           </PixelButton>

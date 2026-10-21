@@ -94,6 +94,8 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return `Seal ${shortenId(str(p, 'sealId'))} requested for Quest ${q(p, 'questId', names)}`
     case 'seal.approved':
       return `Seal ${shortenId(str(p, 'sealId'))} approved`
+    case 'seal.council_approved':
+      return `Seal ${shortenId(str(p, 'sealId'))} settled by the Council of Elders, not the Guild Master`
     case 'seal.denied':
       return `Seal ${shortenId(str(p, 'sealId'))} denied`
     case 'seal.reserved':
@@ -124,6 +126,20 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'A workflow version was saved'
     case 'workflow.version_confirmed':
       return 'A workflow version was confirmed'
+    case 'guildmaster.away':
+      return 'Guild Master went away'
+    case 'guildmaster.returned':
+      return 'Guild Master returned'
+    case 'council.convened':
+      return 'The Council of Elders convened'
+    case 'council.voted':
+      return 'A voice of the Council of Elders voted'
+    case 'council.escalated':
+      return 'The Council of Elders sent a Proposal to the Guild Master'
+    case 'council.approved':
+      return `The Council of Elders approved the Proposal of Quest ${q(p, 'questId', names)} in place of a Seal`
+    case 'council.halted':
+      return `Bar the Gates halted the Council of Elders; Quest ${q(p, 'questId', names)} stays awaiting a Seal`
     default:
       return `Event ${event.type}, number ${event.seq}`
   }

@@ -194,6 +194,55 @@ The kill switch. In the web app, "Bar the Gates" stops all model calls and runs 
 one step; lifting needs passkey re-authentication. The global bar and lift (`/gates/bar`,
 `/gates/lift`) are only for members listed in `PLATFORM_OPERATORS`.
 
+## Away mode and the Council
+
+Away mode says you will not answer Seals for a while (ADR-0011). With Seal Policy `routine_alone`,
+the Council of Elders may then approve a routine Proposal in your place. Nothing else changes.
+
+**What happens while you are away.** Only when the Seal Policy is `routine_alone`, you are away,
+the Proposal is routine (its Quest template is routine-eligible, its data class is not private, a
+passing Verdict is bound to its exact text) and the guild is under its daily caps, the five voices
+(architect, skeptic, security, ops, user) each vote. Five approvals settle the Quest as
+`council_approved`; the Seal is recorded as `council_approved` and names the Council session,
+never a Guild Master. Any block, abstention, failed run or spent cap sends the Proposal to a normal
+Seal with the Council's reasons as evidence, and it waits for you.
+
+**What does not happen.** A private-class Proposal goes straight to a Seal with no session. No Seal
+is ever approved on your behalf, no Treasury or config limit moves, and the Council cannot widen
+anything. Bar the Gates works the same while you are away: it halts a session in progress
+(`council.halted`) and the Quest stays Awaiting Seal. If you return mid-vote, the Proposal takes a
+normal Seal.
+
+**Turning it on.** Away mode itself is a runtime tap in the Bag ("Away mode": Go away, optionally
+until a time, and Return). It needs your signed-in session but no Seal. The Seal Policy is config:
+`PUT /guilds/:id/config` with `sealPolicy` set to `routine_alone`. Raising the policy is a widening
+change, so it waits until you confirm it with your passkey
+(`POST /guilds/:id/config/versions/:version/confirm`). Setting it back to `always` is a narrowing
+change and applies at once.
+
+**Caps.** The Council gives at most 5 approvals and convenes at most 20 sessions per UTC day unless
+the config says otherwise. Raise them with `caps.maxCouncilApprovalsPerDay` and
+`caps.maxCouncilSessionsPerDay`; raising either is a widening change and needs the same passkey
+confirmation. `0` approvals means the Council never approves. Lowering a cap applies at once.
+
+**`council_unavailable`.** The reason on an escalation when the voices could not finish: the model
+call failed or timed out, or the reply was unusable, after three attempts. It is not a block. The
+Proposal takes a normal Seal and waits for you; check the provider key (Models: adding a provider) if it
+repeats.
+
+**`autonomous` is refused.** Seal Policy `autonomous` is not available: writing it fails with
+`seal_policy_locked`, and a stored `autonomous` is read as `always`. Use `always` or
+`routine_alone`.
+
+**Reading it.** The Council panel (Council in the menu, or the elders' hall on the map) lists
+sessions newest first with each voice's vote, its reasons and its cost. When you return, "While you
+were away" opens once and lists Council approvals, escalations with their reason, halted sessions,
+Seals still waiting, Quests done and the window's Treasury spend; read it again any time from the
+Bag. Each Council line opens that session's votes. The event log (the scroll) records
+`guildmaster.away`, `guildmaster.returned`, `council.convened`, `council.voted`, `council.approved`,
+`council.escalated` and `council.halted`, with ids and small facts only; a Council approval also
+appears as `seal.council_approved`, never as `seal.approved`.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri 2 shell: a native window that opens your Guildhall server, with the pixel-art

@@ -37,7 +37,7 @@ export class PgAwaitingSealReader implements AwaitingSealReader {
         ) latest on true
         where q.guild_id = ${guildId} and q.state = 'awaiting_seal' and q.seq > ${after}
           and (latest.seal_id is null or latest.round <> q.round
-               or latest.status in ('consumed', 'denied', 'expired')
+               or latest.status in ('consumed', 'denied', 'expired', 'council_approved')
                or (latest.status = 'requested' and latest.expires_at <= ${now}))
         order by q.seq limit ${limit + 1}`
       const held = rows.slice(0, limit)

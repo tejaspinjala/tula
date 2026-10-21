@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
+import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
 import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
@@ -19,7 +20,12 @@ import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
-import { LiveEvents } from './live-events'
+import {
+  COUNCIL_REFETCH_DEBOUNCE_MS,
+  councilCount,
+  LiveEvents,
+  useSettledCount,
+} from './live-events'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -268,6 +274,7 @@ export function GamePanel({
           seed: session.guildId,
           onHandIn: () => setBanner({ verb: 'Quest', noun: 'complete', danger: false }),
           onOpenSeal: () => open.current('/seals'),
+          onOpenCouncil: () => open.current('/council'),
           onRoom: setRoomSlot,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
           onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
@@ -297,11 +304,32 @@ export function GamePanel({
     }
   }, [scene])
 
+  // The elders confer while a Council session is open: look at the newest sessions whenever a
+  // `council.*` event arrives (a read failing leaves them idle; the panel shows the error).
+  const [councilOpen, setCouncilOpen] = useState<CouncilChamberState>('idle')
+  const councilEvents = useSettledCount(councilCount(events), COUNCIL_REFETCH_DEBOUNCE_MS)
+  useEffect(() => {
+    let live = true
+    loadCouncilSessions(session, fetch, { limit: 5 })
+      .then(
+        (got) =>
+          live && setCouncilOpen(councilEvents >= 0 ? councilChamberState(got.sessions) : 'idle')
+      )
+      .catch(() => live && setCouncilOpen('idle'))
+    return () => {
+      live = false
+    }
+  }, [session, councilEvents])
+  useEffect(() => {
+    handle.current?.setCouncilState(councilOpen)
+  }, [councilOpen])
+
   // The game may finish loading after the first scene is ready: render again when it appears.
   useEffect(() => {
     const id = setInterval(() => {
       if (scene && handle.current) {
         handle.current.render(scene)
+        handle.current.setCouncilState(councilOpen)
         if (look) {
           handle.current.setLook(look)
         }
@@ -309,7 +337,7 @@ export function GamePanel({
       }
     }, 250)
     return () => clearInterval(id)
-  }, [scene, look])
+  }, [scene, look, councilOpen])
 
   useEffect(() => {
     if (look) {
@@ -408,7 +436,9 @@ export function GamePanel({
               ? 'Open the Seal desk (E)'
               : talk.near.kind === 'mailbox'
                 ? 'Open the mailbox (E)'
-                : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+                : talk.near.kind === 'council'
+                  ? 'Visit the Council (E)'
+                  : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
           </PixelButton>
         )}
       </p>

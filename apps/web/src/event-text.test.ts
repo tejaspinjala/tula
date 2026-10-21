@@ -73,6 +73,27 @@ const cases: Array<[ReplayEvent, string]> = [
     'Verdict recorded for Proposal pr1: failed',
   ],
   [ev('seal.requested', { sealId: 's1', questId: 'q1' }), 'Seal s1 requested for Quest q1'],
+  [ev('council.convened', { sessionId: 'c1' }), 'The Council of Elders convened'],
+  [
+    ev('council.voted', { sessionId: 'c1', voice: 'ops' }),
+    'A voice of the Council of Elders voted',
+  ],
+  [
+    ev('council.escalated', { sessionId: 'c1' }),
+    'The Council of Elders sent a Proposal to the Guild Master',
+  ],
+  [
+    ev('council.approved', { sessionId: 'c1', questId: 'q1' }),
+    'The Council of Elders approved the Proposal of Quest q1 in place of a Seal',
+  ],
+  [
+    ev('council.halted', { sessionId: 'c1', questId: 'q1' }),
+    'Bar the Gates halted the Council of Elders; Quest q1 stays awaiting a Seal',
+  ],
+  [
+    ev('seal.council_approved', { sealId: 's1', questId: 'q1', sessionId: 'c1' }),
+    'Seal s1 settled by the Council of Elders, not the Guild Master',
+  ],
   [ev('seal.approved', { sealId: 's1', questId: 'q1' }), 'Seal s1 approved'],
   [ev('seal.denied', { sealId: 's1', questId: 'q1' }), 'Seal s1 denied'],
   [ev('seal.reserved', { sealId: 's1', questId: 'q1' }), 'Seal s1 reserved'],

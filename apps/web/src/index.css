@@ -265,6 +265,14 @@ ul[aria-label] {
   font-family: var(--font-label);
   font-size: var(--text-sm);
 }
+.hud-away {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--px) * 2);
+}
+.hud-away p {
+  margin: 0;
+}
 .hud-alert {
   margin: 0;
   padding: calc(var(--px) * 1) calc(var(--px) * 3);
@@ -274,7 +282,8 @@ ul[aria-label] {
 
 /* The Bag: a modal dialog holding one frame, over the world dimmed by its backdrop. */
 .bag,
-.inspect {
+.inspect,
+.away-scroll {
   margin: auto;
   padding: 0;
   border: 0;
@@ -285,7 +294,8 @@ ul[aria-label] {
   overflow: visible;
 }
 .bag::backdrop,
-.inspect::backdrop {
+.inspect::backdrop,
+.away-scroll::backdrop {
   background: var(--px-wood-900);
   opacity: 0.6;
 }
@@ -700,4 +710,28 @@ ul.evidence-list {
   border: calc(var(--px) * 2) solid currentcolor;
   font-family: var(--font-label);
   text-transform: uppercase;
+}
+
+/* The "While you were away" scroll: parchment lines, each with an optional action beside it. */
+.away-scroll-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--px) * 3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.away-scroll-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--px) * 2);
+  padding-bottom: calc(var(--px) * 2);
+  border-bottom: var(--px) solid var(--px-paper-400);
+}
+.away-scroll-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

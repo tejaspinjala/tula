@@ -32,6 +32,7 @@ test('state keys read as words', () => {
   expect(stateWord('awaiting_seal')).toBe('awaiting Seal')
   expect(stateWord('consumed')).toBe('posted')
   expect(stateWord('dead')).toBe('dead-lettered')
+  expect(stateWord('council_approved')).toBe('approved by the Council')
   expect(stateWord('queued')).toBe('queued')
 })
 

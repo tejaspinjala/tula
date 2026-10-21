@@ -115,7 +115,7 @@ _Avoid_: template
 ## Governance
 
 **Seal**:
-The Guild Master's approval: single-use, expiring, bound to the exact action.
+The Guild Master's approval: single-use, expiring, bound to the exact action. When the Council of Elders approves a routine Proposal in place of it, the request settles as `council_approved`, naming the Council session and never a Guild Master; that is not a Seal.
 _Avoid_: approval, sign-off
 
 **Seal Policy**:
@@ -126,9 +126,25 @@ _Avoid_: permissions, autonomy settings
 A structured review result bound to a content hash.
 _Avoid_: review result
 
+**While you were away**:
+The scroll that opens once when the Guild Master returns, listing the latest away window: Council approvals (a Quest the Council settled shows once), escalations with their reason, halted sessions, Seals still waiting, Quests done and the window's Treasury spend (each spend once, at its final amount). It can be read again from the Bag. Each Council line opens its votes in the Council panel.
+_Avoid_: digest, summary
+
 **Council of Elders**:
-The review and decision council (architect, skeptic, security, ops, user voices).
+The review and decision council (architect, skeptic, security, ops, user voices). While the Guild Master is away under Seal Policy `routine_alone`, it may approve a routine Proposal in place of a Seal, but only when all five voices approve; the tally is code, only the votes are judgment (ADR-0011).
 _Avoid_: committee
+
+**Away mode**:
+A runtime state the Guild Master sets (optionally until a time) to say they will not answer Seals for a while. It is never a config edit, and Bar the Gates works the same while it is on.
+_Avoid_: autopilot, offline mode
+
+**Council session**:
+One convening of the Council of Elders over one Proposal hash: five votes (approve, block or abstain), held at most once per Proposal, ending approved, escalated or halted.
+_Avoid_: meeting, review round
+
+**Routine Proposal**:
+A Proposal that code, not a model, has judged routine: its Quest template is routine-eligible, its data class is not private, a passing Verdict is bound to its exact hash, and the guild has Council approvals left today. Only a routine Proposal may go to the Council.
+_Avoid_: auto-approve, autopilot
 
 **Petition** / **Writ**:
 A request for access / a grant of access that never exceeds the granter's own authority.
@@ -279,3 +295,25 @@ The Steward's daily cap was reached (payload: day, reason).
 
 **vault.secret_added**:
 A secret was added to the Vault (payload: its ref only, never the value).
+
+## Away mode and Council events
+
+Event types appended to the chained event log by away mode and the Council of Elders (ids and small facts only, never Proposal text or reasons):
+
+**guildmaster.away** / **guildmaster.returned**:
+The Guild Master marked themself away (payload: away since, away until or null) / returned, by the tap or because the return time passed (payload: away since).
+
+**council.convened**:
+A Council session began for a routine Proposal (payload: session id, quest id, proposal hash).
+
+**council.voted**:
+One voice returned a vote (payload: session id, voice id, `approve`, `block` or `abstain`; never the reasons, which the Council panel serves).
+
+**council.approved**:
+All five voices approved and the Council settled the Quest in place of a Seal (payload: session id, quest id, proposal hash). Never recorded as a Seal.
+
+**council.escalated**:
+Any block, abstention, failed run or exceeded cap sent the Proposal to the Guild Master's Seal (payload: session id, quest id, proposal hash, reason code).
+
+**council.halted**:
+Bar the Gates stopped a session in progress; the Quest stays in Awaiting Seal (payload: session id, quest id).

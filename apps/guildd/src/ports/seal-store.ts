@@ -7,7 +7,7 @@ export const SEAL_TTL_MS = 72 * 60 * 60 * 1000
 /** How long a reservation holds an approved Seal before it reads as approved again (10 minutes). */
 export const SEAL_RESERVATION_MS = 10 * 60 * 1000
 
-/** Seal states: requested, then approved | denied | expired; approved, then reserved, then consumed | released. */
+/** Seal states: requested, then approved | denied | expired | council_approved; approved, then reserved, then consumed | released. */
 export const SEAL_STATUSES = [
   'requested',
   'approved',
@@ -16,6 +16,7 @@ export const SEAL_STATUSES = [
   'reserved',
   'consumed',
   'released',
+  'council_approved',
 ] as const
 /** One state of a Seal. */
 export type SealStatus = (typeof SEAL_STATUSES)[number]
@@ -61,8 +62,10 @@ export interface Seal extends NewSeal {
   expiresAt: string
   decidedAt: string | null
   decisionNote: string | null
-  /** Member id of the principal who approved or denied; null until decided. */
+  /** Member id of the principal who approved or denied; null until decided, and always null for a Council approval. */
   decidedBy: string | null
+  /** The Council session that approved this Seal in the Guild Master's absence; null otherwise. */
+  councilSessionId: string | null
   reservedUntil: string | null
   consumedAt: string | null
 }
@@ -125,6 +128,17 @@ export interface SealStore {
       /** The deciding principal's member id; recorded in the audit event. */
       decidedBy?: string
     }
+  ): Promise<SealResult>
+  /**
+   * Settles a requested Seal as `council_approved` by the Council session, bound to
+   * `expectedHash`. Never a Guild Master decision: `decidedBy` stays null and the event
+   * (`seal.council_approved`) names the session. Idempotent for the same session; any other
+   * state is refused `not_requested`.
+   */
+  councilApprove(
+    guildId: string,
+    id: string,
+    decision: { sessionId: string; expectedHash: string }
   ): Promise<SealResult>
   /**
    * Reserves an approved (or released) Seal for publishing `text`, which must hash to the sealed

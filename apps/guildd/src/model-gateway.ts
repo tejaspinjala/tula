@@ -80,6 +80,22 @@ export const gatewayCall = modelRequest.omit({ model: true }).extend({
 /** One call through the gateway. */
 export type GatewayCall = z.input<typeof gatewayCall>
 
+/** One Council voice's model call: the fixed system text and the framed brief, for one session. */
+export interface CouncilCall {
+  sessionId: string
+  questId: string
+  hallId: string
+  system: string
+  brief: string
+}
+
+/** A Council voice's reply with what it used. `costMicros` is null for a provider that bills no dollars. */
+export interface CouncilReply {
+  text: string
+  usage: { inputTokens: number; outputTokens: number }
+  costMicros: number | null
+}
+
 /** Collaborators of {@link ModelGateway}; adapters come from the composition root. */
 export interface GatewayDeps {
   ledger: ModelLedger
@@ -108,6 +124,10 @@ export interface GatewayDeps {
 }
 
 const DEFAULT_BAR_POLL_MS = 250
+/** A Council voice's call is aborted after this long (a vote is a short reply). */
+export const COUNCIL_CALL_TIMEOUT_MS = 60_000
+/** The most a Council voice may reply with: a vote and a few short reasons. */
+const COUNCIL_MAX_REPLY_TOKENS = 600
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
@@ -348,6 +368,21 @@ export class ModelGateway {
     if (!request.success) {
       throw new GatewayError('invalid_request')
     }
+    return (await this.serve(guildId, run, request.data, quest)).response
+  }
+
+  /**
+   * The metered part of a call, shared by a run's {@link ModelGateway.complete} and a Council
+   * voice: resolves the profile, reserves the estimate against the daily caps, calls the provider
+   * (aborted by Bar the Gates, and by `timeoutMs` when given) and reconciles to actual usage.
+   */
+  private async serve(
+    guildId: string,
+    run: { runId: string; profileId: string },
+    data: z.output<typeof gatewayCall>,
+    quest: Quest | null,
+    timeoutMs?: number
+  ): Promise<{ response: ModelResponse; costMicros: number | null }> {
     const { config } = await this.deps.config.current(guildId)
     const { profile, provider } = resolveProfile(
       config,
@@ -371,7 +406,7 @@ export class ModelGateway {
       subscription && this.deps.subscriptionProvider
         ? this.deps.subscriptionProvider
         : this.deps.provider
-    const { idempotencyKey, ...rest } = request.data
+    const { idempotencyKey, ...rest } = data
     const callKey = crypto.randomUUID()
     const estimate = {
       inputTokens: estimateInputTokens(rest),
@@ -397,13 +432,19 @@ export class ModelGateway {
       await this.notify(guildId, reserved.reason)
       throw new GatewayError('cap_reached')
     }
-    await this.noteThinking(guildId, quest)
+    if (quest) {
+      await this.noteThinking(guildId, quest)
+    }
     let response: ModelResponse
     // Bar the Gates mid-call: the bar is read from the store while the call is in flight, and
     // aborts it. The reservation stays as the charge (the failure path below never settles).
     // Fails closed: a bar check that errors aborts the call as `gates_unavailable`, since the bar
     // cannot be known. A tick is skipped while the previous check is still pending.
     const barred = new AbortController()
+    const signal =
+      timeoutMs === undefined
+        ? barred.signal
+        : AbortSignal.any([barred.signal, AbortSignal.timeout(timeoutMs)])
     let abortCode: 'gates_barred' | 'gates_unavailable' = 'gates_barred'
     let checking = false
     const poll = setInterval(() => {
@@ -432,11 +473,14 @@ export class ModelGateway {
       response = await backend.complete(
         new ProviderSecret(key),
         { ...rest, model: profile.model },
-        barred.signal
+        signal
       )
     } catch (e) {
       if (barred.signal.aborted) {
         throw new GatewayError(abortCode)
+      }
+      if (signal.aborted) {
+        throw new GatewayError('provider_failed')
       }
       if (e instanceof ModelProviderError) {
         throw new GatewayError(
@@ -460,7 +504,56 @@ export class ModelGateway {
         `${JSON.stringify({ event: 'gateway.settle_failed', guildId, runId: run.runId, callKey })}\n`
       )
     }
-    return response
+    return { response, costMicros: price ? costMicros(response.usage, price) : null }
+  }
+
+  /**
+   * One Council voice's model call, served from the guild's `mid` routing profile (the model id
+   * and price come from config, never from here). The voices of a session share one ledger run,
+   * `council:<session id>`, filed under the Proposal's Quest and Hall, so the usage is metered per
+   * run, Quest, Hall and guild-day and counts against the daily caps like any other call. A call
+   * is refused before the provider by Bar the Gates, a paused Hall or a reached cap; it is aborted
+   * after {@link COUNCIL_CALL_TIMEOUT_MS}. The provider adapters retry transient failures with
+   * jitter. Throws {@link GatewayError}.
+   */
+  async councilComplete(guildId: string, call: CouncilCall): Promise<CouncilReply> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      throw new GatewayError('gates_barred')
+    }
+    if (await this.deps.tripwires.isPaused(guildId, call.hallId)) {
+      throw new GatewayError('hall_paused')
+    }
+    const { config } = await this.deps.config.current(guildId)
+    const profile = config.routingProfiles.find((p) => p.tier === 'mid')
+    if (!profile) {
+      throw new GatewayError('unknown_profile')
+    }
+    const runId = `council:${call.sessionId}`
+    const issue = this.issue(guildId)
+    await this.deps.ledger.openRun(guildId, {
+      runId,
+      questId: call.questId,
+      attempt: 1,
+      hallId: call.hallId,
+      providerId: profile.provider,
+      profileId: profile.id,
+      state: 'active',
+      // The token is never handed out: a Council run has no holder that could call `complete`.
+      tokenHash: issue.hash,
+      expiresAt: issue.expiresAt,
+    })
+    const { response, costMicros } = await this.serve(
+      guildId,
+      { runId, profileId: profile.id },
+      {
+        system: call.system,
+        messages: [{ role: 'user', content: call.brief }],
+        maxTokens: COUNCIL_MAX_REPLY_TOKENS,
+      },
+      null,
+      COUNCIL_CALL_TIMEOUT_MS
+    )
+    return { text: response.text, usage: response.usage, costMicros }
   }
 
   /**

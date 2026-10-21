@@ -10,6 +10,7 @@ export const BAG_PAGES = [
   { id: 'workflows', path: '/workflows', label: 'Workflows' },
   { id: 'missives', path: '/missives', label: 'Guild chat' },
   { id: 'mailbox', path: '/mailbox', label: 'Mailbox' },
+  { id: 'council', path: '/council', label: 'Council' },
   { id: 'gates', path: '/gates', label: 'Gates' },
   { id: 'settings', path: '/vault', label: 'Settings' },
 ] as const
