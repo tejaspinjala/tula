@@ -3,10 +3,11 @@ import { Badge, type Tone } from './Badge'
 import {
   type CouncilSessionView,
   councilCostText,
-  councilStatusLabel,
+  councilSessionLabel,
   councilVoteLabel,
   loadCouncilSessions,
   proposalPrefix,
+  questName,
 } from './council'
 import { shortenId } from './GuildId'
 import { councilCount, useLiveEvents } from './live-events'
@@ -33,8 +34,11 @@ function SessionDetail({ session }: { session: CouncilSessionView }) {
   return (
     <section aria-label="Council session" data-testid="council-detail" className="work-note mt-4">
       <h3>
-        Proposal {proposalPrefix(session.proposalHash)} for Quest {session.questId}
+        Proposal {proposalPrefix(session.proposalHash)} for Quest {questName(session)}
       </h3>
+      {session.questTitle !== null && (
+        <p className="muted">Quest id {shortenId(session.questId)}</p>
+      )}
       {session.reason !== null && <p className="muted">Escalated because: {session.reason}</p>}
       {session.votes.length === 0 ? (
         <p className="muted">No elder has voted yet.</p>
@@ -130,12 +134,15 @@ export function CouncilPanel({ session }: { session: Session | null }) {
                 data-testid="council-row"
                 className="flex flex-wrap items-center gap-2"
               >
-                <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>
-                  {councilStatusLabel(row.status)}
+                <Badge tone={row.halted ? 'danger' : (STATUS_TONE[row.status] ?? 'neutral')}>
+                  {councilSessionLabel(row)}
                 </Badge>
                 <span className="min-w-0 flex-1 basis-40">
-                  Proposal {proposalPrefix(row.proposalHash)} · Quest {shortenId(row.questId)} ·{' '}
-                  {councilCostText(row.costMicros)}
+                  Proposal {proposalPrefix(row.proposalHash)} · Quest {questName(row)}
+                  {row.questTitle !== null && (
+                    <span className="muted"> ({shortenId(row.questId)})</span>
+                  )}{' '}
+                  · {councilCostText(row.costMicros)}
                 </span>
                 <PixelButton onClick={() => setOpenId(row.id)}>Open</PixelButton>
               </li>

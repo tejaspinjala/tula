@@ -124,6 +124,34 @@ test('a ?session= link from the scroll opens that session straight to its votes'
   await m.unmount()
 })
 
+test('a burst of council events refetches the ledger once, not once per event', async () => {
+  const { LiveEvents } = await import('./live-events')
+  const event = (seq: number) => ({ seq, type: 'council.voted', payload: {}, occurredAt: 'x' })
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const show = (n: number) =>
+    root.render(
+      <LiveEvents.Provider value={Array.from({ length: n }, (_, i) => event(i + 1))}>
+        <CouncilPanel session={session} />
+      </LiveEvents.Provider>
+    )
+  await act(async () => {
+    show(0)
+    await wait()
+  })
+  const before = urls.length
+  for (let n = 1; n <= 7; n += 1) {
+    await act(async () => {
+      show(n)
+      await wait(5)
+    })
+  }
+  await act(async () => wait(600))
+  expect(urls.length - before).toBe(1)
+  await act(async () => root.unmount())
+})
+
 test('rows and detail name the Quest by its title with the id only as a short form, and show a halted session as halted', async () => {
   const before = globalThis.fetch
   const questId = '33333333-3333-4333-8333-333333333333'

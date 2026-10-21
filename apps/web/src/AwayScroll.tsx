@@ -46,7 +46,11 @@ function Entry({
       <span className="away-scroll-text">
         {digestLine(entry)}
         {entry.questId !== null && (
-          <span className="muted"> Quest {shortenId(entry.questId)}.</span>
+          <span className="muted">
+            {' '}
+            Quest {entry.questTitle ?? shortenId(entry.questId)}
+            {entry.questTitle !== null && ` (${shortenId(entry.questId)})`}.
+          </span>
         )}
         <span className="muted"> {whenText(entry.occurredAt)}</span>
       </span>
@@ -65,7 +69,6 @@ function Entry({
  * ask for it again. Each Council line opens its votes in the Council panel.
  */
 export function AwayScroll({ session, onOpenCouncil, onShow }: AwayScrollProps) {
-  void onShow
   const dialog = useRef<HTMLDialogElement>(null)
   const [shown, setShown] = useState(false)
   const [page, setPage] = useState<AwayDigestPage | null>(null)
@@ -134,11 +137,12 @@ export function AwayScroll({ session, onOpenCouncil, onShow }: AwayScrollProps) 
       return
     }
     if (shown && !node.open) {
+      onShow?.()
       node.showModal()
     } else if (!shown && node.open) {
       node.close()
     }
-  }, [shown])
+  }, [shown, onShow])
 
   const close = () => setShown(false)
   const more = () => {

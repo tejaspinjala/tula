@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
 import { formatDollars } from './costs'
+import { shortenId } from './GuildId'
 import { PasskeyRequestError, type Session } from './passkeys'
 
 // The Council's session route is read only here, validated with Zod. Statuses and votes stay plain
@@ -93,10 +94,17 @@ export function councilVoteLabel(vote: string): string {
 
 /** A session's status in words, "Halted" while Bar the Gates holds an open one. */
 export function councilSessionLabel(session: { status: string; halted: boolean }): string {
-  return councilStatusLabel(session.status)
+  return session.status === 'open' && session.halted
+    ? 'Halted: the Gates are barred'
+    : councilStatusLabel(session.status)
+}
+
+/** A Quest as the Council reads name it: its title, else its short id. */
+export function questName(quest: { questId: string; questTitle: string | null }): string {
+  return quest.questTitle ?? shortenId(quest.questId)
 }
 
 /** Whether any of these sessions is still open: the elders confer while one is. */
 export function councilOpenNow(sessions: readonly { status: string; halted: boolean }[]): boolean {
-  return sessions.some((s) => s.status === 'open')
+  return sessions.some((s) => s.status === 'open' && !s.halted)
 }
