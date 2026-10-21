@@ -94,28 +94,20 @@ describe('routeClaimed', () => {
     })
   })
 
-  test('a locked Hall kills the Quest and its dependents', async () => {
+  test('a locked Hall parks the Quest for a retry instead of killing it', async () => {
     const base = defaultConfig()
     const locked = configWith({
       halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
     })
     const s = setup(locked)
     const quest = await s.post()
-    const { quest: child } = await s.quests.post(s.guild, {
-      jobKey: 'child',
-      templateId: 'herald-brief',
-      hallId: 'heralds',
-      rank: 'journeyman',
-      dataClass: 'internal',
-      title: 'Child',
-      ownerId: 'heralds-member-2',
-      doneCondition: 'x',
-      roundLimit: 1,
-      blockedBy: [quest.id],
+    const out = await routeClaimed(s.deps, s.guild, quest)
+    expect(out).toEqual({
+      status: 'blocked',
+      reason: 'hall_locked',
+      disposition: 'retry_scheduled',
     })
-    await routeClaimed(s.deps, s.guild, quest)
-    expect((await s.quests.get(s.guild, quest.id))?.lastError).toBe('hall_locked')
-    expect((await s.quests.get(s.guild, child.id))?.lastError).toBe('blocker_dead')
+    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({ state: 'queued' })
   })
 
   test('a transient block releases the claim with a jittered notBefore and spends no attempt', async () => {
@@ -215,6 +207,29 @@ describe('dispatch', () => {
     })
     expect(await w.started()).toEqual([first.id])
     expect((await w.quests.get(w.guild, first.id))?.state).toBe('active')
+  })
+
+  test('locking a Hall releases its lease and parks its Quests, and unlocking resumes them', async () => {
+    const w = world()
+    const base = defaultConfig()
+    let config = configWith()
+    const deps = { ...w.deps, config: { current: async () => ({ version: 1, config }) } }
+    const first = await w.queue()
+    const second = await w.queue()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: first.id })
+    config = configWith({
+      halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+    expect(await dispatch(deps, w.guild)).toEqual({ status: 'idle' })
+    for (const q of [first, second]) {
+      expect(await w.quests.get(w.guild, q.id)).toMatchObject({
+        state: 'queued',
+        leaseExpiresAt: null,
+      })
+    }
+    config = configWith()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: first.id })
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: second.id })
   })
 
   test('dispatchAll skips a guild with no applied config and still starts the configured one', async () => {
