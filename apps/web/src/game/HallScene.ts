@@ -48,6 +48,9 @@ const FONT = 'font'
 const GLOW = 'glow'
 const COURIER = 'courier'
 const MAILBOX = 'mailbox'
+const ENVELOPE = 'envelope'
+/** The courier is drawn this much larger than a Member so it reads at any zoom. */
+const COURIER_SCALE = 1.5
 /** Where each map sits in the one Phaser world, in px: far apart so a camera sees only one. */
 const OFFSETS: Record<MapId, Vec> = {
   hall: { x: 0, y: 0 },
@@ -441,8 +444,9 @@ export class HallScene extends Phaser.Scene {
   }
 
   /**
-   * The courier, drawn in code (no image asset): a small figure in a cap carrying a parcel, as
-   * hard-edged pixel rectangles from the sprite palette.
+   * The courier, drawn in code (no image asset): a figure in a cap and blue coat, hard-edged pixel
+   * rectangles from the sprite palette, filling the same 16 by 16 cell a Member does. The soft
+   * envelope it carries is a second texture so it can bob on its own.
    */
   private makeCourier(): void {
     const g = this.add.graphics()
@@ -450,14 +454,22 @@ export class HallScene extends Phaser.Scene {
       g.fillStyle(colour, 1)
       g.fillRect(x, y, w, h)
     }
-    paint(0x3b2410, 5, 0, 6, 2) // cap
-    paint(0xe8b98a, 5, 2, 6, 4) // face
-    paint(0x2f5d8a, 4, 6, 8, 6) // coat
-    paint(0x3b2410, 5, 12, 2, 3) // legs
-    paint(0x3b2410, 9, 12, 2, 3)
-    paint(0xf2e6c8, 11, 7, 5, 4) // the letter
-    paint(0xb8453a, 13, 8, 1, 1) // its seal
+    paint(0x3b2410, 4, 0, 8, 3) // cap
+    paint(0x3b2410, 3, 2, 10, 1) // brim
+    paint(0xe8b98a, 5, 3, 6, 4) // face
+    paint(0x2f5d8a, 3, 7, 10, 6) // coat
+    paint(0xf2e6c8, 7, 7, 2, 6) // coat trim
+    paint(0x3b2410, 4, 13, 3, 3) // boots
+    paint(0x3b2410, 9, 13, 3, 3)
     g.generateTexture(COURIER, 16, 16)
+    g.clear()
+    paint(0xf2e6c8, 0, 1, 10, 7) // the envelope
+    paint(0xd9c9a3, 0, 1, 10, 1) // its flap edge
+    paint(0xd9c9a3, 1, 2, 2, 1)
+    paint(0xd9c9a3, 7, 2, 2, 1)
+    paint(0xd9c9a3, 3, 3, 4, 1)
+    paint(0xb8453a, 4, 4, 2, 2) // its seal
+    g.generateTexture(ENVELOPE, 10, 9)
     g.destroy()
   }
 
@@ -486,12 +498,19 @@ export class HallScene extends Phaser.Scene {
         continue
       }
       const sprite = this.add.image(start.x, start.y, COURIER).setDepth(15)
+      sprite.setScale(COURIER_SCALE)
       sprite.setName(`courier:${courier.seq}`)
+      // The envelope rides in the courier's hands, a little ahead and above, and follows it.
+      const envelope = this.add.image(start.x, start.y, ENVELOPE).setDepth(16)
+      envelope.setScale(COURIER_SCALE)
+      const follow = () => envelope.setPosition(sprite.x + 12, sprite.y - 4)
+      follow()
       this.walkingCouriers.set(courier.seq, courier.toMemberId)
       const step = (n: number) => {
         const to = route[n]
         if (!to) {
           sprite.destroy()
+          envelope.destroy()
           this.walkingCouriers.delete(courier.seq)
           if (this.pending) {
             this.render(this.pending)
@@ -504,6 +523,7 @@ export class HallScene extends Phaser.Scene {
           y: to.y,
           duration: WALK_MS,
           ease: 'Linear',
+          onUpdate: follow,
           onComplete: () => step(n + 1),
         })
       }
