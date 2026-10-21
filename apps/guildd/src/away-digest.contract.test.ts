@@ -6,6 +6,13 @@ import { expectGuildIsolation } from './testing/cross-guild'
 import { createHarness } from './testing/harness'
 import { openSession } from './testing/open-session'
 
+const Q = {
+  q1: crypto.randomUUID(),
+  q2: crypto.randomUUID(),
+  q3: crypto.randomUUID(),
+  q4: crypto.randomUUID(),
+  q9: crypto.randomUUID(),
+}
 const harness = await createHarness({ devGuildHeader: false })
 afterAll(() => harness.close())
 
@@ -18,6 +25,7 @@ const entry = z.object({
   sealId: z.string().nullable(),
   reason: z.string().nullable(),
   amountCents: z.number().nullable(),
+  status: z.string().nullable(),
 })
 const digest = z.object({
   window: z
@@ -25,6 +33,7 @@ const digest = z.object({
     .nullable(),
   entries: z.array(entry),
   next: z.number().nullable(),
+  spendTotalCents: z.number(),
 })
 
 async function found() {
@@ -55,49 +64,101 @@ async function read(guild: string, token: string, query = '') {
 describe('GET /guilds/:id/guild-master/away-digest', () => {
   test('a guild that never went away has no window and no entries', async () => {
     const { guild, token } = await found()
-    expect(await read(guild, token)).toEqual({ window: null, entries: [], next: null })
+    expect(await read(guild, token)).toEqual({
+      window: null,
+      entries: [],
+      next: null,
+      spendTotalCents: 0,
+    })
   })
 
-  test('returns exactly the events between away and returned', async () => {
+  async function session(guild: string, questId: string, hash: string): Promise<string> {
+    const opened = await harness.adapters.councilStore.open(guild, {
+      questId,
+      proposalHash: hash.repeat(64),
+      day: '2026-01-01',
+      sessionCap: 50,
+    })
+    if (opened.status === 'cap_reached') {
+      throw new Error('cap')
+    }
+    return opened.session.id
+  }
+
+  function seal(guild: string, questId: string) {
+    return harness.adapters.sealStore.request(guild, {
+      questId,
+      requestedBy: 'm',
+      kind: 'post',
+      text: `text ${questId}`,
+      evidence: 'e',
+    })
+  }
+
+  test('returns exactly the window, with the real Council and Seal events', async () => {
     const { guild, token } = await found()
     await done(guild, 'before')
     await away(guild)
-    await emit(guild, 'council.approved', { sessionId: 's1', questId: 'q1', proposalHash: 'h' })
-    await emit(guild, 'council.escalated', {
-      sessionId: 's2',
-      questId: 'q2',
-      proposalHash: 'h',
-      reason: 'blocked',
+    // Approved by the Council: one line, the Quest's own quest.done folds into it.
+    const approvedSeal = await seal(guild, Q.q1)
+    const s1 = await session(guild, Q.q1, 'a')
+    await harness.adapters.councilStore.approve(guild, s1, {
+      questId: Q.q1,
+      day: '2026-01-01',
+      cap: 5,
     })
-    await done(guild, 'q1')
-    await emit(guild, 'treasury.spend', {
-      spendId: 'sp1',
-      status: 'approved',
-      amountCents: 250,
-      memberId: 'm',
+    await harness.adapters.sealStore.councilApprove(guild, approvedSeal.id, {
+      sessionId: s1,
+      expectedHash: approvedSeal.actionHash,
     })
-    await emit(guild, 'seal.requested', { sealId: 'seal-wait', questId: 'q2', actionHash: 'x' })
-    await emit(guild, 'seal.requested', { sealId: 'seal-done', questId: 'q3', actionHash: 'x' })
-    await emit(guild, 'seal.approved', { sealId: 'seal-done', questId: 'q3', actionHash: 'x' })
+    await done(guild, Q.q1)
+    const s2 = await session(guild, Q.q2, 'b')
+    await harness.adapters.councilStore.escalate(guild, s2, 'blocked')
+    const s3 = await session(guild, Q.q3, 'c')
+    await harness.adapters.councilStore.halt(guild, s3, Q.q3)
+    await done(guild, Q.q4)
+    const waiting = await seal(guild, Q.q2)
     await emit(guild, 'guildmaster.returned', { since: 'x' })
     await done(guild, 'after')
 
     const page = await read(guild, token)
     expect(page.window?.open).toBe(false)
-    expect(
-      page.entries.map((e) => [
-        e.kind,
-        e.questId ?? e.sealId ?? e.sessionId,
-        e.reason,
-        e.amountCents,
-      ])
-    ).toEqual([
-      ['council_approved', 'q1', null, null],
-      ['escalated', 'q2', 'blocked', null],
-      ['quest_done', 'q1', null, null],
-      ['spend', null, null, 250],
-      ['seal_waiting', 'q2', null, null],
+    expect(page.entries.map((e) => [e.kind, e.questId, e.sessionId, e.sealId, e.reason])).toEqual([
+      ['council_approved', Q.q1, s1, null, null],
+      ['escalated', Q.q2, s2, null, 'blocked'],
+      ['council_halted', Q.q3, s3, null, null],
+      ['quest_done', Q.q4, null, null, null],
+      ['seal_waiting', Q.q2, null, waiting.id, null],
     ])
+  })
+
+  test('a Seal past its time to live no longer lists as waiting', async () => {
+    const { guild, token } = await found()
+    await away(guild)
+    const stale = await seal(guild, Q.q9)
+    expect((await read(guild, token)).entries.map((e) => e.sealId)).toEqual([stale.id])
+    harness.adapters.clock.advance(73 * 3_600_000)
+    const reopened = await openSession(harness.adapters.identity, guild)
+    expect((await read(guild, reopened)).entries).toEqual([])
+  })
+
+  test('a spend counts once at its final amount, and the window totals them', async () => {
+    const { guild, token } = await found()
+    await away(guild)
+    const spend = (spendId: string, status: string, amountCents: number) =>
+      emit(guild, 'treasury.spend', { spendId, status, amountCents, memberId: 'm' })
+    await spend('sp1', 'reserved', 500)
+    await spend('sp1', 'settled', 320)
+    await spend('sp2', 'reserved', 100)
+    await spend('sp2', 'released', 100)
+    await spend('sp3', 'pending_approval', 900)
+    const page = await read(guild, token)
+    expect(page.entries.map((e) => [e.kind, e.amountCents, e.status])).toEqual([
+      ['spend', 320, 'settled'],
+      ['spend', 100, 'released'],
+      ['spend', 900, 'pending_approval'],
+    ])
+    expect(page.spendTotalCents).toBe(320)
   })
 
   test('an away that has not ended runs to now and reads as open', async () => {
