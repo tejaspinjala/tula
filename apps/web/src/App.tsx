@@ -48,21 +48,37 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   }, [session])
 
   // Inside the desktop shell the deep link delivers a one-time code in the fragment: it is read and
-  // cleared once, then exchanged for a session. The ref keeps StrictMode from spending it twice.
+  // cleared once, then exchanged for a session. The shell only changes the fragment when the page
+  // is already open, so the code is also taken on `hashchange`. `spent` keeps StrictMode (and a
+  // repeated event) from exchanging one code twice.
   const [desktopCode] = useState(() => desktopCodeFromHash(window.location.hash))
   const [exchanging, setExchanging] = useState(desktopCode !== null)
   const [notice, setNotice] = useState('')
-  const exchangeStarted = useRef(false)
+  const spent = useRef(new Set<string>())
   useEffect(() => {
-    const code = takeDesktopCode(window) ?? desktopCode
-    if (!code || exchangeStarted.current) {
-      return
+    function exchange(code: string) {
+      if (spent.current.has(code)) {
+        return
+      }
+      spent.current.add(code)
+      setExchanging(true)
+      exchangeDesktopCode(code, fetch)
+        .then((opened) => setSession((current) => current ?? opened))
+        .catch(() => setNotice(DESKTOP_CODE_LOST))
+        .finally(() => setExchanging(false))
     }
-    exchangeStarted.current = true
-    exchangeDesktopCode(code, fetch)
-      .then((opened) => setSession((current) => current ?? opened))
-      .catch(() => setNotice(DESKTOP_CODE_LOST))
-      .finally(() => setExchanging(false))
+    function arrived() {
+      const code = takeDesktopCode(window)
+      if (code) {
+        exchange(code)
+      }
+    }
+    if (desktopCode) {
+      takeDesktopCode(window)
+      exchange(desktopCode)
+    }
+    window.addEventListener('hashchange', arrived)
+    return () => window.removeEventListener('hashchange', arrived)
   }, [desktopCode])
 
   const [founding, setFounding] = useState<FoundingState>('closed')
