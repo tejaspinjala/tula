@@ -210,6 +210,13 @@ export class MemoryCouncilStore implements CouncilStore {
     return true
   }
 
+  async haltedSessions(
+    _guildId: string,
+    _sessionIds: readonly string[]
+  ): Promise<ReadonlySet<string>> {
+    return new Set()
+  }
+
   async approvalFor(
     guildId: string,
     questId: string,

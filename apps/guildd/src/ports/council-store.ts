@@ -141,6 +141,12 @@ export interface CouncilStore {
    */
   halt(guildId: string, sessionId: string, questId: string): Promise<boolean>
   /**
+   * Which of `sessionIds` are halted right now: still open, with a halt record and no vote cast
+   * since it. Lets the panel and the map show "Halted" instead of "Conferring". Another guild's
+   * ids are never listed.
+   */
+  haltedSessions(guildId: string, sessionIds: readonly string[]): Promise<ReadonlySet<string>>
+  /**
    * The id of the session that gave `questId` an approval on the Proposal with `proposalHash`, or
    * null when it has none. Lets a crashed settlement find and finish its own approval.
    */
