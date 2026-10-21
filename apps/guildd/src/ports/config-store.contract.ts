@@ -136,6 +136,19 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       expect((await fx.store.history(two, { limit: 10 })).versions).toHaveLength(1)
     })
 
+    test('propose with a base version that is no longer in force is refused as stale and stores nothing', async () => {
+      const { store, guild } = await seeded()
+      const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
+      await store.propose(guild, tighter)
+      const error = await store
+        .propose(guild, defaultConfig(), { baseVersion: 1 })
+        .catch((e: unknown) => e)
+      expect(error instanceof ConfigError ? error.code : null).toBe('stale')
+      expect((await store.history(guild, { limit: 10 })).versions).toHaveLength(2)
+      const ok = await store.propose(guild, tighter, { baseVersion: 2 })
+      expect(ok.version).toBe(3)
+    })
+
     test('an unseeded guild has no config', async () => {
       const fx = await make()
       const guild = await fx.newGuild()

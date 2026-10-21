@@ -98,6 +98,31 @@ describe('seeded guild config', () => {
   })
 })
 
+describe('provider ids', () => {
+  test('a config naming the same provider id twice is refused', () => {
+    const dup = {
+      ...defaultConfig(),
+      providers: [
+        { id: 'home', auth: 'api_key' as const, privateEligible: false },
+        { id: 'home', auth: 'subscription' as const, privateEligible: true },
+      ],
+    }
+    expect(guildConfig.safeParse(dup).success).toBe(false)
+  })
+  test('a stored config with duplicate provider ids is never judged no wider', () => {
+    const a = { id: 'home', auth: 'api_key' as const }
+    const stored = {
+      ...defaultConfig(),
+      providers: [
+        { ...a, privateEligible: false },
+        { ...a, privateEligible: true },
+      ],
+    }
+    const next = { ...defaultConfig(), providers: [{ ...a, privateEligible: true }] }
+    expect(classifyChange(stored, next)).toBe('widening')
+  })
+})
+
 describe('classifyChange', () => {
   const base = defaultConfig()
   test('identical is neutral', () => {

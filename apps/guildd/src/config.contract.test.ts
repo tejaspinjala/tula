@@ -239,6 +239,54 @@ describe('provider private eligibility over HTTP', () => {
   })
 })
 
+describe('config PUT with a base version', () => {
+  test('a change made after the caller read the config is refused as stale, not clobbered', async () => {
+    const who = await signedIn()
+    const put = (body: unknown) => send(harness, 'PUT', `${who.base}/config`, body, who.auth)
+    const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
+    expect((await put({ config: tighter })).status).toBe(200)
+    const stale = await put({ config: defaultConfig(), baseVersion: 1 })
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'stale' })
+    expect((await who.current()).config.caps.dailyTokens).toBe(10)
+    const fresh = await put({ config: tighter, baseVersion: 2 })
+    expect(fresh.status).toBe(200)
+  })
+})
+
+describe('provider status', () => {
+  const statusBody = z.object({ hosted: z.boolean(), vendor: z.string() })
+
+  test('reports hosted when the host has not enabled subscription providers, and the vendor', async () => {
+    const who = await signedIn()
+    const res = await send(harness, 'GET', `${who.base}/providers/status`, undefined, who.auth)
+    expect(res.status).toBe(200)
+    expect(statusBody.parse(await res.json())).toEqual({ hosted: true, vendor: 'Anthropic' })
+    const sub = await signedIn(subscriptionHarness)
+    const res2 = await send(
+      subscriptionHarness,
+      'GET',
+      `${sub.base}/providers/status`,
+      undefined,
+      sub.auth
+    )
+    expect(statusBody.parse(await res2.json()).hosted).toBe(false)
+  })
+
+  test('is signed-in only and never reads another guild', async () => {
+    const who = await signedIn()
+    const anon = await send(harness, 'GET', `${who.base}/providers/status`)
+    expect(anon.status).toBe(401)
+    await expectGuildIsolation(devHarness, {
+      build: (caller, target) => [
+        `/guilds/${target}/providers/status`,
+        { headers: { 'x-guild-id': caller } },
+      ],
+      snapshot: async (guildId) => devHarness.adapters.config.history(guildId, { limit: 100 }),
+    })
+  })
+})
+
 describe('guild config over HTTP', () => {
   test('a founded guild has the Steward, Heralds Hall with Captain and Members, and three locked Halls', async () => {
     const who = await signedIn()
