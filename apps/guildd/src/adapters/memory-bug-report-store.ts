@@ -12,7 +12,8 @@ import type { MemoryQuestQueue } from './memory-quest-queue'
 /**
  * Memory adapter for {@link BugReportStore}. `file` runs the cap check, the duplicate check, the
  * Fix Quest post and the insert with no `await` between, so same-tick filings cannot overshoot the
- * cap or both claim the open slot. State lives in this instance only.
+ * cap or both claim the open slot. A Quest refiling the same reproduction (its job key) gets its
+ * first report back whatever the title or evidence, uncharged. State lives in this instance only.
  */
 export class MemoryBugReportStore implements BugReportStore {
   private readonly guilds = new Map<string, BugReport[]>()
@@ -43,9 +44,7 @@ export class MemoryBugReportStore implements BugReportStore {
             (r) =>
               r.filer.kind === 'member' &&
               r.filer.questId === filer.questId &&
-              r.reproductionHash === hash &&
-              r.title === input.title &&
-              JSON.stringify(r.evidence) === JSON.stringify(input.evidence)
+              r.reproductionHash === hash
           )
         : undefined
     if (prior) {

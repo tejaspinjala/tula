@@ -156,10 +156,10 @@ export function bugReportStoreContract(name: string, make: () => Promise<BugRepo
         hallId: 'forge',
         memberId: 'm',
       }
-      await store.file(g, made({ filer, maxPerQuest: 2 }, 'x'))
-      const dup = await store.file(g, made({ filer, maxPerQuest: 2, title: 'Another view' }, 'x'))
+      await store.file(g, made({ maxPerQuest: 2 }, 'x'))
+      const dup = await store.file(g, made({ filer, maxPerQuest: 1 }, 'x'))
       expect(dup.ok && dup.report.status).toBe('duplicate')
-      expect((await store.file(g, made({ filer, maxPerQuest: 2 }))).ok).toBe(false)
+      expect((await store.file(g, made({ filer, maxPerQuest: 1 }))).ok).toBe(false)
     })
 
     test('a retried identical request returns the first report and is not charged again', async () => {
@@ -221,6 +221,56 @@ export function bugReportStoreContract(name: string, make: () => Promise<BugRepo
       })
       expect(await store.countForQuest(b, '00000000-0000-4000-8000-000000000000')).toBe(0)
       expect(await quests.get(b, fixId)).toBeNull()
+    })
+
+    test('the same Quest refiling the same reproduction with a different title or evidence returns the first report, open or fixed, and never throws', async () => {
+      const { store, quests, newGuild } = await make()
+      const g = await newGuild()
+      const base = made({}, 'again')
+      const jobKey = `bug-report:${base.filer.kind === 'member' ? base.filer.questId : ''}:${reproductionHash('heralds', base.reproduction)}`
+      const withKey = (over: Partial<NewBugReport>): NewBugReport => ({
+        ...base,
+        fixQuest: { ...base.fixQuest, jobKey },
+        ...over,
+      })
+      const first = await store.file(g, withKey({}))
+      if (!first.ok) {
+        throw new Error('filing failed')
+      }
+      const open = await store.file(g, withKey({ title: 'Another title', evidence: [] }))
+      expect(open).toMatchObject({ ok: true, report: { id: first.report.id }, fixQuest: null })
+      await store.closeFixed(g, first.report.fixQuestId ?? '', 'b'.repeat(64), T0)
+      const fixed = await store.file(
+        g,
+        withKey({ title: 'Yet another title', evidence: ['c'.repeat(64)] })
+      )
+      expect(fixed).toMatchObject({
+        ok: true,
+        report: { id: first.report.id, status: 'fixed' },
+        fixQuest: null,
+      })
+      expect(
+        await store.countForQuest(g, base.filer.kind === 'member' ? base.filer.questId : '')
+      ).toBe(1)
+      expect((await quests.list(g, { limit: 10 })).quests).toHaveLength(1)
+    })
+
+    test("another guild's lease cannot read the report and closing its Fix Quest from there changes nothing", async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      const filed = await store.file(a, made())
+      if (!filed.ok) {
+        throw new Error('filing failed')
+      }
+      const fixId = filed.report.fixQuestId ?? ''
+      expect(await store.forFixQuest(b, fixId)).toBeNull()
+      await store.closeFixed(b, fixId, 'b'.repeat(64), T0)
+      expect(await store.get(a, filed.report.id)).toMatchObject({
+        status: 'open',
+        fixHandoffHash: null,
+        fixedAt: null,
+      })
     })
   })
 }

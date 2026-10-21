@@ -17,6 +17,10 @@ export type CrossHallResolution =
 
 /** Inputs to {@link resolveCrossHall}; `halls` is the caller guild's Halls, so other guilds' Halls never resolve. */
 export interface CrossHallInput {
+  /** `push`: data flows from the source to the target; `pull`: data flows from the target back to the source. */
+  flow: 'push' | 'pull'
+  /** For `pull`: the data class of the subject held by the target. */
+  subjectDataClass?: DataClass | undefined
   halls: readonly CrossHallHall[]
   sourceHall: string
   sourceDataClass: DataClass

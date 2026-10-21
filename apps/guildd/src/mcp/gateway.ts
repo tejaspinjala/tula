@@ -979,6 +979,7 @@ export class McpGateway {
   ): Promise<ToolReply> {
     const { guild, quest } = caller
     const target = resolveCrossHall({
+      flow: 'push',
       halls: config.halls.map((h) => ({
         id: h.id,
         kind: h.kind,
@@ -1131,6 +1132,7 @@ export class McpGateway {
     const { guild, quest } = caller
     const { config } = await this.deps.config.current(guild)
     const resolved = resolveCrossHall({
+      flow: 'push',
       halls: config.halls,
       sourceHall: quest.hallId,
       sourceDataClass: quest.dataClass,
@@ -1317,6 +1319,7 @@ export class McpGateway {
     }
     const { config } = await this.deps.config.current(guild)
     const target = resolveCrossHall({
+      flow: 'push',
       halls: config.halls,
       sourceHall: quest.hallId,
       sourceDataClass: subject.dataClass,

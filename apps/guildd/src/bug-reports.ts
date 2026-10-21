@@ -79,6 +79,7 @@ export class BugReportService {
     if (source.kind === 'member' && source.hallId !== hall.id) {
       const target = resolveCrossHall({
         halls: config.halls,
+        flow: 'push',
         sourceHall: source.hallId,
         sourceDataClass: source.dataClass,
         toHall: hall.id,
