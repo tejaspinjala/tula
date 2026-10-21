@@ -106,6 +106,7 @@ test('Milestone 3: the Guild Master away, the Council approves and escalates, th
     config: a.config,
     presence: a.presence,
     clock: a.clock,
+    gates,
     council,
   }
 

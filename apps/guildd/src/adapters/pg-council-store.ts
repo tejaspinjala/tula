@@ -7,6 +7,7 @@ import {
   type CouncilSession,
   type CouncilStore,
   type CouncilVote,
+  MAX_APPROVAL_LOOKUP,
   type NewCouncilVote,
   type OpenSessionResult,
 } from '../ports/council-store'
@@ -290,6 +291,31 @@ export class PgCouncilStore implements CouncilStore {
         join council_sessions s on s.guild_id = a.guild_id and s.session_id = a.session_id
         where a.quest_id = ${questId} and s.proposal_hash = ${proposalHash}`
       return row ? String(row.session_id) : null
+    })
+  }
+
+  async approvalsFor(
+    guildId: string,
+    proposals: ReadonlyArray<{ questId: string; proposalHash: string }>
+  ): Promise<Array<{ questId: string; proposalHash: string; sessionId: string }>> {
+    const asked = proposals.slice(0, MAX_APPROVAL_LOOKUP)
+    if (asked.length === 0) {
+      return []
+    }
+    const questIds = asked.map((p) => p.questId)
+    const hashes = asked.map((p) => p.proposalHash)
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select a.quest_id, s.proposal_hash, a.session_id
+        from unnest(${questIds}::text[], ${hashes}::text[]) as w(quest_id, proposal_hash)
+        join council_approvals a on a.quest_id = w.quest_id
+        join council_sessions s on s.guild_id = a.guild_id and s.session_id = a.session_id
+          and s.proposal_hash = w.proposal_hash`
+      return rows.map((row) => ({
+        questId: String(row.quest_id),
+        proposalHash: String(row.proposal_hash),
+        sessionId: String(row.session_id),
+      }))
     })
   }
 

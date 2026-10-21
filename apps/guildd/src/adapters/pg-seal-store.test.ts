@@ -24,8 +24,17 @@ sealStoreContract('postgres', async () => {
     store: new PgSealStore(db, new MemoryKeyProvider(), clock),
     clock,
     newGuild: () => foundTestGuild(db, { name: 'Seals', goal: 'g' }),
+    newSession: (guild: string) => councilSession(guild),
   }
 })
+
+/** A real Council session row: a Council approval must name one (composite FK). */
+async function councilSession(guild: string): Promise<string> {
+  const [row] = await owner`
+    insert into council_sessions (guild_id, quest_id, proposal_hash, day)
+    values (${guild}, 'q', ${'a'.repeat(64)}, current_date) returning session_id`
+  return String(row?.session_id)
+}
 
 async function setup() {
   const clock = new MemoryClock(start)
@@ -235,7 +244,7 @@ test('the database refuses a Council approval that names a session which does no
 
 test('a Council approval appends seal.council_approved naming the session and no decider', async () => {
   const { guild, store, seal, hash } = await setup()
-  const sessionId = crypto.randomUUID()
+  const sessionId = await councilSession(guild)
   await store.councilApprove(guild, seal.id, { sessionId, expectedHash: hash })
   await store.councilApprove(guild, seal.id, { sessionId, expectedHash: hash })
   const events = await owner`

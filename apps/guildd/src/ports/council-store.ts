@@ -1,5 +1,7 @@
 /** The Council of Elders' five voices, in the order they speak. Data, never roster Members. */
 export const COUNCIL_VOICES = ['architect', 'skeptic', 'security', 'ops', 'user'] as const
+/** The most (Quest, hash) pairs one {@link CouncilStore.approvalsFor} call looks up. */
+export const MAX_APPROVAL_LOOKUP = 100
 /** The most sessions one list page returns. */
 export const MAX_COUNCIL_PAGE = 50
 
@@ -143,4 +145,13 @@ export interface CouncilStore {
    * null when it has none. Lets a crashed settlement find and finish its own approval.
    */
   approvalFor(guildId: string, questId: string, proposalHash: string): Promise<string | null>
+  /**
+   * {@link CouncilStore.approvalFor} for many (Quest, Proposal hash) pairs in one read: only the
+   * pairs that hold an approval come back, so a pass over many waiting Seals with none costs one
+   * query, not one per Seal. At most {@link MAX_APPROVAL_LOOKUP} pairs per call.
+   */
+  approvalsFor(
+    guildId: string,
+    proposals: ReadonlyArray<{ questId: string; proposalHash: string }>
+  ): Promise<Array<{ questId: string; proposalHash: string; sessionId: string }>>
 }

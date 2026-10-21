@@ -11,6 +11,9 @@ alter table seals add constraint seals_status_check
 alter table seals add column council_session_id uuid;
 alter table seals add constraint seals_council_session
   check ((status = 'council_approved') = (council_session_id is not null));
+-- The session a Council approval names must exist in the same guild.
+alter table seals add constraint seals_council_session_exists
+  foreign key (guild_id, council_session_id) references council_sessions (guild_id, session_id);
 
 create or replace function seals_guard() returns trigger
 language plpgsql
