@@ -46,3 +46,11 @@ test('a danger button carries an icon and a word, never colour alone', async () 
   expect(button?.textContent).toContain('Bar the Gates')
   await m.unmount()
 })
+
+test('a selected tab or pressed toggle looks pressed: its own style, not colour alone', async () => {
+  const css = await Bun.file(new URL('./pixel.css', import.meta.url).pathname).text()
+  const rule = css.match(/\.px-btn\[aria-selected="true"\][^{]*\{[^}]*\}/)?.[0] ?? ''
+  expect(rule).toContain('transform')
+  expect(rule).toContain('box-shadow')
+  expect(css).toContain('.px-btn[aria-pressed="true"]')
+})
