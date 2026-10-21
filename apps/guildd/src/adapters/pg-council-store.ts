@@ -89,6 +89,29 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
+  async list(
+    guildId: string,
+    page: { limit: number; after?: string }
+  ): Promise<{ sessions: CouncilSession[]; next: string | null }> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select session_id, quest_id, proposal_hash, day::text as day, status, reason, created_at
+        from council_sessions
+        where ${
+          page.after === undefined
+            ? tx`true`
+            : tx`(created_at, session_id) < (
+                select created_at, session_id from council_sessions
+                where session_id = ${page.after}::uuid)`
+        }
+        order by created_at desc, session_id desc
+        limit ${page.limit + 1}`
+      const sessions = rows.slice(0, page.limit).map(toSession)
+      const last = sessions[sessions.length - 1]
+      return { sessions, next: rows.length > page.limit && last ? last.id : null }
+    })
+  }
+
   async recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean> {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)

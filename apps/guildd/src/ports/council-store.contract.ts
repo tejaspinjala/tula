@@ -299,5 +299,29 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
         await store.halt(g, id, 'q1')
       })
     })
+
+    test('list pages sessions newest first with a cursor, and only for the asking guild', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const hashes = ['1', '2', '3'].map((c) => c.repeat(64))
+      const ids: string[] = []
+      for (const proposalHash of hashes) {
+        const opened = await store.open(g, input({ proposalHash }))
+        if (opened.status === 'cap_reached') {
+          throw new Error('unexpected cap')
+        }
+        ids.push(opened.session.id)
+      }
+      await store.open(other, input({ proposalHash: OTHER_HASH }))
+      const first = await store.list(g, { limit: 2 })
+      expect(first.sessions.map((s) => s.id)).toEqual(ids.slice(1).reverse())
+      expect(first.next).toBe(ids.at(1) ?? null)
+      const second = await store.list(g, { limit: 2, after: first.next ?? '' })
+      expect(second.sessions.map((s) => s.id)).toEqual(ids.slice(0, 1))
+      expect(second.next).toBeNull()
+      expect((await store.list(other, { limit: 10 })).sessions).toHaveLength(1)
+      expect((await store.list(other, { limit: 10, after: ids.at(1) ?? '' })).sessions).toEqual([])
+    })
   })
 }

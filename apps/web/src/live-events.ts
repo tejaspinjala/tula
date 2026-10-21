@@ -17,6 +17,11 @@ export function missiveCount(events: readonly ReplayEvent[]): number {
   return events.filter((e) => e.type === 'missive.sent').length
 }
 
+/** How many `council.*` events a stream holds (the Council panel and chamber refetch when this grows). */
+export function councilCount(events: readonly ReplayEvent[]): number {
+  return events.filter((e) => e.type.startsWith('council.')).length
+}
+
 /** How many mailbox events (`inquiry.*`, `dossier.*`, `bug_report.*`) a stream holds (the Mailbox refetches when this grows). */
 export function mailboxCount(events: readonly ReplayEvent[]): number {
   return events.filter(

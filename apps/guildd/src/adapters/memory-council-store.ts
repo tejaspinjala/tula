@@ -58,6 +58,29 @@ export class MemoryCouncilStore implements CouncilStore {
     return { status: 'created', session: { ...session } }
   }
 
+  async list(
+    guildId: string,
+    page: { limit: number; after?: string }
+  ): Promise<{ sessions: CouncilSession[]; next: string | null }> {
+    // Map iteration is insertion order, so reversing it is newest first even within one tick.
+    const mine = [...this.sessions.entries()]
+      .filter(([key]) => key.startsWith(`${guildId}:`))
+      .map(([, session]) => session)
+      .reverse()
+    let from = 0
+    if (page.after !== undefined) {
+      const at = mine.findIndex((s) => s.id === page.after)
+      if (at === -1) {
+        return { sessions: [], next: null }
+      }
+      from = at + 1
+    }
+    const rows = mine.slice(from, from + page.limit)
+    const last = rows[rows.length - 1]
+    const more = from + page.limit < mine.length
+    return { sessions: rows.map((s) => ({ ...s })), next: more && last ? last.id : null }
+  }
+
   async recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean> {
     if (this.owners.get(sessionId) !== guildId) {
       return false

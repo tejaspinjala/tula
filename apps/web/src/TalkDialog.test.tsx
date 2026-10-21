@@ -312,3 +312,14 @@ test('a Member with no Missives, or a failed read, still says there are none', a
   expect(failed.host.textContent).toContain('No messages yet')
   await failed.unmount()
 })
+
+test('the Council chamber dialog opens the Council panel', async () => {
+  const run = await show({ kind: 'council' })
+  const dialog = run.host.querySelector('dialog')
+  expect(dialog?.open).toBe(true)
+  expect(dialog?.textContent).toContain('Council')
+  expect(await violations(run.host)).toEqual([])
+  await click(run.host, 'Open the Council')
+  expect(run.paths).toEqual(['/council'])
+  await run.unmount()
+})

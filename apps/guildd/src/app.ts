@@ -34,7 +34,7 @@ import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
-import type { CouncilStore } from './ports/council-store'
+import { type CouncilStore, MAX_COUNCIL_PAGE } from './ports/council-store'
 import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
@@ -285,6 +285,10 @@ const missivePage = z.object({
     .transform(Number)
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
+})
+const councilPage = z.object({
+  after: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_COUNCIL_PAGE).default(20),
 })
 const dossierPage = z.object({
   after: z
@@ -561,6 +565,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
+  app.get('/guilds/:id/council/sessions', limited('dossier-read'))
   app.post('/guilds/:id/dossiers', limited('dossier-write'))
   app.get('/guilds/:id/halls/:hallId/bug-reports', limited('bug-report-read'))
   app.get('/guilds/:id/bug-reports/:reportId', limited('bug-report-read'))
@@ -1139,6 +1144,43 @@ export function createApp(deps: AppDeps): Hono {
         ...(page.data.after === undefined ? {} : { after: page.data.after }),
       })
     )
+  })
+
+  // The Council of Elders' sessions for the Guild Master, newest first, each with its votes, the
+  // summed cost of its voices and, once escalated, the Seal its Quest is waiting on. Read-only.
+  app.get('/guilds/:id/council/sessions', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const page = councilPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const listed = await deps.councilStore.list(who.guild, {
+      limit: page.data.limit,
+      ...(page.data.after === undefined ? {} : { after: page.data.after }),
+    })
+    const sessions = await Promise.all(
+      listed.sessions.map(async (session) => {
+        const votes = await deps.councilStore.votes(who.guild, session.id)
+        const seal =
+          session.status === 'escalated'
+            ? await deps.sealStore.forQuest(who.guild, session.questId)
+            : null
+        const costs = votes.flatMap((v) => (v.costMicros === null ? [] : [v.costMicros]))
+        return {
+          ...session,
+          sealId: seal?.id ?? null,
+          costMicros: costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0),
+          votes: votes.map(({ sessionId: _s, ...vote }) => vote),
+        }
+      })
+    )
+    return c.json({ sessions, next: listed.next })
   })
 
   app.get('/guilds/:id/dossiers/:dossierId', async (c) => {
