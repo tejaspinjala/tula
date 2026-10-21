@@ -381,14 +381,18 @@ async function parkLockedHalls(
   // A lock at the config change already queued the Quests and revoked their runs, so the sandboxes
   // are found by the guild's sandbox list, whatever state their Quest is in.
   const doomed = new Set(live.map((q) => q.id))
-  for (const sandbox of await deps.sandboxes.list(guildId)) {
-    if (!doomed.has(sandbox.questId)) {
-      const quest = await deps.quests.get(guildId, sandbox.questId)
-      if (quest === null || !halls.includes(quest.hallId)) {
-        continue
+  try {
+    for (const sandbox of await deps.sandboxes.list(guildId)) {
+      if (!doomed.has(sandbox.questId)) {
+        const quest = await deps.quests.get(guildId, sandbox.questId)
+        if (quest !== null && halls.includes(quest.hallId)) {
+          doomed.add(quest.id)
+        }
       }
-      doomed.add(quest.id)
     }
+  } catch (error) {
+    // Best effort: claims in unlocked Halls go on, and the reap of queued Quests' sandboxes retries next pass.
+    deps.onError?.(error, { guildId, questId: '', sandboxId: '' })
   }
   for (const questId of doomed) {
     try {
