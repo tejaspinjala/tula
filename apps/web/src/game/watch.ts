@@ -15,7 +15,9 @@ interface RefitScale {
  * alone reuses the size it measured at boot, and Phaser 4 does not poll the parent.
  */
 export function refitScale(scale: RefitScale): void {
-  void scale
+  if (scale.getParentBounds()) {
+    scale.refresh()
+  }
 }
 
 /**

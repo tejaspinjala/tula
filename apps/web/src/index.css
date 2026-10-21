@@ -244,8 +244,8 @@ ul[aria-label] {
   font-size: var(--head-md);
   font-weight: 400;
   line-height: 1;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: calc(var(--px) * 70);
   overflow-wrap: anywhere;
 }
 .hud .px-meter {

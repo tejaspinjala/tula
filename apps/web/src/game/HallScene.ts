@@ -3,7 +3,15 @@ import { formatCents } from '../treasury'
 import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
 import { courierRoute } from './courier'
-import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
+import {
+  integerZoom,
+  openZoomWhole,
+  type Phase,
+  phaseAt,
+  tintFor,
+  walkPose,
+  zoomAfterResize,
+} from './daylight'
 import { BASE_SLOTS } from './hallmap'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
@@ -910,7 +918,7 @@ export class HallScene extends Phaser.Scene {
     }
     cam.setSize(this.scale.width, this.scale.height)
     const map = this.mapOf(this.viewMap)
-    this.zoomLevel = integerZoom(
+    this.zoomLevel = (keepFollow ? zoomAfterResize : integerZoom)(
       this.scale.width,
       this.scale.height,
       px(map.width, map.tileSize),

@@ -60,7 +60,7 @@ export function zoomAfterResize(
   worldW: number,
   worldH: number
 ): number {
-  return integerZoom(frameW, frameH, worldW, worldH)
+  return openZoomWhole(frameW, frameH, worldW, worldH)
 }
 
 /** One pose of the walk cycle: which of four frames, and the pixel offsets that make it. */
