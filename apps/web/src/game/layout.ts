@@ -25,6 +25,8 @@ export interface HallLayout {
   sealDesk: TileRect
   gate: TileRect
   coins: TileRect
+  /** The Tiled JSON this layout reads, for the renderer. */
+  source: unknown
   /** True when a tile is inside the map and not blocked by the collision layer. */
   walkable: (x: number, y: number) => boolean
 }
@@ -54,7 +56,7 @@ const tiledMap = z.object({
 const COLLISION_LAYER = 'collision'
 
 /** Reads the Tiled hall map (walls, furniture, rooms, doorways, desks, gate). */
-export function hallLayout(): HallLayout {
+export function hallLayout(_roomCount = 6): HallLayout {
   const map = tiledMap.parse(hallMap)
   const size = map.tilewidth
   let collision: number[] = []
@@ -98,6 +100,7 @@ export function hallLayout(): HallLayout {
     sealDesk: one('seal-desk'),
     gate: one('gate'),
     coins: one('coins'),
+    source: hallMap,
     walkable: (x, y) =>
       Number.isInteger(x) &&
       Number.isInteger(y) &&
@@ -183,6 +186,21 @@ export function withClosedDoors(
   return (x, y) =>
     layout.walkable(x, y) &&
     !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
+}
+
+/** What the scene draws for one room slot: its label, how dark its veil is, and whether its door is shut. */
+export interface RoomTag {
+  text: string
+  veil: number
+  closed: boolean
+}
+
+/** The label, veil and door of each of `slots` room slots, from the Halls in roster order. */
+export function roomTags(
+  _halls: readonly { name: string; locked: boolean; paused: boolean }[],
+  _slots: number
+): RoomTag[] {
+  return []
 }
 
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */
