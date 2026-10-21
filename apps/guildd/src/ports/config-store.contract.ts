@@ -7,6 +7,11 @@ export interface ConfigStoreFixture {
   store: ConfigStore
   /** Founds a guild WITHOUT seeding config; the test seeds it. */
   newGuild: () => Promise<string>
+  /** Posts a Quest in `hallId` and claims it, so it is `active` under a lease; returns a reader of its current state. */
+  activeQuest: (
+    guildId: string,
+    hallId: string
+  ) => Promise<{ read: () => Promise<{ state: string; leaseExpiresAt: string | null }> }>
 }
 
 /** The ConfigStore contract, run against every adapter. `make` returns a fresh store. */
@@ -47,6 +52,34 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
         change: 'tightening',
       })
       expect((await store.current(guild)).config.caps.dailyTokens).toBe(10)
+    })
+
+    test('a change that locks a Hall releases its leases at once, with no dispatch pass', async () => {
+      const { store, guild, make } = await seeded()
+      const quest = await make.activeQuest(guild, 'heralds')
+      const other = await make.activeQuest(guild, 'other-hall')
+      expect((await quest.read()).state).toBe('active')
+      const config = (await store.current(guild)).config
+      const halls = config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
+      await store.propose(guild, { ...config, halls })
+      expect(await quest.read()).toEqual({ state: 'queued', leaseExpiresAt: null })
+      expect((await other.read()).state).toBe('active')
+    })
+
+    test('a widening change that also locks a Hall releases its leases on confirm, not before', async () => {
+      const { store, guild, make } = await seeded()
+      const quest = await make.activeQuest(guild, 'heralds')
+      const config = (await store.current(guild)).config
+      const halls = config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
+      const proposed = await store.propose(guild, {
+        ...config,
+        halls,
+        caps: { dailyTokens: config.caps.dailyTokens * 2, dailySpendCents: config.caps.dailySpendCents * 2 },
+      })
+      expect(proposed.status).toBe('pending')
+      expect((await quest.read()).state).toBe('active')
+      await store.confirm(guild, proposed.version)
+      expect(await quest.read()).toEqual({ state: 'queued', leaseExpiresAt: null })
     })
 
     test('a widening change is stored pending and leaves the config in force alone until confirmed', async () => {

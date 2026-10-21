@@ -5,18 +5,44 @@ import { defaultConfig } from '../guild-config'
 import { configStoreContract } from '../ports/config-store.contract'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
+import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgConfigStore } from './pg-config-store'
+import { PgQuestQueue } from './pg-quest-queue'
 
 const db = createDb(testDbUrl('app'))
 afterAll(async () => {
   await db.close()
 })
 
-configStoreContract('postgres', async () => ({
-  store: new PgConfigStore(db, new MemoryKeyProvider()),
-  newGuild: () => foundTestGuild(db, { name: 'Config', goal: 'g' }),
-}))
+configStoreContract('postgres', async () => {
+  const keys = new MemoryKeyProvider()
+  const quests = new PgQuestQueue(db, keys, new MemoryClock(new Date()), () => 0.5)
+  return {
+    store: new PgConfigStore(db, keys),
+    newGuild: () => foundTestGuild(db, { name: 'Config', goal: 'g' }),
+    activeQuest: async (guildId, hallId) => {
+      const { quest } = await quests.post(guildId, {
+        jobKey: `lock-${crypto.randomUUID()}`,
+        templateId: 'herald-brief',
+        hallId,
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: 't',
+        ownerId: 'heralds-member-2',
+        doneCondition: 'c',
+        roundLimit: 1,
+      })
+      await quests.claim(guildId, { leaseMs: 60_000, maxActive: 5, questId: quest.id })
+      return {
+        read: async () => {
+          const q = await quests.get(guildId, quest.id)
+          return { state: q?.state ?? 'missing', leaseExpiresAt: q?.leaseExpiresAt ?? null }
+        },
+      }
+    },
+  }
+})
 
 describe('stored autonomous Seal Policy', () => {
   test('rows written before the lock still read, as always (applied and pending)', async () => {
