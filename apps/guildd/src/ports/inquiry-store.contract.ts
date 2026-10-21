@@ -199,6 +199,18 @@ export function inquiryStoreContract(name: string, make: () => Promise<InquirySt
       ).toEqual({ ok: false, error: 'inquiry_expired' })
     })
 
+    test('a sweep expires at most 200 overdue Inquiries; the next takes the rest, none twice', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      for (let i = 0; i < 205; i++) {
+        expect((await store.ask(g, asked())).ok).toBe(true)
+      }
+      const late = new Date(T0.getTime() + 8 * DAY)
+      expect(await store.expireOverdue(g, late)).toBe(200)
+      expect(await store.expireOverdue(g, late)).toBe(5)
+      expect(await store.expireOverdue(g, late)).toBe(0)
+    })
+
     test('an unswept overdue Inquiry is refused as expired too', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
