@@ -97,6 +97,46 @@ describe('quest routes', () => {
     expect((await post(g2, { jobKey: '' })).status).toBe(400)
   })
 
+  test('a private template is 422 hall_locked in a locked Hall, 422 hall_not_private_eligible in an unlocked one, and queues once the Hall is eligible', async () => {
+    const g = await found('P')
+    const health = { templateId: 'health-log', jobKey: 'h1', title: 'Log' }
+    const locked = await post(g, health)
+    expect(locked.status).toBe(422)
+    expect(await locked.json()).toEqual({ error: 'hall_locked' })
+    const seed = defaultConfig()
+    const open = (privateEligible: boolean) =>
+      seed.halls.map((h) =>
+        h.id === 'health'
+          ? {
+              ...h,
+              locked: false,
+              privateEligible,
+              members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+            }
+          : h
+      )
+    const config = harness.adapters.config
+    const first = await config.propose(g, { ...seed, halls: open(false) })
+    if (first.status === 'pending') {
+      await config.confirm(g, first.version)
+    }
+    const unfit = await post(g, health)
+    expect(unfit.status).toBe(422)
+    expect(await unfit.json()).toEqual({ error: 'hall_not_private_eligible' })
+    const second = await config.propose(g, { ...seed, halls: open(true) })
+    if (second.status === 'pending') {
+      await config.confirm(g, second.version)
+    }
+    const posted = await post(g, health)
+    expect(posted.status).toBe(201)
+    const queued = questBody.parse(await posted.json())
+    expect(queued).toMatchObject({ hallId: 'health', ownerId: 'health-member-1' })
+    expect((await harness.adapters.quests.get(g, queued.id))?.dataClass).toBe('private')
+    // Another guild never sees the private Quest.
+    const other = await found('P2')
+    expect((await page(other, '')).quests).toEqual([])
+  })
+
   test('lists are paginated and filter by state; dead letters are listed apart', async () => {
     const g = await found('Q')
     for (const k of ['a', 'b', 'c']) {

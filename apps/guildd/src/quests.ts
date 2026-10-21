@@ -66,6 +66,36 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     roundLimit: 2,
   },
   {
+    id: 'health-log',
+    name: 'Health log',
+    hallId: 'health',
+    rank: 'journeyman',
+    dataClass: 'private',
+    doneCondition: 'A private health note is filed in the Health Archive',
+    requiresSeal: false,
+    roundLimit: 2,
+  },
+  {
+    id: 'personal-plan',
+    name: 'Personal plan',
+    hallId: 'personal',
+    rank: 'journeyman',
+    dataClass: 'private',
+    doneCondition: 'A private plan is filed in the Personal Archive',
+    requiresSeal: false,
+    roundLimit: 2,
+  },
+  {
+    id: 'relationship-note',
+    name: 'Relationship note',
+    hallId: 'relationships',
+    rank: 'journeyman',
+    dataClass: 'private',
+    doneCondition: 'A private note is filed in the Relationships Archive',
+    requiresSeal: false,
+    roundLimit: 2,
+  },
+  {
     id: 'inquiry-answer',
     name: 'Inquiry answer',
     // Only a default: an Inquiry posts this template onto the Hall it was asked of.
@@ -119,6 +149,7 @@ export type PostQuestInput = z.input<typeof postQuestInput>
 export type PostQuestError =
   | 'unknown_template'
   | 'hall_locked'
+  | 'hall_not_private_eligible'
   | 'hall_paused'
   | 'hall_not_found'
   | 'unknown_owner'
@@ -162,7 +193,8 @@ function chooseOwner(
 /**
  * Posts a Quest from a template. The Hall, rank and data class come from the template; the guild
  * config (current version) decides whether the Hall is locked and who may own the Quest; a Hall
- * paused by a Tripwire (or by the Guild Master) takes no new Quests.
+ * paused by a Tripwire (or by the Guild Master) takes no new Quests. A private template also needs
+ * a private-eligible Hall (`hall_not_private_eligible`).
  */
 export async function postQuest(
   deps: { config: ConfigStore; queue: QuestQueue; tripwires: TripwireStore },
@@ -177,6 +209,13 @@ export async function postQuest(
   const accepts = hallAcceptsQuests(config, template.hallId)
   if (!accepts.ok) {
     return { ok: false, error: accepts.error }
+  }
+  // A private-class template posts only into a Hall the Guild Master has marked private-eligible.
+  if (
+    template.dataClass === 'private' &&
+    !config.halls.some((h) => h.id === template.hallId && h.privateEligible)
+  ) {
+    return { ok: false, error: 'hall_not_private_eligible' }
   }
   if (await deps.tripwires.isPaused(guildId, template.hallId)) {
     return { ok: false, error: 'hall_paused' }

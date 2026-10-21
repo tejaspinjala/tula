@@ -80,18 +80,30 @@ describe('routeClaimed', () => {
     expect((await s.quests.get(s.guild, quest.id))?.state).toBe('active')
   })
 
-  test.each<[BlockReason, Partial<NewQuest>]>([
-    ['hall_not_found', { hallId: 'nowhere' }],
-    ['private_provider_unavailable', { dataClass: 'private' }],
-  ])('a permanent block (%s) kills the Quest with that coded reason', async (reason, over) => {
+  test.each<[BlockReason, Partial<NewQuest>]>([['hall_not_found', { hallId: 'nowhere' }]])(
+    'a permanent block (%s) kills the Quest with that coded reason',
+    async (reason, over) => {
+      const s = setup()
+      const quest = await s.post(over)
+      const out = await routeClaimed(s.deps, s.guild, quest)
+      expect(out).toEqual({ status: 'blocked', reason, disposition: 'killed' })
+      expect(await s.quests.get(s.guild, quest.id)).toMatchObject({
+        state: 'dead',
+        lastError: reason,
+      })
+    }
+  )
+
+  test('private work with no private-eligible provider waits (queued, retried later), not dead', async () => {
     const s = setup()
-    const quest = await s.post(over)
+    const quest = await s.post({ dataClass: 'private' })
     const out = await routeClaimed(s.deps, s.guild, quest)
-    expect(out).toEqual({ status: 'blocked', reason, disposition: 'killed' })
-    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({
-      state: 'dead',
-      lastError: reason,
+    expect(out).toEqual({
+      status: 'blocked',
+      reason: 'private_provider_unavailable',
+      disposition: 'retry_scheduled',
     })
+    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({ state: 'queued' })
   })
 
   test('a locked Hall parks the Quest for a retry instead of killing it', async () => {

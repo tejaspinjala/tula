@@ -183,6 +183,14 @@ export const QUEST_TEMPLATES: readonly QuestTemplateChoice[] = [
     hallId: 'heralds',
     hallName: 'Heralds Hall',
   },
+  { id: 'health-log', name: 'Health log', hallId: 'health', hallName: 'Health' },
+  { id: 'personal-plan', name: 'Personal plan', hallId: 'personal', hallName: 'Personal' },
+  {
+    id: 'relationship-note',
+    name: 'Relationship note',
+    hallId: 'relationships',
+    hallName: 'Relationships',
+  },
 ]
 
 /** Posts a Quest from a template (`POST /guilds/:id/quests`); `jobKey` makes a retry harmless. */
