@@ -112,7 +112,7 @@ const stuck = (seen: { signal?: AbortSignal | undefined }): PasskeyBrowser => ({
 })
 
 test('a ceremony that never settles is aborted after a bounded time and reads as a timeout', async () => {
-  expect(CEREMONY_TIMEOUT_MS).toBe(60_000)
+  expect(CEREMONY_TIMEOUT_MS).toBe(55_000)
   const creation = {
     challenge: 'abc',
     rp: { name: 'x' },

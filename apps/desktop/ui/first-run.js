@@ -7,6 +7,10 @@ document.getElementById('form').addEventListener('submit', async (event) => {
       address: document.getElementById('address').value,
     })
   } catch (error) {
-    document.getElementById('error').textContent = String(error)
+    // Rust validation messages arrive as strings; anything else is a raw JS error the Guild Master should not see.
+    document.getElementById('error').textContent =
+      typeof error === 'string'
+        ? error
+        : 'The Guildhall could not be reached from here. Check the address and try again.'
   }
 })
