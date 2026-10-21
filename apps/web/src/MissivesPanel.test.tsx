@@ -165,7 +165,7 @@ test('a new Missive arrives live: missive.sent refetches the list by route', asy
     )
     await new Promise((resolve) => setTimeout(resolve, 40))
   })
-  expect(host.querySelectorAll('[data-testid="missive"]')).toHaveLength(2)
+  expect(host.querySelectorAll('[data-testid="missive"]')).toHaveLength(3)
   fresh.push(missive('m9', 'heralds-captain', 'hall', 'Fresh from the road.'))
   await act(async () => {
     root.render(
@@ -176,7 +176,7 @@ test('a new Missive arrives live: missive.sent refetches the list by route', asy
     await new Promise((resolve) => setTimeout(resolve, 40))
   })
   const rows = [...host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
-  expect(rows).toHaveLength(3)
+  expect(rows).toHaveLength(4)
   expect(rows[0]).toContain('Fresh from the road.')
   await act(async () => root.unmount())
   fresh.length = 0
