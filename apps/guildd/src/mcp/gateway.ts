@@ -642,7 +642,10 @@ export class McpGateway {
 
   private async compile(caller: Caller, tools: readonly string[]): Promise<string> {
     const { guild, quest } = caller
-    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, { limit: 20 })
+    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, {
+      limit: 20,
+      includePrivate: await this.mayReadPrivate(caller),
+    })
     return compileBrief(
       {
         quest,
@@ -695,19 +698,38 @@ export class McpGateway {
       .join('; ')
   }
 
+  /**
+   * Whether the leased Quest may read private notes of its own Hall: only a private-class Quest or
+   * a Quest in a private Hall. A work-Hall Member on an ordinary Quest never does.
+   */
+  private async mayReadPrivate(caller: Caller): Promise<boolean> {
+    if (caller.quest.dataClass === 'private') {
+      return true
+    }
+    const { config } = await this.deps.config.current(caller.guild)
+    return config.halls.find((h) => h.id === caller.quest.hallId)?.kind === 'private'
+  }
+
   private async readArchive(
     caller: Caller,
     a: z.infer<typeof readArchiveArgs>
   ): Promise<ToolReply> {
     const { guild, quest } = caller
     if (a.noteId !== undefined) {
-      const note = await hallNote(this.deps.notes, guild, quest.hallId, a.noteId)
+      const note = await hallNote(
+        this.deps.notes,
+        guild,
+        quest.hallId,
+        a.noteId,
+        await this.mayReadPrivate(caller)
+      )
       return note ? ok({ note }) : refuse('not_found')
     }
     const page = await hallNotes(this.deps.notes, guild, quest.hallId, {
       query: a.query,
       after: a.after,
       limit: a.limit,
+      includePrivate: await this.mayReadPrivate(caller),
     })
     return ok({ notes: page.notes, next: page.next })
   }
@@ -726,7 +748,9 @@ export class McpGateway {
           claim: a.claim,
           ...(a.evidence === undefined ? {} : { evidence: a.evidence }),
         },
-        caller.quest.hallId
+        caller.quest.hallId,
+        undefined,
+        caller.quest.dataClass === 'private' ? 'private' : 'internal'
       )
       return ok({ id: note.id, version: note.version })
     } catch (error) {
@@ -1270,7 +1294,8 @@ export class McpGateway {
         claim: 'assumption',
       },
       quest.hallId,
-      `inquiry-answer:${inquiry.id}`
+      `inquiry-answer:${inquiry.id}`,
+      quest.dataClass === 'private' ? 'private' : 'internal'
     )
     await this.deps.inquiries.attachNote(guild, inquiry.id, note.id)
     return {
@@ -1353,7 +1378,8 @@ export class McpGateway {
       guild,
       subject.id,
       { kind: 'member', questId: quest.id, hallId: quest.hallId, memberId: caller.member },
-      dossierCap(config)
+      dossierCap(config),
+      await this.mayReadPrivate(caller)
     )
     if (!made.ok) {
       return refuse(made.error)

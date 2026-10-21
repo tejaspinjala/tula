@@ -28,12 +28,16 @@ const versionRow = z.object({
   trust: z.enum(['fact', 'quarantined']),
   evidence: z.string().nullable(),
 })
-const noteRow = versionRow.extend({ note_id: z.string(), kind: z.enum(['text', 'link']) })
+const noteRow = versionRow.extend({
+  note_id: z.string(),
+  kind: z.enum(['text', 'link']),
+  data_class: z.enum(['public', 'internal', 'private']),
+})
 const backlinkRow = z.object({ note_id: z.string(), title: z.string() })
 
 function toNote(row: z.infer<typeof noteRow>): Note {
-  const { note_id, kind, ...version } = row
-  return { id: note_id, kind, dataClass: 'internal', ...version }
+  const { note_id, kind, data_class, ...version } = row
+  return { id: note_id, kind, dataClass: data_class, ...version }
 }
 
 /**
@@ -51,20 +55,20 @@ export class PgNoteStore implements NoteStore {
     input: NewNote,
     hallId?: string,
     idempotencyKey?: string,
-    _dataClass?: DataClass
+    dataClass: DataClass = 'internal'
   ): Promise<Note> {
     const version = nextVersion(input, 1)
     return this.db.withGuild(guildId, async (tx) => {
       // A key already used returns that note; a racing insert waits on the unique index, then
       // finds the winner's committed row.
       const [row] = await tx`
-        insert into notes (guild_id, kind, current_version, hall_id, idempotency_key)
-        values (${guildId}, ${input.kind}, 1, ${hallId ?? null}, ${idempotencyKey ?? null})
+        insert into notes (guild_id, kind, current_version, hall_id, idempotency_key, data_class)
+        values (${guildId}, ${input.kind}, 1, ${hallId ?? null}, ${idempotencyKey ?? null}, ${dataClass})
         on conflict (guild_id, idempotency_key) where idempotency_key is not null do nothing
         returning note_id`
       if (!row) {
         const [existing] = await tx`
-          select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId} and n.idempotency_key = ${idempotencyKey ?? null}`
@@ -73,7 +77,7 @@ export class PgNoteStore implements NoteStore {
       const id = z.object({ note_id: z.string() }).parse(row).note_id
       await this.writeVersion(tx, guildId, id, version)
       await appendEvent(tx, this.keys, 'note.added', { noteId: id, version: 1, kind: input.kind })
-      return { id, kind: input.kind, dataClass: 'internal', ...version }
+      return { id, kind: input.kind, dataClass, ...version }
     })
   }
 
@@ -86,7 +90,7 @@ export class PgNoteStore implements NoteStore {
         select note_id from notes where guild_id = ${guildId} and note_id = ${id} for update`
       const [row] = locked
         ? await tx`
-            select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+            select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
             from notes n join note_versions v
               on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
             where n.guild_id = ${guildId} and n.note_id = ${id}`
@@ -105,7 +109,7 @@ export class PgNoteStore implements NoteStore {
         version: version.version,
         kind: current.kind,
       })
-      return { id, kind: current.kind, dataClass: 'internal', ...version }
+      return { id, kind: current.kind, dataClass: current.data_class, ...version }
     })
   }
 
@@ -113,15 +117,17 @@ export class PgNoteStore implements NoteStore {
     guildId: string,
     id: string,
     hall?: string,
-    _options?: NoteReadOptions
+    options?: NoteReadOptions
   ): Promise<NoteDetail | null> {
+    const includePrivate = options?.includePrivate === true
     return this.db.withGuild(guildId, async (tx) => {
       const [row] = await tx`
-        select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+        select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
         from notes n join note_versions v
           on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
         where n.guild_id = ${guildId} and n.note_id = ${id}
-          and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)`
+          and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)
+          and (${includePrivate}::boolean or n.data_class <> 'private')`
       if (!row) {
         return null
       }
@@ -138,6 +144,7 @@ export class PgNoteStore implements NoteStore {
         where l.guild_id = ${guildId} and l.target_key = ${titleKey(note.title)}
           and n.note_id <> ${id}
           and (${hall ?? null}::text is null or n.hall_id = ${hall ?? null}::text)
+          and (${includePrivate}::boolean or n.data_class <> 'private')
         order by n.note_id`
       return {
         note,
@@ -155,12 +162,13 @@ export class PgNoteStore implements NoteStore {
     return this.db.withGuild(guildId, async (tx) =>
       this.toPage(
         await tx`
-          select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId}
             and (${after}::uuid is null or n.note_id > ${after}::uuid)
             and (${page.hall ?? null}::text is null or n.hall_id = ${page.hall ?? null}::text)
+            and (${page.includePrivate === true}::boolean or n.data_class <> 'private')
           order by n.note_id limit ${page.limit + 1}`,
         page.limit
       )
@@ -176,13 +184,14 @@ export class PgNoteStore implements NoteStore {
     return this.db.withGuild(guildId, async (tx) =>
       this.toPage(
         await tx`
-          select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId}
             and v.search @@ plainto_tsquery('simple', ${terms.join(' ')})
             and (${after}::uuid is null or n.note_id > ${after}::uuid)
             and (${page.hall ?? null}::text is null or n.hall_id = ${page.hall ?? null}::text)
+            and (${page.includePrivate === true}::boolean or n.data_class <> 'private')
           order by n.note_id limit ${page.limit + 1}`,
         page.limit
       )

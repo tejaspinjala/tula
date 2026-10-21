@@ -1091,7 +1091,9 @@ export function createApp(deps: AppDeps): Hono {
       return who
     }
     const noteId = uuid.safeParse(c.req.param('noteId'))
-    const detail = noteId.success ? await deps.notes.get(who.guild, noteId.data) : null
+    const detail = noteId.success
+      ? await deps.notes.get(who.guild, noteId.data, undefined, { includePrivate: true })
+      : null
     return detail ? c.json(detail) : c.json({ error: 'not_found' }, 404)
   })
 
@@ -1109,8 +1111,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!page.success) {
       return c.json({ error: 'invalid_page' }, 400)
     }
+    // The Guild Master is not a Hall, so the private boundary does not apply to their reads.
     const paging = {
       limit: page.data.limit,
+      includePrivate: true,
       ...(page.data.after ? { after: page.data.after } : {}),
     }
     return c.json(
