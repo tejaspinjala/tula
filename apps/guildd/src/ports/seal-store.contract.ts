@@ -7,6 +7,8 @@ export interface SealStoreFixture {
   store: SealStore
   clock: MemoryClock
   newGuild: () => Promise<string>
+  /** A Council session id the store accepts for `guildId` (a real row where the adapter enforces one). */
+  newSession?: (guildId: string) => Promise<string>
 }
 
 const TEXT = 'Ship the launch post: hello world'
@@ -122,10 +124,10 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
     })
 
     test('a Council approval names the session, never a Guild Master, and is final', async () => {
-      const { store, newGuild } = await make()
+      const { store, newGuild, newSession } = await make()
       const g = await newGuild()
       const { seal, hash } = await seed(store, g)
-      const session = crypto.randomUUID()
+      const session = (await newSession?.(g)) ?? crypto.randomUUID()
       const done = await store.councilApprove(g, seal.id, {
         sessionId: session,
         expectedHash: hash,

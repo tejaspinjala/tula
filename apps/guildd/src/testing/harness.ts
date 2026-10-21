@@ -47,6 +47,8 @@ export const UNLIMITED_RATE_LIMITS = {
   'dossier-write': { client: NO_LIMIT, guild: NO_LIMIT },
   'bug-report-read': { client: NO_LIMIT, guild: NO_LIMIT },
   'bug-report-write': { client: NO_LIMIT, guild: NO_LIMIT },
+  'presence-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'presence-write': { client: NO_LIMIT, guild: NO_LIMIT },
   'session-check': { client: NO_LIMIT },
 }
 

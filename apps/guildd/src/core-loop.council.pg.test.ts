@@ -61,6 +61,7 @@ async function world() {
     config: a.config,
     presence: a.presence,
     clock: a.clock,
+    gates: gateStore,
     council,
   }
   const types = async () => a.db.withGuild(guild, (tx) => eventsAfter(tx, 0, 500))

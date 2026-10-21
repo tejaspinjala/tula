@@ -294,6 +294,14 @@ export class CouncilEngine {
     return this.deps.store.approvalFor(guildId, questId, proposalHash)
   }
 
+  /** The sessions that approved each (Quest, Proposal hash) pair; pairs without an approval are left out. */
+  async approvedSessions(
+    guildId: string,
+    proposals: ReadonlyArray<{ questId: string; proposalHash: string }>
+  ): Promise<Array<{ questId: string; proposalHash: string; sessionId: string }>> {
+    return this.deps.store.approvalsFor(guildId, proposals)
+  }
+
   /**
    * Gives the Quest its Council approval, after re-checking Bar the Gates right now, then the
    * Seal Policy (still `routine_alone`) and presence (Guild Master still away), both read fresh:

@@ -4,6 +4,8 @@ import { GatewayError } from './model-gateway'
 import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import { MAX_APPROVAL_LOOKUP } from './ports/council-store'
+import type { GateStore } from './ports/gate-store'
 import { isAway, type PresenceStore } from './ports/presence-store'
 import type { Verdict } from './ports/proposal-store'
 import type { Quest, QuestQueue } from './ports/quest-queue'
@@ -112,9 +114,11 @@ export interface SealRequestDeps {
   /** Whether the Guild Master is away (read at request time, never cached). Absent: never away. */
   presence?: Pick<PresenceStore, 'get'>
   /** The Council of Elders. Absent: it never convenes. */
-  council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining' | 'approvedSession'>
+  council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining' | 'approvedSessions'>
   /** The instant "away" is judged at. Absent: the Council never convenes. */
   clock?: Pick<Clock, 'now'>
+  /** Bar the Gates, re-read right before a Council settlement. Absent: the Council never settles. */
+  gates?: Pick<GateStore, 'isBarred'>
 }
 
 /** What consulting the Council came to: nothing, not yet, evidence for a Seal, or an approval. */
@@ -214,6 +218,30 @@ async function consultCouncil(
   }
 }
 
+/**
+ * Whether the Council may settle a Seal right now, read fresh and failing closed on any error:
+ * the Gates are open, the Seal Policy is still `routine_alone` and the Guild Master is still away.
+ * Called immediately before every `councilApprove`, so nothing that changed since the vote is
+ * trusted; a refusal leaves the Seal requested for the Guild Master.
+ */
+async function councilMayAct(deps: SealRequestDeps, guildId: string): Promise<boolean> {
+  const { gates, config, presence, clock } = deps
+  if (!gates || !config || !presence || !clock) {
+    return false
+  }
+  try {
+    if (await gates.isBarred(guildId)) {
+      return false
+    }
+    if ((await config.current(guildId)).config.sealPolicy !== 'routine_alone') {
+      return false
+    }
+    return isAway(await presence.get(guildId), clock.now())
+  } catch {
+    return false
+  }
+}
+
 /** What {@link requestQuestSeal} did: asked for a Seal, rejected the Proposal, or found none. */
 export type QuestSealOutcome =
   | { outcome: 'requested'; seal: Seal }
@@ -270,7 +298,7 @@ export async function requestQuestSeal(
     evidence: consult.kind === 'none' ? verdictEvidence : `${verdictEvidence}; ${consult.evidence}`,
     round: quest.round,
   })
-  if (consult.kind === 'approved') {
+  if (consult.kind === 'approved' && (await councilMayAct(deps, guildId))) {
     // The Council approved in the Guild Master's absence: the request settles as council_approved
     // (naming the session, never a member) and the Quest finishes. A crash between the steps is
     // safe: the approval row, the Seal request and both settlements are each idempotent.
@@ -303,26 +331,40 @@ async function healCouncilApprovals(deps: PendingSealDeps, guildId: string): Pro
   if (!council || !config || !presence || !clock) {
     return
   }
-  // A recorded approval is final for the cap, not for the Seal: settle only while the Council
-  // could still approve (policy `routine_alone` and the Guild Master away); else the Seal stays
-  // requested for the Guild Master.
-  if (
-    (await config.current(guildId)).config.sealPolicy !== 'routine_alone' ||
-    !isAway(await presence.get(guildId), clock.now())
-  ) {
+  // A recorded approval is final for the cap, not for the Seal: each settlement re-reads whether
+  // the Council could still approve (see councilMayAct); else the Seal stays requested for the
+  // Guild Master.
+  if (!(await councilMayAct(deps, guildId))) {
     return
   }
   let after: string | undefined
   do {
     const page = await deps.sealStore.list(guildId, {
-      limit: 100,
+      limit: MAX_APPROVAL_LOOKUP,
       status: 'requested',
       ...(after === undefined ? {} : { after }),
     })
+    // One lookup for the whole page: Seals without a Council approval cost nothing more.
+    let approvals: Awaited<ReturnType<typeof council.approvedSessions>>
+    try {
+      approvals = await council.approvedSessions(
+        guildId,
+        page.seals.map((seal) => ({ questId: seal.questId, proposalHash: seal.actionHash }))
+      )
+    } catch (error) {
+      logPassFailure('heal', guildId, page.seals[0]?.questId ?? 'none', error)
+      approvals = []
+    }
     for (const seal of page.seals) {
+      const sessionId = approvals.find(
+        (a) => a.questId === seal.questId && a.proposalHash === seal.actionHash
+      )?.sessionId
+      if (sessionId === undefined) {
+        continue
+      }
       try {
-        const sessionId = await council.approvedSession(guildId, seal.questId, seal.actionHash)
-        if (sessionId === null) {
+        if (!(await councilMayAct(deps, guildId))) {
+          // Bar the Gates, a changed policy or a returned Guild Master: the Seal stays requested.
           continue
         }
         const approved = await deps.sealStore.councilApprove(guildId, seal.id, {

@@ -4,6 +4,7 @@ import {
   type CouncilSession,
   type CouncilStore,
   type CouncilVote,
+  MAX_APPROVAL_LOOKUP,
   type NewCouncilVote,
   type OpenSessionResult,
 } from '../ports/council-store'
@@ -214,8 +215,26 @@ export class MemoryCouncilStore implements CouncilStore {
     questId: string,
     proposalHash: string
   ): Promise<string | null> {
+    return this.approvalSync(guildId, questId, proposalHash)
+  }
+
+  private approvalSync(guildId: string, questId: string, proposalHash: string): string | null {
     const session = this.sessions.get(`${guildId}:${proposalHash}`)
     const given = this.approvals.some((a) => a.sessionId === session?.id && a.questId === questId)
     return session && given ? session.id : null
+  }
+
+  async approvalsFor(
+    guildId: string,
+    proposals: ReadonlyArray<{ questId: string; proposalHash: string }>
+  ): Promise<Array<{ questId: string; proposalHash: string; sessionId: string }>> {
+    const found: Array<{ questId: string; proposalHash: string; sessionId: string }> = []
+    for (const { questId, proposalHash } of proposals.slice(0, MAX_APPROVAL_LOOKUP)) {
+      const sessionId = this.approvalSync(guildId, questId, proposalHash)
+      if (sessionId !== null) {
+        found.push({ questId, proposalHash, sessionId })
+      }
+    }
+    return found
   }
 }
