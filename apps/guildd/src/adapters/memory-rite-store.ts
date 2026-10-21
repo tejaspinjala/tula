@@ -1,6 +1,7 @@
 import type { Clock } from '../ports/clock'
 import type {
   NewRiteVersion,
+  PublishDraftResult,
   RitePage,
   RiteRun,
   RiteRunPage,
@@ -68,6 +69,14 @@ export class MemoryRiteStore implements RiteStore {
     const list = this.state(guildId).rites.get(riteId) ?? []
     const found = list.findLast((v) => v.status === 'active')
     return found ? structuredClone(found) : null
+  }
+
+  async publishDraft(
+    _guildId: string,
+    _riteId: string,
+    _input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+  ): Promise<PublishDraftResult> {
+    throw new Error('not implemented')
   }
 
   async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {

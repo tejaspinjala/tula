@@ -126,6 +126,95 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       expect(page.next).toBeNull()
     })
 
+    test('a draft never counts as active; publishing an internal draft supersedes the old active', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
+      expect((await store.list(g, { limit: 10 })).rites[0]).toMatchObject({
+        latestVersion: 2,
+        activeVersion: 1,
+      })
+      const published = await store.publishDraft(g, 'wf', {
+        version: 2,
+        basedOn: 1,
+        outcome: 'active',
+      })
+      expect(published).toMatchObject({ ok: true, version: { version: 2, status: 'active' } })
+      expect((await store.getVersion(g, 'wf', 1))?.status).toBe('superseded')
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+    })
+
+    test('a widening publish leaves the old active until the version is confirmed', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft', classification: 'widening' }))
+      const published = await store.publishDraft(g, 'wf', {
+        version: 2,
+        basedOn: 1,
+        outcome: 'pending',
+      })
+      expect(published).toMatchObject({ ok: true, version: { version: 2, status: 'pending' } })
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
+      await store.activate(g, 'wf', 2)
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+      expect((await store.getVersion(g, 'wf', 1))?.status).toBe('superseded')
+    })
+
+    test('a publish based on a moved active version is stale and changes nothing', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      await store.publishDraft(g, 'wf', { version: 2, basedOn: 1, outcome: 'active' })
+      expect(
+        await store.publishDraft(g, 'wf', { version: 3, basedOn: 1, outcome: 'active' })
+      ).toEqual({ ok: false, error: 'stale' })
+      expect((await store.getVersion(g, 'wf', 3))?.status).toBe('draft')
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+      expect(
+        await store.publishDraft(g, 'wf', { version: 3, basedOn: 2, outcome: 'active' })
+      ).toMatchObject({ ok: true })
+    })
+
+    test('only a draft can be published', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      expect(
+        await store.publishDraft(g, 'wf', { version: 1, basedOn: null, outcome: 'active' })
+      ).toEqual({ ok: false, error: 'not_draft' })
+      expect(
+        await store.publishDraft(g, 'wf', { version: 9, basedOn: 1, outcome: 'active' })
+      ).toEqual({ ok: false, error: 'not_found' })
+    })
+
+    test('a first publish is based on no active version', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      expect(
+        await store.publishDraft(g, 'wf', { version: 1, basedOn: 1, outcome: 'active' })
+      ).toEqual({ ok: false, error: 'stale' })
+      expect(
+        await store.publishDraft(g, 'wf', { version: 1, basedOn: null, outcome: 'active' })
+      ).toMatchObject({ ok: true })
+    })
+
+    test('one guild cannot publish another guild`s draft', async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      await store.saveVersion(a, 'secret', version({ status: 'draft' }))
+      expect(
+        await store.publishDraft(b, 'secret', { version: 1, basedOn: null, outcome: 'active' })
+      ).toEqual({ ok: false, error: 'not_found' })
+      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('draft')
+    })
+
     test('one guild never sees or changes another guild`s rites or instances', async () => {
       const { store, newGuild } = await make()
       const a = await newGuild()

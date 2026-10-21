@@ -5,6 +5,7 @@
 export const RITE_EVENT = {
   versionSaved: 'workflow.version_saved',
   versionConfirmed: 'workflow.version_confirmed',
+  versionPublished: 'workflow.version_published',
   runStarted: 'workflow.run_started',
 } as const
 

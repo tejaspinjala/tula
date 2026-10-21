@@ -5,6 +5,7 @@ import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
   NewRiteVersion,
+  PublishDraftResult,
   RitePage,
   RiteRun,
   RiteRunPage,
@@ -151,6 +152,14 @@ export class PgRiteStore implements RiteStore {
         order by version desc limit 1`
       return row ? toVersion(versionRow.parse(row)) : null
     })
+  }
+
+  async publishDraft(
+    _guildId: string,
+    _riteId: string,
+    _input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+  ): Promise<PublishDraftResult> {
+    throw new Error('not implemented')
   }
 
   async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {

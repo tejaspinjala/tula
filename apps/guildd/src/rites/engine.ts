@@ -2,6 +2,7 @@ import type { ConfigStore } from '../ports/config-store'
 import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type {
+  PublishDraftError,
   RitePage,
   RiteRun,
   RiteRunPage,
@@ -36,6 +37,11 @@ export interface RiteEngineDeps {
 export type SaveResult =
   | { status: 'invalid'; errors: RiteError[] }
   | { status: 'active' | 'pending'; version: RiteVersion }
+
+/** The outcome of {@link RiteEngine.publish}. */
+export type PublishResult =
+  | { ok: true; status: 'active' | 'pending'; version: RiteVersion }
+  | { ok: false; error: PublishDraftError }
 
 /** Why a run could not start or finish compiling. */
 export type RunError =
@@ -188,6 +194,16 @@ export class RiteEngine {
       status,
     })
     return { status, version }
+  }
+
+  /** Publishes a draft over the active version it was based on. */
+  async publish(
+    _guildId: string,
+    _riteId: string,
+    _version: number,
+    _basedOn: number | null
+  ): Promise<PublishResult> {
+    throw new Error('not implemented')
   }
 
   /** Confirms a pending version (the caller has re-authenticated); null when absent. */

@@ -78,6 +78,7 @@ const chain = (): RiteGraph => ({
   ],
 })
 
+/** Saves a draft and publishes it over the current active version, as the editor does. */
 const mustSave = async (
   engine: RiteEngine,
   guild: string,
@@ -88,8 +89,85 @@ const mustSave = async (
   if (saved.status === 'invalid') {
     throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
   }
-  return saved
+  const basedOn = (await engine.get(guild, id))?.activeVersion ?? null
+  const published = await engine.publish(guild, id, saved.version.version, basedOn)
+  if (!published.ok) {
+    throw new Error(`publish: ${published.error}`)
+  }
+  return published
 }
+
+test('a save is a draft that no run can use, and the old active version keeps running', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const edited = chain()
+  const research = edited.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.briefTemplate = 'A better brief'
+  const saved = await engine.save(guild, 'chain', { name: 'Chain', graph: edited })
+  expect(saved).toMatchObject({ status: 'draft', version: { version: 2, status: 'draft' } })
+  expect(await engine.run(guild, 'chain', { version: 2 })).toMatchObject({
+    ok: false,
+    error: 'version_not_active',
+  })
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
+})
+
+test('publishing an internal draft activates it and supersedes the old active version', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const edited = chain()
+  const research = edited.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.briefTemplate = 'A better brief'
+  await engine.save(guild, 'chain', { name: 'Chain', graph: edited })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({
+    ok: true,
+    status: 'active',
+    version: { version: 2, status: 'active', classification: 'internal' },
+  })
+  expect((await engine.get(guild, 'chain', 1))?.version.status).toBe('superseded')
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 2 } })
+})
+
+test('publishing a widening draft is pending: the old version stays active until confirmed', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const wider = chain()
+  const research = wider.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.maxUsd = 2
+  await engine.save(guild, 'chain', { name: 'Chain', graph: wider })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({
+    ok: true,
+    status: 'pending',
+    version: { version: 2, status: 'pending' },
+  })
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
+  expect((await engine.confirm(guild, 'chain', 2))?.status).toBe('active')
+  expect((await engine.get(guild, 'chain', 1))?.version.status).toBe('superseded')
+})
+
+test('publishing over a moved active version is stale; only drafts publish', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({ ok: true })
+  expect(await engine.publish(guild, 'chain', 3, 1)).toEqual({ ok: false, error: 'stale' })
+  expect(await engine.publish(guild, 'chain', 2, 2)).toEqual({ ok: false, error: 'not_draft' })
+  expect(await engine.publish(guild, 'chain', 9, 2)).toEqual({ ok: false, error: 'not_found' })
+})
 
 test('an invalid graph is refused with coded errors and nothing is stored', async () => {
   const { engine, guild } = await setup()

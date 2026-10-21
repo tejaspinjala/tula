@@ -4,8 +4,20 @@ import type { RiteGraph } from '../rites/graph'
 /** Largest page a {@link RiteStore} list returns. */
 export const MAX_RITE_PAGE = 100
 
-/** `active` versions may run; a `pending` (widening) version waits for confirmation. */
-export type RiteVersionStatus = 'active' | 'pending'
+/**
+ * A `draft` is a saved edit that never runs; `active` may run (at most one per Rite); a `pending`
+ * (widening) published version waits for confirmation; `superseded` was active until a newer one
+ * went live.
+ */
+export type RiteVersionStatus = 'draft' | 'pending' | 'active' | 'superseded'
+
+/** Why {@link RiteStore.publishDraft} refused. */
+export type PublishDraftError = 'not_found' | 'not_draft' | 'stale'
+
+/** The outcome of {@link RiteStore.publishDraft}. */
+export type PublishDraftResult =
+  | { ok: true; version: RiteVersion }
+  | { ok: false; error: PublishDraftError }
 
 /** What a save writes. The version number is assigned by the store. */
 export interface NewRiteVersion {
@@ -78,6 +90,17 @@ export interface RiteStore {
   getVersion(guildId: string, riteId: string, version?: number): Promise<RiteVersion | null>
   /** The newest `active` version, or null. */
   latestActive(guildId: string, riteId: string): Promise<RiteVersion | null>
+  /**
+   * Publishes a draft in one transaction with the `published` event. `basedOn` is the active
+   * version the caller saw (null for none); a different current active version is `stale`.
+   * `outcome: 'active'` makes the draft active and supersedes the old active; `'pending'` leaves
+   * the old active running until {@link RiteStore.activate}.
+   */
+  publishDraft(
+    guildId: string,
+    riteId: string,
+    input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+  ): Promise<PublishDraftResult>
   /** Marks a pending version active; idempotent for an active one; null when absent. */
   activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null>
   /** Rites in id order strictly after `after`. */
