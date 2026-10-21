@@ -142,7 +142,7 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
       expect(again.session).toMatchObject({ status: 'escalated', reason: 'block' })
     })
 
-    test('a claim is taken once until it expires, and can be released', async () => {
+    test('a claim is taken once until it expires; its owner renews it and releases it', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
       const opened = await store.open(g, input())
@@ -151,15 +151,49 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
       }
       const id = opened.session.id
       const t0 = new Date('2026-01-01T00:00:00.000Z')
+      const at = (ms: number) => new Date(t0.getTime() + ms)
       const claims = await Promise.all([
-        store.claim(g, id, t0, 60_000),
-        store.claim(g, id, t0, 60_000),
+        store.claim(g, id, 'a', t0, 60_000),
+        store.claim(g, id, 'b', t0, 60_000),
       ])
       expect(claims.filter(Boolean)).toHaveLength(1)
-      expect(await store.claim(g, id, new Date(t0.getTime() + 59_999), 60_000)).toBe(false)
-      expect(await store.claim(g, id, new Date(t0.getTime() + 60_000), 60_000)).toBe(true)
-      await store.release(g, id)
-      expect(await store.claim(g, id, t0, 60_000)).toBe(true)
+      const owner = claims[0] ? 'a' : 'b'
+      const rival = owner === 'a' ? 'b' : 'a'
+      expect(await store.claim(g, id, rival, at(59_999), 60_000)).toBe(false)
+      expect(await store.claim(g, id, owner, at(59_999), 60_000)).toBe(true)
+      expect(await store.claim(g, id, rival, at(100_000), 60_000)).toBe(false)
+      expect(await store.claim(g, id, rival, at(119_998), 60_000)).toBe(false)
+      expect(await store.claim(g, id, rival, at(119_999), 60_000)).toBe(true)
+      await store.release(g, id, rival)
+      expect(await store.claim(g, id, owner, t0, 60_000)).toBe(true)
+    })
+
+    test("a stale release never clears another owner's live claim", async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const opened = await store.open(g, input())
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      const id = opened.session.id
+      const t0 = new Date('2026-01-01T00:00:00.000Z')
+      expect(await store.claim(g, id, 'a', t0, 60_000)).toBe(true)
+      const later = new Date(t0.getTime() + 60_000)
+      expect(await store.claim(g, id, 'b', later, 60_000)).toBe(true)
+      await store.release(g, id, 'a')
+      expect(await store.claim(g, id, 'c', later, 60_000)).toBe(false)
+    })
+
+    test('failed attempts are counted per session', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const opened = await store.open(g, input())
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      expect(await store.recordFailure(g, opened.session.id)).toBe(1)
+      expect(await store.recordFailure(g, opened.session.id)).toBe(2)
+      expect(await store.recordFailure(await newGuild(), opened.session.id)).toBe(0)
     })
 
     test('escalating clears the claim, and another guild cannot claim or release', async () => {
@@ -172,12 +206,12 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
       }
       const id = opened.session.id
       const t0 = new Date('2026-01-01T00:00:00.000Z')
-      expect(await store.claim(other, id, t0, 60_000)).toBe(false)
-      expect(await store.claim(g, id, t0, 60_000)).toBe(true)
-      await store.release(other, id)
-      expect(await store.claim(g, id, t0, 60_000)).toBe(false)
+      expect(await store.claim(other, id, 'a', t0, 60_000)).toBe(false)
+      expect(await store.claim(g, id, 'a', t0, 60_000)).toBe(true)
+      await store.release(other, id, 'a')
+      expect(await store.claim(g, id, 'b', t0, 60_000)).toBe(false)
       await store.escalate(g, id, 'block')
-      expect(await store.claim(g, id, t0, 60_000)).toBe(false)
+      expect(await store.claim(g, id, 'b', t0, 60_000)).toBe(false)
     })
 
     test("another guild cannot see or touch a guild's sessions or votes", async () => {

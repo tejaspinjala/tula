@@ -72,14 +72,29 @@ export interface CouncilStore {
   /** The session's votes in voice order. */
   votes(guildId: string, sessionId: string): Promise<CouncilVote[]>
   /**
-   * Claims an open session to run its voices: true when no live claim exists (none, or one that
-   * ended at or before `now`), setting a claim that ends `ttlMs` after `now`. Atomic, so two
-   * workers never both run the voices. False for a live claim, an escalated session or another
-   * guild's id. No transaction is held across the model calls: the claim is the lock.
+   * Claims an open session for `owner` (a random id per worker run) to run its voices: true when
+   * no live claim exists (none, or one that ended at or before `now`) or when `owner` already
+   * holds it (a renewal), setting a claim that ends `ttlMs` after `now`. Atomic, so two workers
+   * never both run the voices. False for another owner's live claim, an escalated session or
+   * another guild's id. No transaction is held across the model calls: the claim is the lock.
    */
-  claim(guildId: string, sessionId: string, now: Date, ttlMs: number): Promise<boolean>
-  /** Gives a claim up (the voices were halted); a no-op for an escalated session or another guild's id. */
-  release(guildId: string, sessionId: string): Promise<void>
+  claim(
+    guildId: string,
+    sessionId: string,
+    owner: string,
+    now: Date,
+    ttlMs: number
+  ): Promise<boolean>
+  /**
+   * Gives `owner`'s claim up (the voices were halted). Clears nothing when someone else holds the
+   * claim now, so a stale release never frees a live one.
+   */
+  release(guildId: string, sessionId: string, owner: string): Promise<void>
+  /**
+   * Counts one failed convene attempt (a halt other than Bar the Gates) and returns the new
+   * count; 0 for an unknown session or another guild's id.
+   */
+  recordFailure(guildId: string, sessionId: string): Promise<number>
   /** Settles the session as escalated; it also clears any claim. with a reason code; true the first time only. Appends `council.escalated`. */
   escalate(guildId: string, sessionId: string, reason: string): Promise<boolean>
 }

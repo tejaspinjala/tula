@@ -14,6 +14,10 @@ create table council_sessions (
   -- A worker running the voices holds the session until this instant; an expired claim can be
   -- taken over. No transaction is held across the model calls: the claim is the lock.
   claimed_until timestamptz,
+  -- Who holds the claim (a random id per worker run): only the owner renews or releases it.
+  claim_owner text check (length(claim_owner) between 1 and 100),
+  -- Convene attempts that halted for a reason other than Bar the Gates; three escalate the session.
+  failed_attempts integer not null default 0 check (failed_attempts >= 0),
   created_at timestamptz not null default now(),
   primary key (guild_id, session_id),
   unique (guild_id, proposal_hash),

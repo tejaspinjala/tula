@@ -13,8 +13,9 @@ export class MemoryCouncilStore implements CouncilStore {
   private readonly sessions = new Map<string, CouncilSession>()
   /** Session ids to their guild, so another guild's id resolves to nothing. */
   private readonly owners = new Map<string, string>()
-  /** Live claims: session id to the epoch ms the claim ends. */
-  private readonly claims = new Map<string, number>()
+  /** Live claims: session id to the owner and the epoch ms the claim ends. */
+  private readonly claims = new Map<string, { owner: string; until: number }>()
+  private readonly failures = new Map<string, number>()
   private readonly voteRows = new Map<string, CouncilVote>()
 
   async open(
@@ -71,23 +72,38 @@ export class MemoryCouncilStore implements CouncilStore {
     })
   }
 
-  async claim(guildId: string, sessionId: string, now: Date, ttlMs: number): Promise<boolean> {
+  async claim(
+    guildId: string,
+    sessionId: string,
+    owner: string,
+    now: Date,
+    ttlMs: number
+  ): Promise<boolean> {
     const session = this.find(guildId, sessionId)
     if (!session || session.status !== 'open') {
       return false
     }
-    const until = this.claims.get(sessionId)
-    if (until !== undefined && until > now.getTime()) {
+    const held = this.claims.get(sessionId)
+    if (held && held.owner !== owner && held.until > now.getTime()) {
       return false
     }
-    this.claims.set(sessionId, now.getTime() + ttlMs)
+    this.claims.set(sessionId, { owner, until: now.getTime() + ttlMs })
     return true
   }
 
-  async release(guildId: string, sessionId: string): Promise<void> {
-    if (this.find(guildId, sessionId)) {
+  async release(guildId: string, sessionId: string, owner: string): Promise<void> {
+    if (this.find(guildId, sessionId) && this.claims.get(sessionId)?.owner === owner) {
       this.claims.delete(sessionId)
     }
+  }
+
+  async recordFailure(guildId: string, sessionId: string): Promise<number> {
+    if (!this.find(guildId, sessionId)) {
+      return 0
+    }
+    const n = (this.failures.get(sessionId) ?? 0) + 1
+    this.failures.set(sessionId, n)
+    return n
   }
 
   private find(guildId: string, sessionId: string): CouncilSession | undefined {

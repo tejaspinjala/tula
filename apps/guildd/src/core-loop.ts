@@ -1,5 +1,6 @@
 import { type CouncilEngine, councilEvidence } from './council'
 import { councilApprovalCap, councilSessionCap } from './guild-config'
+import { GatewayError } from './model-gateway'
 import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
@@ -15,7 +16,8 @@ import { type SealEngine, SealRequestError } from './seals'
 /** One stderr line naming the failed step and the ids, never the error text. */
 function logPassFailure(step: string, guildId: string, questId: string, error: unknown): void {
   const name = error instanceof Error ? error.name : 'unknown'
-  process.stderr.write(`seal ${step} failed: guild=${guildId} quest=${questId} ${name}\n`)
+  const code = error instanceof GatewayError ? ` code=${error.code}` : ''
+  process.stderr.write(`seal ${step} failed: guild=${guildId} quest=${questId} ${name}${code}\n`)
 }
 
 /** Dead-letters a Quest whose Seal can never be requested, isolating a failure of that too. */

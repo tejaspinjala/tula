@@ -125,7 +125,7 @@ export interface GatewayDeps {
 
 const DEFAULT_BAR_POLL_MS = 250
 /** A Council voice's call is aborted after this long (a vote is a short reply). */
-const COUNCIL_CALL_TIMEOUT_MS = 60_000
+export const COUNCIL_CALL_TIMEOUT_MS = 60_000
 /** The most a Council voice may reply with: a vote and a few short reasons. */
 const COUNCIL_MAX_REPLY_TOKENS = 600
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000

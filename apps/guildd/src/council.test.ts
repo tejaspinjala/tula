@@ -3,13 +3,14 @@ import { MemoryClock } from './adapters/memory-clock'
 import { MemoryCouncilStore } from './adapters/memory-council-store'
 import {
   buildBrief,
+  COUNCIL_CLAIM_TTL_MS,
   CouncilEngine,
   councilEvidence,
   parseVoteOutput,
   tally,
   voiceSystem,
 } from './council'
-import { GatewayError } from './model-gateway'
+import { COUNCIL_CALL_TIMEOUT_MS, GatewayError } from './model-gateway'
 import { COUNCIL_VOICES, type CouncilVote } from './ports/council-store'
 import { reply, ScriptedCouncilModel, voteReply } from './testing/scripted-council-model'
 
@@ -289,7 +290,7 @@ describe('CouncilEngine.convene', () => {
     if (opened.status === 'cap_reached') {
       throw new Error('unexpected cap')
     }
-    await store.claim(GUILD, opened.session.id, clock.now(), 5 * 60_000)
+    await store.claim(GUILD, opened.session.id, 'other-worker', clock.now(), 5 * 60_000)
     expect((await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).status).toBe(
       'in_progress'
     )
@@ -298,6 +299,46 @@ describe('CouncilEngine.convene', () => {
       'escalated'
     )
     expect(model.calls).toHaveLength(5)
+  })
+
+  test('the claim outlives one voice timeout by a wide margin, since it is renewed before each voice', () => {
+    expect(COUNCIL_CLAIM_TTL_MS).toBeGreaterThanOrEqual(2 * COUNCIL_CALL_TIMEOUT_MS)
+  })
+
+  test('a permanent config error three times escalates as council_unavailable', async () => {
+    const { engine, store } = setup(() => {
+      throw new GatewayError('unknown_profile')
+    })
+    const ask = () => engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    await expect(ask()).rejects.toThrow()
+    await expect(ask()).rejects.toThrow()
+    const third = await ask()
+    expect(third.status === 'escalated' && third.reason).toBe('council_unavailable')
+    const again = await ask()
+    expect(again.status === 'escalated' && again.reason).toBe('council_unavailable')
+    const opened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    expect(opened.status === 'existing' && opened.session.reason).toBe('council_unavailable')
+  })
+
+  test('Bar the Gates never counts toward the attempts and never escalates', async () => {
+    const { engine, store } = setup(() => {
+      throw new GatewayError('gates_barred')
+    })
+    for (let i = 0; i < 6; i += 1) {
+      await expect(engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).rejects.toThrow()
+    }
+    const opened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    expect(opened.status === 'existing' && opened.session.status).toBe('open')
   })
 
   test('the sessions cap reached convenes nothing and runs no voice', async () => {

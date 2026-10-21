@@ -130,8 +130,15 @@ export function councilEvidence(votes: readonly CouncilVote[], reason: string): 
   return [`Council of Elders did not approve (${reason})`, ...items].join('; ')
 }
 
-/** How long a worker holds a session while it runs the voices: longer than five voice timeouts. */
-const CLAIM_TTL_MS = 5 * 60_000
+/**
+ * How long a claim on a session lasts. The worker renews it before each voice, so it must outlive
+ * one voice call (at most {@link COUNCIL_CALL_TIMEOUT_MS}) by a wide margin; a crashed worker's
+ * claim ends on its own after this.
+ */
+export const COUNCIL_CLAIM_TTL_MS = 5 * 60_000
+
+/** Failed convene attempts after which the Council gives up and escalates as `council_unavailable`. */
+export const COUNCIL_MAX_FAILED_ATTEMPTS = 3
 
 /** What {@link CouncilEngine.convene} did. */
 export type ConveneResult =
@@ -181,14 +188,21 @@ export class CouncilEngine {
       return { status: 'cap_reached' }
     }
     const { session } = opened
+    let unavailable = false
     if (session.status === 'open') {
-      if (!(await store.claim(guildId, session.id, clock.now(), CLAIM_TTL_MS))) {
+      const owner = crypto.randomUUID()
+      const hold = () => store.claim(guildId, session.id, owner, clock.now(), COUNCIL_CLAIM_TTL_MS)
+      if (!(await hold())) {
         return { status: 'in_progress' }
       }
       try {
         const finished = new Set((await store.votes(guildId, session.id)).map((v) => v.voice))
         for (const voice of COUNCIL_VOICES) {
           if (!finished.has(voice)) {
+            // Renew before each voice; a lost claim (taken over after expiry) stops this worker.
+            if (!(await hold())) {
+              return { status: 'in_progress' }
+            }
             await store.recordVote(
               guildId,
               session.id,
@@ -197,13 +211,21 @@ export class CouncilEngine {
           }
         }
       } catch (error) {
-        await store.release(guildId, session.id)
-        throw error
+        const barred =
+          error instanceof GatewayError &&
+          (error.code === 'gates_barred' || error.code === 'gates_unavailable')
+        // Bar the Gates halts without counting: it must never turn into a Seal request.
+        const failures = barred ? 0 : await store.recordFailure(guildId, session.id)
+        if (failures < COUNCIL_MAX_FAILED_ATTEMPTS) {
+          await store.release(guildId, session.id, owner)
+          throw error
+        }
+        unavailable = true
       }
     }
     const votes = await store.votes(guildId, session.id)
     const { reason } = tally(votes)
-    const settled = session.reason ?? reason
+    const settled = session.reason ?? (unavailable ? 'council_unavailable' : reason)
     if (session.status === 'open') {
       await store.escalate(guildId, session.id, settled)
     }
