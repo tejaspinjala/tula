@@ -85,7 +85,7 @@ test('the HUD shows the day and a Treasury Meter of what is left to spend today'
   await tick(20)
   expect(m.host.textContent).toContain('Day 2026-10-20')
   const meter = m.host.querySelector('meter')
-  expect(meter?.getAttribute('aria-label')).toBe('Treasury left today')
+  expect(meter?.getAttribute('aria-label')).toBe('Treasury')
   expect(meter?.getAttribute('aria-valuenow')).toBe('3500')
   expect(meter?.getAttribute('aria-valuemax')).toBe('5000')
   expect(meter?.getAttribute('aria-valuetext')).toBe('$35.00 of $50.00')
