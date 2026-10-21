@@ -346,6 +346,7 @@ export class PgQuestQueue implements QuestQueue {
         where q.guild_id = ${guildId}
           and (q.state = 'queued' or (q.state = 'active' and q.lease_expires_at <= ${now}))
           and q.not_before <= ${now}
+          and q.hall_id <> all (${[...(options.skipHalls ?? [])]}::text[])
           and not exists (
             select 1 from hall_pauses hp
             where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
@@ -409,13 +410,18 @@ export class PgQuestQueue implements QuestQueue {
     )
   }
 
-  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+  async releaseLeases(
+    guildId: string,
+    reason: FailReason,
+    halls?: readonly string[]
+  ): Promise<number> {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)
       const rows = await tx`
         update quests set state = 'queued', lease_expires_at = null,
           not_before = ${this.clock.now()}, last_error = ${reason}
         where guild_id = ${guildId} and state = 'active'
+          and (${halls ?? null}::text[] is null or hall_id = any (${halls ?? null}::text[]))
         returning quest_id`
       return rows.length
     })

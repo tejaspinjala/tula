@@ -2154,3 +2154,32 @@ describe('member.activity', () => {
     expect(activity.emittedEvents).toHaveLength(0)
   })
 })
+
+describe('MCP gateway: a locked Hall', () => {
+  async function lockHeralds(s: Awaited<ReturnType<typeof setup>>) {
+    const { config } = await s.deps.config.current(s.guild)
+    await s.deps.config.propose(s.guild, {
+      ...config,
+      halls: config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+  }
+
+  test('a lease held when the Hall is locked opens nothing, with no tick in between', async () => {
+    const s = await setup()
+    const { lease: held } = await s.claim(await s.post())
+    await lockHeralds(s)
+    const out = await callTool(s.transport, 'read_brief', { lease: held })
+    expect(out).toMatchObject({ status: 401, rpcError: 'hall_locked' })
+  })
+
+  test('claim_quest on a queued Quest of a locked Hall is refused hall_locked', async () => {
+    const s = await setup()
+    const quest = await s.post()
+    await lockHeralds(s)
+    const out = await callTool(s.transport, 'claim_quest', {
+      assignment: await s.gateway.assign(s.guild, quest),
+    })
+    expect(out).toMatchObject({ isError: true })
+    expect(JSON.stringify(out)).toContain('hall_locked')
+  })
+})

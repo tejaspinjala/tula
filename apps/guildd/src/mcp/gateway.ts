@@ -7,12 +7,12 @@ import type { GuildConfig } from '../guild-config'
 import {
   bugReportCap,
   campaignQuestCap,
+  claimLimits,
   dossierCap,
   hallAcceptsQuests,
-  hallCaps,
   inquiryCap,
+  isHallLocked,
   missiveCap,
-  questConcurrency,
   spawnChildrenCap,
   spawnDepthCap,
 } from '../guild-config'
@@ -528,6 +528,13 @@ export class McpGateway {
     if (!finished && (quest.attempts !== claims.a || !hasLiveLease(quest, this.deps.clock.now()))) {
       throw new Denied('lease_expired')
     }
+    // A locked Hall's lease opens nothing, whether or not the dispatcher has released it yet.
+    if (
+      !finished &&
+      isHallLocked((await this.deps.config.current(claims.g)).config, quest.hallId)
+    ) {
+      throw new Denied('hall_locked')
+    }
     return { guild: claims.g, quest, member: claims.m }
   }
 
@@ -590,12 +597,14 @@ export class McpGateway {
       return refuse('hall_paused')
     }
     const { config } = await this.deps.config.current(guild)
+    if (isHallLocked(config, quest.hallId)) {
+      return refuse('hall_locked')
+    }
     let claimed: Quest | null
     try {
       claimed = await this.deps.quests.claim(guild, {
         leaseMs: this.leaseMs,
-        maxActive: questConcurrency(config),
-        hallCaps: hallCaps(config),
+        ...claimLimits(config),
         questId: quest.id,
       })
     } catch (error) {

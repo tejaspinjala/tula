@@ -80,13 +80,15 @@ export class PgConfigStore implements ConfigStore {
       if (target.status !== 'pending') {
         throw new ConfigError('not_pending', version)
       }
-      if ((await this.inForce(tx, guildId)).version !== target.baseVersion) {
+      const inForce = await this.inForce(tx, guildId)
+      if (inForce.version !== target.baseVersion) {
         throw new ConfigError('stale', version)
       }
       await tx`
         update guild_config_versions set status = 'applied'
         where guild_id = ${guildId} and version = ${version}`
       await appendEvent(tx, this.keys, 'config.version_confirmed', { version })
+      await this.appendLockEvents(tx, inForce.config, target.config, version)
     })
   }
 
@@ -153,6 +155,24 @@ export class PgConfigStore implements ConfigStore {
     return toVersion(row)
   }
 
+  /** One `hall.locked` or `hall.unlocked` per Hall whose lock flipped, in the transaction that put the change in force. */
+  private async appendLockEvents(
+    tx: TenantTx,
+    before: GuildConfig,
+    after: GuildConfig,
+    version: number
+  ): Promise<void> {
+    for (const hall of after.halls) {
+      const was = before.halls.find((h) => h.id === hall.id)
+      if (was && was.locked !== hall.locked) {
+        await appendEvent(tx, this.keys, hall.locked ? 'hall.locked' : 'hall.unlocked', {
+          hallId: hall.id,
+          version,
+        })
+      }
+    }
+  }
+
   private async write(
     tx: TenantTx,
     guildId: string,
@@ -173,6 +193,9 @@ export class PgConfigStore implements ConfigStore {
       values (${guildId}, ${version}, ${status}, ${kind}, ${change}, ${base.version},
         ${tx.json(toJson(config))})`
     await appendEvent(tx, this.keys, 'config.version_proposed', { version, status, kind, change })
+    if (status === 'applied') {
+      await this.appendLockEvents(tx, base.config, config, version)
+    }
     return { version, status, change }
   }
 }

@@ -92,11 +92,12 @@ async function setup(
   const tripwires = new MemoryTripwireStore(clock)
   const gates = new MemoryGateStore()
   const activity = new MemoryActivityLog()
+  const live = { config: cfg }
   const gateway = new ModelGateway({
     activity,
     ledger,
     secrets,
-    config: { current: async () => ({ version: 1, config: cfg }) },
+    config: { current: async () => ({ version: 1, config: live.config }) },
     provider,
     ...(opts.subscription ? { subscriptionProvider: opts.subscription } : {}),
     clock,
@@ -129,6 +130,7 @@ async function setup(
   /** The ledger run id of the run called `name`. */
   const runIdOf = async (name: string) => runIdFor((await questFor(name)).id, 1)
   return {
+    live,
     clock,
     ledger,
     provider,
@@ -459,6 +461,17 @@ describe('reservations and idempotency', () => {
     provider.script({ ok: true, text: 'again', usage: { inputTokens: 5, outputTokens: 5 } })
     expect((await gateway.complete(second.token, message)).text).toBe('again')
     expect(await open()).toEqual({ status: 'exists' })
+  })
+
+  test('a run whose Hall is locked is refused at once, with no tick in between', async () => {
+    const { gateway, live, open } = await setup()
+    const run = await started(open())
+    live.config = {
+      ...live.config,
+      halls: live.config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    }
+    expect(await codeOf(gateway.complete(run.token, message))).toBe('hall_locked')
+    expect(await open()).toEqual({ status: 'refused', reason: 'hall_locked' })
   })
 
   test('a manually revoked run is never reissued, even after a pause/resume cycle', async () => {

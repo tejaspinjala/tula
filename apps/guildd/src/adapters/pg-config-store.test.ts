@@ -96,3 +96,32 @@ describe('config status guard', () => {
     }
   })
 })
+
+describe('hall lock events', () => {
+  const withLock = (id: string, locked: boolean) => {
+    const base = defaultConfig()
+    return { ...base, halls: base.halls.map((h) => (h.id === id ? { ...h, locked } : h)) }
+  }
+  const hallEvents = (guild: string) =>
+    db.withGuild(guild, async (tx) =>
+      (
+        await tx`select type from events where guild_id = ${guild} and type like 'hall.%locked' order by seq`
+      ).map((r) => String(r.type))
+    )
+
+  test('confirming an unlock and applying a re-lock each write exactly one event', async () => {
+    const store = new PgConfigStore(db, new MemoryKeyProvider())
+    const guild = await foundTestGuild(db, { name: 'Locks', goal: 'g' })
+    await store.seed(guild)
+    const pending = await store.propose(guild, withLock('health', false))
+    expect(pending.status).toBe('pending')
+    expect(await hallEvents(guild)).toEqual([])
+    await store.confirm(guild, pending.version)
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked'])
+    const relock = await store.propose(guild, withLock('health', true))
+    expect(relock.status).toBe('applied')
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked', 'hall.locked'])
+    await store.propose(guild, withLock('health', true))
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked', 'hall.locked'])
+  })
+})

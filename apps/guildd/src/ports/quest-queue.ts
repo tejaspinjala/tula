@@ -215,6 +215,8 @@ export interface ClaimOptions {
    * slot) and excludes the Captain's `team-plan` Quest, which it never blocks either.
    */
   hallCaps?: Readonly<Record<string, number>>
+  /** Halls whose Quests are not claimed (locked Halls): they wait, queued, and resume once the Hall is dropped from this list. */
+  skipHalls?: readonly string[]
 }
 
 /** What {@link QuestQueue.postBoard} needs: the Captain's delivery, the Quest and the Campaign cap. */
@@ -290,7 +292,7 @@ export interface QuestQueue {
    * back to `queued`, deliverable at once, with `reason` as its last error. Atomic and idempotent;
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
-  releaseLeases(guildId: string, reason: FailReason): Promise<number>
+  releaseLeases(guildId: string, reason: FailReason, halls?: readonly string[]): Promise<number>
   /**
    * {@link releaseLeases} for every guild at once, in one statement, so a global bar's cost does
    * not grow with the number of guilds. Idempotent; returns how many Quests it released.
@@ -711,6 +713,7 @@ export function pickClaimable(
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    !options.skipHalls?.includes(q.hallId) &&
     !hallFull(q) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&

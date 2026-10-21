@@ -229,11 +229,15 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
-  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+  async releaseLeases(
+    guildId: string,
+    reason: FailReason,
+    halls?: readonly string[]
+  ): Promise<number> {
     const now = this.clock.now().toISOString()
     let released = 0
     for (const q of this.guild(guildId).byId.values()) {
-      if (q.state === 'active') {
+      if (q.state === 'active' && (halls === undefined || halls.includes(q.hallId))) {
         this.guild(guildId).byId.set(q.id, {
           ...q,
           state: 'queued',

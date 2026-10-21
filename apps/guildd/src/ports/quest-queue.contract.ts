@@ -392,6 +392,29 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(again).toMatchObject({ id: held.id, attempts: 2 })
     })
 
+    test('releasing the leases of named Halls leaves other Halls active, and a Hall in skipHalls is not claimed until it is dropped', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const a = await queue.post(g, quest({ hallId: 'health' }))
+      const b = await queue.post(g, quest({ hallId: 'heralds' }))
+      await queue.post(g, quest({ hallId: 'health' }))
+      await queue.claim(g, LEASE)
+      await queue.claim(g, LEASE)
+      expect(await queue.releaseLeases(g, 'routing_blocked', ['health'])).toBe(1)
+      expect((await queue.get(g, a.quest.id))?.state).toBe('queued')
+      expect((await queue.get(g, b.quest.id))?.state).toBe('active')
+      expect(await queue.claim(g, { ...LEASE, skipHalls: ['health'] })).toBeNull()
+      expect((await queue.claim(g, LEASE))?.hallId).toBe('health')
+    })
+
+    test('a targeted claim of a Quest in a skipped Hall returns nothing', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest({ hallId: 'health' }))
+      expect(await queue.claim(g, { ...LEASE, questId: q.id, skipHalls: ['health'] })).toBeNull()
+      expect((await queue.claim(g, { ...LEASE, questId: q.id }))?.id).toBe(q.id)
+    })
+
     test("releasing all leases returns every guild's active Quests to queued at once, and repeating changes nothing more", async () => {
       const { queue, newGuild } = await make()
       const a = await newGuild()

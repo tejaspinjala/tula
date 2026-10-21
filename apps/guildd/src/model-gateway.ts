@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { GuildConfig } from './guild-config'
+import { type GuildConfig, isHallLocked } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import { ACTIVITY_WINDOW_MS, type ActivityLog } from './ports/activity-log'
 import type { Clock } from './ports/clock'
@@ -25,6 +25,8 @@ export type GatewayErrorCode =
   | 'token_expired'
   | 'token_revoked'
   | 'hall_paused'
+  /** The Hall is locked in the current config. */
+  | 'hall_locked'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
   /** The bar could not be read mid-call, so the call was aborted (fail closed); the reservation stays charged. */
@@ -59,7 +61,7 @@ export type OpenRunResult =
   /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
   | {
       status: 'refused'
-      reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
+      reason: 'hall_paused' | 'hall_locked' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
     }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
@@ -236,6 +238,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_paused' }
     }
+    if (await this.hallLocked(guildId, input.hallId)) {
+      return { status: 'refused', reason: 'hall_locked' }
+    }
     const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
     if (existing?.state === 'active') {
@@ -360,6 +365,9 @@ export class ModelGateway {
     this.checkLive(run)
     if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
       throw new GatewayError('hall_paused')
+    }
+    if (await this.hallLocked(guildId, run.hallId)) {
+      throw new GatewayError('hall_locked')
     }
     const quest = await this.deps.quests.get(guildId, run.questId)
     if (!quest || quest.attempts !== run.attempt || !hasLiveLease(quest, this.deps.clock.now())) {
@@ -523,6 +531,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, call.hallId)) {
       throw new GatewayError('hall_paused')
     }
+    if (await this.hallLocked(guildId, call.hallId)) {
+      throw new GatewayError('hall_locked')
+    }
     const { config } = await this.deps.config.current(guildId)
     const profile = config.routingProfiles.find((p) => p.tier === 'mid')
     if (!profile) {
@@ -615,6 +626,11 @@ export class ModelGateway {
     ) {
       throw new GatewayError(run.state === 'active' ? 'token_expired' : 'invalid_token')
     }
+  }
+
+  /** Whether the guild's current config has the Hall locked; every metered path checks it before the provider. */
+  private async hallLocked(guildId: string, hallId: string): Promise<boolean> {
+    return isHallLocked((await this.deps.config.current(guildId)).config, hallId)
   }
 
   private issue(guildId: string) {

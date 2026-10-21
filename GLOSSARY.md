@@ -290,6 +290,9 @@ A Proposal was created (payload: proposal id, quest id, proposal hash) / its ver
 **hall.paused** / **hall.resumed**:
 A Tripwire paused a Hall (payload: pause id, hall id, tripwire) / the pause was lifted (payload: pause id, hall id).
 
+**hall.locked** / **hall.unlocked**:
+A config change locked a Hall again (applied at once, as it narrows) / unlocked it (when the Guild Master confirmed it); payload: hall id, config version. Locking releases the Hall's live leases and parks its Quests (queued, not claimed, never dead); unlocking resumes them.
+
 **steward.cap_reached**:
 The Steward's daily cap was reached (payload: day, reason).
 

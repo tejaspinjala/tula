@@ -64,6 +64,10 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'Secret added to the Vault'
     case 'hall.paused':
       return `Hall ${str(p, 'hallId')} paused by tripwire ${str(p, 'tripwire')}`
+    case 'hall.locked':
+      return `Hall ${str(p, 'hallId')} locked; its Quests are paused`
+    case 'hall.unlocked':
+      return `Hall ${str(p, 'hallId')} unlocked; its Quests resume`
     case 'hall.resumed':
       return `Hall ${str(p, 'hallId')} resumed`
     case 'quest.posted':

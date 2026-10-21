@@ -111,6 +111,26 @@ export function gatewayGuardsContract(name: string, make: () => Promise<GatewayG
       expect((await openRun(f, g, quest)).status).toBe('started')
     })
 
+    test('a locked Hall gets no Council call and the provider is never reached', async () => {
+      const f = await make()
+      const g = await f.newGuild()
+      const { config } = await f.config.current(g)
+      await f.config.propose(g, {
+        ...config,
+        halls: config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+      })
+      const before = f.provider.seen.length
+      const call = {
+        sessionId: crypto.randomUUID(),
+        questId: crypto.randomUUID(),
+        hallId: 'heralds',
+        system: 's',
+        brief: 'b',
+      }
+      expect(await codeOf(f.gateway.councilComplete(g, call))).toBe('hall_locked')
+      expect(f.provider.seen.length).toBe(before)
+    })
+
     test('a run active when the Hall is paused is refused before reserve and before the provider', async () => {
       const f = await make()
       const g = await f.newGuild()
