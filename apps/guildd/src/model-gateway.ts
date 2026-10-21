@@ -238,7 +238,7 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_paused' }
     }
-    if (isHallLocked((await this.deps.config.current(guildId)).config, input.hallId)) {
+    if (await this.hallLocked(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_locked' }
     }
     const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
@@ -366,7 +366,7 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
       throw new GatewayError('hall_paused')
     }
-    if (isHallLocked((await this.deps.config.current(guildId)).config, run.hallId)) {
+    if (await this.hallLocked(guildId, run.hallId)) {
       throw new GatewayError('hall_locked')
     }
     const quest = await this.deps.quests.get(guildId, run.questId)
@@ -531,6 +531,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, call.hallId)) {
       throw new GatewayError('hall_paused')
     }
+    if (await this.hallLocked(guildId, call.hallId)) {
+      throw new GatewayError('hall_locked')
+    }
     const { config } = await this.deps.config.current(guildId)
     const profile = config.routingProfiles.find((p) => p.tier === 'mid')
     if (!profile) {
@@ -623,6 +626,11 @@ export class ModelGateway {
     ) {
       throw new GatewayError(run.state === 'active' ? 'token_expired' : 'invalid_token')
     }
+  }
+
+  /** Whether the guild's current config has the Hall locked; every metered path checks it before the provider. */
+  private async hallLocked(guildId: string, hallId: string): Promise<boolean> {
+    return isHallLocked((await this.deps.config.current(guildId)).config, hallId)
   }
 
   private issue(guildId: string) {

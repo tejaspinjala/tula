@@ -342,18 +342,21 @@ export type DispatchOutcome =
 const DISPATCH_LEASE_MS = 10 * 60_000
 
 /**
- * Pauses the work of the locked Halls: their live runs lose their model tokens, their sandboxes
- * are killed, and their live leases go back to the queue (no attempt spent). Idempotent; a guild
- * with no locked Hall does nothing.
+ * Pauses the work of the locked Halls. It reads the guild's active Quests once and does nothing
+ * unless one sits in a locked Hall. Then the authoritative stops come first: the Hall's live runs
+ * lose their model tokens and their leases go back to the queue (no attempt spent). Killing the
+ * sandboxes is best effort after that: a kill that fails is reported by ids and never stops the
+ * guild. Idempotent.
  */
 async function parkLockedHalls(
-  deps: Pick<DispatchDeps, 'quests' | 'gateway' | 'sandboxes'>,
+  deps: Pick<DispatchDeps, 'quests' | 'gateway' | 'sandboxes' | 'onError'>,
   guildId: string,
   halls: readonly string[]
 ): Promise<void> {
   if (halls.length === 0) {
     return
   }
+  const live: Quest[] = []
   let after: string | undefined
   do {
     const page = await deps.quests.list(guildId, {
@@ -361,15 +364,24 @@ async function parkLockedHalls(
       state: 'active',
       ...(after === undefined ? {} : { after }),
     })
-    for (const q of page.quests.filter((x) => halls.includes(x.hallId))) {
-      await deps.sandboxes.kill({ guildId, questId: q.id })
-    }
+    live.push(...page.quests.filter((x) => halls.includes(x.hallId)))
     after = page.next ?? undefined
   } while (after !== undefined)
-  for (const hall of halls) {
+  if (live.length === 0) {
+    return
+  }
+  for (const hall of new Set(live.map((q) => q.hallId))) {
     await deps.gateway.revokeHallRuns(guildId, hall)
   }
   await deps.quests.releaseLeases(guildId, 'routing_blocked', halls)
+  for (const q of live) {
+    try {
+      await deps.sandboxes.kill({ guildId, questId: q.id })
+    } catch (error) {
+      // A kill is by Quest, so there is no sandbox id to name.
+      deps.onError?.(error, { guildId, questId: q.id, sandboxId: '' })
+    }
+  }
 }
 
 /**
