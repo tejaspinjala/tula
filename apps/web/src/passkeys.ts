@@ -3,6 +3,7 @@ import {
   type PublicKeyCredentialRequestOptionsJSON,
   startAuthentication,
   startRegistration,
+  WebAuthnAbortService,
 } from '@simplewebauthn/browser'
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
@@ -14,6 +15,9 @@ export interface PasskeyBrowser {
   /** Signs guildd's request options with a passkey; resolves to the JSON to send back. */
   get(options: PublicKeyCredentialRequestOptionsJSON, signal?: AbortSignal): Promise<unknown>
 }
+
+/** How long a passkey ceremony may wait for the authenticator before it is cut off (60 s). */
+export const CEREMONY_TIMEOUT_MS = 60_000
 
 function ceremonyOf<T extends { challenge: string }>() {
   return z.object({
@@ -221,11 +225,24 @@ export async function foundGuild(
   return send(fetcher, '/guilds', { name, goal }, foundedBody)
 }
 
+/** Lets an abort signal cancel the library's pending ceremony, which takes no signal itself. */
+function cancelOnAbort(signal?: AbortSignal): void {
+  signal?.addEventListener('abort', () => WebAuthnAbortService.cancelCeremony(), { once: true })
+}
+
 /** The real browser ceremonies, backed by the platform WebAuthn implementation. */
-export const webAuthnBrowser: PasskeyBrowser = withNoPasskeyDetection({
-  create: (optionsJSON) => startRegistration({ optionsJSON }),
-  get: (optionsJSON) => startAuthentication({ optionsJSON }),
-})
+export const webAuthnBrowser: PasskeyBrowser = withNoPasskeyDetection(
+  withCeremonyTimeout({
+    create: (optionsJSON, signal) => {
+      cancelOnAbort(signal)
+      return startRegistration({ optionsJSON })
+    },
+    get: (optionsJSON, signal) => {
+      cancelOnAbort(signal)
+      return startAuthentication({ optionsJSON })
+    },
+  })
+)
 
 /** Signs in with a discoverable passkey and no guild id; the guild comes from the passkey. */
 export async function signInWithPasskey(
@@ -331,6 +348,9 @@ export function passkeyFailure(error: unknown): PasskeyFailure {
   }
   const cause = error instanceof Error ? error.cause : undefined
   const names = [nameOf(error), nameOf(cause)]
+  if (names.includes('CeremonyTimeout')) {
+    return 'timeout'
+  }
   if (names.includes('NoPasskeyOffered')) {
     return 'no_credential'
   }
@@ -375,7 +395,11 @@ const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string; enrol
     founding: 'Too many knocks at the gate. Wait a minute, then try again.',
     enrol: 'Too many knocks at the gate. Wait a minute, then try again.',
   },
-  timeout: { 'sign-in': '', founding: '', enrol: '' },
+  timeout: {
+    'sign-in': 'The passkey prompt timed out. Try again when you are ready.',
+    founding: 'The passkey prompt timed out. Try again to finish founding your guild.',
+    enrol: 'The passkey prompt timed out. Try again from the link.',
+  },
   unknown: {
     'sign-in': 'Something went wrong at the gate. Try again.',
     founding: 'Founding your guild failed. Try again.',
@@ -424,57 +448,89 @@ export function withNoPasskeyDetection(
   }
 }
 
-/** How long a passkey ceremony may wait for the authenticator before it is cut off (60 s). */
-export const CEREMONY_TIMEOUT_MS = 60_000
+function bounded<T>(
+  ceremony: (options: T, signal?: AbortSignal) => Promise<unknown>,
+  ms: number
+): (options: T) => Promise<unknown> {
+  return (options) => {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        const error = new Error('The passkey prompt timed out')
+        error.name = 'CeremonyTimeout'
+        reject(error)
+      }, ms)
+    })
+    return Promise.race([ceremony(options, controller.signal), timeout]).finally(() =>
+      clearTimeout(timer)
+    )
+  }
+}
 
-/** Wraps a browser so a ceremony that never settles is aborted after `ms`. */
+/**
+ * Wraps a browser so a ceremony that never settles (a webview that cannot reach an authenticator
+ * answers nothing, ever) is aborted through an `AbortController` after `ms` and fails as
+ * `CeremonyTimeout`, which `passkeyFailure` reads as `timeout`: never an endless spinner.
+ */
 export function withCeremonyTimeout(
   browser: PasskeyBrowser,
   ms: number = CEREMONY_TIMEOUT_MS
 ): PasskeyBrowser {
-  void ms
-  return browser
+  return { create: bounded(browser.create, ms), get: bounded(browser.get, ms) }
 }
 
-/** True when the page runs inside the Guildhall desktop shell (its user-agent suffix). */
+/** True when the page runs inside the Guildhall desktop shell (the user-agent suffix it sets). */
 export function isDesktopShell(userAgent: string): boolean {
-  void userAgent
-  return false
+  return /\bGuildhallDesktop\b/.test(userAgent)
 }
 
 /** True when the page was opened by the desktop shell to sign in (`?desktop=1`). */
 export function desktopRequested(search: string): boolean {
-  void search
-  return false
+  return new URLSearchParams(search).get('desktop') === '1'
 }
 
 /** The desktop code a deep link delivered in the fragment (`#desktop-code=<code>`), or null. */
 export function desktopCodeFromHash(hash: string): string | null {
-  void hash
-  return null
+  const found = /^#desktop-code=(.+)$/.exec(hash)?.[1]
+  return found && ENROL_TOKEN.test(found) ? found : null
 }
 
-/** Reads the desktop code from the address bar and clears the fragment. Null when absent. */
+/**
+ * Reads the desktop code from the address bar's fragment and removes the fragment at once, so the
+ * code is not left in the address bar or history. Null when absent.
+ */
 export function takeDesktopCode(place: EnrolPlace): string | null {
-  void place
-  return null
+  const code = desktopCodeFromHash(place.location.hash)
+  if (code) {
+    place.history.replaceState(null, '', `${place.location.pathname}${place.location.search}`)
+  }
+  return code
 }
 
 /** The url that hands a hand-off `code` to the desktop app through the OS. */
 export function desktopReturnUrl(code: string): string {
-  void code
-  return ''
+  return `guildhall://signed-in#code=${code}`
 }
 
-/** Mints a hand-off code for the signed-in browser session. */
+const handoffBody = z.object({ code: z.string() })
+
+/** Mints a hand-off code for the signed-in browser session (the cookie rides along). */
 export async function beginDesktopHandoff(fetcher: Fetcher): Promise<string> {
-  void fetcher
-  throw new Error('not implemented')
+  return (await send(fetcher, '/auth/desktop/begin', {}, handoffBody)).code
 }
 
-/** Exchanges a desktop hand-off code for a cookie session. */
+/** Exchanges a desktop hand-off code for a cookie session, over TLS in the body, never a URL. */
 export async function exchangeDesktopCode(code: string, fetcher: Fetcher): Promise<Session> {
-  void code
-  void fetcher
-  throw new Error('not implemented')
+  return send(
+    fetcher,
+    '/auth/desktop/exchange',
+    { code },
+    sessionBody,
+    undefined,
+    undefined,
+    undefined,
+    COOKIE_MODE
+  )
 }

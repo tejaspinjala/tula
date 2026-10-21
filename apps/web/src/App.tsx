@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
+import { DesktopReturn } from './DesktopReturn'
 import {
+  desktopCodeFromHash,
+  desktopRequested,
   enrolTokenFromHash,
+  exchangeDesktopCode,
   type FoundingState,
   fetchGuild,
   foundingOpen,
+  isDesktopShell,
   type PasskeyBrowser,
   restoreSession,
   type Session,
+  takeDesktopCode,
   takeEnrolToken,
   webAuthnBrowser,
 } from './passkeys'
@@ -17,11 +23,15 @@ import { TitleScene } from './TitleScene'
 /** How long the title-to-world fade stays mounted: the 0.6 s CSS animation plus a frame. */
 const FADE_MS = 700
 
+const DESKTOP_CODE_LOST =
+  'That hand-back ran out or was already used. Choose Sign in with your browser to try again.'
+
 /**
  * The ledger: signed out it shows only sign-in (and founding while it is open); signed in it
  * shows the shell with one routed view at a time.
  */
 export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } = {}) {
+  const desktopShell = isDesktopShell(navigator.userAgent)
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
   const [restored, setRestored] = useState(false)
@@ -36,6 +46,24 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
       setEnrolToken(null)
     }
   }, [session])
+
+  // Inside the desktop shell the deep link delivers a one-time code in the fragment: it is read and
+  // cleared once, then exchanged for a session. The ref keeps StrictMode from spending it twice.
+  const [desktopCode] = useState(() => desktopCodeFromHash(window.location.hash))
+  const [exchanging, setExchanging] = useState(desktopCode !== null)
+  const [notice, setNotice] = useState('')
+  const exchangeStarted = useRef(false)
+  useEffect(() => {
+    const code = takeDesktopCode(window) ?? desktopCode
+    if (!code || exchangeStarted.current) {
+      return
+    }
+    exchangeStarted.current = true
+    exchangeDesktopCode(code, fetch)
+      .then((opened) => setSession((current) => current ?? opened))
+      .catch(() => setNotice(DESKTOP_CODE_LOST))
+      .finally(() => setExchanging(false))
+  }, [desktopCode])
 
   const [founding, setFounding] = useState<FoundingState>('closed')
   const [guild, setGuild] = useState<{ id: string; name: string } | null>(null)
@@ -80,8 +108,21 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
     }
   }, [session])
 
-  if (!session && !restored) {
+  if (!session && (!restored || exchanging)) {
     return <p role="status">Checking your session...</p>
+  }
+
+  if (session && !desktopShell && desktopRequested(window.location.search)) {
+    return (
+      <TitleScene>
+        <header>
+          <h1 className="title-wordmark">Guildhall</h1>
+        </header>
+        <main id="main" tabIndex={-1}>
+          <DesktopReturn fetcher={fetch} navigate={(url) => window.location.assign(url)} />
+        </main>
+      </TitleScene>
+    )
   }
 
   if (!session) {
@@ -105,6 +146,9 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
             browser={browser}
             founding={founding}
             enrolToken={enrolToken}
+            desktopShell={desktopShell}
+            openInBrowser={() => window.open('/?desktop=1', '_blank')}
+            notice={notice}
             onSession={setSession}
           />
         </main>

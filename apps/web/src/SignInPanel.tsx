@@ -34,6 +34,7 @@ export function SignInPanel({
   enrolToken,
   desktopShell = false,
   openInBrowser,
+  notice = '',
   onSession,
 }: {
   fetcher: Fetcher
@@ -45,12 +46,19 @@ export function SignInPanel({
   desktopShell?: boolean
   /** Opens the sign-in page in the system browser (the shell hands it to the OS). */
   openInBrowser?: () => void
+  /** A line to show on the title, such as a hand-back that no longer works. */
+  notice?: string
   onSession: (session: Session) => void
 }) {
   const guildInput = useId()
-  const [mode, setMode] = useState<Mode>(enrolToken ? 'enrol' : 'menu')
+  const [mode, setMode] = useState<Mode>(enrolToken && !desktopShell ? 'enrol' : 'menu')
   const [guildId, setGuildId] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(notice)
+  useEffect(() => {
+    if (notice) {
+      setError(notice)
+    }
+  }, [notice])
   const [busy, setBusy] = useState(false)
 
   async function run(action: () => Promise<Session>) {
@@ -74,7 +82,9 @@ export function SignInPanel({
     if (busy) {
       return
     }
-    if (id === 'continue') {
+    if (id === 'browser') {
+      openInBrowser?.()
+    } else if (id === 'continue') {
       run(() => signInWithPasskey(fetcher, browser))
     } else if (id === 'new') {
       setError('')
@@ -95,15 +105,15 @@ export function SignInPanel({
     }
   }, [mode])
 
-  void desktopShell
-  void openInBrowser
   const guild = guildId.trim()
-  const items = [
-    { id: 'continue', label: 'Continue' },
-    ...(founding === 'closed' ? [] : [{ id: 'new', label: 'New guild' }]),
-    { id: 'older', label: 'Older passkey' },
-    { id: 'about', label: 'About passkeys' },
-  ]
+  const items = desktopShell
+    ? [{ id: 'browser', label: 'Sign in with your browser' }]
+    : [
+        { id: 'continue', label: 'Continue' },
+        ...(founding === 'closed' ? [] : [{ id: 'new', label: 'New guild' }]),
+        { id: 'older', label: 'Older passkey' },
+        { id: 'about', label: 'About passkeys' },
+      ]
 
   if (mode === 'about') {
     return <DialogueBox speaker="Member" lines={ABOUT} onDone={back} />
