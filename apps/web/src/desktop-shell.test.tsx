@@ -66,6 +66,9 @@ beforeAll(() => {
   )
 })
 afterAll(async () => {
+  // Settle the last page's pending requests before the DOM goes away.
+  await act(async () => current?.unmount())
+  current = null
   globalThis.fetch = realFetch
   await GlobalRegistrator.unregister()
 })
