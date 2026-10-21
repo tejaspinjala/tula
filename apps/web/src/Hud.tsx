@@ -38,8 +38,9 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
       return
     }
     const root = document.documentElement
+    // Document-relative, like the CSS that reads it (the viewport rect would drift with scroll).
     const measure = () =>
-      root.style.setProperty('--hud-inset', `${el.getBoundingClientRect().bottom}px`)
+      root.style.setProperty('--hud-inset', `${el.offsetTop + el.offsetHeight}px`)
     measure()
     const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
     watch?.observe(el)
