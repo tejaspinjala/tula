@@ -232,6 +232,74 @@ describe('CouncilEngine.convene', () => {
     expect(await store.votes(GUILD, opened.session.id)).toEqual([])
   })
 
+  test.each([
+    'hall_paused',
+    'key_missing',
+    'price_unconfigured',
+    'model_unconfigured',
+    'unknown_profile',
+    'subscription_disabled',
+  ] as const)('a %s state halts the session to resume later, never abstains', async (code) => {
+    let calls = 0
+    const { engine, model, store } = setup(() => {
+      calls += 1
+      if (calls === 3) {
+        throw new GatewayError(code)
+      }
+      return voteReply('approve')
+    })
+    await expect(engine.convene(GUILD, { quest, proposal, sessionCap: 1 })).rejects.toThrow()
+    const resumed = await engine.convene(GUILD, { quest, proposal, sessionCap: 1 })
+    expect(resumed.status).toBe('escalated')
+    // Voices 1 and 2 ran once; voice 3 failed once and reran; voices 4 and 5 ran once.
+    expect(model.calls).toHaveLength(6)
+    if (resumed.status === 'escalated') {
+      expect(resumed.votes.every((v) => v.abstainCode === null)).toBe(true)
+    }
+    const again = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 1,
+    })
+    expect(again.status).toBe('existing')
+  })
+
+  test('two concurrent convenes on one hash run each voice once; the second finds the claim', async () => {
+    const { engine, model } = setup(async () => {
+      await Bun.sleep(5)
+      return voteReply('approve')
+    })
+    const [a, b] = await Promise.all([
+      engine.convene(GUILD, { quest, proposal, sessionCap: 5 }),
+      engine.convene(GUILD, { quest, proposal, sessionCap: 5 }),
+    ])
+    expect(model.calls.length).toBeLessThanOrEqual(5)
+    expect([a.status, b.status].sort()).toEqual(['escalated', 'in_progress'])
+  })
+
+  test('an expired claim is taken over', async () => {
+    const { engine, model, store, clock } = setup(() => voteReply('approve'))
+    const opened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    if (opened.status === 'cap_reached') {
+      throw new Error('unexpected cap')
+    }
+    await store.claim(GUILD, opened.session.id, clock.now(), 5 * 60_000)
+    expect((await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).status).toBe(
+      'in_progress'
+    )
+    clock.advance(5 * 60_000 + 1)
+    expect((await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).status).toBe(
+      'escalated'
+    )
+    expect(model.calls).toHaveLength(5)
+  })
+
   test('the sessions cap reached convenes nothing and runs no voice', async () => {
     const { engine, model } = setup(() => voteReply('approve'))
     expect(await engine.convene(GUILD, { quest, proposal, sessionCap: 0 })).toEqual({

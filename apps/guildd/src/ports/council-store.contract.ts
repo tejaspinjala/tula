@@ -142,6 +142,44 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
       expect(again.session).toMatchObject({ status: 'escalated', reason: 'block' })
     })
 
+    test('a claim is taken once until it expires, and can be released', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const opened = await store.open(g, input())
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      const id = opened.session.id
+      const t0 = new Date('2026-01-01T00:00:00.000Z')
+      const claims = await Promise.all([
+        store.claim(g, id, t0, 60_000),
+        store.claim(g, id, t0, 60_000),
+      ])
+      expect(claims.filter(Boolean)).toHaveLength(1)
+      expect(await store.claim(g, id, new Date(t0.getTime() + 59_999), 60_000)).toBe(false)
+      expect(await store.claim(g, id, new Date(t0.getTime() + 60_000), 60_000)).toBe(true)
+      await store.release(g, id)
+      expect(await store.claim(g, id, t0, 60_000)).toBe(true)
+    })
+
+    test('escalating clears the claim, and another guild cannot claim or release', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const opened = await store.open(g, input())
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      const id = opened.session.id
+      const t0 = new Date('2026-01-01T00:00:00.000Z')
+      expect(await store.claim(other, id, t0, 60_000)).toBe(false)
+      expect(await store.claim(g, id, t0, 60_000)).toBe(true)
+      await store.release(other, id)
+      expect(await store.claim(g, id, t0, 60_000)).toBe(false)
+      await store.escalate(g, id, 'block')
+      expect(await store.claim(g, id, t0, 60_000)).toBe(false)
+    })
+
     test("another guild cannot see or touch a guild's sessions or votes", async () => {
       const { store, newGuild } = await make()
       const a = await newGuild()

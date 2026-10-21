@@ -130,9 +130,14 @@ export function councilEvidence(votes: readonly CouncilVote[], reason: string): 
   return [`Council of Elders did not approve (${reason})`, ...items].join('; ')
 }
 
+/** How long a worker holds a session while it runs the voices: longer than five voice timeouts. */
+const CLAIM_TTL_MS = 5 * 60_000
+
 /** What {@link CouncilEngine.convene} did. */
 export type ConveneResult =
   | { status: 'cap_reached' }
+  /** Another worker holds the session and is running its voices: not yet. */
+  | { status: 'in_progress' }
   | { status: 'escalated'; session: CouncilSession; votes: CouncilVote[]; reason: string }
 
 /** Collaborators of {@link CouncilEngine}. */
@@ -152,9 +157,10 @@ export class CouncilEngine {
 
   /**
    * Convenes the Council on a Proposal, or resumes the session held for its hash. Returns
-   * `cap_reached` (no session, no voice) when the guild's daily sessions cap is reached. Bar the
-   * Gates mid-session throws, leaving the session open to resume; every other voice failure is
-   * an abstention.
+   * `cap_reached` (no session, no voice) when the guild's daily sessions cap is reached. Returns
+   * `in_progress` when another worker holds the session. A transient or config state (Bar the
+   * Gates, a paused Hall, a missing key) throws, leaving the session open to resume; only invalid
+   * output, a provider failure or timeout, or a reached cap is an abstention.
    */
   async convene(
     guildId: string,
@@ -175,14 +181,24 @@ export class CouncilEngine {
       return { status: 'cap_reached' }
     }
     const { session } = opened
-    const finished = new Set((await store.votes(guildId, session.id)).map((v) => v.voice))
-    for (const voice of COUNCIL_VOICES) {
-      if (!finished.has(voice)) {
-        await store.recordVote(
-          guildId,
-          session.id,
-          await this.runVoice(guildId, session, voice, input)
-        )
+    if (session.status === 'open') {
+      if (!(await store.claim(guildId, session.id, clock.now(), CLAIM_TTL_MS))) {
+        return { status: 'in_progress' }
+      }
+      try {
+        const finished = new Set((await store.votes(guildId, session.id)).map((v) => v.voice))
+        for (const voice of COUNCIL_VOICES) {
+          if (!finished.has(voice)) {
+            await store.recordVote(
+              guildId,
+              session.id,
+              await this.runVoice(guildId, session, voice, input)
+            )
+          }
+        }
+      } catch (error) {
+        await store.release(guildId, session.id)
+        throw error
       }
     }
     const votes = await store.votes(guildId, session.id)
@@ -227,16 +243,19 @@ export class CouncilEngine {
         brief: buildBrief(voice, input.proposal.content, crypto.randomUUID().replaceAll('-', '')),
       })
     } catch (error) {
+      // Only a genuine provider failure or timeout, or a reached cap, is the voice abstaining.
+      // Every other state is transient or a config matter (Bar the Gates, a paused Hall, a missing
+      // key or price, an unconfigured model or profile, an unknown error): it halts the session,
+      // which stays open and resumes, so a brief pause never decides a hash for good.
       if (error instanceof GatewayError) {
-        if (error.code === 'gates_barred' || error.code === 'gates_unavailable') {
-          // Bar the Gates halts the session; the Quest stays in Awaiting Seal and it resumes later.
-          throw error
-        }
         if (error.code === 'cap_reached') {
           return abstain('cap_reached')
         }
+        if (error.code === 'provider_failed' || error.code === 'subscription_limit') {
+          return abstain('failed')
+        }
       }
-      return abstain('failed')
+      throw error
     }
     const parsed = parseVoteOutput(reply.text)
     if (!parsed) {

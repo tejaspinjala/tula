@@ -71,6 +71,15 @@ export interface CouncilStore {
   recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean>
   /** The session's votes in voice order. */
   votes(guildId: string, sessionId: string): Promise<CouncilVote[]>
-  /** Settles the session as escalated with a reason code; true the first time only. Appends `council.escalated`. */
+  /**
+   * Claims an open session to run its voices: true when no live claim exists (none, or one that
+   * ended at or before `now`), setting a claim that ends `ttlMs` after `now`. Atomic, so two
+   * workers never both run the voices. False for a live claim, an escalated session or another
+   * guild's id. No transaction is held across the model calls: the claim is the lock.
+   */
+  claim(guildId: string, sessionId: string, now: Date, ttlMs: number): Promise<boolean>
+  /** Gives a claim up (the voices were halted); a no-op for an escalated session or another guild's id. */
+  release(guildId: string, sessionId: string): Promise<void>
+  /** Settles the session as escalated; it also clears any claim. with a reason code; true the first time only. Appends `council.escalated`. */
   escalate(guildId: string, sessionId: string, reason: string): Promise<boolean>
 }

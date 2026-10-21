@@ -11,6 +11,9 @@ create table council_sessions (
   day date not null,
   status text not null default 'open' check (status in ('open', 'escalated')),
   reason text check (length(reason) between 1 and 100),
+  -- A worker running the voices holds the session until this instant; an expired claim can be
+  -- taken over. No transaction is held across the model calls: the claim is the lock.
+  claimed_until timestamptz,
   created_at timestamptz not null default now(),
   primary key (guild_id, session_id),
   unique (guild_id, proposal_hash),
@@ -61,8 +64,8 @@ begin
      or new.day is distinct from old.day
      or new.created_at is distinct from old.created_at
      or old.status <> 'open'
-     or new.status <> 'escalated' then
-    raise exception 'a council session can only be escalated, once';
+     or new.status not in ('open', 'escalated') then
+    raise exception 'a council session can only be claimed or escalated, once';
   end if;
   return new;
 end;

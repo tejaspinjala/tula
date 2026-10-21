@@ -203,6 +203,25 @@ describe('requestQuestSeal', () => {
       expect(seal?.actionHash).toBe(c.proposal.hash)
     })
 
+    test('a session another worker is running means not yet: no Seal is requested', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      const opened = await c.store.open(c.guild, {
+        questId: c.quest.id,
+        proposalHash: c.proposal.hash,
+        day: c.clock.now().toISOString().slice(0, 10),
+        sessionCap: 20,
+      })
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      await c.store.claim(c.guild, opened.session.id, c.clock.now(), 300_000)
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('council_pending')
+      expect(c.model.calls).toHaveLength(0)
+      expect(await c.seals.forQuest(c.guild, c.quest.id)).toBeNull()
+    })
+
     test('asking again convenes no second session and runs no voice twice', async () => {
       const c = await council()
       await c.presence.goAway(c.guild, null)

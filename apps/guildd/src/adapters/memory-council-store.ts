@@ -13,6 +13,8 @@ export class MemoryCouncilStore implements CouncilStore {
   private readonly sessions = new Map<string, CouncilSession>()
   /** Session ids to their guild, so another guild's id resolves to nothing. */
   private readonly owners = new Map<string, string>()
+  /** Live claims: session id to the epoch ms the claim ends. */
+  private readonly claims = new Map<string, number>()
   private readonly voteRows = new Map<string, CouncilVote>()
 
   async open(
@@ -69,6 +71,37 @@ export class MemoryCouncilStore implements CouncilStore {
     })
   }
 
+  async claim(guildId: string, sessionId: string, now: Date, ttlMs: number): Promise<boolean> {
+    const session = this.find(guildId, sessionId)
+    if (!session || session.status !== 'open') {
+      return false
+    }
+    const until = this.claims.get(sessionId)
+    if (until !== undefined && until > now.getTime()) {
+      return false
+    }
+    this.claims.set(sessionId, now.getTime() + ttlMs)
+    return true
+  }
+
+  async release(guildId: string, sessionId: string): Promise<void> {
+    if (this.find(guildId, sessionId)) {
+      this.claims.delete(sessionId)
+    }
+  }
+
+  private find(guildId: string, sessionId: string): CouncilSession | undefined {
+    if (this.owners.get(sessionId) !== guildId) {
+      return undefined
+    }
+    for (const s of this.sessions.values()) {
+      if (s.id === sessionId) {
+        return s
+      }
+    }
+    return undefined
+  }
+
   async escalate(guildId: string, sessionId: string, reason: string): Promise<boolean> {
     if (this.owners.get(sessionId) !== guildId) {
       return false
@@ -80,6 +113,7 @@ export class MemoryCouncilStore implements CouncilStore {
         }
         s.status = 'escalated'
         s.reason = reason
+        this.claims.delete(sessionId)
         return true
       }
     }

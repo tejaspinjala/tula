@@ -134,11 +134,31 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
+  async claim(guildId: string, sessionId: string, now: Date, ttlMs: number): Promise<boolean> {
+    const until = new Date(now.getTime() + ttlMs).toISOString()
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        update council_sessions set claimed_until = ${until}::timestamptz
+        where session_id = ${sessionId} and status = 'open'
+          and (claimed_until is null or claimed_until <= ${now.toISOString()}::timestamptz)
+        returning session_id`
+      return rows.length > 0
+    })
+  }
+
+  async release(guildId: string, sessionId: string): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`
+        update council_sessions set claimed_until = null
+        where session_id = ${sessionId} and status = 'open'`
+    })
+  }
+
   async escalate(guildId: string, sessionId: string, reason: string): Promise<boolean> {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)
       const rows = await tx`
-        update council_sessions set status = 'escalated', reason = ${reason}
+        update council_sessions set status = 'escalated', reason = ${reason}, claimed_until = null
         where session_id = ${sessionId} and status = 'open'
         returning quest_id, proposal_hash`
       const row = rows[0]

@@ -125,7 +125,7 @@ async function consultCouncil(
   quest: Quest,
   proposal: { hash: string; content: string },
   verdict: Verdict
-): Promise<string | null> {
+): Promise<string | 'pending' | null> {
   if (!deps.config) {
     return null
   }
@@ -153,6 +153,9 @@ async function consultCouncil(
     proposal,
     sessionCap: councilSessionCap(config),
   })
+  if (result.status === 'in_progress') {
+    return 'pending'
+  }
   return result.status === 'escalated' ? councilEvidence(result.votes, result.reason) : null
 }
 
@@ -161,6 +164,8 @@ export type QuestSealOutcome =
   | { outcome: 'requested'; seal: Seal }
   | { outcome: 'rejected'; quest: Quest }
   | { outcome: 'no_proposal' }
+  /** The Council is mid-session on another worker: not yet; no Seal is requested this pass. */
+  | { outcome: 'council_pending' }
 
 /**
  * Asks for the Seal of a Quest held in `awaiting_seal`, gated on the Verdict bound to the hash of
@@ -197,6 +202,9 @@ export async function requestQuestSeal(
   }
   const verdictEvidence = `Verdict passed: ${verdict.findings.map((f) => `${f.check} (${f.detail})`).join('; ')}`
   const council = await consultCouncil(deps, guildId, quest, proposal, verdict)
+  if (council === 'pending') {
+    return { outcome: 'council_pending' }
+  }
   const seal = await deps.seals.requestSeal(guildId, {
     questId: quest.id,
     requestedBy: quest.ownerId,
