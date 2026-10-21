@@ -32,6 +32,8 @@ export function SignInPanel({
   browser,
   founding = 'closed',
   enrolToken,
+  desktopShell = false,
+  openInBrowser,
   onSession,
 }: {
   fetcher: Fetcher
@@ -39,6 +41,10 @@ export function SignInPanel({
   founding?: FoundingState
   /** The one-time token from an enrolment link, already cleared from the address bar. */
   enrolToken?: string | null
+  /** True inside the desktop shell: the title offers only a sign-in through the system browser. */
+  desktopShell?: boolean
+  /** Opens the sign-in page in the system browser (the shell hands it to the OS). */
+  openInBrowser?: () => void
   onSession: (session: Session) => void
 }) {
   const guildInput = useId()
@@ -89,6 +95,8 @@ export function SignInPanel({
     }
   }, [mode])
 
+  void desktopShell
+  void openInBrowser
   const guild = guildId.trim()
   const items = [
     { id: 'continue', label: 'Continue' },

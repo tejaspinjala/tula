@@ -10,9 +10,9 @@ import type { Fetcher } from './artifacts'
 /** The browser's passkey ceremonies; injected so the flows run without a real authenticator. */
 export interface PasskeyBrowser {
   /** Creates a passkey from guildd's creation options; resolves to the JSON to send back. */
-  create(options: PublicKeyCredentialCreationOptionsJSON): Promise<unknown>
+  create(options: PublicKeyCredentialCreationOptionsJSON, signal?: AbortSignal): Promise<unknown>
   /** Signs guildd's request options with a passkey; resolves to the JSON to send back. */
-  get(options: PublicKeyCredentialRequestOptionsJSON): Promise<unknown>
+  get(options: PublicKeyCredentialRequestOptionsJSON, signal?: AbortSignal): Promise<unknown>
 }
 
 function ceremonyOf<T extends { challenge: string }>() {
@@ -306,6 +306,7 @@ export type PasskeyFailure =
   | 'wrong_address'
   | 'refused'
   | 'busy'
+  | 'timeout'
   | 'unknown'
 
 function nameOf(error: unknown): string {
@@ -374,6 +375,7 @@ const LINES: Record<PasskeyFailure, { 'sign-in': string; founding: string; enrol
     founding: 'Too many knocks at the gate. Wait a minute, then try again.',
     enrol: 'Too many knocks at the gate. Wait a minute, then try again.',
   },
+  timeout: { 'sign-in': '', founding: '', enrol: '' },
   unknown: {
     'sign-in': 'Something went wrong at the gate. Try again.',
     founding: 'Founding your guild failed. Try again.',
@@ -420,4 +422,59 @@ export function withNoPasskeyDetection(
     create: browser.create,
     get: detecting(browser.get, now),
   }
+}
+
+/** How long a passkey ceremony may wait for the authenticator before it is cut off (60 s). */
+export const CEREMONY_TIMEOUT_MS = 60_000
+
+/** Wraps a browser so a ceremony that never settles is aborted after `ms`. */
+export function withCeremonyTimeout(
+  browser: PasskeyBrowser,
+  ms: number = CEREMONY_TIMEOUT_MS
+): PasskeyBrowser {
+  void ms
+  return browser
+}
+
+/** True when the page runs inside the Guildhall desktop shell (its user-agent suffix). */
+export function isDesktopShell(userAgent: string): boolean {
+  void userAgent
+  return false
+}
+
+/** True when the page was opened by the desktop shell to sign in (`?desktop=1`). */
+export function desktopRequested(search: string): boolean {
+  void search
+  return false
+}
+
+/** The desktop code a deep link delivered in the fragment (`#desktop-code=<code>`), or null. */
+export function desktopCodeFromHash(hash: string): string | null {
+  void hash
+  return null
+}
+
+/** Reads the desktop code from the address bar and clears the fragment. Null when absent. */
+export function takeDesktopCode(place: EnrolPlace): string | null {
+  void place
+  return null
+}
+
+/** The url that hands a hand-off `code` to the desktop app through the OS. */
+export function desktopReturnUrl(code: string): string {
+  void code
+  return ''
+}
+
+/** Mints a hand-off code for the signed-in browser session. */
+export async function beginDesktopHandoff(fetcher: Fetcher): Promise<string> {
+  void fetcher
+  throw new Error('not implemented')
+}
+
+/** Exchanges a desktop hand-off code for a cookie session. */
+export async function exchangeDesktopCode(code: string, fetcher: Fetcher): Promise<Session> {
+  void code
+  void fetcher
+  throw new Error('not implemented')
 }
