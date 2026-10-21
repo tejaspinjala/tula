@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
+import type { DossierService } from '../dossiers'
 import {
   campaignQuestCap,
   hallAcceptsQuests,
@@ -72,6 +73,8 @@ export interface McpGatewayDeps {
   handoffs: HandoffStore
   /** Governed web research for `research`; absent when no provider is configured (the tool is then unavailable). */
   research?: Research
+  /** Makes Dossiers for `request_dossier`; absent, the tool is unavailable. */
+  dossiers?: DossierService
   /** Records each tool call as a `member.activity` event (ids and a closed name only). */
   activity: ActivityLog
   toolsets: ToolsetStore
