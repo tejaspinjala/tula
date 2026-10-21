@@ -153,6 +153,12 @@ test('a Quest shows its claimer once it has been claimed, and none while it wait
   ).toBe('heralds-member-2')
 })
 
+test('a queued Quest whose claim was released has no claimer', () => {
+  expect(
+    claimerOf(inC('d', 'x', { attempts: 1, state: 'queued', ownerId: 'health-member-1' }))
+  ).toBeNull()
+})
+
 test('a queued Quest blocked by routing says why it waits, in plain words', async () => {
   const { waitingReason } = await import('./quests')
   const base = {
