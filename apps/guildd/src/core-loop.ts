@@ -299,8 +299,17 @@ export async function requestQuestSeal(
  * consumed. Each step is idempotent; a Quest that fails is logged (ids only) and skipped.
  */
 async function healCouncilApprovals(deps: PendingSealDeps, guildId: string): Promise<void> {
-  const { council } = deps
-  if (!council) {
+  const { council, config, presence, clock } = deps
+  if (!council || !config || !presence || !clock) {
+    return
+  }
+  // A recorded approval is final for the cap, not for the Seal: settle only while the Council
+  // could still approve (policy `routine_alone` and the Guild Master away); else the Seal stays
+  // requested for the Guild Master.
+  if (
+    (await config.current(guildId)).config.sealPolicy !== 'routine_alone' ||
+    !isAway(await presence.get(guildId), clock.now())
+  ) {
     return
   }
   let after: string | undefined

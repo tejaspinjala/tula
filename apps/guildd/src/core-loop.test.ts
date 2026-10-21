@@ -356,6 +356,45 @@ describe('requestQuestSeal', () => {
       expect(c.model.calls).toHaveLength(5)
     })
 
+    describe('a recorded approval is final for the cap, not for the Seal', () => {
+      async function approvedButNotSettled() {
+        const c = await council({ unanimous: true })
+        // Not away: the Council does not convene and a normal Seal is requested.
+        expect((await requestQuestSeal(c.deps, c.guild, c.quest)).outcome).toBe('requested')
+        const opened = await c.store.open(c.guild, {
+          questId: c.quest.id,
+          proposalHash: c.proposal.hash,
+          day: '2030-01-01',
+          sessionCap: 20,
+        })
+        if (opened.status === 'cap_reached') {
+          throw new Error('unexpected cap')
+        }
+        await c.store.approve(c.guild, opened.session.id, {
+          questId: c.quest.id,
+          day: '2030-01-01',
+          cap: 5,
+        })
+        return c
+      }
+
+      test('the Guild Master back: the heal leaves the Seal requested and the Quest awaiting_seal', async () => {
+        const c = await approvedButNotSettled()
+        await requestPendingSeals(c.deps, c.guild)
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+        expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+      })
+
+      test('the Seal Policy being always: the heal leaves the Seal requested and the Quest awaiting_seal', async () => {
+        const c = await approvedButNotSettled()
+        await c.presence.goAway(c.guild, null)
+        c.policy.value = 'always'
+        await requestPendingSeals(c.deps, c.guild)
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+        expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+      })
+    })
+
     test('the Seal is settled against the hash the session voted on', async () => {
       const c = await council({ unanimous: true })
       await c.presence.goAway(c.guild, null)

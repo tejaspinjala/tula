@@ -308,6 +308,8 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
         const { store: s2, newGuild } = other
         const h = await newGuild()
         expect(await s2.approve(h, id, { questId: 'q1', day: DAY, cap: 5 })).toBe('not_found')
+        expect(await s2.halt(h, id, 'q1')).toBe(false)
+        expect(await s2.approvalFor(h, 'q1', HASH)).toBeNull()
         await store.halt(g, id, 'q1')
       })
     })
