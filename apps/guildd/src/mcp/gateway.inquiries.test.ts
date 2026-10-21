@@ -224,15 +224,34 @@ describe('Inquiries through the MCP gateway', () => {
     ).not.toContain('inquiry-answer')
   })
 
-  test('the answer Quest takes the stricter data class of the asking Quest and the target Hall', async () => {
+  test('a non-private Quest in a work Hall cannot ask a private Hall; a private-class asker can and reads the answer', async () => {
     const s = await setup()
-    const privateAsker = await s.joined('vault', 'vault-captain', { dataClass: 'private' })
-    const out = await s.ask(privateAsker.lease, 'heralds', 'q')
-    expect(out.isError).toBe(true)
     const internalAsker = await s.joined('heralds', 'heralds-member-2')
-    const toVault = await s.ask(internalAsker.lease, 'vault', 'q')
-    const quest = await s.quests.get(s.guild, askedBody.parse(toVault.data).answerQuestId)
+    expect(await s.ask(internalAsker.lease, 'vault', 'q')).toMatchObject({
+      isError: true,
+      data: { error: 'private_boundary' },
+    })
+    expect(
+      (await s.quests.list(s.guild, { limit: 50 })).quests.map((q) => q.templateId)
+    ).not.toContain('inquiry-answer')
+
+    const privateAsker = await s.joined('heralds', 'heralds-captain', { dataClass: 'private' })
+    const out = await s.ask(privateAsker.lease, 'vault', 'q')
+    expect(out.isError).toBe(false)
+    const { inquiryId, answerQuestId } = askedBody.parse(out.data)
+    const quest = await s.quests.get(s.guild, answerQuestId)
     expect(quest?.dataClass).toBe('private')
+    const answerer = await s.claimAnswerQuest(answerQuestId)
+    await callTool(s.transport, 'answer_inquiry', {
+      lease: answerer.lease,
+      inquiryId,
+      answer: 'secret',
+    })
+    const read = await callTool(s.transport, 'read_inquiry', {
+      lease: privateAsker.lease,
+      inquiryId,
+    })
+    expect(read).toMatchObject({ isError: false, data: { status: 'answered' } })
   })
 
   test('past the per-Quest cap an ask is refused, and a repeat is answered', async () => {
