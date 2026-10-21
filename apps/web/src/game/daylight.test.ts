@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { integerZoom, openZoomWhole, phaseAt, tintFor, walkPose } from './daylight'
+import { integerZoom, openZoomWhole, phaseAt, tintFor, walkPose, zoomAfterResize } from './daylight'
+
+test('a resize reopens the map at the same whole zoom a fresh load would, so a viewport has one zoom', () => {
+  expect(zoomAfterResize(390, 844, 640, 400)).toBe(3)
+  expect(zoomAfterResize(390, 844, 640, 608)).toBe(2)
+  expect(zoomAfterResize(1280, 740, 640, 400)).toBe(2)
+  expect(zoomAfterResize(1280, 794, 640, 608)).toBe(2)
+})
 
 test('a map opens at the smallest whole zoom that fills the frame, so there is no letterbox', () => {
   // A portrait phone (390x800): the hall (640x400) needs 2x to fill the height.

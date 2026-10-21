@@ -4,8 +4,11 @@ import {
   bubbleCentreY,
   fitZoom,
   hallLayout,
+  landing,
   openZoom,
+  refitHall,
   seatsIn,
+  type TileRect,
   withClosedDoors,
 } from './layout'
 
@@ -113,4 +116,95 @@ test('a speech bubble is clamped inside the camera view', () => {
   expect(bubbleCentreX(view, 120, 290)).toBe(300 - 60 - 1)
   expect(bubbleCentreX(view, 120, 200)).toBe(200)
   expect(bubbleCentreX(view, 400, 200)).toBe(200)
+})
+
+/** Tiles reachable on foot from the Steward desk. */
+function reachable(l: ReturnType<typeof hallLayout>): Set<string> {
+  const start = { x: l.stewardDesk.x, y: l.stewardDesk.y + l.stewardDesk.h }
+  const seen = new Set<string>([`${start.x},${start.y}`])
+  const queue = [start]
+  for (let at = queue.shift(); at; at = queue.shift()) {
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const x = at.x + dx
+      const y = at.y + dy
+      if (l.walkable(x, y) && !seen.has(`${x},${y}`)) {
+        seen.add(`${x},${y}`)
+        queue.push({ x, y })
+      }
+    }
+  }
+  return seen
+}
+
+test('a guild with more Halls than the six slots gets a room for every Hall, all reachable on foot', () => {
+  for (const halls of [7, 9, 10, 20]) {
+    const big = hallLayout(halls)
+    expect(big.rooms.length).toBeGreaterThanOrEqual(halls)
+    expect(big.rooms.map((r) => r.slot)).toEqual(big.rooms.map((_r, i) => i))
+    expect(big.doorways).toHaveLength(big.rooms.length)
+    const seen = reachable(big)
+    for (const room of big.rooms) {
+      expect(seen.has(`${room.x + 5},${room.y + 5}`)).toBe(true)
+      expect(seatsIn(big, room, 4)).toHaveLength(4)
+    }
+    // The gate, desks and coin counter keep their tiles, and the map grows only downward.
+    expect(big.gate).toEqual(layout.gate)
+    expect(big.sealDesk).toEqual(layout.sealDesk)
+    expect(big.height).toBeGreaterThan(layout.height)
+    expect(big.width).toBe(layout.width)
+  }
+})
+
+test('six or fewer Halls keep the map as drawn', () => {
+  expect(hallLayout(3).height).toBe(layout.height)
+  expect(hallLayout(6).rooms).toEqual(layout.rooms)
+})
+
+test('a map for more Halls ships its own Tiled source with the same size as its layout', () => {
+  const big = hallLayout(9)
+  expect(big.source).toMatchObject({ width: big.width, height: big.height })
+})
+
+test('rooms never overlap each other or a doorway, for any roster size', () => {
+  for (const halls of [7, 9, 10, 20]) {
+    const big = hallLayout(halls)
+    const overlap = (a: TileRect, b: TileRect) =>
+      a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+    big.rooms.forEach((a, i) => {
+      for (const b of big.rooms.slice(i + 1)) {
+        expect(overlap(a, b)).toBe(false)
+      }
+      const door = big.doorways[i]
+      expect(door && overlap(a, door)).toBe(false)
+      expect(a.y + a.h).toBeLessThanOrEqual(big.height)
+    })
+    // The corridor beside every doorway is open floor.
+    for (const door of big.doorways) {
+      expect(big.walkable(door.x, door.y - 1) || big.walkable(door.x, door.y + 1)).toBe(true)
+    }
+  }
+})
+
+test('the hall redraws only when the wing count changes, and reframes only for a free camera in the hall', () => {
+  expect(refitHall(6, 6, 'hall', null)).toEqual({ redraw: false, reframe: false })
+  expect(refitHall(6, 9, 'hall', null)).toEqual({ redraw: true, reframe: true })
+  expect(refitHall(9, 6, 'hall', null)).toEqual({ redraw: true, reframe: true })
+  expect(refitHall(6, 9, 'plaza', null)).toEqual({ redraw: true, reframe: false })
+  expect(refitHall(6, 9, 'hall', 'm1')).toEqual({ redraw: true, reframe: false })
+  // Seven to nine Halls is the same single wing.
+  expect(refitHall(7, 9, 'hall', null).redraw).toBe(false)
+})
+
+test('a Guild Master left off the shrunk map lands at the entrance; one still on a walkable tile stays', () => {
+  const small = hallLayout()
+  const entrance = { x: 38.5, y: 12.5 }
+  expect(landing({ x: 8.5, y: 30.5 }, small.walkable, entrance)).toEqual(entrance)
+  const room = small.rooms[1]
+  const on = { x: (room?.x ?? 0) + 5.5, y: (room?.y ?? 0) + 5.5 }
+  expect(landing(on, small.walkable, entrance)).toEqual(on)
 })

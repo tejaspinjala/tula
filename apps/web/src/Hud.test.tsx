@@ -85,7 +85,7 @@ test('the HUD shows the day and a Treasury Meter of what is left to spend today'
   await tick(20)
   expect(m.host.textContent).toContain('Day 2026-10-20')
   const meter = m.host.querySelector('meter')
-  expect(meter?.getAttribute('aria-label')).toBe('Treasury left today')
+  expect(meter?.getAttribute('aria-label')).toBe('Treasury')
   expect(meter?.getAttribute('aria-valuenow')).toBe('3500')
   expect(meter?.getAttribute('aria-valuemax')).toBe('5000')
   expect(meter?.getAttribute('aria-valuetext')).toBe('$35.00 of $50.00')
@@ -168,4 +168,32 @@ test('guildd shows as an alert only while it is down', async () => {
   const down = await mount(hud({ status: 'down' }))
   expect(down.host.querySelector('[role="alert"]')?.textContent).toBe('guildd: down')
   await down.unmount()
+})
+
+test('the HUD tells the world how much room it takes from the document top, whatever the scroll', async () => {
+  const proto = HTMLElement.prototype
+  const top = Object.getOwnPropertyDescriptor(proto, 'offsetTop')
+  const height = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
+  const scrolled = Object.getOwnPropertyDescriptor(window, 'scrollY')
+  Object.defineProperty(proto, 'offsetTop', { configurable: true, get: () => 12 })
+  Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => 108 })
+  Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 300 })
+  try {
+    const m = await mount(hud())
+    expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('120px')
+    await m.unmount()
+    expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('')
+  } finally {
+    for (const [target, key, saved] of [
+      [proto, 'offsetTop', top],
+      [proto, 'offsetHeight', height],
+      [window, 'scrollY', scrolled],
+    ] as const) {
+      if (saved) {
+        Object.defineProperty(target, key, saved)
+      } else {
+        Reflect.deleteProperty(target, key)
+      }
+    }
+  }
 })
