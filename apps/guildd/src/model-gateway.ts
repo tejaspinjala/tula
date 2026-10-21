@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { GuildConfig } from './guild-config'
+import { type GuildConfig, isHallLocked } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import { ACTIVITY_WINDOW_MS, type ActivityLog } from './ports/activity-log'
 import type { Clock } from './ports/clock'
@@ -238,6 +238,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_paused' }
     }
+    if (isHallLocked((await this.deps.config.current(guildId)).config, input.hallId)) {
+      return { status: 'refused', reason: 'hall_locked' }
+    }
     const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
     if (existing?.state === 'active') {
@@ -362,6 +365,9 @@ export class ModelGateway {
     this.checkLive(run)
     if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
       throw new GatewayError('hall_paused')
+    }
+    if (isHallLocked((await this.deps.config.current(guildId)).config, run.hallId)) {
+      throw new GatewayError('hall_locked')
     }
     const quest = await this.deps.quests.get(guildId, run.questId)
     if (!quest || quest.attempts !== run.attempt || !hasLiveLease(quest, this.deps.clock.now())) {

@@ -1,5 +1,5 @@
 import { type PendingSealDeps, reconcileSeals, requestPendingSeals } from './core-loop'
-import { hallCaps, questConcurrency, sealPostWindowMs } from './guild-config'
+import { claimLimits, lockedHallIds, sealPostWindowMs } from './guild-config'
 import { type HallWatchDeps, watchHalls } from './hall-watch'
 import type { McpGateway } from './mcp/gateway'
 import { MICROS_PER_CENT } from './model-cost'
@@ -9,7 +9,7 @@ import type { ConfigStore } from './ports/config-store'
 import { ConfigError } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
 import type { ModelLedger } from './ports/model-ledger'
-import { type Quest, type QuestQueue, retryDelayMs } from './ports/quest-queue'
+import { MAX_QUEST_PAGE, type Quest, type QuestQueue, retryDelayMs } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
 import { type ProviderBudget, type RouteDeps, route } from './routing'
@@ -304,6 +304,7 @@ export type DispatchDeps = RoutingDeps &
   PendingSealDeps &
   HallWatchDeps & {
     quests: QuestQueue
+    gateway: Pick<ModelGateway, 'revokeHallRuns'>
     config: Pick<ConfigStore, 'current'>
   }
 
@@ -341,6 +342,37 @@ export type DispatchOutcome =
 const DISPATCH_LEASE_MS = 10 * 60_000
 
 /**
+ * Pauses the work of the locked Halls: their live runs lose their model tokens, their sandboxes
+ * are killed, and their live leases go back to the queue (no attempt spent). Idempotent; a guild
+ * with no locked Hall does nothing.
+ */
+async function parkLockedHalls(
+  deps: Pick<DispatchDeps, 'quests' | 'gateway' | 'sandboxes'>,
+  guildId: string,
+  halls: readonly string[]
+): Promise<void> {
+  if (halls.length === 0) {
+    return
+  }
+  let after: string | undefined
+  do {
+    const page = await deps.quests.list(guildId, {
+      limit: MAX_QUEST_PAGE,
+      state: 'active',
+      ...(after === undefined ? {} : { after }),
+    })
+    for (const q of page.quests.filter((x) => halls.includes(x.hallId))) {
+      await deps.sandboxes.kill({ guildId, questId: q.id })
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+  for (const hall of halls) {
+    await deps.gateway.revokeHallRuns(guildId, hall)
+  }
+  await deps.quests.releaseLeases(guildId, 'routing_blocked', halls)
+}
+
+/**
  * One pass of the dispatcher for a guild: refuses while the Gates are barred, settles finished
  * Seals, requests the Seals that are due, then claims at most one Quest, routes it and starts its
  * worker. Deterministic code; idempotent, so a rerun or two workers at once do no harm.
@@ -363,15 +395,10 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
   await watchHalls(deps, guildId)
   // A locked Hall pauses its work: live leases go back to the queue and its Quests are not claimed.
-  const lockedHalls = config.halls.filter((h) => h.locked).map((h) => h.id)
-  if (lockedHalls.length > 0) {
-    await deps.quests.releaseLeases(guildId, 'routing_blocked', lockedHalls)
-  }
+  await parkLockedHalls(deps, guildId, lockedHallIds(config))
   const claimed = await deps.quests.claim(guildId, {
-    skipHalls: lockedHalls,
     leaseMs: DISPATCH_LEASE_MS,
-    maxActive: questConcurrency(config),
-    hallCaps: hallCaps(config),
+    ...claimLimits(config),
   })
   if (claimed === null) {
     return { status: 'idle' }

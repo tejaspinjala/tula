@@ -444,6 +444,7 @@ describe('dispatch', () => {
           return out
         },
         revokeRun: (...args: Parameters<ModelGateway['revokeRun']>) => gateway.revokeRun(...args),
+        revokeHallRuns: async () => 0,
       },
     }
     const stuck = await w.queue()

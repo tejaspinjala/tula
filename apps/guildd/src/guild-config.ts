@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { canonicalJson } from './audit-chain'
 import { characterLook } from './look-catalogue'
+import type { ClaimOptions } from './ports/quest-queue'
 import { type ContentPolicy, DEFAULT_POLICY } from './verdict'
 
 const slug = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
@@ -220,6 +221,16 @@ export function hallCaps(config: GuildConfig): Record<string, number> {
       h.maxConcurrentMembers === undefined ? [] : [[h.id, h.maxConcurrentMembers]]
     )
   )
+}
+
+/** Whether the Hall is locked in this config (an unknown Hall counts as not locked). */
+export function isHallLocked(config: GuildConfig, hallId: string): boolean {
+  return config.halls.some((h) => h.id === hallId && h.locked)
+}
+
+/** The ids of the locked Halls: their Quests wait, queued, and are never claimed. */
+export function lockedHallIds(config: GuildConfig): string[] {
+  return config.halls.filter((h) => h.locked).map((h) => h.id)
 }
 
 /** The Quest concurrency cap of a config that does not set one. */
@@ -692,4 +703,18 @@ export function hallAcceptsQuests(
     return { ok: false, error: 'hall_not_found' }
   }
   return found.locked ? { ok: false, error: 'hall_locked' } : { ok: true }
+}
+
+/**
+ * The limits every claim of a guild obeys, built from its config in one place: the concurrency
+ * cap, the per-Hall caps and the locked Halls that are skipped.
+ */
+export function claimLimits(
+  config: GuildConfig
+): Required<Pick<ClaimOptions, 'maxActive' | 'hallCaps' | 'skipHalls'>> {
+  return {
+    maxActive: questConcurrency(config),
+    hallCaps: hallCaps(config),
+    skipHalls: lockedHallIds(config),
+  }
 }
