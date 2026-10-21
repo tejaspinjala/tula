@@ -16,8 +16,9 @@ export interface PasskeyBrowser {
   get(options: PublicKeyCredentialRequestOptionsJSON, signal?: AbortSignal): Promise<unknown>
 }
 
-/** How long a passkey ceremony may wait for the authenticator before it is cut off (60 s). */
-export const CEREMONY_TIMEOUT_MS = 60_000
+/** How long a passkey ceremony may wait for the authenticator before it is cut off (55 s).
+ * Strictly shorter than guildd's 60 s WebAuthn timeout so the client line wins over the browser's own NotAllowedError. */
+export const CEREMONY_TIMEOUT_MS = 55_000
 
 function ceremonyOf<T extends { challenge: string }>() {
   return z.object({
