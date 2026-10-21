@@ -9,7 +9,7 @@ import type { ConfigStore } from './ports/config-store'
 import { ConfigError } from './ports/config-store'
 import type { GateStore } from './ports/gate-store'
 import type { ModelLedger } from './ports/model-ledger'
-import { MAX_QUEST_PAGE, type Quest, type QuestQueue, retryDelayMs } from './ports/quest-queue'
+import { MAX_QUEST_PAGE, type Quest, type QuestQueue, questRetryDelayMs } from './ports/quest-queue'
 import type { BlockReason } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
 import { type ProviderBudget, type RouteDeps, route } from './routing'
@@ -84,7 +84,7 @@ export async function routeClaimed(
     await deps.quests.kill(guildId, quest.id, quest.attempts, outcome.reason)
     return { status: 'blocked', reason: outcome.reason, disposition: 'killed' }
   }
-  const delay = retryDelayMs(quest.attempts, deps.random())
+  const delay = questRetryDelayMs(quest, deps.random())
   await deps.quests.releaseClaim(
     guildId,
     quest.id,
