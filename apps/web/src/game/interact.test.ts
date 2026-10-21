@@ -98,3 +98,11 @@ test('a Hall mailbox is a target by Hall; interacting with it opens it', () => {
   const near = talkReducer(initialTalk, { type: 'near', target: box })
   expect(talkReducer(near, { type: 'interact' }).open).toEqual(box)
 })
+
+test('the Council chamber is a target; interacting with it opens it', () => {
+  const chamber: Target = { kind: 'council' }
+  expect(sameTarget(chamber, { kind: 'council' })).toBe(true)
+  expect(sameTarget(chamber, desk)).toBe(false)
+  const near = talkReducer(initialTalk, { type: 'near', target: chamber })
+  expect(talkReducer(near, { type: 'interact' }).open).toEqual(chamber)
+})

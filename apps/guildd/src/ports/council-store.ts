@@ -1,5 +1,8 @@
 /** The Council of Elders' five voices, in the order they speak. Data, never roster Members. */
 export const COUNCIL_VOICES = ['architect', 'skeptic', 'security', 'ops', 'user'] as const
+/** The most sessions one list page returns. */
+export const MAX_COUNCIL_PAGE = 50
+
 /** One voice of the Council. */
 export type CouncilVoice = (typeof COUNCIL_VOICES)[number]
 
@@ -69,6 +72,15 @@ export interface CouncilStore {
    * session or the session is not this guild's. Appends `council.voted` (never the reasons).
    */
   recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean>
+  /**
+   * One page of the guild's sessions, newest first. `after` is the id of the last session of the
+   * previous page; `next` is that id when older sessions remain, else null. An unknown `after`
+   * (or another guild's) yields an empty page.
+   */
+  list(
+    guildId: string,
+    page: { limit: number; after?: string }
+  ): Promise<{ sessions: CouncilSession[]; next: string | null }>
   /** The session's votes in voice order. */
   votes(guildId: string, sessionId: string): Promise<CouncilVote[]>
   /**

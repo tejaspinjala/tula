@@ -103,6 +103,23 @@ export function TalkDialog({
           </div>
         </>
       )}
+      {open?.kind === 'council' && (
+        <>
+          <h2 id="talk-title">Council chamber</h2>
+          <p>
+            Five elders confer here on routine Proposals while you are away. Their votes and reasons
+            wait in the Council.
+          </p>
+          <div className="talk-actions">
+            <button type="button" onClick={() => go('/council')}>
+              Open the Council
+            </button>
+            <button type="button" onClick={() => dispatch({ type: 'close' })}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
       {open?.kind === 'sealDesk' && scene && (
         <>
           <h2 id="talk-title">Seal desk</h2>
