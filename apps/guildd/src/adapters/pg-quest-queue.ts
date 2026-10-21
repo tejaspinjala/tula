@@ -270,27 +270,38 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   async post(guildId: string, input: NewQuest): Promise<{ quest: Quest; created: boolean }> {
+    return this.db.withGuild(guildId, (tx) => this.postIn(tx, guildId, input))
+  }
+
+  /**
+   * Posts a Quest inside the caller's transaction, so another write (a Bug Report) commits or rolls
+   * back with it. Takes the per-guild quest lock like {@link post}; a repeated job key returns the
+   * original with `created: false`.
+   */
+  async postIn(
+    tx: TenantTx,
+    guildId: string,
+    input: NewQuest
+  ): Promise<{ quest: Quest; created: boolean }> {
     const p = newQuest.parse(input)
-    return this.db.withGuild(guildId, async (tx) => {
-      await this.lock(tx, guildId)
-      if (p.blockedBy.length > 0) {
-        const [found] = await tx`
-          select count(*)::int as n from quests
-          where guild_id = ${guildId} and quest_id = any (${`{${p.blockedBy.join(',')}}`}::uuid[])`
-        if (z.object({ n: z.number() }).parse(found).n !== new Set(p.blockedBy).size) {
-          throw new QuestError('unknown_blocker')
-        }
+    await this.lock(tx, guildId)
+    if (p.blockedBy.length > 0) {
+      const [found] = await tx`
+        select count(*)::int as n from quests
+        where guild_id = ${guildId} and quest_id = any (${`{${p.blockedBy.join(',')}}`}::uuid[])`
+      if (z.object({ n: z.number() }).parse(found).n !== new Set(p.blockedBy).size) {
+        throw new QuestError('unknown_blocker')
       }
-      const row = await this.insertQuest(tx, guildId, p)
-      if (!row) {
-        const [existing] = await tx`
-          select * from quests where guild_id = ${guildId} and job_key = ${p.jobKey}`
-        return { quest: toQuest(existing), created: false }
-      }
-      const quest = toQuest(row)
-      await this.emit(tx, { quest, event: 'quest.posted' }, 0)
-      return { quest, created: true }
-    })
+    }
+    const row = await this.insertQuest(tx, guildId, p)
+    if (!row) {
+      const [existing] = await tx`
+        select * from quests where guild_id = ${guildId} and job_key = ${p.jobKey}`
+      return { quest: toQuest(existing), created: false }
+    }
+    const quest = toQuest(row)
+    await this.emit(tx, { quest, event: 'quest.posted' }, 0)
+    return { quest, created: true }
   }
 
   async claim(guildId: string, options: ClaimOptions): Promise<Quest | null> {

@@ -81,8 +81,12 @@ A code-generated, verified handoff packet about a finished Quest in another Hall
 _Avoid_: summary, report
 
 **Bug Report**:
-A defect found by any Hall, filed with a reproduction; it becomes a **Fix Quest** on the owning Hall's Quest Board.
+A defect found by any Hall, filed with a reproduction (steps, expected, actual; a missing or blank field is refused `reproduction_required`) and up to 20 evidence references (artifact hashes or Dossier ids) against the Hall that owns the broken work (`file_bug_report`, or the Guild Master from the web). Any Member may file, against another Hall or its own, under the cross-Hall rule (`unknown_hall`, `private_boundary`), capped per Quest (`maxBugReportsPerQuest`, refused as `bug_report_cap`). Filing posts a **Fix Quest** on the owning Hall's Quest Board in the same transaction; a report with the same reproduction as an open one for that Hall is stored `duplicate`, linked to it, and posts nothing. When the Fix Quest's Handoff is accepted (met, nothing left open) the report becomes `fixed` with that Handoff's hash, in the Handoff's transaction.
 _Avoid_: issue
+
+**Fix Quest**:
+The Quest a **Bug Report** posts on the owning Hall's Quest Board (template `fix-quest`). Internal: only filing a Bug Report posts it, never `post_quest`, `spawn_subquest`, `post_to_board` or the web templates.
+_Avoid_: ticket
 
 **Brief**:
 The compact instructions compiled by code for one agent run: the Quest, its done-condition and pointers to the exact files, artifacts and skill sections it needs.
@@ -239,6 +243,15 @@ A Member sent a Missive (payload: missive id, sender member id, addressee member
 
 **dossier.created**:
 A Dossier was assembled about a finished Quest (payload: dossier id, subject Quest id, subject Hall id, requesting Hall id or null for the Guild Master, dossier hash, `verified`; ids and hashes only, never the body, which the Hall dossiers routes serve).
+
+**bug_report.filed**:
+A Bug Report was filed and its Fix Quest posted (payload: Bug Report id, Fix Quest id, owning Hall id, reproduction hash; ids and hashes only, never the title or reproduction, which the Hall bug-report routes serve).
+
+**bug_report.duplicate**:
+A Bug Report was filed with the reproduction of an open one and stored as a duplicate, posting nothing (payload: Bug Report id, the open report's id, owning Hall id).
+
+**bug_report.fixed**:
+A Bug Report's Fix Quest had its Handoff accepted and the report became fixed (payload: Bug Report id, Fix Quest id, owning Hall id, Handoff hash).
 
 **member.activity**:
 A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id, optionally the target hall id for cross-Hall work such as a Dossier request, and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.

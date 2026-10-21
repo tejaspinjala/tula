@@ -15,7 +15,16 @@ export class MemoryHandoffStore implements HandoffStore {
 
   /** `onEvent` receives each appended event's type and ids-and-hashes-only payload. */
   constructor(
-    private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {}
+    private readonly onEvent: (guildId: string, type: string, payload: object) => void = () => {},
+    /**
+     * Called, in the same synchronous step as the write, with each accepted Handoff (met, nothing
+     * open): how a Fix Quest's Bug Report is closed, as the Postgres adapter does in one transaction.
+     */
+    private readonly onAccepted: (
+      guildId: string,
+      questId: string,
+      handoffHash: string
+    ) => void = () => {}
   ) {}
 
   async record(
@@ -28,6 +37,7 @@ export class MemoryHandoffStore implements HandoffStore {
     const key = JSON.stringify([guildId, questId, attempt])
     const existing = this.handoffs.get(key)
     if (existing) {
+      this.accept(guildId, questId, existing)
       return { stored: existing, created: false }
     }
     const stored: StoredHandoff = { handoff: value, hash: hashHandoff(value), memberId }
@@ -37,7 +47,14 @@ export class MemoryHandoffStore implements HandoffStore {
       attempt,
       handoff_hash: stored.hash,
     })
+    this.accept(guildId, questId, stored)
     return { stored, created: true }
+  }
+
+  private accept(guildId: string, questId: string, stored: StoredHandoff): void {
+    if (stored.handoff.met && stored.handoff.openItems.length === 0) {
+      this.onAccepted(guildId, questId, stored.hash)
+    }
   }
 
   async get(guildId: string, questId: string, attempt: number): Promise<StoredHandoff | null> {
