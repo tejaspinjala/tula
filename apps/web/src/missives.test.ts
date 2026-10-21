@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { loadMissives, missivesOf } from './missives'
+import { crossHallLabel, loadMissives, missivesOf } from './missives'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -7,6 +7,7 @@ const row = (id: string, from: string, to: string, text = id) => ({
   id,
   seq: 1,
   hallId: 'heralds',
+  toHall: null,
   questId: 'q',
   from,
   to,
@@ -60,4 +61,12 @@ test('a Member’s own missives are those they sent, received, or the Hall was t
     row('4', 'cy', 'hall'),
   ]
   expect(missivesOf(all, 'ana').map((m) => m.id)).toEqual(['1', '3', '4'])
+})
+
+test('a cross-Hall Missive is labelled from the sending Hall or to the destination, per the Hall viewed', () => {
+  const name = (id: string) => (id === 'scribes' ? 'Scribes Hall' : 'Heralds Hall')
+  const away = { ...row('m', 'a', 'b'), hallId: 'scribes', toHall: 'heralds' }
+  expect(crossHallLabel(away, 'heralds', name)).toBe('from Scribes Hall')
+  expect(crossHallLabel(away, 'scribes', name)).toBe('to Heralds Hall')
+  expect(crossHallLabel(row('m', 'a', 'b'), 'heralds', name)).toBeNull()
 })

@@ -105,6 +105,8 @@ export const postToBoardArgs = z.strictObject({
 export const sendMissiveArgs = z.strictObject({
   lease: leaseHandle,
   to: z.string().min(1).max(200),
+  /** Another Hall of the guild to send to; `to` is then a Member of it, or `hall` for all of them. */
+  toHall: z.string().min(1).max(64).optional(),
   text: z.string().trim().min(1).max(MAX_MISSIVE_CHARS),
 })
 /**
@@ -215,7 +217,7 @@ export const TOOL_CATALOG: readonly ToolDef[] = [
     name: 'send_missive',
     roles: ALL_ROLES,
     description:
-      'Send a Missive (up to 2000 characters) to a Member of your own Hall, or to `hall` for all of them. Refused with missive_to_self, not_in_hall, unknown_member, or missive_cap past the guild’s Missives-per-Quest cap. Idempotent within one attempt.',
+      'Send a Missive (up to 2000 characters) to a Member of your own Hall, or to `hall` for all of them; with `toHall`, to a Member of (or all of) another Hall of the guild. Refused with missive_to_self, not_in_hall, unknown_member, unknown_hall, same_hall, private_boundary (private Halls and private-class Quests never send to a work Hall), or missive_cap past the guild’s Missives-per-Quest cap. Idempotent within one attempt.',
     args: sendMissiveArgs,
   },
   {

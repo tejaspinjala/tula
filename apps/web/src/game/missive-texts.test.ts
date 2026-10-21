@@ -25,7 +25,7 @@ test('only Halls with a Missive whose text is not yet known are fetched, once ea
 
 test('a fetched page adds its texts to the known ones without dropping earlier ones', () => {
   const merged = mergeTexts({ a: 'one' }, [
-    { id: 'b', from: 'm1', to: 'hall', text: 'two', sentAt: 'x' },
+    { id: 'b', from: 'm1', to: 'hall', text: 'two', hallId: 'h1', toHall: null, sentAt: 'x' },
   ])
   expect(merged).toEqual({ a: 'one', b: 'two' })
 })

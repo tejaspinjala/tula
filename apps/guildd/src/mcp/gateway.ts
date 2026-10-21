@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { BRIEF_TOKEN_CAP, compileBrief } from '../brief'
+import { resolveCrossHall } from '../cross-hall'
+import type { GuildConfig } from '../guild-config'
 import {
   campaignQuestCap,
   hallAcceptsQuests,
@@ -881,6 +883,9 @@ export class McpGateway {
     if (a.to === caller.member) {
       return refuse('missive_to_self')
     }
+    if (a.toHall !== undefined) {
+      return this.sendAcrossHalls(caller, a, a.toHall, config)
+    }
     if (a.to !== WHOLE_HALL) {
       const inHall = [...(hall.captain ? [hall.captain.id] : []), ...hall.members.map((m) => m.id)]
       if (!inHall.includes(a.to)) {
@@ -892,6 +897,48 @@ export class McpGateway {
     }
     const sent = await this.deps.missives.send(guild, {
       hallId: hall.id,
+      questId: quest.id,
+      attempt: quest.attempts,
+      from: caller.member,
+      to: a.to,
+      text: a.text,
+      maxPerQuest: missiveCap(config),
+      at: this.deps.clock.now(),
+    })
+    return sent.ok
+      ? ok({ id: sent.missive.id, created: sent.created, sentAt: sent.missive.sentAt })
+      : refuse(sent.error)
+  }
+
+  /**
+   * The cross-Hall branch of `send_missive`: the one addressing rule decides the target and the
+   * private boundary; the Missive keeps its sending Hall and the destination, and counts against
+   * the same per-Quest cap.
+   */
+  private async sendAcrossHalls(
+    caller: Caller,
+    a: z.infer<typeof sendMissiveArgs>,
+    toHall: string,
+    config: GuildConfig
+  ): Promise<ToolReply> {
+    const { guild, quest } = caller
+    const target = resolveCrossHall({
+      halls: config.halls.map((h) => ({
+        id: h.id,
+        kind: h.kind,
+        members: [...(h.captain ? [h.captain] : []), ...h.members],
+      })),
+      sourceHall: quest.hallId,
+      sourceDataClass: quest.dataClass,
+      toHall,
+      ...(a.to === WHOLE_HALL ? {} : { toMember: a.to }),
+    })
+    if (!target.ok) {
+      return refuse(target.error)
+    }
+    const sent = await this.deps.missives.send(guild, {
+      hallId: quest.hallId,
+      toHall: target.hall.id,
       questId: quest.id,
       attempt: quest.attempts,
       from: caller.member,
@@ -928,9 +975,10 @@ export class McpGateway {
       missives: page.missives.map((m) => ({
         id: m.id,
         from: m.from,
+        fromHall: m.hallId,
         to: m.to,
         sentAt: m.sentAt,
-        text: `<${tag} from="${m.from}" to="${m.to}">\n${m.text}\n</${tag}>`,
+        text: `<${tag} from="${m.from}"${m.toHall === null ? '' : ` fromHall="${m.hallId}"`} to="${m.to}">\n${m.text}\n</${tag}>`,
       })),
       next: page.next,
     })
