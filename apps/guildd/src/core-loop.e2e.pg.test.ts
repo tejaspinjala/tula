@@ -31,6 +31,8 @@ async function pgWorld(): Promise<E2eWorld> {
     postCosts: a.postCosts,
     provider,
     sandboxes,
+    notes: a.notes,
+    bugReports: a.bugReportStore,
     newGuild: async (options = {}) => {
       const guildId = await harness.foundGuild({ name: 'Loop', goal: 'g' })
       await a.config.seed(guildId)

@@ -1,8 +1,10 @@
 import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
+import { MemoryBugReportStore } from './adapters/memory-bug-report-store'
 import { MemoryClassifier } from './adapters/memory-classifier'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryDossierStore } from './adapters/memory-dossier-store'
 import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryHandoffStore } from './adapters/memory-handoff-store'
 import { MemoryInquiryStore } from './adapters/memory-inquiry-store'
@@ -21,8 +23,10 @@ import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
 import { MemoryWorkflowStore } from './adapters/memory-workflow-store'
+import { BugReportService } from './bug-reports'
 import { coreLoopEndToEnd, type E2eWorld, hallsFor } from './core-loop.e2e'
 import { Dispatcher } from './dispatch'
+import { DossierService } from './dossiers'
 import { Gates } from './gates'
 import { defaultConfig, guildConfig } from './guild-config'
 import { McpGateway } from './mcp/gateway'
@@ -63,16 +67,21 @@ async function memoryWorld(): Promise<E2eWorld> {
     tripwires,
     gates: gateStore,
   })
-  const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
+  const proposalStore = new MemoryProposalStore(clock)
+  const proposals = new ProposalEngine({ store: proposalStore, config })
   const handoffs = new MemoryHandoffStore()
+  const notes = new MemoryNoteStore()
+  const objectStore = new MemoryObjectStore()
+  const sealStore = new MemorySealStore(clock)
+  const bugReports = new MemoryBugReportStore(quests)
   const mcp = new McpGateway({
     activity: new MemoryActivityLog(),
     quests,
     config,
-    notes: new MemoryNoteStore(),
+    notes,
     missives: new MemoryMissiveStore(),
     inquiries: new MemoryInquiryStore(quests),
-    objectStore: new MemoryObjectStore(),
+    objectStore,
     handoffs,
     toolsets: new MemoryToolsetStore(),
     proposals,
@@ -81,6 +90,17 @@ async function memoryWorld(): Promise<E2eWorld> {
     tripwires,
     gates: gateStore,
     retireRun: retireRun({ runs: gateway, sandboxes }),
+    dossiers: new DossierService({
+      quests,
+      handoffs,
+      objectStore,
+      proposals: proposalStore,
+      seals: sealStore,
+      store: new MemoryDossierStore(),
+      clock,
+    }),
+    bugReports: new BugReportService({ config, store: bugReports, clock, tripwires }),
+    bugReportStore: bugReports,
   })
   const gates = new Gates({
     store: gateStore,
@@ -93,7 +113,6 @@ async function memoryWorld(): Promise<E2eWorld> {
         .filter((g) => after === undefined || g > after)
         .slice(0, limit),
   })
-  const sealStore = new MemorySealStore(clock)
   const seals = new SealEngine({
     store: sealStore,
     config,
@@ -140,6 +159,8 @@ async function memoryWorld(): Promise<E2eWorld> {
     postCosts: new MemoryPostCostReader({ ledger, quests, sealStore }),
     provider,
     sandboxes,
+    notes,
+    bugReports,
     newGuild: async (options = {}) => {
       const guildId = crypto.randomUUID()
       guilds.push(guildId)

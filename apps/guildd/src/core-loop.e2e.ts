@@ -8,7 +8,9 @@ import type { Gates } from './gates'
 import { defaultConfig } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
+import type { BugReportStore } from './ports/bug-report-store'
 import type { ModelLedger } from './ports/model-ledger'
+import type { NoteStore } from './ports/note-store'
 import type { PostCostReader } from './ports/post-cost-reader'
 import type { NewQuest, Quest, QuestQueue } from './ports/quest-queue'
 import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-store'
@@ -28,15 +30,29 @@ export interface GuildOptions {
   caps?: { dailyTokens: number; dailySpendCents: number }
   /** The Heralds Hall's `maxConcurrentMembers`. */
   memberCap?: number
+  /** Adds a second work Hall, `scribes` (one journeyman, `scribes-member-1`), for the two-Hall run. */
+  scribes?: boolean
+}
+
+/** The `scribes` work Hall that {@link GuildOptions.scribes} adds. */
+const SCRIBES_HALL: ReturnType<typeof defaultConfig>['halls'][number] = {
+  id: 'scribes',
+  name: 'Scribes Hall',
+  kind: 'work',
+  locked: false,
+  privateEligible: false,
+  captain: null,
+  members: [{ id: 'scribes-member-1', name: 'Scribe', rank: 'journeyman' }],
 }
 
 /** The default Halls with the Heralds Hall's member cap from `options`; both worlds build their config from it. */
 export function hallsFor(options: GuildOptions): ReturnType<typeof defaultConfig>['halls'] {
-  return defaultConfig().halls.map((h) =>
+  const halls = defaultConfig().halls.map((h) =>
     h.id === 'heralds' && options.memberCap !== undefined
       ? { ...h, maxConcurrentMembers: options.memberCap }
       : h
   )
+  return options.scribes ? [...halls, SCRIBES_HALL] : halls
 }
 
 /** Everything the end-to-end suite drives: the real engines over memory or Postgres adapters. */
@@ -56,6 +72,10 @@ export interface E2eWorld {
   postCosts: PostCostReader
   provider: MemoryModelProvider
   sandboxes: RecordingSandboxRunner
+  /** The Archive, read to see what an answered Inquiry filed. */
+  notes: Pick<NoteStore, 'list'>
+  /** Bug Reports, read to see a report close when its Fix Quest is done. */
+  bugReports: Pick<BugReportStore, 'get'>
   /** A guild with one api-key provider priced at 3 and 15 per million tokens, and its Guild Master's member id. */
   newGuild(options?: GuildOptions): Promise<{ guildId: string; masterId: string }>
 }
@@ -577,6 +597,132 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         })
         expect(denied.rpcError).toBe('gates_barred')
       })
+    })
+
+    describe('two Halls', () => {
+      const handleOf = (w: E2eWorld, questId: string) =>
+        lease.parse(JSON.parse(w.sandboxes.latest(questId).leaseHandle ?? 'null'))
+      const call = (w: E2eWorld, name: string, args: object) =>
+        callTool((r) => w.mcp.handle(r), name, args)
+
+      test('a Heralds Member sends a Missive, asks, requests a Dossier and files a Bug Report; Scribes answer, and the Fix Quest closes the report', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild({ scribes: true })
+        // Scribes finish a Quest first: the Dossier's subject.
+        const shipped = await post(w, guildId, {
+          templateId: 'herald-brief',
+          hallId: 'scribes',
+          ownerId: 'scribes-member-1',
+          title: 'Ship the style guide',
+          doneCondition: 'The style guide is written',
+        })
+        await dispatchStarts(w, guildId, shipped)
+        await memberWorks(w, guildId, shipped.id, 'The style guide')
+        expect(await stateOf(w, guildId, shipped.id)).toBe('done')
+
+        // The Heralds Member works across the wall while its lease stays open.
+        const herald = await post(w, guildId, {
+          templateId: 'herald-brief',
+          ownerId: 'heralds-member-2',
+          rank: 'journeyman',
+          title: 'Draft the launch note',
+          doneCondition: 'The launch note is drafted',
+        })
+        await dispatchStarts(w, guildId, herald)
+        const lh = handleOf(w, herald.id)
+
+        // A cross-Hall Missive, then an Inquiry that posts an answer Quest on the Scribes board.
+        expect(
+          await call(w, 'send_missive', {
+            lease: lh,
+            toHall: 'scribes',
+            to: 'hall',
+            text: 'Launch note coming; questions follow.',
+          })
+        ).toMatchObject({ isError: false, data: { created: true } })
+        const asked = await call(w, 'ask_hall', {
+          lease: lh,
+          toHall: 'scribes',
+          question: 'Which tone does the style guide set?',
+        })
+        expect(asked).toMatchObject({ isError: false })
+        const inquiryId = z.string().parse(asked.data.inquiryId)
+        const answerQuestId = z.string().parse(asked.data.answerQuestId)
+        expect(await call(w, 'read_inquiry', { lease: lh, inquiryId })).toMatchObject({
+          data: { status: 'open', answer: null },
+        })
+
+        // The Scribe reads the Missive, answers the Inquiry once and finishes the answer Quest.
+        await startsAnswer(w, guildId, answerQuestId)
+        const ls = handleOf(w, answerQuestId)
+        const seen = await call(w, 'read_missives', { lease: ls })
+        expect(JSON.stringify(seen.data.missives)).toContain('Launch note coming')
+        expect(JSON.stringify(seen.data.missives)).toContain('"fromHall":"heralds"')
+        const scribe = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Answer',
+          output: () => 'Answered',
+          afterArtifact: async () => {
+            const given = await call(w, 'answer_inquiry', {
+              lease: ls,
+              inquiryId,
+              answer: 'Warm and brief.',
+            })
+            expect(given).toMatchObject({ isError: false, data: { status: 'answered' } })
+          },
+        })
+        expect((await scribe.runLeased(ls)).completion.isError).toBe(false)
+        expect(await stateOf(w, guildId, answerQuestId)).toBe('done')
+
+        // The Heralds Member reads the answer, and it is filed in the Scribes Archive.
+        const read = await call(w, 'read_inquiry', { lease: lh, inquiryId })
+        expect(read).toMatchObject({ data: { status: 'answered' } })
+        expect(String(read.data.answer)).toContain('Warm and brief.')
+        const filed = await w.notes.list(guildId, { limit: 10, hall: 'scribes' })
+        expect(filed.notes).toHaveLength(1)
+        expect(filed.notes[0]?.body).toContain(herald.id)
+        expect(filed.notes[0]?.body).toContain(answerQuestId)
+
+        // A verified Dossier about the Scribes' finished Quest.
+        const dossier = await call(w, 'request_dossier', { lease: lh, questId: shipped.id })
+        expect(dossier).toMatchObject({
+          isError: false,
+          data: { verified: true, failedChecks: [] },
+        })
+        const dossierId = z.string().parse(dossier.data.id)
+
+        // A Bug Report citing the Dossier posts a Fix Quest on the Scribes board.
+        const filedBug = await call(w, 'file_bug_report', {
+          lease: lh,
+          owningHall: 'scribes',
+          title: 'The style guide has no heading',
+          reproduction: { steps: 'Open the guide', expected: 'A heading', actual: 'None' },
+          evidence: [dossierId],
+        })
+        expect(filedBug).toMatchObject({ isError: false, data: { status: 'open' } })
+        const reportId = z.string().parse(filedBug.data.id)
+        const fixId = z.string().parse(filedBug.data.fixQuestId)
+        expect((await w.quests.get(guildId, fixId))?.templateId).toBe('fix-quest')
+
+        // The Scribe fixes it; the accepted Handoff closes the report as fixed.
+        await startsAnswer(w, guildId, fixId)
+        const lf = handleOf(w, fixId)
+        expect(await call(w, 'read_bug_report', { lease: lf })).toMatchObject({
+          isError: false,
+          data: { id: reportId },
+        })
+        const fixer = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Fix',
+          output: () => 'Added the heading',
+        })
+        expect((await fixer.runLeased(lf)).completion.isError).toBe(false)
+        expect(await stateOf(w, guildId, fixId)).toBe('done')
+        expect(await w.bugReports.get(guildId, reportId)).toMatchObject({
+          status: 'fixed',
+          fixQuestId: fixId,
+        })
+      })
+      const startsAnswer = async (w: E2eWorld, guild: string, questId: string) =>
+        expect(await w.dispatcher.dispatch(guild)).toMatchObject({ status: 'started', questId })
     })
 
     test('a transient routing block requeues with a notBefore and spends no attempt', async () => {
