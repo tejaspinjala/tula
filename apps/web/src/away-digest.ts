@@ -84,12 +84,16 @@ export function markScrollSeen(session: Session, since: string): void {
 
 /** Tells the app the Guild Master returned, so the scroll can open. */
 export function announceReturn(): void {
-  window.dispatchEvent(new Event(AWAY_RETURNED_EVENT))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AWAY_RETURNED_EVENT))
+  }
 }
 
 /** Asks the app to reopen the scroll. */
 export function requestAwayScroll(): void {
-  window.dispatchEvent(new Event(AWAY_REOPEN_EVENT))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AWAY_REOPEN_EVENT))
+  }
 }
 
 /** One plain sentence for a digest entry. */

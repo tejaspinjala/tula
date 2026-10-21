@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AwayScroll } from './AwayScroll'
 import { Bag } from './Bag'
 import { GamePanel } from './GamePanel'
 import { Hud } from './Hud'
@@ -90,6 +91,10 @@ export function Shell({
               refresh={visible ? 0 : 1}
               onOpenBag={showMenu}
               onOpenSeals={() => openPath('/seals')}
+            />
+            <AwayScroll
+              session={session}
+              onOpenCouncil={(id) => openPath(`/council?session=${encodeURIComponent(id)}`)}
             />
             <Bag
               session={session}

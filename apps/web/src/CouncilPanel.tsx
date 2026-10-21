@@ -68,7 +68,10 @@ function SessionDetail({ session }: { session: CouncilSessionView }) {
 export function CouncilPanel({ session }: { session: Session | null }) {
   const [rows, setRows] = useState<CouncilSessionView[]>([])
   const [next, setNext] = useState<string | null>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
+  // A link from the "While you were away" scroll names the session to open (`?session=<id>`).
+  const [openId, setOpenId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get('session')
+  )
   const [failed, setFailed] = useState(false)
   const changed = councilCount(useLiveEvents())
 

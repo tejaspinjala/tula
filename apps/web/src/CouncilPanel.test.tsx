@@ -112,3 +112,12 @@ test('Load older pages with the cursor', async () => {
   expect(m.host.textContent).not.toContain('Load older')
   await m.unmount()
 })
+
+test('a ?session= link from the scroll opens that session straight to its votes', async () => {
+  window.history.pushState({}, '', '/council?session=s1')
+  const m = await mount(<CouncilPanel session={session} />)
+  const detail = m.host.querySelector('[data-testid="council-detail"]')
+  expect(detail?.querySelectorAll('li')).toHaveLength(5)
+  window.history.pushState({}, '', '/')
+  await m.unmount()
+})
