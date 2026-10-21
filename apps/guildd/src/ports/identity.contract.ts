@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
+import { WEBAUTHN_CEREMONY_TIMEOUT_MS } from '../webauthn-timeout'
 import {
   CHALLENGE_TTL_MS,
   DESKTOP_CODE_TTL_MS,
@@ -64,6 +65,20 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
       )
       return { ...subject, guildId, key }
     }
+
+    test('every ceremony option set carries the pinned WebAuthn timeout', async () => {
+      const subject = await make()
+      const guildId = await subject.newGuild()
+      const { token } = await subject.identity.issueFoundingToken(guildId)
+      const registration = await subject.identity.beginRegistration(guildId, {
+        foundingToken: token,
+      })
+      const signIn = await subject.identity.beginSignIn(guildId)
+      const discoverable = await subject.identity.beginDiscoverableSignIn()
+      expect(registration.options.timeout).toBe(WEBAUTHN_CEREMONY_TIMEOUT_MS)
+      expect(signIn.options.timeout).toBe(WEBAUTHN_CEREMONY_TIMEOUT_MS)
+      expect(discoverable.options.timeout).toBe(WEBAUTHN_CEREMONY_TIMEOUT_MS)
+    })
 
     async function signIn(s: Awaited<ReturnType<typeof registered>>) {
       const begin = await s.identity.beginSignIn(s.guildId)
