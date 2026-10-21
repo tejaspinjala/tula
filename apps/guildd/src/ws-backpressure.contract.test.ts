@@ -65,6 +65,8 @@ describe('websocket backpressure', () => {
       inquiries: harness.adapters.inquiries,
       dossiers: harness.adapters.dossiers,
       dossierStore: harness.adapters.dossierStore,
+      bugReports: harness.adapters.bugReports,
+      bugReportStore: harness.adapters.bugReportStore,
       quests: harness.adapters.quests,
       mcp: harness.adapters.mcp,
       streamTickets: harness.adapters.streamTickets,

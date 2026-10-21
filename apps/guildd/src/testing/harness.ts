@@ -45,6 +45,8 @@ export const UNLIMITED_RATE_LIMITS = {
   'missives-read': { client: NO_LIMIT, guild: NO_LIMIT },
   'dossier-read': { client: NO_LIMIT, guild: NO_LIMIT },
   'dossier-write': { client: NO_LIMIT, guild: NO_LIMIT },
+  'bug-report-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'bug-report-write': { client: NO_LIMIT, guild: NO_LIMIT },
   'session-check': { client: NO_LIMIT },
 }
 
@@ -158,6 +160,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       inquiries: composed.inquiries,
       dossiers: composed.dossiers,
       dossierStore: composed.dossierStore,
+      bugReports: composed.bugReports,
+      bugReportStore: composed.bugReportStore,
       seals: composed.seals,
       proposals: composed.proposals,
       workflows: composed.workflows,

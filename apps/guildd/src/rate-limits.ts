@@ -34,6 +34,8 @@ export type RateRoute =
   | 'missives-read'
   | 'dossier-read'
   | 'dossier-write'
+  | 'bug-report-read'
+  | 'bug-report-write'
   | 'session-check'
   | 'workflow-read'
   | 'workflow-write'
@@ -121,6 +123,9 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   // Reading a Dossier is a cheap indexed read; creating one re-reads every cited artifact from the object store.
   'dossier-read': writeLimits(60, 240),
   'dossier-write': writeLimits(20, 60),
+  // Filing a Bug Report posts a Quest and appends to the audit chain; reading one is an indexed read.
+  'bug-report-read': writeLimits(60, 240),
+  'bug-report-write': writeLimits(20, 60),
   // Session checks and sign-outs are cheap reads, but unauthenticated callers can hammer them.
   'session-check': { client: { limit: 120, windowMs: MINUTE } },
   // Workflow reads page stored graphs; saves validate a graph; a run posts Quests: tightest.
@@ -260,6 +265,8 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'missives-read': 'session',
   'dossier-read': 'session',
   'dossier-write': 'session',
+  'bug-report-read': 'session',
+  'bug-report-write': 'session',
   'session-check': 'unauthenticated',
   'workflow-read': 'session',
   'workflow-write': 'session',

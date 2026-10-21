@@ -131,7 +131,7 @@ export class MemoryQuestQueue implements QuestQueue {
   }
 
   /** Synchronous body of {@link post}, so `spawn` can post and link with no `await` between. */
-  private postNow(guildId: string, input: NewQuest): { quest: Quest; created: boolean } {
+  postNow(guildId: string, input: NewQuest): { quest: Quest; created: boolean } {
     const parsed = newQuest.parse(input)
     const g = this.guild(guildId)
     const existingId = g.byKey.get(parsed.jobKey)
