@@ -302,6 +302,34 @@ describe('Inquiries through the MCP gateway', () => {
     expect(await give('x'.repeat(4001))).toMatchObject({ rpcError: 'invalid_arguments' })
   })
 
+  test('an answer whose Archive filing failed is repaired by the retry, filing exactly one note', async () => {
+    const s = await setup()
+    const { inquiryId, answerQuestId } = await asked(s)
+    const answerer = await s.claimAnswerQuest(String(answerQuestId))
+    const add = s.notes.add.bind(s.notes)
+    let failures = 1
+    s.notes.add = async (...args: Parameters<typeof add>) => {
+      if (failures-- > 0) {
+        throw new Error('notes store down')
+      }
+      return add(...args)
+    }
+    const give = () =>
+      callTool(s.transport, 'answer_inquiry', { lease: answerer.lease, inquiryId, answer: 'ok' })
+    await give().catch(() => undefined)
+    expect((await s.inquiries.get(s.guild, String(inquiryId)))?.noteId).toBeNull()
+    const retry = await give()
+    expect(retry).toMatchObject({ isError: false, data: { status: 'answered' } })
+    const filed = await s.notes.list(s.guild, { limit: 10, hall: 'scribes' })
+    expect(filed.notes).toHaveLength(1)
+    expect(retry.data.noteId).toBe(filed.notes[0]?.id ?? '')
+    expect((await s.inquiries.get(s.guild, String(inquiryId)))?.noteId).toBe(
+      filed.notes[0]?.id ?? ''
+    )
+    // Once filed, a further answer is still refused.
+    expect(await give()).toMatchObject({ isError: true, data: { error: 'inquiry_answered' } })
+  })
+
   test('an overdue Inquiry expires through the sweep and refuses an answer', async () => {
     const s = await setup()
     const { inquiryId, answerQuestId } = await asked(s)
