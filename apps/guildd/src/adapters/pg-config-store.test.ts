@@ -23,7 +23,7 @@ describe('config status guard', () => {
     const store = new PgConfigStore(db, new MemoryKeyProvider())
     const guild = await foundTestGuild(db, { name: 'Guard', goal: 'g' })
     await store.seed(guild)
-    await store.propose(guild, { ...defaultConfig(), sealPolicy: 'autonomous' })
+    await store.propose(guild, { ...defaultConfig(), sealPolicy: 'routine_alone' })
     return guild
   }
   const attempt = (guild: string, run: (tx: TenantTx) => Promise<unknown>) =>

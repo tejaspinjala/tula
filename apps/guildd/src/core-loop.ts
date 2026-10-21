@@ -92,6 +92,10 @@ export interface SealRequestDeps {
   sealStore: Pick<SealStore, 'forQuest'>
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealEngine, 'requestSeal'>
+  /**
+   * Read at request time for the guild's Seal Policy. Absent means `always`. Every level requests a
+   * Seal for now; the Council of Elders branch for `routine_alone` lands with the Council.
+   */
   config?: Pick<ConfigStore, 'current'>
 }
 
@@ -134,6 +138,10 @@ export async function requestQuestSeal(
       quest: await deps.quests.settleSeal(guildId, quest.id, 'rejected'),
     }
   }
+  // The Seal Policy is read at runtime, here, where the Council branch will go (#149): only
+  // `routine_alone`, while the Guild Master is away and for a routine Proposal, will route to the
+  // Council. Until it exists every level asks for a Seal, so the policy is read but not yet acted on.
+  await deps.config?.current(guildId)
   const seal = await deps.seals.requestSeal(guildId, {
     questId: quest.id,
     requestedBy: quest.ownerId,

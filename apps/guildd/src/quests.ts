@@ -24,6 +24,11 @@ export interface QuestTemplate {
   roundLimit: number
   /** Internal templates are posted only by code (an Inquiry); no Guild Master or Member path posts them. */
   internal?: boolean
+  /**
+   * Whether a Proposal of this Quest may be a routine Proposal (the Council of Elders may approve it
+   * in place of a Seal, under `routine_alone` while the Guild Master is away). Code-only; absent
+   * means not eligible.
+   */
   routineEligible?: boolean
 }
 
@@ -48,6 +53,7 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     doneCondition: 'An announcement draft is ready for a Seal',
     requiresSeal: true,
     roundLimit: 3,
+    routineEligible: true,
   },
   {
     id: 'team-plan',

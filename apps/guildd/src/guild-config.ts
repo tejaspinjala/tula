@@ -111,16 +111,26 @@ export const caps = z.strictObject({
   maxBugReportsPerQuest: z.number().int().min(0).max(50).optional(),
   /** Dossiers one Quest may request; {@link DEFAULT_MAX_DOSSIERS_PER_QUEST} when absent. Raising it widens risk. */
   maxDossiersPerQuest: z.number().int().min(0).max(50).optional(),
+  /** Proposals the Council of Elders may approve in a day; {@link DEFAULT_MAX_COUNCIL_APPROVALS_PER_DAY} when absent. 0 means the Council never approves. Raising it widens risk. */
+  maxCouncilApprovalsPerDay: z.number().int().min(0).max(50).optional(),
+  /** Council sessions that may be convened in a day; {@link DEFAULT_MAX_COUNCIL_SESSIONS_PER_DAY} when absent. Raising it widens risk. */
+  maxCouncilSessionsPerDay: z.number().int().min(0).max(200).optional(),
 })
 
-/** Stub: filled in by the green commit. */
-export function councilApprovalCap(_config: GuildConfig): number {
-  return 0
+/** Council approvals a guild may give per day when the config sets no cap. */
+export const DEFAULT_MAX_COUNCIL_APPROVALS_PER_DAY = 5
+
+/** Council sessions a guild may convene per day when the config sets no cap. */
+export const DEFAULT_MAX_COUNCIL_SESSIONS_PER_DAY = 20
+
+/** The guild's cap on Council approvals per day (0 means the Council never approves). */
+export function councilApprovalCap(config: GuildConfig): number {
+  return config.caps.maxCouncilApprovalsPerDay ?? DEFAULT_MAX_COUNCIL_APPROVALS_PER_DAY
 }
 
-/** Stub: filled in by the green commit. */
-export function councilSessionCap(_config: GuildConfig): number {
-  return 0
+/** The guild's cap on Council sessions per day. */
+export function councilSessionCap(config: GuildConfig): number {
+  return config.caps.maxCouncilSessionsPerDay ?? DEFAULT_MAX_COUNCIL_SESSIONS_PER_DAY
 }
 
 /** The post window of a config that does not set one (72 hours). */
@@ -326,6 +336,13 @@ export const guildConfig = z
     contentPolicy: contentPolicy.optional(),
   })
   .superRefine((config, ctx) => {
+    if (config.sealPolicy === 'autonomous') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sealPolicy'],
+        message: 'seal_policy_locked: autonomous is not available yet; use always or routine_alone',
+      })
+    }
     const known = new Set(config.providers.map((p) => p.id))
     for (const [i, profile] of config.routingProfiles.entries()) {
       if (!known.has(profile.provider)) {
@@ -574,6 +591,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     inquiryCap(next) <= inquiryCap(prev) &&
     bugReportCap(next) <= bugReportCap(prev) &&
     dossierCap(next) <= dossierCap(prev) &&
+    councilApprovalCap(next) <= councilApprovalCap(prev) &&
+    councilSessionCap(next) <= councilSessionCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -587,6 +606,8 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxInquiriesPerQuest',
       'maxBugReportsPerQuest',
       'maxDossiersPerQuest',
+      'maxCouncilApprovalsPerDay',
+      'maxCouncilSessionsPerDay',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&

@@ -336,7 +336,7 @@ describe('guild config over HTTP', () => {
 
   test('a widening change is stored inactive until confirmed with a fresh re-authentication', async () => {
     const who = await signedIn()
-    const looser = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+    const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
     const res = await send(harness, 'PUT', `${who.base}/config`, { config: looser }, who.auth)
     expect(res.status).toBe(202)
     expect(outcome.parse(await res.json()).status).toBe('pending')
@@ -351,7 +351,7 @@ describe('guild config over HTTP', () => {
     const proof = await who.proof()
     const ok = await send(harness, 'POST', confirm, {}, { ...who.auth, 'x-reauth-proof': proof })
     expect(ok.status).toBe(200)
-    expect((await who.current()).config.sealPolicy).toBe('autonomous')
+    expect((await who.current()).config.sealPolicy).toBe('routine_alone')
     const again = await send(
       harness,
       'POST',
@@ -364,7 +364,7 @@ describe('guild config over HTTP', () => {
 
   test('no agent-facing route loosens Seal Policy: a dev-header caller cannot write config at all', async () => {
     const who = await signedIn()
-    const looser = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+    const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
     const dev = await send(
       devHarness,
       'PUT',

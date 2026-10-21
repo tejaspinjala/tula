@@ -42,7 +42,7 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
 
     test('a widening change is stored pending and leaves the config in force alone until confirmed', async () => {
       const { store, guild } = await seeded()
-      const looser = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+      const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
       expect(await store.propose(guild, looser)).toEqual({
         version: 2,
         status: 'pending',

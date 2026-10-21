@@ -20,6 +20,20 @@ async function appendedTypes(): Promise<Map<string, string>> {
   return found
 }
 
+test('GLOSSARY.md already defines the away mode and Council event types', async () => {
+  const glossary = await Bun.file(GLOSSARY).text()
+  const planned = [
+    'guildmaster.away',
+    'guildmaster.returned',
+    'council.convened',
+    'council.voted',
+    'council.approved',
+    'council.escalated',
+    'council.halted',
+  ]
+  expect(planned.filter((type) => !glossary.includes(`**${type}**`))).toEqual([])
+})
+
 test('every event type appendEvent writes by literal is defined in GLOSSARY.md', async () => {
   const glossary = await Bun.file(GLOSSARY).text()
   const types = await appendedTypes()
