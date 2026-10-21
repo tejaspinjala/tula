@@ -36,6 +36,21 @@ export class MemoryBugReportStore implements BugReportStore {
   async file(guildId: string, input: NewBugReport): Promise<FileBugReportResult> {
     const all = this.reports(guildId)
     const { filer } = input
+    const hash = reproductionHash(input.owningHall, input.reproduction)
+    const prior =
+      filer.kind === 'member'
+        ? all.find(
+            (r) =>
+              r.filer.kind === 'member' &&
+              r.filer.questId === filer.questId &&
+              r.reproductionHash === hash &&
+              r.title === input.title &&
+              JSON.stringify(r.evidence) === JSON.stringify(input.evidence)
+          )
+        : undefined
+    if (prior) {
+      return { ok: true, report: { ...prior }, fixQuest: null }
+    }
     if (
       filer.kind === 'member' &&
       input.maxPerQuest !== undefined &&
@@ -44,7 +59,6 @@ export class MemoryBugReportStore implements BugReportStore {
     ) {
       return { ok: false, error: 'bug_report_cap' }
     }
-    const hash = reproductionHash(input.owningHall, input.reproduction)
     const open = all.find(
       (r) => r.status === 'open' && r.owningHall === input.owningHall && r.reproductionHash === hash
     )
@@ -83,12 +97,11 @@ export class MemoryBugReportStore implements BugReportStore {
 
   /**
    * Marks the report whose Fix Quest is `questId` fixed by `handoffHash`; a no-op unless it is open,
-   * so a retry changes nothing. Called by the memory HandoffStore in the same synchronous step as
-   * the Handoff write, the way the Postgres adapter does it in one transaction.
+   * so a retry changes nothing. Runs in one synchronous step, as atomic as the Postgres adapter.
    */
-  closeFixed(guildId: string, questId: string, handoffHash: string, at: Date): void {
+  async closeFixed(guildId: string, questId: string, handoffHash: string, at: Date): Promise<void> {
     const report = this.reports(guildId).find((r) => r.fixQuestId === questId)
-    if (!report || report.status !== 'open') {
+    if (report?.status !== 'open') {
       return
     }
     report.status = 'fixed'

@@ -157,9 +157,26 @@ export function bugReportStoreContract(name: string, make: () => Promise<BugRepo
         memberId: 'm',
       }
       await store.file(g, made({ filer, maxPerQuest: 2 }, 'x'))
-      const dup = await store.file(g, made({ filer, maxPerQuest: 2 }, 'x'))
+      const dup = await store.file(g, made({ filer, maxPerQuest: 2, title: 'Another view' }, 'x'))
       expect(dup.ok && dup.report.status).toBe('duplicate')
       expect((await store.file(g, made({ filer, maxPerQuest: 2 }))).ok).toBe(false)
+    })
+
+    test('a retried identical request returns the first report and is not charged again', async () => {
+      const { store, quests, newGuild } = await make()
+      const g = await newGuild()
+      const filer = {
+        kind: 'member' as const,
+        questId: crypto.randomUUID(),
+        hallId: 'forge',
+        memberId: 'm',
+      }
+      const input = made({ filer, maxPerQuest: 1 }, 'retry')
+      const first = await store.file(g, input)
+      const again = await store.file(g, input)
+      expect(first.ok && again.ok && again.report.id === first.report.id).toBe(true)
+      expect(await store.countForQuest(g, filer.questId)).toBe(1)
+      expect((await quests.list(g, { limit: 50 })).quests).toHaveLength(1)
     })
 
     test('lists a Hall newest first in pages, filtered by status', async () => {

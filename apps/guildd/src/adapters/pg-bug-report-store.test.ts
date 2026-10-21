@@ -7,7 +7,6 @@ import { testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgBugReportStore } from './pg-bug-report-store'
-import { PgHandoffStore } from './pg-handoff-store'
 import { PgQuestQueue } from './pg-quest-queue'
 
 const db = createDb(testDbUrl('app'))
@@ -85,34 +84,24 @@ test('the Fix Quest and the report commit together: a failing post leaves no rep
   })
 })
 
-test('a Fix Quest accepted Handoff marks its report fixed with the Handoff hash, once, in the Handoff transaction', async () => {
+test('closeFixed marks the open report fixed with the Handoff hash, once, and ignores other guilds and unknown Quests', async () => {
   const guild = await foundTestGuild(db, { name: 'Bugs', goal: 'g' })
-  const { keys, store, quests } = build()
-  const handoffs = new PgHandoffStore(db, keys)
+  const other = await foundTestGuild(db, { name: 'BugsOther', goal: 'g' })
+  const { store } = build()
   const filed = await store.file(guild, filing('fix'))
   if (!filed.ok || !filed.fixQuest) {
     throw new Error('filing failed')
   }
-  await quests.claim(guild, {
-    leaseMs: 60_000,
-    maxActive: 10,
-    hallCaps: {},
-    questId: filed.fixQuest.id,
-  })
-  const handoff = {
-    goal: 'Fixed',
-    doneCondition: 'Fix it',
-    met: true,
-    evidence: [{ kind: 'artifact' as const, ref: H }],
-    openItems: [],
-    artifacts: [H],
-  }
-  const first = await handoffs.record(guild, filed.fixQuest.id, 1, 'heralds-member-2', handoff)
-  const again = await handoffs.record(guild, filed.fixQuest.id, 1, 'heralds-member-2', handoff)
-  expect(again.created).toBe(false)
+  const at = new Date('2030-01-01T00:00:00.000Z')
+  await store.closeFixed(other, filed.fixQuest.id, H, at)
+  await store.closeFixed(guild, crypto.randomUUID(), H, at)
+  expect(await store.get(guild, filed.report.id)).toMatchObject({ status: 'open' })
+  await store.closeFixed(guild, filed.fixQuest.id, H, at)
+  await store.closeFixed(guild, filed.fixQuest.id, 'e'.repeat(64), at)
   expect(await store.get(guild, filed.report.id)).toMatchObject({
     status: 'fixed',
-    fixHandoffHash: first.stored.hash,
+    fixHandoffHash: H,
+    fixedAt: at.toISOString(),
   })
   const events = await owner`
     select payload from events where guild_id = ${guild} and type = 'bug_report.fixed'`
@@ -123,31 +112,6 @@ test('a Fix Quest accepted Handoff marks its report fixed with the Handoff hash,
     'handoffHash',
     'owningHall',
   ])
-})
-
-test('a Handoff that is not met does not fix the report', async () => {
-  const guild = await foundTestGuild(db, { name: 'Bugs', goal: 'g' })
-  const { keys, store, quests } = build()
-  const handoffs = new PgHandoffStore(db, keys)
-  const filed = await store.file(guild, filing('unmet'))
-  if (!filed.ok || !filed.fixQuest) {
-    throw new Error('filing failed')
-  }
-  await quests.claim(guild, {
-    leaseMs: 60_000,
-    maxActive: 10,
-    hallCaps: {},
-    questId: filed.fixQuest.id,
-  })
-  await handoffs.record(guild, filed.fixQuest.id, 1, 'heralds-member-2', {
-    goal: 'Tried',
-    doneCondition: 'Fix it',
-    met: false,
-    evidence: [],
-    openItems: ['still broken'],
-    artifacts: [],
-  })
-  expect(await store.get(guild, filed.report.id)).toMatchObject({ status: 'open' })
 })
 
 test('a cross-guild read sees no row, a forged insert is refused, and no update or delete is granted', async () => {

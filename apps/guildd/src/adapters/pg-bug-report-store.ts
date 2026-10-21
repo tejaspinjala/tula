@@ -86,6 +86,16 @@ export class PgBugReportStore implements BugReportStore {
     const hash = reproductionHash(input.owningHall, input.reproduction)
     return this.db.withGuild(guildId, async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${`bug-reports:${guildId}`}, 0))`
+      if (filer.kind === 'member') {
+        const [prior] = await tx`
+          select * from bug_reports
+          where guild_id = ${guildId} and filer_quest_id = ${filer.questId}
+            and reproduction_hash = ${hash} and title = ${input.title}
+            and evidence = ${tx.json(input.evidence)}::jsonb order by seq limit 1`
+        if (prior) {
+          return { ok: true, report: toReport(prior), fixQuest: null }
+        }
+      }
       if (filer.kind === 'member' && input.maxPerQuest !== undefined) {
         const [count] = await tx`
           select count(*)::int as n from bug_reports
@@ -127,6 +137,28 @@ export class PgBugReportStore implements BugReportStore {
           : { bugReportId: report.id, duplicateOf: openId, owningHall: report.owningHall }
       )
       return { ok: true, report, fixQuest: posted?.quest ?? null }
+    })
+  }
+
+  async closeFixed(guildId: string, questId: string, handoffHash: string, at: Date): Promise<void> {
+    if (!z.uuid().safeParse(questId).success) {
+      return
+    }
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`bug-reports:${guildId}`}, 0))`
+      const [fixed] = await tx`
+        update bug_reports set status = 'fixed', fix_handoff_hash = ${handoffHash}, fixed_at = ${at}
+        where guild_id = ${guildId} and fix_quest_id = ${questId} and status = 'open'
+        returning bug_report_id, owning_hall`
+      if (fixed) {
+        const f = z.object({ bug_report_id: z.string(), owning_hall: z.string() }).parse(fixed)
+        await appendEvent(tx, this.keys, 'bug_report.fixed', {
+          bugReportId: f.bug_report_id,
+          fixQuestId: questId,
+          owningHall: f.owning_hall,
+          handoffHash,
+        })
+      }
     })
   }
 

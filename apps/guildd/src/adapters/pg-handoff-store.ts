@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Db, TenantTx } from '../db/client'
+import type { Db } from '../db/client'
 import { appendEvent } from '../events'
 import {
   type Handoff,
@@ -55,38 +55,8 @@ export class PgHandoffStore implements HandoffStore {
       const [stored] = await tx`
         select member_id, handoff_hash, body from handoffs
         where guild_id = ${guildId} and quest_id = ${questId} and attempt = ${attempt}`
-      const result = toStored(stored)
-      if (result.handoff.met && result.handoff.openItems.length === 0) {
-        await this.closeBugReport(tx, guildId, questId, result.hash)
-      }
-      return { stored: result, created }
+      return { stored: toStored(stored), created }
     })
-  }
-
-  /**
-   * An accepted Handoff (met, nothing left open) of a Fix Quest closes its Bug Report as fixed, in
-   * the Handoff's own transaction. Only an open report moves, so a retry changes nothing and
-   * writes no second event.
-   */
-  private async closeBugReport(
-    tx: TenantTx,
-    guildId: string,
-    questId: string,
-    handoffHash: string
-  ): Promise<void> {
-    const [fixed] = await tx`
-      update bug_reports set status = 'fixed', fix_handoff_hash = ${handoffHash}, fixed_at = now()
-      where guild_id = ${guildId} and fix_quest_id = ${questId} and status = 'open'
-      returning bug_report_id, owning_hall`
-    if (fixed) {
-      const f = z.object({ bug_report_id: z.string(), owning_hall: z.string() }).parse(fixed)
-      await appendEvent(tx, this.keys, 'bug_report.fixed', {
-        bugReportId: f.bug_report_id,
-        fixQuestId: questId,
-        owningHall: f.owning_hall,
-        handoffHash,
-      })
-    }
   }
 
   async get(guildId: string, questId: string, attempt: number): Promise<StoredHandoff | null> {

@@ -30,9 +30,7 @@ async function setup() {
   const quests = new MemoryQuestQueue(clock, () => 0.5)
   const config = new MemoryConfigStore(clock)
   const bugs = new MemoryBugReportStore(quests)
-  const handoffs = new MemoryHandoffStore(undefined, (g, q, h) =>
-    bugs.closeFixed(g, q, h, clock.now())
-  )
+  const handoffs = new MemoryHandoffStore()
   const activity = new MemoryActivityLog()
   const gates = new MemoryGateStore()
   const tripwires = new MemoryTripwireStore(clock)
@@ -139,7 +137,7 @@ describe('file_bug_report', () => {
       board: true,
       state: 'queued',
     })
-    expect(fix?.doneCondition).toContain('No heading')
+    expect(fix?.doneCondition).toContain('read_bug_report')
     expect(await s.bugs.get(s.guild, String(out.data.id))).toMatchObject({
       filer: { kind: 'member', hallId: 'heralds', memberId: 'heralds-member-2' },
     })

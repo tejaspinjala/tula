@@ -116,11 +116,22 @@ export interface BugReportPage {
 /**
  * Port for Bug Reports. Filing is one atomic step: cap check, duplicate check, the Fix Quest post,
  * the insert and the audit event all commit together. A report only ever moves `open` to `fixed`,
- * and that move happens inside the HandoffStore write of its Fix Quest's accepted Handoff.
+ * through {@link BugReportStore.closeFixed}, which the gateway calls once the Fix Quest has
+ * transitioned to done. `fixed` means the fixing Member reported the done-condition met (an
+ * accepted Handoff); it is not a verification that the defect is gone.
  */
 export interface BugReportStore {
-  /** Files a report; see {@link NewBugReport}. */
+  /**
+   * Files a report; see {@link NewBugReport}. A Member Quest that files the same defect again (a
+   * retried call) gets its first report back, unchanged and not charged to the cap again.
+   */
   file(guildId: string, input: NewBugReport): Promise<FileBugReportResult>
+  /**
+   * Closes the open report whose Fix Quest is `questId` as `fixed` by `handoffHash` (and appends
+   * `bug_report.fixed`). Idempotent: a report that is not open, or an unknown Quest, changes
+   * nothing. Takes the same per-guild lock as `file`.
+   */
+  closeFixed(guildId: string, questId: string, handoffHash: string, at: Date): Promise<void>
   /** How many reports the Quest has filed (all attempts): a cheap pre-check; `file` stays the authority. */
   countForQuest(guildId: string, questId: string): Promise<number>
   /** One report, or null when absent for this guild. */
