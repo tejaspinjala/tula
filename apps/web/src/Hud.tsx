@@ -63,7 +63,7 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
           {treasury && (
             <Meter label="Treasury left today" value={left} max={cap} format={formatCents} />
           )}
-          <AwayBadge session={session} refresh={refresh} />
+          <AwayBadge key={refresh} session={session} />
           <PixelButton aria-label={sealLabel} onClick={onOpenSeals} className="hud-seals">
             Seals{waiting ? ` ${waiting.count}${waiting.more ? '+' : ''}` : ''}
           </PixelButton>

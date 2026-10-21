@@ -1695,7 +1695,12 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_away' }, 400)
     }
     const until = body.data.until ? new Date(body.data.until).toISOString() : null
-    if (until !== null && new Date(until).getTime() <= deps.clock.now().getTime()) {
+    const nowMs = deps.clock.now().getTime()
+    // A return time must be in the future and at most 30 days ahead; no return time stays allowed.
+    if (
+      until !== null &&
+      (new Date(until).getTime() <= nowMs || new Date(until).getTime() > nowMs + 30 * 86_400_000)
+    ) {
       return c.json({ error: 'invalid_away' }, 400)
     }
     return c.json(presenceView(await deps.presence.goAway(who.guild, until)))

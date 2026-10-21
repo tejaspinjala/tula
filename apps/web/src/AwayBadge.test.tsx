@@ -40,7 +40,7 @@ test('the badge shows while away, and one tap on I am back removes it', async ()
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
-    root.render(<AwayBadge session={session} refresh={0} />)
+    root.render(<AwayBadge session={session} />)
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   expect(host.textContent).toContain('Away')

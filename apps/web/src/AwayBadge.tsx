@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Badge } from './Badge'
 import type { Session } from './passkeys'
 import { loadPresence, type Presence, returnHome } from './presence'
@@ -7,30 +7,35 @@ import { PixelButton } from './ui/pixel'
 /** Props of {@link AwayBadge}. */
 export interface AwayBadgeProps {
   session: Session
-  /** Changes whenever the badge should read presence again (the Bag closed). */
-  refresh: number
 }
 
 /**
  * The away badge for the HUD: nothing while the Guild Master is here; while away, an "Away"
  * badge with a one-tap "I'm back". A failed read shows nothing and leaves the HUD standing.
  */
-export function AwayBadge({ session, refresh }: AwayBadgeProps) {
+export function AwayBadge({ session }: AwayBadgeProps) {
   const [presence, setPresence] = useState<Presence | null>(null)
   const [failed, setFailed] = useState(false)
-  const lastRead = useRef(refresh)
+  const until = presence?.until ?? null
 
-  // Each new `refresh` value (the Bag closed) re-reads presence at once.
-  useEffect(() => {
-    let live = true
-    lastRead.current = refresh
+  const reload = useCallback(() => {
     loadPresence(session, fetch)
-      .then((next) => live && setPresence(next))
-      .catch(() => live && setPresence(null))
-    return () => {
-      live = false
+      .then(setPresence)
+      .catch(() => setPresence(null))
+  }, [session])
+
+  // The HUD remounts the badge with a new key when the Bag closes, which reads presence again.
+  useEffect(reload, [reload])
+
+  // When the return time passes, read again so the badge clears itself.
+  useEffect(() => {
+    if (until === null) {
+      return
     }
-  }, [session, refresh])
+    const wait = Math.min(new Date(until).getTime() - Date.now() + 1000, 2_147_000_000)
+    const id = setTimeout(reload, Math.max(wait, 1000))
+    return () => clearTimeout(id)
+  }, [until, reload])
 
   if (!presence?.away) {
     return null
