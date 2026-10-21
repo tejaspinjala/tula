@@ -301,7 +301,7 @@ export interface QuestQueue {
   /**
    * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
    * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
-   * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.
+   * Quest is active. The claim is refunded (`maxAttempts` rises by one, as when parking), so a wait never shrinks the crash-retry budget.
    * Idempotent: a repeat for the same delivery changes nothing.
    */
   releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
@@ -532,6 +532,8 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
       state: 'queued',
       leaseExpiresAt: null,
       lastError: 'routing_blocked',
+      // A wait is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
+      maxAttempts: quest.maxAttempts + 1,
       notBefore: notBefore.toISOString(),
     },
     event: 'quest.retry_scheduled',
