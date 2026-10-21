@@ -1,4 +1,6 @@
-import type { Handoff } from './ports/handoff-store'
+import { canonicalJson } from './audit-chain'
+import { type Handoff, hashHandoff } from './ports/handoff-store'
+import { hashBytes } from './ports/object-store'
 
 /** The Verdict of the Quest's latest Proposal as a Dossier states it. */
 export interface DossierVerdict {
@@ -60,8 +62,13 @@ export interface AssembledDossier {
 }
 
 /** Every artifact hash a Handoff cites, as artifact or as artifact evidence, once each in order. */
-export function citedArtifacts(_handoff: Handoff): string[] {
-  throw new Error('not implemented')
+export function citedArtifacts(handoff: Handoff): string[] {
+  return [
+    ...new Set([
+      ...handoff.artifacts,
+      ...handoff.evidence.filter((e) => e.kind === 'artifact').map((e) => e.ref),
+    ]),
+  ]
 }
 
 /**
@@ -70,8 +77,38 @@ export function citedArtifacts(_handoff: Handoff): string[] {
  * and is `verified` only when every check passes.
  */
 export function assembleDossier(
-  _records: DossierRecords,
-  _observed: ArtifactObservations
+  records: DossierRecords,
+  observed: ArtifactObservations
 ): AssembledDossier {
-  throw new Error('not implemented')
+  const failedChecks: string[] = []
+  if (hashHandoff(records.handoff) !== records.handoffHash) {
+    failedChecks.push('handoff_hash_mismatch')
+  }
+  const artifacts: DossierArtifact[] = []
+  for (const hash of citedArtifacts(records.handoff)) {
+    const seen = observed.get(hash) ?? null
+    artifacts.push({ hash, size: seen ? seen.size : null })
+    if (!seen) {
+      failedChecks.push(`artifact_missing:${hash}`)
+    } else if (seen.actualHash !== hash) {
+      failedChecks.push(`artifact_hash_mismatch:${hash}`)
+    }
+  }
+  const body: DossierBody = {
+    questId: records.questId,
+    hallId: records.hallId,
+    goal: records.handoff.goal,
+    doneCondition: records.handoff.doneCondition,
+    met: records.handoff.met,
+    verdict: records.verdict,
+    seal: records.seal,
+    handoffHash: records.handoffHash,
+    artifacts,
+  }
+  return {
+    body,
+    hash: hashBytes(new TextEncoder().encode(canonicalJson(body))),
+    verified: failedChecks.length === 0,
+    failedChecks,
+  }
 }
