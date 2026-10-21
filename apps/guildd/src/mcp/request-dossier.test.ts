@@ -37,11 +37,17 @@ async function setup() {
   const activity = new MemoryActivityLog()
   const gates = new MemoryGateStore()
   const guild = crypto.randomUUID()
+  const gets = { count: 0 }
   await config.seed(guild)
   const dossiers = new DossierService({
     quests,
     handoffs,
-    objectStore,
+    objectStore: {
+      get: (g, h) => {
+        gets.count++
+        return objectStore.get(g, h)
+      },
+    },
     proposals: proposalStore,
     seals: new MemorySealStore(clock),
     store: dossierStore,
@@ -113,7 +119,13 @@ async function setup() {
   }
   /** A finished Quest in the Scribes Hall whose Handoff cites an artifact; `stored` controls whether the bytes exist. */
   const finished = async (
-    opts: { stored?: boolean; dataClass?: 'internal' | 'private'; goal?: string } = {}
+    opts: {
+      stored?: boolean
+      dataClass?: 'internal' | 'private'
+      goal?: string
+      /** Where the Quest ends up: `done` (default), or still open after a Handoff. */
+      end?: 'done' | 'requeued' | 'awaiting_seal'
+    } = {}
   ) => {
     const quest = await post({
       hallId: 'scribes',
@@ -135,6 +147,14 @@ async function setup() {
       artifacts: [hash],
     }
     await handoffs.record(guild, quest.id, 1, 'scribes-member-1', handoff)
+    const end = opts.end ?? 'done'
+    if (end === 'done') {
+      await quests.complete(guild, quest.id, 1)
+    } else if (end === 'awaiting_seal') {
+      await quests.submitForSeal(guild, quest.id, 1)
+    } else {
+      await quests.fail(guild, quest.id, 1, 'unknown')
+    }
     return { quest, hash, handoff }
   }
   const ask = (l: unknown, questId: string) =>
@@ -156,6 +176,7 @@ async function setup() {
     finished,
     ask,
     clock,
+    gets,
   }
 }
 
@@ -211,6 +232,35 @@ describe('request_dossier', () => {
       isError: true,
       data: { error: 'quest_not_finished' },
     })
+  })
+
+  test('a Quest re-queued after an attempt handed off is refused quest_not_finished', async () => {
+    const s = await setup()
+    const subject = await s.finished({ end: 'requeued' })
+    expect(await s.ask(await s.joined(), subject.quest.id)).toMatchObject({
+      isError: true,
+      data: { error: 'quest_not_finished' },
+    })
+  })
+
+  test('a Quest awaiting its Seal is refused quest_not_finished', async () => {
+    const s = await setup()
+    const subject = await s.finished({ end: 'awaiting_seal' })
+    expect(await s.ask(await s.joined(), subject.quest.id)).toMatchObject({
+      isError: true,
+      data: { error: 'quest_not_finished' },
+    })
+  })
+
+  test('a requester past its cap triggers no artifact read', async () => {
+    const s = await setup()
+    const subject = await s.finished()
+    await s.reconfigure((c) => ({ ...c, caps: { ...c.caps, maxDossiersPerQuest: 1 } }))
+    const l = await s.joined()
+    expect((await s.ask(l, subject.quest.id)).isError).toBe(false)
+    const before = s.gets.count
+    expect(await s.ask(l, subject.quest.id)).toMatchObject({ data: { error: 'dossier_cap' } })
+    expect(s.gets.count).toBe(before)
   })
 
   test('a Quest in the caller own Hall is refused same_hall', async () => {

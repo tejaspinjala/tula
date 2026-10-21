@@ -40,7 +40,10 @@ async function found(): Promise<string> {
 }
 
 /** A Quest in the Heralds Hall that ran once and recorded a Handoff citing `artifact`. */
-async function finished(g: string, over: { stored?: boolean; handoff?: boolean } = {}) {
+async function finished(
+  g: string,
+  over: { stored?: boolean; handoff?: boolean; requeued?: boolean } = {}
+) {
   const { quest } = await harness.adapters.quests.post(g, {
     jobKey: crypto.randomUUID(),
     templateId: 'herald-brief',
@@ -72,6 +75,11 @@ async function finished(g: string, over: { stored?: boolean; handoff?: boolean }
   }
   if (over.handoff !== false) {
     await handoffs.record(g, quest.id, 1, 'heralds-member-2', handoff)
+    if (over.requeued) {
+      await harness.adapters.quests.fail(g, quest.id, 1, 'unknown')
+    } else {
+      await harness.adapters.quests.complete(g, quest.id, 1)
+    }
   }
   return { quest, artifact }
 }
@@ -115,6 +123,14 @@ describe('Dossier routes', () => {
     expect(await res.json()).toEqual({ error: 'quest_not_finished' })
     expect((await create(g, crypto.randomUUID())).status).toBe(404)
     expect((await create(g, 'not-a-uuid')).status).toBe(400)
+  })
+
+  test('a Quest re-queued after an attempt handed off is refused 422 quest_not_finished', async () => {
+    const g = await found()
+    const { quest } = await finished(g, { requeued: true })
+    const res = await create(g, quest.id)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: 'quest_not_finished' })
   })
 
   test('a Hall lists its Dossiers newest first in pages, and one is read by id', async () => {
