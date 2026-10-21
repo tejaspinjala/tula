@@ -351,6 +351,28 @@ describe('Inquiries through the MCP gateway', () => {
     expect(await give()).toMatchObject({ isError: true, data: { error: 'inquiry_answered' } })
   })
 
+  test('the inquiry-answer template is internal: spawn_subquest and post_to_board refuse it', async () => {
+    const s = await setup()
+    const captain = await s.joined('heralds', 'heralds-captain', { rank: 'adept' })
+    for (const [tool, extra] of [
+      ['spawn_subquest', {}],
+      ['post_to_board', {}],
+    ] as const) {
+      expect(
+        await callTool(s.transport, tool, {
+          lease: captain.lease,
+          title: 'T',
+          brief: 'B',
+          template: 'inquiry-answer',
+          ...extra,
+        })
+      ).toMatchObject({ isError: true, data: { error: 'unknown_template' } })
+    }
+    expect(
+      (await s.quests.list(s.guild, { limit: 50 })).quests.map((q) => q.templateId)
+    ).not.toContain('inquiry-answer')
+  })
+
   test('an overdue Inquiry expires through the sweep and refuses an answer', async () => {
     const s = await setup()
     const { inquiryId, answerQuestId } = await asked(s)

@@ -22,6 +22,8 @@ export interface QuestTemplate {
   /** Whether finishing the Quest needs a Seal; deterministic, never a model decision. */
   requiresSeal: boolean
   roundLimit: number
+  /** Internal templates are posted only by code (an Inquiry); no Guild Master or Member path posts them. */
+  internal?: boolean
 }
 
 /** The Quest templates the Guild Master can post from. Code, not model output. */
@@ -66,8 +68,14 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     doneCondition: 'The Inquiry is answered once with answer_inquiry',
     requiresSeal: false,
     roundLimit: 2,
+    internal: true,
   },
 ]
+
+/** The templates a Guild Master, a Member or a workflow may post from: every one that is not internal. */
+export const POSTABLE_TEMPLATES: readonly QuestTemplate[] = QUEST_TEMPLATES.filter(
+  (t) => t.internal !== true
+)
 
 /** What the Guild Master supplies when posting a Quest from a template. */
 export const postQuestInput = z.object({
@@ -137,7 +145,7 @@ export async function postQuest(
   guildId: string,
   input: PostQuestInput
 ): Promise<PostQuestResult> {
-  const template = QUEST_TEMPLATES.find((t) => t.id === input.templateId)
+  const template = POSTABLE_TEMPLATES.find((t) => t.id === input.templateId)
   if (!template) {
     return { ok: false, error: 'unknown_template' }
   }

@@ -37,7 +37,7 @@ import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
 import type { WorkflowStore } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
-import { chooseHallOwner, QUEST_TEMPLATES } from '../quests'
+import { chooseHallOwner, POSTABLE_TEMPLATES, QUEST_TEMPLATES } from '../quests'
 import type { Research } from '../research'
 import { hallNote, hallNotes } from './archive-scope'
 import { mintToken, verifyToken } from './tokens'
@@ -770,7 +770,7 @@ export class McpGateway {
     a: z.infer<typeof spawnSubquestArgs>
   ): Promise<ToolReply> {
     const { guild, quest } = caller
-    const template = QUEST_TEMPLATES.find((t) => t.id === a.template)
+    const template = POSTABLE_TEMPLATES.find((t) => t.id === a.template)
     if (!template) {
       return refuse('unknown_template')
     }
@@ -835,7 +835,7 @@ export class McpGateway {
     a: z.infer<typeof postToBoardArgs>
   ): Promise<ToolReply> {
     const { guild, quest } = caller
-    const template = QUEST_TEMPLATES.find((t) => t.id === a.template)
+    const template = POSTABLE_TEMPLATES.find((t) => t.id === a.template)
     if (!template) {
       return refuse('unknown_template')
     }
