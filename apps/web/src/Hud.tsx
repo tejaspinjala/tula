@@ -79,9 +79,7 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
         <div className="hud-row">
           <h1 className="hud-plate">{guildName || 'Guildhall'}</h1>
           {treasury && <p className="hud-day">Day {treasury.day}</p>}
-          {treasury && (
-            <Meter label="Treasury left today" value={left} max={cap} format={formatCents} />
-          )}
+          {treasury && <Meter label="Treasury" value={left} max={cap} format={formatCents} />}
           <PixelButton aria-label={sealLabel} onClick={onOpenSeals} className="hud-seals">
             Seals{waiting ? ` ${waiting.count}${waiting.more ? '+' : ''}` : ''}
           </PixelButton>
