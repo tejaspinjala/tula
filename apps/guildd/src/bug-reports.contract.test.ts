@@ -85,6 +85,37 @@ describe('Bug Report routes', () => {
     expect((await file(g, { evidence: ['not-evidence'] })).status).toBe(400)
   })
 
+  test('a paused owning Hall refuses hall_paused: no Fix Quest and no report', async () => {
+    const g = await found()
+    await harness.adapters.tripwires.pause(g, {
+      hallId: 'heralds',
+      tripwire: 'manual',
+      observed: 1,
+      threshold: 1,
+    })
+    const res = await file(g)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: 'hall_paused' })
+    expect((await harness.adapters.quests.list(g, { limit: 50 })).quests).toHaveLength(0)
+    expect(await harness.adapters.bugReportStore.list(g, { hallId: 'heralds', limit: 10 })).toEqual(
+      { reports: [], next: null }
+    )
+  })
+
+  test('a report at the maximum field lengths files, and its Fix Quest carries none of the reproduction text', async () => {
+    const g = await found()
+    const res = await file(g, {
+      title: 'T'.repeat(120),
+      reproduction: { steps: 'S'.repeat(600), expected: 'E'.repeat(600), actual: 'A'.repeat(600) },
+    })
+    expect(res.status).toBe(201)
+    const filed = report.parse(await res.json())
+    const fix = await harness.adapters.quests.get(g, filed.fixQuestId ?? '')
+    expect(fix?.doneCondition.length).toBeLessThanOrEqual(300)
+    expect(fix?.title.length).toBeLessThanOrEqual(120)
+    expect(`${fix?.title}${fix?.doneCondition}`).not.toMatch(/S{5}|E{5}|A{5}|T{5}/)
+  })
+
   test('a Hall lists its reports newest first in pages, by status, and one is read by id', async () => {
     const g = await found()
     const ids: string[] = []

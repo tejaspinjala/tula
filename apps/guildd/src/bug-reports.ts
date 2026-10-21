@@ -6,6 +6,7 @@ import { reproduction } from './ports/bug-report-store'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
 import type { DataClass, Quest } from './ports/quest-queue'
+import type { TripwireStore } from './ports/tripwire-store'
 import { chooseHallOwner, FIX_QUEST_TEMPLATE } from './quests'
 
 /** Ports the {@link BugReportService} files through. */
@@ -13,6 +14,8 @@ export interface BugReportServiceDeps {
   config: Pick<ConfigStore, 'current'>
   store: Pick<BugReportStore, 'file'>
   clock: Clock
+  /** Whether a Hall is paused by a Tripwire; a paused Hall takes no new Fix Quest. */
+  tripwires: Pick<TripwireStore, 'isPaused'>
 }
 
 /** Who files: a Member's leased Quest (charged the cap, judged by the cross-Hall rule) or the Guild Master. */

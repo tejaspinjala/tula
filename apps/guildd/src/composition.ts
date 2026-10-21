@@ -187,7 +187,8 @@ export async function compose(
     })
   const bugReportStore = overrides.bugReportStore ?? new PgBugReportStore(db, keys, pgQuests)
   const bugReports =
-    overrides.bugReports ?? new BugReportService({ config, store: bugReportStore, clock })
+    overrides.bugReports ??
+    new BugReportService({ config, store: bugReportStore, clock, tripwires })
   const treasury =
     overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config })
   // Governed web research is off unless the host configures a search provider (ADR-0010).
