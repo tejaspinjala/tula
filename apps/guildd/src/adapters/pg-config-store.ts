@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
 import { classifyChange, defaultConfig, type GuildConfig, parseStoredConfig } from '../guild-config'
+import type { Clock } from '../ports/clock'
 import {
   ConfigError,
   type ConfigStore,
@@ -11,6 +12,7 @@ import {
   type ProposeResult,
 } from '../ports/config-store'
 import type { KeyProvider } from '../ports/key-provider'
+import { SystemClock } from './system-clock'
 
 const versionRow = z.object({
   version: z.number().int(),
@@ -43,7 +45,9 @@ function toVersion(row: unknown): ConfigVersion {
 export class PgConfigStore implements ConfigStore {
   constructor(
     private readonly db: Db,
-    private readonly keys: KeyProvider
+    private readonly keys: KeyProvider,
+    /** Stamps `not_before` on the Quests a lock puts back, as the Quest queue's own release does. */
+    private readonly clock: Clock = new SystemClock()
   ) {}
 
   async seed(guildId: string, tx?: TenantTx): Promise<void> {
@@ -94,7 +98,7 @@ export class PgConfigStore implements ConfigStore {
         update guild_config_versions set status = 'applied'
         where guild_id = ${guildId} and version = ${version}`
       await appendEvent(tx, this.keys, 'config.version_confirmed', { version })
-      await this.appendLockEvents(tx, inForce.config, target.config, version)
+      await this.appendLockEvents(tx, guildId, inForce.config, target.config, version)
     })
   }
 
@@ -164,6 +168,7 @@ export class PgConfigStore implements ConfigStore {
   /** One `hall.locked` or `hall.unlocked` per Hall whose lock flipped, in the transaction that put the change in force. */
   private async appendLockEvents(
     tx: TenantTx,
+    guildId: string,
     before: GuildConfig,
     after: GuildConfig,
     version: number
@@ -175,8 +180,27 @@ export class PgConfigStore implements ConfigStore {
           hallId: hall.id,
           version,
         })
+        if (hall.locked) {
+          await this.parkHall(tx, guildId, hall.id)
+        }
       }
     }
+  }
+
+  /**
+   * Puts a newly locked Hall's active Quests back to `queued` with their leases released (a
+   * refunded claim, as `releaseLeases` does) and revokes its model runs, in the transaction that
+   * locked it. Killing the sandboxes stays best effort on the next dispatch pass.
+   */
+  private async parkHall(tx: TenantTx, guildId: string, hallId: string): Promise<void> {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`quests:${guildId}`}, 0))`
+    await tx`
+      update quests set state = 'queued', lease_expires_at = null, not_before = ${this.clock.now()},
+        last_error = 'routing_blocked', max_attempts = max_attempts + 1, refunds = refunds + 1
+      where guild_id = ${guildId} and state = 'active' and hall_id = ${hallId}`
+    await tx`
+      update model_runs set state = 'revoked', revoke_reason = 'hall_paused'
+      where guild_id = ${guildId} and hall_id = ${hallId} and state <> 'revoked'`
   }
 
   private async write(
@@ -204,7 +228,7 @@ export class PgConfigStore implements ConfigStore {
         ${tx.json(toJson(config))})`
     await appendEvent(tx, this.keys, 'config.version_proposed', { version, status, kind, change })
     if (status === 'applied') {
-      await this.appendLockEvents(tx, base.config, config, version)
+      await this.appendLockEvents(tx, guildId, base.config, config, version)
     }
     return { version, status, change }
   }

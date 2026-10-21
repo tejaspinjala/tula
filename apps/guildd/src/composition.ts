@@ -114,7 +114,7 @@ export async function compose(
       : await fromEnv(overrides)
   const clock = overrides.clock ?? new SystemClock()
   const rp = loadWebauthnEnv()
-  const config = overrides.config ?? new PgConfigStore(db, keys)
+  const config = overrides.config ?? new PgConfigStore(db, keys, clock)
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const missives = overrides.missives ?? new PgMissiveStore(db, keys)
