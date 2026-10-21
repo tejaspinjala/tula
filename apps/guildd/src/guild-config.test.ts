@@ -255,11 +255,20 @@ describe('classifyChange', () => {
     expect(classifyChange(withCap(5), withCap(undefined))).toBe('tightening')
     expect(classifyChange(withCap(4), withCap(undefined))).toBe('tightening')
   })
-  test('flipping a provider privateEligible either way is widening', () => {
+  test('turning a provider privateEligible on is widening and turning it off is tightening', () => {
     const off = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: false }]
     const on = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: true }]
     expect(classifyChange({ ...base, providers: off }, { ...base, providers: on })).toBe('widening')
-    expect(classifyChange({ ...base, providers: on }, { ...base, providers: off })).toBe('widening')
+    expect(classifyChange({ ...base, providers: on }, { ...base, providers: off })).toBe(
+      'tightening'
+    )
+  })
+  test('turning private eligibility off while changing the auth path stays widening', () => {
+    const on = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: true }]
+    const edited = [{ id: 'anthropic', auth: 'subscription' as const, privateEligible: false }]
+    expect(classifyChange({ ...base, providers: on }, { ...base, providers: edited })).toBe(
+      'widening'
+    )
   })
   test('private eligibility on, unlocking and a new provider are widening', () => {
     const halls = base.halls.map((h) => (h.id === 'health' ? { ...h, privateEligible: true } : h))

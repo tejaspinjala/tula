@@ -172,6 +172,73 @@ describe('restoring a version that names a subscription provider', () => {
   })
 })
 
+describe('provider private eligibility over HTTP', () => {
+  const withProvider = (privateEligible: boolean) => ({
+    ...defaultConfig(),
+    providers: [{ id: 'home', auth: 'api_key' as const, privateEligible }],
+    routingProfiles: [],
+  })
+
+  test('turning it on is pending until a passkey confirm, and turning it off applies at once', async () => {
+    const who = await signedIn()
+    const put = (config: unknown) =>
+      send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect((await put(withProvider(false))).status).toBe(202)
+    const base = await who.proof()
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/2/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': base }
+    )
+    const on = await put(withProvider(true))
+    expect(on.status).toBe(202)
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(false)
+    const confirm = await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/3/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect(confirm.status).toBe(200)
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(true)
+    const off = await put(withProvider(false))
+    expect(off.status).toBe(200)
+    expect(outcome.parse(await off.json())).toMatchObject({
+      status: 'applied',
+      change: 'tightening',
+    })
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(false)
+  })
+
+  test("a second guild neither reads nor changes the first guild's providers", async () => {
+    const first = await signedIn()
+    const second = await signedIn()
+    await send(harness, 'PUT', `${first.base}/config`, { config: withProvider(false) }, first.auth)
+    await send(
+      harness,
+      'POST',
+      `${first.base}/config/versions/2/confirm`,
+      {},
+      { ...first.auth, 'x-reauth-proof': await first.proof() }
+    )
+    expect((await second.current()).config.providers).toEqual([])
+    const read = await send(harness, 'GET', `${first.base}/config`, undefined, second.auth)
+    expect(read.status).toBe(404)
+    const write = await send(
+      harness,
+      'PUT',
+      `${first.base}/config`,
+      { config: withProvider(true) },
+      second.auth
+    )
+    expect(write.status).toBe(404)
+    expect((await first.current()).version).toBe(2)
+  })
+})
+
 describe('guild config over HTTP', () => {
   test('a founded guild has the Steward, Heralds Hall with Captain and Members, and three locked Halls', async () => {
     const who = await signedIn()
