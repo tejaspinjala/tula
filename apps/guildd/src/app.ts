@@ -414,7 +414,13 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
   }
 }
 const summonBody = z.object({ profileId: z.string().min(1).max(64) })
-const putConfigBody = z.object({ config: guildConfig })
+/** The vendor behind every model provider adapter (the Anthropic adapters, ADR-0008); shown in the private-work disclosure. */
+const PROVIDER_VENDOR = 'Anthropic'
+const putConfigBody = z.object({
+  config: guildConfig,
+  /** The config version the caller read; the save is refused as `stale` if it is no longer in force. */
+  baseVersion: z.number().int().min(1).optional(),
+})
 /** The most unknown config key names one 422 refusal echoes back. */
 const MAX_UNKNOWN_KEYS_LISTED = 20
 /** The longest an echoed unknown config key may be, counting the ellipsis that marks a cut. */
@@ -1996,11 +2002,25 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'subscription_disabled' }, 409)
     }
     try {
-      const result = await deps.config.propose(who.guild, body.data.config)
+      const result = await deps.config.propose(
+        who.guild,
+        body.data.config,
+        body.data.baseVersion === undefined ? undefined : { baseVersion: body.data.baseVersion }
+      )
       return c.json(result, result.status === 'pending' ? 202 : 200)
     } catch (error) {
       return configFailure(c, error)
     }
+  })
+
+  // Where private text would go: whether this Guildhall serves subscription providers at all
+  // (hosted when the host has not enabled them) and the vendor every provider call reaches.
+  app.get('/guilds/:id/providers/status', async (c) => {
+    const who = await sessionGuildFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json({ hosted: !deps.subscriptionEnabled, vendor: PROVIDER_VENDOR })
   })
 
   app.post('/guilds/:id/config/versions/:version/restore', async (c) => {

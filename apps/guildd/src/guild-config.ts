@@ -336,6 +336,17 @@ export const guildConfig = z
     contentPolicy: contentPolicy.optional(),
   })
   .superRefine((config, ctx) => {
+    const seen = new Set<string>()
+    config.providers.forEach((p, i) => {
+      if (seen.has(p.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['providers', i, 'id'],
+          message: 'duplicate_provider: each provider id may appear once',
+        })
+      }
+      seen.add(p.id)
+    })
     if (config.sealPolicy === 'autonomous') {
       ctx.addIssue({
         code: 'custom',
@@ -508,6 +519,10 @@ type Provider = GuildConfig['providers'][number]
  * off (ADR-0012: turning it off narrows where private text may go, so it applies at once).
  */
 function providersNoWider(prev: readonly Provider[], next: readonly Provider[]): boolean {
+  const unique = (list: readonly Provider[]) => new Set(list.map((p) => p.id)).size === list.length
+  if (!unique(prev) || !unique(next)) {
+    return false
+  }
   const before = new Map(prev.map((p) => [p.id, p]))
   return next.every((n) => {
     const p = before.get(n.id)

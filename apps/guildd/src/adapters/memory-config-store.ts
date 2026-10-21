@@ -37,11 +37,15 @@ export class MemoryConfigStore implements ConfigStore {
     return this.inForce(guildId)
   }
 
-  async propose(guildId: string, config: GuildConfig): Promise<ProposeResult> {
+  async propose(
+    guildId: string,
+    config: GuildConfig,
+    options?: { baseVersion?: number }
+  ): Promise<ProposeResult> {
     if (config.sealPolicy === 'autonomous') {
       throw new ConfigError('seal_policy_locked', 0)
     }
-    return this.write(guildId, config, 'change')
+    return this.write(guildId, config, 'change', options?.baseVersion)
   }
 
   async confirm(guildId: string, version: number): Promise<void> {
@@ -97,8 +101,16 @@ export class MemoryConfigStore implements ConfigStore {
     return { version: top.version, config: structuredClone(top.config) }
   }
 
-  private write(guildId: string, config: GuildConfig, kind: 'change' | 'restore'): ProposeResult {
+  private write(
+    guildId: string,
+    config: GuildConfig,
+    kind: 'change' | 'restore',
+    baseVersion?: number
+  ): ProposeResult {
     const base = this.inForce(guildId)
+    if (baseVersion !== undefined && baseVersion !== base.version) {
+      throw new ConfigError('stale', baseVersion)
+    }
     const change = classifyChange(base.config, config)
     const versions = this.versions(guildId)
     const version = (versions.at(-1)?.version ?? 0) + 1

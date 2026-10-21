@@ -61,11 +61,17 @@ export class PgConfigStore implements ConfigStore {
     })
   }
 
-  async propose(guildId: string, config: GuildConfig): Promise<ProposeResult> {
+  async propose(
+    guildId: string,
+    config: GuildConfig,
+    options?: { baseVersion?: number }
+  ): Promise<ProposeResult> {
     if (config.sealPolicy === 'autonomous') {
       throw new ConfigError('seal_policy_locked', 0)
     }
-    return this.db.withGuild(guildId, (tx) => this.write(tx, guildId, config, 'change'))
+    return this.db.withGuild(guildId, (tx) =>
+      this.write(tx, guildId, config, 'change', options?.baseVersion)
+    )
   }
 
   async confirm(guildId: string, version: number): Promise<void> {
@@ -157,10 +163,14 @@ export class PgConfigStore implements ConfigStore {
     tx: TenantTx,
     guildId: string,
     config: GuildConfig,
-    kind: 'change' | 'restore'
+    kind: 'change' | 'restore',
+    baseVersion?: number
   ): Promise<ProposeResult> {
     await this.lock(tx, guildId)
     const base = await this.inForce(tx, guildId)
+    if (baseVersion !== undefined && baseVersion !== base.version) {
+      throw new ConfigError('stale', baseVersion)
+    }
     const change = classifyChange(base.config, config)
     const status = change === 'widening' ? 'pending' : 'applied'
     const [next] = await tx`
