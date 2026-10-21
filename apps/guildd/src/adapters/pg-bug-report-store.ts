@@ -86,12 +86,13 @@ export class PgBugReportStore implements BugReportStore {
     const hash = reproductionHash(input.owningHall, input.reproduction)
     return this.db.withGuild(guildId, async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${`bug-reports:${guildId}`}, 0))`
+      // The same Quest and reproduction is the Fix Quest's job key: the first report is returned
+      // whatever the title or evidence, and is not charged again.
       if (filer.kind === 'member') {
         const [prior] = await tx`
           select * from bug_reports
           where guild_id = ${guildId} and filer_quest_id = ${filer.questId}
-            and reproduction_hash = ${hash} and title = ${input.title}
-            and evidence = ${tx.json(input.evidence)}::jsonb order by seq limit 1`
+            and reproduction_hash = ${hash} order by seq limit 1`
         if (prior) {
           return { ok: true, report: toReport(prior), fixQuest: null }
         }
