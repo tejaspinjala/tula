@@ -138,9 +138,19 @@ export function questBoardIn(layout: HallLayout, room: TileRect): { x: number; y
   return { x: room.x + room.w - 3, y }
 }
 
-/** The tile a Hall's mailbox stands on (stub). */
-export function mailboxIn(_layout: HallLayout, _room: TileRect): { x: number; y: number } {
-  return { x: -1, y: -1 }
+/**
+ * The tile of a room's mailbox: the top row below the label, near the near corner (the Quest Board
+ * keeps the far one), on a walkable tile that is not the board's.
+ */
+export function mailboxIn(layout: HallLayout, room: TileRect): { x: number; y: number } {
+  const y = room.y + 1
+  const board = questBoardIn(layout, room)
+  for (let x = room.x + 2; x < room.x + room.w - 1; x++) {
+    if (layout.walkable(x, y) && !(x === board.x && y === board.y)) {
+      return { x, y }
+    }
+  }
+  return { x: room.x + 2, y }
 }
 
 /** Distinct walkable tiles where apprentices stand: the row under the work row, from the right. */

@@ -11,6 +11,7 @@ import {
   bubbleCentreY,
   type HallLayout,
   hallLayout,
+  mailboxIn,
   questBoardIn,
   seatsIn,
   withClosedDoors,
@@ -46,6 +47,7 @@ const CHARS = 'chars'
 const FONT = 'font'
 const GLOW = 'glow'
 const COURIER = 'courier'
+const MAILBOX = 'mailbox'
 /** Where each map sits in the one Phaser world, in px: far apart so a camera sees only one. */
 const OFFSETS: Record<MapId, Vec> = {
   hall: { x: 0, y: 0 },
@@ -225,6 +227,7 @@ export class HallScene extends Phaser.Scene {
     this.drawFixtures()
     this.makeGlow()
     this.makeCourier()
+    this.makeMailbox()
     // The routine moves on with the clock: re-plan the Members every ten seconds.
     this.time.addEvent({
       delay: 10_000,
@@ -419,6 +422,22 @@ export class HallScene extends Phaser.Scene {
     for (const label of MAP_LABELS[id]) {
       this.label(x + label.x * 16, y + label.y * 16, label.text, 16)
     }
+  }
+
+  /** A Hall's mailbox, drawn in code: a post, a wooden box with a slot and a red flag. */
+  private makeMailbox(): void {
+    const g = this.add.graphics()
+    const paint = (colour: number, x: number, y: number, w: number, h: number) => {
+      g.fillStyle(colour, 1)
+      g.fillRect(x, y, w, h)
+    }
+    paint(0x3b2410, 7, 9, 2, 7) // post
+    paint(0x7a4b24, 2, 3, 12, 7) // box
+    paint(0x3b2410, 2, 3, 12, 1) // lid edge
+    paint(0x3b2410, 4, 6, 6, 1) // slot
+    paint(0xb8453a, 12, 0, 2, 4) // flag
+    g.generateTexture(MAILBOX, 16, 16)
+    g.destroy()
   }
 
   /**
@@ -616,6 +635,17 @@ export class HallScene extends Phaser.Scene {
         x: Math.min(desk.x + desk.w - 0.5, Math.max(desk.x + 0.5, this.at.x)),
         y: Math.min(desk.y + desk.h - 0.5, Math.max(desk.y + 0.5, this.at.y)),
       },
+    })
+    // A Hall's mailbox stands in its room: reach it from the tile beside it.
+    this.pending?.rooms.forEach((hall, index) => {
+      const room = this.layout.rooms[index]
+      if (hall && room && !hall.locked) {
+        const box = mailboxIn(this.layout, room)
+        targets.push({
+          target: { kind: 'mailbox', hallId: hall.hallId },
+          at: { x: box.x + 0.5, y: box.y + 0.5 },
+        })
+      }
     })
     const now = nearestTarget(this.at, targets, REACH)
     if (!sameTarget(now, this.near)) {
@@ -911,6 +941,8 @@ export class HallScene extends Phaser.Scene {
             .setStrokeStyle(1, 0x3b2410)
             .setDepth(4)
         )
+        const box = mailboxIn(this.layout, room)
+        add(this.add.image(box.x * s + 8, box.y * s + 8, MAILBOX).setDepth(4))
         const shown = Math.min(hall.board, BOARD_SCROLLS)
         for (let i = 0; i < shown; i++) {
           add(

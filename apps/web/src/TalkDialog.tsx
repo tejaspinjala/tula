@@ -86,6 +86,23 @@ export function TalkDialog({
           go={go}
         />
       )}
+      {open?.kind === 'mailbox' && (
+        <>
+          <h2 id="talk-title">{`${scene?.rooms.find((r) => r.hallId === open.hallId)?.name ?? open.hallId} mailbox`}</h2>
+          <p>Inquiries, Dossiers and Bug Reports for this Hall wait in the Mailbox.</p>
+          <div className="talk-actions">
+            <button
+              type="button"
+              onClick={() => go(`/mailbox?hall=${encodeURIComponent(open.hallId)}`)}
+            >
+              Open Mailbox
+            </button>
+            <button type="button" onClick={() => dispatch({ type: 'close' })}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
       {open?.kind === 'sealDesk' && scene && (
         <>
           <h2 id="talk-title">Seal desk</h2>

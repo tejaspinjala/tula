@@ -39,6 +39,9 @@ export function sameTarget(a: Target | null, b: Target | null): boolean {
   if (a.kind === 'member' && b.kind === 'member') {
     return a.id === b.id
   }
+  if (a.kind === 'mailbox' && b.kind === 'mailbox') {
+    return a.hallId === b.hallId
+  }
   return a.kind === b.kind
 }
 
