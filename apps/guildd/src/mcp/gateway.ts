@@ -978,7 +978,7 @@ export class McpGateway {
         fromHall: m.hallId,
         to: m.to,
         sentAt: m.sentAt,
-        text: `<${tag} from="${m.from}" fromHall="${m.hallId}" to="${m.to}">\n${m.text}\n</${tag}>`,
+        text: `<${tag} from="${m.from}"${m.toHall === null ? '' : ` fromHall="${m.hallId}"`} to="${m.to}">\n${m.text}\n</${tag}>`,
       })),
       next: page.next,
     })
