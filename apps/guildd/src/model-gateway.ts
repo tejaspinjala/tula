@@ -132,6 +132,10 @@ const DEFAULT_BAR_POLL_MS = 250
 export const COUNCIL_CALL_TIMEOUT_MS = 60_000
 /** The most a Council voice may reply with: a vote and a few short reasons. */
 const COUNCIL_MAX_REPLY_TOKENS = 600
+/** A classifier call is aborted after this long. */
+export const CLASSIFIER_CALL_TIMEOUT_MS = 10_000
+/** The most a classifier may reply with: one small JSON object. */
+const CLASSIFIER_MAX_REPLY_TOKENS = 200
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
@@ -569,12 +573,53 @@ export class ModelGateway {
     return { text: response.text, usage: response.usage, costMicros }
   }
 
-  /** Stub. */
+  /**
+   * One classifier call on a free-text goal: the `cheap` profile's provider must be
+   * private-eligible (ADR-0006, ADR-0012), else the call is refused as `provider_not_private`
+   * before anything reaches a provider. Metered under the run `classify:<decision key>`, filed
+   * under the given Hall, so it counts against the daily caps. Refused by Bar the Gates; aborted
+   * after {@link CLASSIFIER_CALL_TIMEOUT_MS}. Returns the model's text. Throws {@link GatewayError}.
+   */
   async classifierComplete(
-    _guildId: string,
-    _call: { decisionKey: string; hallId: string; prompt: string; signal?: AbortSignal }
+    guildId: string,
+    call: { decisionKey: string; hallId: string; prompt: string }
   ): Promise<string> {
-    throw new GatewayError('unknown_profile')
+    if (await this.deps.gates.isBarred(guildId)) {
+      throw new GatewayError('gates_barred')
+    }
+    const { config } = await this.deps.config.current(guildId)
+    const profile = config.routingProfiles.find((p) => p.tier === 'cheap')
+    const provider = profile && config.providers.find((p) => p.id === profile.provider)
+    if (!profile || !provider) {
+      throw new GatewayError('unknown_profile')
+    }
+    if (!provider.privateEligible) {
+      throw new GatewayError('provider_not_private')
+    }
+    const runId = `classify:${call.decisionKey}`
+    const issue = this.issue(guildId)
+    await this.deps.ledger.openRun(guildId, {
+      runId,
+      questId: call.decisionKey,
+      attempt: 1,
+      hallId: call.hallId,
+      providerId: provider.id,
+      profileId: profile.id,
+      state: 'active',
+      tokenHash: issue.hash,
+      expiresAt: issue.expiresAt,
+    })
+    const { response } = await this.serve(
+      guildId,
+      { runId, profileId: profile.id },
+      {
+        messages: [{ role: 'user', content: call.prompt }],
+        maxTokens: CLASSIFIER_MAX_REPLY_TOKENS,
+      },
+      null,
+      CLASSIFIER_CALL_TIMEOUT_MS
+    )
+    return response.text
   }
 
   /**

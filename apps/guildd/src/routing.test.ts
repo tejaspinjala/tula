@@ -168,6 +168,8 @@ describe('routing step 1', () => {
 
   test('the default MemoryClassifier answer is private', async () => {
     const answer = await new MemoryClassifier().classify({
+      guildId: GUILD,
+      decisionKey: 'd1',
       goal: 'x',
       halls: [{ id: 'heralds', kind: 'work' }],
     })

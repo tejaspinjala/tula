@@ -11,8 +11,21 @@ const GUILD = '00000000-0000-4000-8000-000000000001'
 const ROOMY = { tokensRemaining: 1_000_000, centsRemaining: 1_000_000 }
 
 function configWith(privateEligible: boolean): GuildConfig {
+  const base = defaultConfig()
   return {
-    ...defaultConfig(),
+    ...base,
+    halls: [
+      ...base.halls,
+      {
+        id: 'vault',
+        name: 'Vault',
+        kind: 'private',
+        locked: false,
+        privateEligible: true,
+        captain: null,
+        members: [],
+      },
+    ],
     providers: [
       { id: 'cloud', auth: 'api_key', privateEligible: false },
       { id: 'home', auth: 'subscription', privateEligible },
@@ -20,6 +33,7 @@ function configWith(privateEligible: boolean): GuildConfig {
     routingProfiles: [
       { id: 'cloud-mid', provider: 'cloud', tier: 'mid' },
       { id: 'home-cheap', provider: 'home', tier: 'cheap' },
+      { id: 'home-mid', provider: 'home', tier: 'mid' },
     ],
   }
 }
@@ -59,7 +73,7 @@ function spyGateway(answer: string) {
 }
 
 describe('BoundClassifier', () => {
-  const claim = '{"hallId":"heralds","rank":"apprentice","dataClass":"public"}'
+  const claim = '{"hallId":"vault","rank":"apprentice","dataClass":"public"}'
   function setup(initial: GuildConfig) {
     const live = { config: initial }
     const gateway = spyGateway(claim)

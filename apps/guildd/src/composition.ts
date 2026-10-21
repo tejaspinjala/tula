@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import { AnthropicModelProvider } from './adapters/anthropic-model-provider'
+import { BoundClassifier } from './adapters/bound-classifier'
 import { BraveSearchProvider } from './adapters/brave-search-provider'
 import { ClaudeCliModelProvider } from './adapters/claude-cli-model-provider'
 import { FileCheckpointAnchor } from './adapters/file-checkpoint-anchor'
@@ -249,9 +250,11 @@ export async function compose(
       retireRun: retireRun({ runs: gateway, sandboxes }),
     })
   const seals = overrides.seals ?? new SealEngine({ store: sealStore, config, identity })
-  // No cheap model is wired yet (and no model id lives in engine code): the deterministic
-  // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
-  const classifier = overrides.classifier ?? new MemoryClassifier()
+  // The model classifier runs only on a private-eligible provider's cheap tier (ADR-0006, ADR-0012),
+  // re-read from config on every call; otherwise the deterministic stand-in answers (private).
+  const classifier =
+    overrides.classifier ??
+    new BoundClassifier({ config, gateway, standin: new MemoryClassifier() })
   const routingLog = overrides.routingLog ?? new PgRoutingLog(db)
   const presence = overrides.presence ?? new PgPresenceStore(db, keys, clock)
   const councilStore = overrides.councilStore ?? new PgCouncilStore(db, keys)
