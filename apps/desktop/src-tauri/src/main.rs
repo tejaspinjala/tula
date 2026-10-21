@@ -8,6 +8,7 @@ mod handoff;
 mod settings;
 
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -42,7 +43,9 @@ fn open_window<R: Runtime>(app: &AppHandle<R>, target: WebviewUrl) -> tauri::Res
         let handle = app.clone();
         builder = builder.on_new_window(move |url, _features| {
             if handoff::is_browser_sign_in(&server, &url) {
-                let _ = handle.opener().open_url(url.as_str(), None::<&str>);
+                let state = handle.state::<handoff::PendingSignIn>().begin(Instant::now());
+                let target = handoff::browser_url(&url, &state);
+                let _ = handle.opener().open_url(target.as_str(), None::<&str>);
             }
             NewWindowResponse::Deny
         });
@@ -59,8 +62,10 @@ fn finish_sign_in<R: Runtime>(app: &AppHandle<R>, links: &[Url]) {
     let (Some(server), Some(window)) = (stored, main_window(app)) else {
         return;
     };
-    if let Some(code) = links.iter().find_map(|l| handoff::code_from_deep_link(l.as_str())) {
-        let _ = window.navigate(handoff::return_url(&server, &code));
+    let pending = app.state::<handoff::PendingSignIn>();
+    let arrival = links.iter().find_map(|l| handoff::code_from_deep_link(l.as_str()));
+    if let Some((code, state)) = arrival.filter(|(_, s)| pending.take(s, Instant::now())) {
+        let _ = window.navigate(handoff::return_url(&server, &code, &state));
         let _ = window.set_focus();
     }
 }
@@ -94,6 +99,7 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 
 fn main() {
     tauri::Builder::default()
+        .manage(handoff::PendingSignIn::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![set_server_url])

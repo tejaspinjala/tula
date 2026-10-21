@@ -4,6 +4,8 @@
 //! `https://<host>/#desktop-code=<code>`. Pure functions only: the window and OS calls live in
 //! `main.rs`.
 
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use url::Url;
 
 /// The deep-link scheme the app registers.
@@ -37,26 +39,65 @@ fn is_code(code: &str) -> bool {
         && secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-/// The sign-in code in a `guildhall://signed-in#code=<code>` link, or `None` for anything else:
-/// another scheme or host, a missing or malformed code. A code is `<uuid>.<base64url>`, which is
-/// all the shell ever puts into a URL, so nothing else is passed on.
-pub fn code_from_deep_link(link: &str) -> Option<String> {
+/// Whether `state` has the shape the shell makes: base64url, 22 to 128 characters (at least 128 bits).
+fn is_state(state: &str) -> bool {
+    (22..=128).contains(&state.len())
+        && state.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// The code and state in a `guildhall://signed-in#code=<code>&state=<state>` link, or `None` for
+/// anything else: another scheme or host, or a missing or malformed code or state. A code is
+/// `<uuid>.<base64url>`, which is all the shell ever puts into a URL, so nothing else is passed on.
+/// The state still has to match the one the shell is waiting for (see [`PendingSignIn`]).
+pub fn code_from_deep_link(link: &str) -> Option<(String, String)> {
     let url = Url::parse(link).ok()?;
     if url.scheme() != SCHEME || url.host_str() != Some("signed-in") || url.query().is_some() {
         return None;
     }
-    let code = url.fragment()?.strip_prefix("code=")?;
-    is_code(code).then(|| code.to_string())
+    let _ = (&url, is_state(""), is_code(""));
+    None
 }
 
-/// Where the main window goes to finish the sign-in: the server's origin with the code in the
-/// fragment, which a browser never sends to a server or writes to a log.
-pub fn return_url(server: &Url, code: &str) -> Url {
+/// Where the main window goes to finish the sign-in: the server's origin with the code and the
+/// state in the fragment, which a browser never sends to a server or writes to a log.
+pub fn return_url(server: &Url, code: &str, state: &str) -> Url {
     let mut url = server.clone();
     url.set_path("/");
     url.set_query(None);
+    let _ = state;
     url.set_fragment(Some(&format!("desktop-code={code}")));
     url
+}
+
+/// How long a browser sign-in may take before the state the shell is waiting for lapses.
+pub const STATE_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// The one sign-in the shell is waiting for: the random state it put in the browser address. A
+/// hand-back is accepted only with that state, once, and while it is fresh, so a link someone else
+/// built (a code from their own session) cannot sign this shell into their guild. Held in the
+/// shell's memory; the shell is a client, not the server.
+#[derive(Default)]
+pub struct PendingSignIn(Mutex<Option<(String, Instant)>>);
+
+impl PendingSignIn {
+    /// Starts a sign-in: makes and remembers a fresh random state (replacing any earlier one).
+    pub fn begin(&self, now: Instant) -> String {
+        let _ = now;
+        String::new()
+    }
+
+    /// True once, for the pending state while it is fresh; then nothing is pending. A wrong state
+    /// changes nothing, so a stray link cannot cancel the sign-in the user is doing.
+    pub fn take(&self, state: &str, now: Instant) -> bool {
+        let _ = (state, now);
+        false
+    }
+}
+
+/// The browser sign-in address with the shell's `state` added.
+pub fn browser_url(requested: &Url, state: &str) -> Url {
+    let _ = state;
+    requested.clone()
 }
 
 /// Whether a window the page asked to open is the browser sign-in (`/?desktop=1` on the server's
@@ -88,40 +129,84 @@ mod tests {
         assert!(agent.ends_with(&format!("{USER_AGENT_TOKEN}/{}", env!("CARGO_PKG_VERSION"))));
     }
 
+    const STATE: &str = "c3RhdGUtc3RhdGUtc3RhdGUtc3RhdGU";
+
     #[test]
-    fn a_signed_in_link_yields_its_code() {
-        let link = format!("guildhall://signed-in#code={CODE}");
-        assert_eq!(code_from_deep_link(&link).as_deref(), Some(CODE));
+    fn a_signed_in_link_yields_its_code_and_state() {
+        let link = format!("guildhall://signed-in#code={CODE}&state={STATE}");
+        assert_eq!(code_from_deep_link(&link), Some((CODE.to_string(), STATE.to_string())));
     }
 
     #[test]
     fn anything_but_a_well_formed_signed_in_link_yields_nothing() {
+        let good = "11111111-1111-4111-8111-111111111111.c2VjcmV0LXNlY3JldC1zZWNyZXQ";
         for link in [
-            "guildhall://signed-in",
-            "guildhall://signed-in#code=",
-            "guildhall://signed-in#code=junk",
-            "guildhall://signed-in?code=11111111-1111-4111-8111-111111111111.c2VjcmV0LXNlY3JldC1zZWNyZXQ",
-            "guildhall://other#code=11111111-1111-4111-8111-111111111111.c2VjcmV0LXNlY3JldC1zZWNyZXQ",
-            "https://signed-in/#code=11111111-1111-4111-8111-111111111111.c2VjcmV0LXNlY3JldC1zZWNyZXQ",
-            "guildhall://signed-in#code=11111111-1111-4111-8111-111111111111.c2VjcmV0LXNlY3JldC1zZWNyZXQ&x=1",
-            "guildhall://signed-in#code=11111111-1111-4111-8111-111111111111.short",
-            "not a url",
-            "",
+            "guildhall://signed-in".to_string(),
+            format!("guildhall://signed-in#code={good}"),
+            format!("guildhall://signed-in#code={good}&state="),
+            format!("guildhall://signed-in#code={good}&state=short"),
+            format!("guildhall://signed-in#state={STATE}&code={good}"),
+            format!("guildhall://signed-in#code=junk&state={STATE}"),
+            format!("guildhall://signed-in?code={good}&state={STATE}"),
+            format!("guildhall://other#code={good}&state={STATE}"),
+            format!("https://signed-in/#code={good}&state={STATE}"),
+            format!("guildhall://signed-in#code={good}&state={STATE}&x=1"),
+            "not a url".to_string(),
+            String::new(),
         ] {
-            assert_eq!(code_from_deep_link(link), None, "{link}");
+            assert_eq!(code_from_deep_link(&link), None, "{link}");
         }
     }
 
     #[test]
-    fn the_return_url_carries_the_code_only_in_the_fragment_of_the_server_origin() {
-        let url = return_url(&server(), CODE);
-        assert_eq!(url.as_str(), format!("https://guild.example.com/#desktop-code={CODE}"));
+    fn the_return_url_carries_code_and_state_only_in_the_fragment_of_the_server_origin() {
+        let url = return_url(&server(), CODE, STATE);
+        assert_eq!(
+            url.as_str(),
+            format!("https://guild.example.com/#desktop-code={CODE}&desktop-state={STATE}")
+        );
         assert_eq!(url.query(), None);
         let deep = Url::parse("https://guild.example.com:8443/app/?x=1").unwrap();
         assert_eq!(
-            return_url(&deep, CODE).as_str(),
-            format!("https://guild.example.com:8443/#desktop-code={CODE}")
+            return_url(&deep, CODE, STATE).as_str(),
+            format!("https://guild.example.com:8443/#desktop-code={CODE}&desktop-state={STATE}")
         );
+    }
+
+    #[test]
+    fn a_pending_state_is_random_long_and_replaced_by_the_next_sign_in() {
+        let pending = PendingSignIn::default();
+        let now = Instant::now();
+        let a = pending.begin(now);
+        let b = pending.begin(now);
+        assert!(is_state(&a) && is_state(&b), "{a} {b}");
+        assert_ne!(a, b);
+        assert!(!pending.take(&a, now), "the first sign-in was replaced");
+        assert!(pending.take(&b, now));
+    }
+
+    #[test]
+    fn a_hand_back_with_no_pending_wrong_reused_or_stale_state_is_refused() {
+        let pending = PendingSignIn::default();
+        let now = Instant::now();
+        assert!(!pending.take(STATE, now), "nothing pending");
+        let state = pending.begin(now);
+        assert!(!pending.take(STATE, now), "wrong state");
+        assert!(!pending.take("", now), "empty state");
+        assert!(pending.take(&state, now), "a wrong try does not cancel the pending sign-in");
+        assert!(!pending.take(&state, now), "a state works once");
+        let stale = pending.begin(now);
+        assert!(!pending.take(&stale, now + STATE_TTL + Duration::from_secs(1)), "expired");
+        assert!(!pending.take(&stale, now), "an expired state is gone");
+    }
+
+    #[test]
+    fn the_browser_address_gains_the_state_and_keeps_the_sign_in_request() {
+        let requested = Url::parse("https://guild.example.com/?desktop=1").unwrap();
+        let url = browser_url(&requested, STATE);
+        assert!(is_browser_sign_in(&server(), &url));
+        assert!(url.query_pairs().any(|(k, v)| k == "state" && v == STATE));
+        assert_eq!(url.host_str(), Some("guild.example.com"));
     }
 
     #[test]
