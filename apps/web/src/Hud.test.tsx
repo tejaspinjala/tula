@@ -174,7 +174,7 @@ test('the HUD tells the world how much room it takes, so the map is framed below
   const proto = HTMLElement.prototype
   const real = proto.getBoundingClientRect
   proto.getBoundingClientRect = function bottomAt120() {
-    return Object.assign(real.call(this), { bottom: 120 })
+    return new DOMRect(0, 0, 100, 120)
   }
   const m = await mount(hud())
   expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('120px')

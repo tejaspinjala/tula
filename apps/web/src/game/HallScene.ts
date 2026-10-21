@@ -4,6 +4,7 @@ import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
 import { courierRoute } from './courier'
 import { integerZoom, openZoomWhole, type Phase, phaseAt, tintFor, walkPose } from './daylight'
+import { BASE_SLOTS, wingsFor } from './hallmap'
 import { nearestTarget, REACH, sameTarget, type Target } from './interact'
 import {
   apprenticeSeats,
@@ -13,6 +14,7 @@ import {
   hallLayout,
   mailboxIn,
   questBoardIn,
+  roomTags,
   seatsIn,
   withClosedDoors,
 } from './layout'
@@ -34,6 +36,7 @@ import { replan, standing, stepWalker, type Walker } from './walker'
 import {
   doorAt,
   MAP_IDS,
+  type MapData,
   type MapId,
   mapData,
   mapSource,
@@ -54,10 +57,10 @@ const COURIER_SCALE = 1.5
 /** Where each map sits in the one Phaser world, in px: far apart so a camera sees only one. */
 const OFFSETS: Record<MapId, Vec> = {
   hall: { x: 0, y: 0 },
-  plaza: { x: 0, y: 2000 },
-  archive: { x: 0, y: 4000 },
-  vault: { x: 0, y: 6000 },
-  trail: { x: 0, y: 8000 },
+  plaza: { x: 0, y: 30000 },
+  archive: { x: 0, y: 60000 },
+  vault: { x: 0, y: 90000 },
+  trail: { x: 0, y: 120000 },
 }
 /** Labels drawn over a map's named places and doors, at a tile. */
 const MAP_LABELS: Record<MapId, { text: string; x: number; y: number }[]> = {
@@ -168,7 +171,14 @@ const px = (tiles: number, size: number) => tiles * size
  * that can `follow` a target. It renders a `SceneState` and decides nothing.
  */
 export class HallScene extends Phaser.Scene {
-  private readonly layout: HallLayout = hallLayout()
+  private layout: HallLayout = hallLayout()
+  /** Room slots the hall map was last drawn for: it grows a wing per three Halls past six. */
+  private drawnSlots = BASE_SLOTS
+  /** The hall's tile layers and tilemap, kept so a growing roster can redraw them. */
+  private hallDrawn: {
+    layers: Phaser.GameObjects.GameObject[]
+    map: Phaser.Tilemaps.Tilemap
+  } | null = null
   /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
   private walkable: (x: number, y: number) => boolean = this.layout.walkable
   private lockedSlots = new Set<number>()
@@ -352,7 +362,7 @@ export class HallScene extends Phaser.Scene {
   private frameMap(): void {
     const cam = this.cameras.main
     const { x, y } = OFFSETS[this.viewMap]
-    const map = mapData(this.viewMap)
+    const map = this.mapOf(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     cam.setSize(this.scale.width, this.scale.height)
@@ -371,11 +381,11 @@ export class HallScene extends Phaser.Scene {
   private boundCamera(): void {
     const cam = this.cameras.main
     const { x, y } = OFFSETS[this.viewMap]
-    const map = mapData(this.viewMap)
+    const map = this.mapOf(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     const boundW = Math.max(w, cam.width / cam.zoom)
-    const boundH = Math.max(h, cam.height / cam.zoom)
+    const boundH = Math.max(h + 2 * map.tileSize, cam.height / cam.zoom)
     cam.setBounds(x - (boundW - w) / 2, y - (boundH - h) / 2, boundW, boundH)
   }
 
@@ -387,7 +397,7 @@ export class HallScene extends Phaser.Scene {
     }
     const tint = tintFor(this.phase)
     const { x, y } = OFFSETS[this.viewMap]
-    const map = mapData(this.viewMap)
+    const map = this.mapOf(this.viewMap)
     this.veil
       .setPosition(x, y)
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
@@ -409,18 +419,48 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
+  /** A map's data; the hall's size follows the map grown for the roster. */
+  private mapOf(id: MapId): MapData {
+    const data = mapData(id)
+    return id === 'hall' ? { ...data, width: this.layout.width, height: this.layout.height } : data
+  }
+
+  /** Grows or shrinks the hall map to fit `slots` rooms, redrawing its tiles when the wings change. */
+  private fitHallTo(slots: number): void {
+    if (wingsFor(slots) === wingsFor(this.drawnSlots)) {
+      return
+    }
+    this.drawnSlots = slots
+    this.layout = hallLayout(slots)
+    for (const layer of this.hallDrawn?.layers ?? []) {
+      layer.destroy()
+    }
+    this.hallDrawn?.map.destroy()
+    this.drawMap('hall')
+    this.frameMap()
+    this.applyTint()
+  }
+
   /** One of the town's maps as tile layers at its offset; the collision layer stays hidden. */
   private drawMap(id: MapId): void {
-    const key = `map-${id}`
-    this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data: mapSource(id) })
+    const source = id === 'hall' ? this.layout.source : mapSource(id)
+    const key = `map-${id}-${id === 'hall' ? this.layout.height : 0}`
+    this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data: source })
     const map = this.make.tilemap({ key })
     const tileset = map.addTilesetImage('roguelike', TILES, 16, 16, 0, 1)
     if (!tileset) {
       return
     }
     const { x, y } = OFFSETS[id]
+    const layers: Phaser.GameObjects.GameObject[] = []
     for (const name of ['floor', 'walls', 'furniture']) {
-      map.createLayer(name, tileset, x, y)
+      const layer = map.createLayer(name, tileset, x, y)
+      if (layer) {
+        layers.push(layer)
+      }
+    }
+    if (id === 'hall') {
+      this.hallDrawn = { layers, map }
     }
     for (const label of MAP_LABELS[id]) {
       this.label(x + label.x * 16, y + label.y * 16, label.text, 16)
@@ -823,6 +863,7 @@ export class HallScene extends Phaser.Scene {
     if (!this.ready) {
       return
     }
+    this.fitHallTo(Math.max(BASE_SLOTS, state.rooms.length))
     this.walkable = withClosedDoors(this.layout, state.rooms)
     this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
@@ -853,7 +894,7 @@ export class HallScene extends Phaser.Scene {
       cam.stopFollow()
     }
     cam.setSize(this.scale.width, this.scale.height)
-    const map = mapData(this.viewMap)
+    const map = this.mapOf(this.viewMap)
     this.zoomLevel = integerZoom(
       this.scale.width,
       this.scale.height,
@@ -894,7 +935,7 @@ export class HallScene extends Phaser.Scene {
 
   private centre(): void {
     if (this.followed === null) {
-      const map = mapData(this.viewMap)
+      const map = this.mapOf(this.viewMap)
       const { x, y } = OFFSETS[this.viewMap]
       this.cameras.main.centerOn(
         x + px(map.width, map.tileSize) / 2,
@@ -932,25 +973,21 @@ export class HallScene extends Phaser.Scene {
       return object
     }
     const s = this.layout.tileSize
+    const tags = roomTags(state.rooms, this.layout.rooms.length)
     this.layout.rooms.forEach((room, index) => {
       const hall = state.rooms[index]
       const door = this.layout.doorways[index]
-      const veil = hall ? (hall.locked ? 0.6 : hall.paused ? 0.35 : 0) : 0.75
-      if (veil > 0) {
+      const tag = tags[index]
+      if (tag && tag.veil > 0) {
         add(
           this.add
-            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0x101018, veil)
+            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0x101018, tag.veil)
             .setOrigin(0, 0)
             .setDepth(10)
         )
       }
-      if (hall) {
-        const tag = hall.locked
-          ? `${hall.name} (locked)`
-          : hall.paused
-            ? `${hall.name} (paused)`
-            : hall.name
-        add(this.label(room.x * s + 4, room.y * s + 2, tag.slice(0, 22), 16))
+      if (tag) {
+        add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))
       }
       if (hall && !hall.locked) {
         // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
@@ -981,7 +1018,7 @@ export class HallScene extends Phaser.Scene {
           add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
         }
       }
-      if (door && (!hall || hall.locked)) {
+      if (door && tag?.closed) {
         for (let dx = 0; dx < door.w; dx++) {
           add(
             this.add
