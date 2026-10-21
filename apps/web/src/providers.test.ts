@@ -1,6 +1,11 @@
 import { expect, test } from 'bun:test'
 import { parseConfig } from './builder/model'
-import { describePrivateDestination, providersOf, withPrivateEligible } from './providers'
+import {
+  describePrivateDestination,
+  providersOf,
+  setProviderPrivate,
+  withPrivateEligible,
+} from './providers'
 
 const self = { hosted: false }
 const hosted = { hosted: true }
@@ -63,4 +68,56 @@ test('providersOf reads the providers and withPrivateEligible flips only the nam
 
 test('a config with no providers key has none', () => {
   expect(providersOf(parseConfig({ steward: { id: 's', name: 'S' }, halls: [] }))).toEqual([])
+})
+
+const guild = '11111111-1111-4111-8111-111111111111'
+const cfg = `/api/guilds/${guild}/config`
+const sess = { token: 't1', guildId: guild }
+
+function fakes(putReply: { status: number; body: unknown }) {
+  const seen: string[] = []
+  const fetcher = async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    seen.push(`${method} ${url}`)
+    const replies: Record<string, { status: number; body: unknown }> = {
+      [`GET ${cfg}`]: { status: 200, body: { version: 2, config: doc } },
+      [`PUT ${cfg}`]: putReply,
+      'POST /api/session/reauth/begin': {
+        status: 200,
+        body: { challengeId: 'c', options: { challenge: 'abc' } },
+      },
+      'POST /api/session/reauth/finish': { status: 200, body: { proof: 'p1' } },
+      [`POST ${cfg}/versions/3/confirm`]: { status: 200, body: { status: 'applied' } },
+    }
+    const reply = replies[`${method} ${url}`] ?? { status: 404, body: {} }
+    return Response.json(reply.body, { status: reply.status })
+  }
+  const browser = { create: async () => ({}), get: async () => ({ signed: 'abc' }) }
+  return { seen, fetcher, browser }
+}
+
+test('turning private eligibility on saves, then confirms with the passkey', async () => {
+  const { seen, fetcher, browser } = fakes({
+    status: 202,
+    body: { version: 3, status: 'pending', change: 'widening' },
+  })
+  const result = await setProviderPrivate(sess, 'anthropic', true, fetcher, browser)
+  expect(result).toBe('confirmed')
+  expect(seen).toEqual([
+    `GET ${cfg}`,
+    `PUT ${cfg}`,
+    'POST /api/session/reauth/begin',
+    'POST /api/session/reauth/finish',
+    `POST ${cfg}/versions/3/confirm`,
+  ])
+})
+
+test('turning private eligibility off applies at once, with no passkey', async () => {
+  const { seen, fetcher, browser } = fakes({
+    status: 200,
+    body: { version: 3, status: 'applied', change: 'tightening' },
+  })
+  const result = await setProviderPrivate(sess, 'home', false, fetcher, browser)
+  expect(result).toBe('applied')
+  expect(seen).toEqual([`GET ${cfg}`, `PUT ${cfg}`])
 })
