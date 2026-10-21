@@ -721,3 +721,44 @@ describe('councilComplete', () => {
     })
   })
 })
+
+describe('classifierComplete', () => {
+  const call = { decisionKey: 'decision-1', hallId: 'heralds', prompt: 'Classify: secret plan' }
+  const eligible = (flag: boolean): GuildConfig =>
+    guildConfig.parse({
+      ...defaultConfig(),
+      providers: [
+        { id: 'cloud', auth: 'api_key', privateEligible: flag },
+        { id: 'sub', auth: 'subscription' },
+      ],
+      routingProfiles: [
+        { id: 'cloud-cheap', provider: 'cloud', tier: 'cheap', model: 'cheap-model', price: PRICE },
+      ],
+    })
+
+  test('serves from the cheap profile of a private-eligible provider and meters it', async () => {
+    const s = await setup(eligible(true))
+    s.provider.script({ ok: true, text: '{}', usage: { inputTokens: 10, outputTokens: 5 } })
+    const text = await s.gateway.classifierComplete(GUILD, call)
+    expect(text).toBe('{}')
+    expect(s.provider.seen[0]?.request.model).toBe('cheap-model')
+    expect((await s.ledger.getRun(GUILD, 'classify:decision-1'))?.hallId).toBe('heralds')
+  })
+
+  test('a provider that is not private-eligible never receives the text', async () => {
+    const s = await setup(eligible(false))
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'provider_not_private',
+    })
+    expect(s.provider.seen).toHaveLength(0)
+  })
+
+  test('Bar the Gates refuses the call before the provider', async () => {
+    const s = await setup(eligible(true))
+    await s.gates.bar({ guildId: GUILD, memberId: 'gm' }, 'guild')
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'gates_barred',
+    })
+    expect(s.provider.seen).toHaveLength(0)
+  })
+})

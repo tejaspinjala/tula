@@ -41,6 +41,8 @@ export type GatewayErrorCode =
   | 'subscription_limit'
   /** Subscription providers are refused unless the host enables them (`SUBSCRIPTION_PROVIDER`). */
   | 'subscription_disabled'
+  /** The classifier's provider is not private-eligible, so it receives no text. */
+  | 'provider_not_private'
 
 /** Thrown by the gateway; the code is the whole message, so no secret can ride in it. */
 export class GatewayError extends Error {
@@ -565,6 +567,14 @@ export class ModelGateway {
       COUNCIL_CALL_TIMEOUT_MS
     )
     return { text: response.text, usage: response.usage, costMicros }
+  }
+
+  /** Stub. */
+  async classifierComplete(
+    _guildId: string,
+    _call: { decisionKey: string; hallId: string; prompt: string; signal?: AbortSignal }
+  ): Promise<string> {
+    throw new GatewayError('unknown_profile')
   }
 
   /**
