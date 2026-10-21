@@ -110,6 +110,9 @@ describe('GET /guilds/:id/guild-master/away-digest', () => {
   })
 
   test('a lapsed return time ends the window at until, not at the later return', async () => {
+    // The harness clock is a memory clock; step it past the real instants the events carry,
+    // before the session is opened so the session is not born expired.
+    harness.adapters.clock.advance(400 * 86_400_000)
     const { guild, token } = await found()
     await away(guild, new Date(Date.now() + 400).toISOString())
     await done(guild, 'inside')
