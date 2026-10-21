@@ -94,6 +94,7 @@ export function Shell({
             />
             <AwayScroll
               session={session}
+              onShow={close}
               onOpenCouncil={(id) => openPath(`/council?session=${encodeURIComponent(id)}`)}
             />
             <Bag

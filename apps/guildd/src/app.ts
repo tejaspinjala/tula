@@ -475,6 +475,28 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
   return bytes
 }
 
+/**
+ * The titles of the guild's Quests by id, read one at a time through the guild-scoped queue (so a
+ * Quest of another guild reads as missing). Ids that are not uuids and unknown Quests are left out.
+ */
+async function questTitles(
+  quests: Pick<QuestQueue, 'get'>,
+  guildId: string,
+  questIds: Iterable<string | null>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(questIds)].filter(
+    (id): id is string => id !== null && uuid.safeParse(id).success
+  )
+  const found = await Promise.all(ids.map((id) => quests.get(guildId, id)))
+  const titles = new Map<string, string>()
+  for (const quest of found) {
+    if (quest) {
+      titles.set(quest.id, quest.title)
+    }
+  }
+  return titles
+}
+
 /** Builds the guildd HTTP app over the given adapters. */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
@@ -1173,6 +1195,15 @@ export function createApp(deps: AppDeps): Hono {
       limit: page.data.limit,
       ...(page.data.after === undefined ? {} : { after: page.data.after }),
     })
+    const titles = await questTitles(
+      deps.quests,
+      who.guild,
+      listed.sessions.map((s) => s.questId)
+    )
+    const halted = await deps.councilStore.haltedSessions(
+      who.guild,
+      listed.sessions.map((s) => s.id)
+    )
     const sessions = await Promise.all(
       listed.sessions.map(async (session) => {
         const votes = await deps.councilStore.votes(who.guild, session.id)
@@ -1183,6 +1214,8 @@ export function createApp(deps: AppDeps): Hono {
         const costs = votes.flatMap((v) => (v.costMicros === null ? [] : [v.costMicros]))
         return {
           ...session,
+          questTitle: titles.get(session.questId) ?? null,
+          halted: halted.has(session.id),
           sealId: seal?.id ?? null,
           costMicros: costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0),
           votes: votes.map(({ sessionId: _s, ...vote }) => vote),
@@ -1756,14 +1789,24 @@ export function createApp(deps: AppDeps): Hono {
     if (!page.success) {
       return c.json({ error: 'invalid_page' }, 400)
     }
-    return c.json(
-      await deps.db.withGuild(who.guild, (tx) =>
-        awayDigest(tx, page.data, deps.clock.now(), async (sealId) => {
-          const seal = await deps.sealStore.get(who.guild, sealId)
-          return seal?.status === 'requested'
-        })
-      )
+    const digest = await deps.db.withGuild(who.guild, (tx) =>
+      awayDigest(tx, page.data, deps.clock.now(), async (sealId) => {
+        const seal = await deps.sealStore.get(who.guild, sealId)
+        return seal?.status === 'requested'
+      })
     )
+    const titles = await questTitles(
+      deps.quests,
+      who.guild,
+      digest.entries.map((e) => e.questId)
+    )
+    return c.json({
+      ...digest,
+      entries: digest.entries.map((e) => ({
+        ...e,
+        questTitle: e.questId === null ? null : (titles.get(e.questId) ?? null),
+      })),
+    })
   })
 
   app.post('/guilds/:id/guild-master/away', async (c) => {

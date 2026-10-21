@@ -153,6 +153,8 @@ export type ConveneResult =
   | { status: 'cap_reached' }
   /** Another worker holds the session and is running its voices: not yet. */
   | { status: 'in_progress' }
+  /** Bar the Gates stopped the voices: `council.halted` is recorded once, the session stays open to resume. */
+  | { status: 'halted' }
   /** Five approvals and no settled outcome for this Quest yet: the caller re-checks, then {@link CouncilEngine.approve}s. */
   | { status: 'unanimous'; session: CouncilSession; votes: CouncilVote[] }
   | { status: 'escalated'; session: CouncilSession; votes: CouncilVote[]; reason: string }
@@ -193,8 +195,8 @@ export class CouncilEngine {
   /**
    * Convenes the Council on a Proposal, or resumes the session held for its hash. Returns
    * `cap_reached` (no session, no voice) when the guild's daily sessions cap is reached. Returns
-   * `in_progress` when another worker holds the session. A transient or config state (Bar the
-   * Gates, a paused Hall, a missing key) throws, leaving the session open to resume; only invalid
+   * `in_progress` when another worker holds the session. Bar the Gates records `council.halted`
+   * once and returns `halted`. A transient or config state (a paused Hall, a missing key) throws, leaving the session open to resume; only invalid
    * output, a provider failure or timeout, or a reached cap is an abstention.
    */
   async convene(
@@ -250,6 +252,10 @@ export class CouncilEngine {
         const failures = barred ? 0 : await store.recordFailure(guildId, session.id)
         if (failures < COUNCIL_MAX_FAILED_ATTEMPTS) {
           await store.release(guildId, session.id, owner)
+          if (barred) {
+            await store.halt(guildId, session.id, input.quest.id)
+            return { status: 'halted' }
+          }
           throw error
         }
         unavailable = true

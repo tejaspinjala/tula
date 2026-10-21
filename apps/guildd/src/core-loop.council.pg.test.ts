@@ -4,6 +4,7 @@ import { requestQuestSeal } from './core-loop'
 import { CouncilEngine } from './council'
 import { eventsAfter } from './events'
 import { defaultConfig, guildConfig } from './guild-config'
+import { GatewayError } from './model-gateway'
 import { createHarness } from './testing/harness'
 import { ScriptedCouncilModel, voteReply } from './testing/scripted-council-model'
 
@@ -130,4 +131,35 @@ test('the Guild Master returning during the vote on Postgres: no council.approve
   expect((await w.a.sealStore.forQuest(w.guild, w.held.id))?.status).toBe('requested')
   expect((await w.types()).map((e) => e.type)).not.toContain('council.approved')
   expect(await w.a.councilStore.approvalsToday(w.guild, '2026-01-01', 'x')).toBe(0)
+})
+
+test('Bar the Gates during the vote on Postgres: exactly one council.halted, the Quest stays Awaiting Seal, and lifting the Bar resumes to approval', async () => {
+  const w = await world()
+  let calls = 0
+  const council = new CouncilEngine({
+    store: w.a.councilStore,
+    model: new ScriptedCouncilModel(async () => {
+      calls += 1
+      if (calls === 2) {
+        await w.gateStore.bar({ guildId: w.guild, memberId: crypto.randomUUID() }, 'guild')
+      }
+      if (await w.gateStore.isBarred(w.guild)) {
+        throw new GatewayError('gates_barred')
+      }
+      return voteReply('approve', 'fine')
+    }),
+    clock: w.a.clock,
+    gates: w.gateStore,
+    config: w.a.config,
+    presence: w.a.presence,
+  })
+  const deps = { ...w.deps, council }
+  for (let pass = 0; pass < 3; pass += 1) {
+    expect((await requestQuestSeal(deps, w.guild, w.held)).outcome).toBe('council_pending')
+  }
+  expect((await w.a.quests.get(w.guild, w.held.id))?.state).toBe('awaiting_seal')
+  const names = (await w.types()).map((e) => e.type)
+  expect(names.filter((n) => n === 'council.halted')).toHaveLength(1)
+  await w.gateStore.lift({ guildId: w.guild, memberId: crypto.randomUUID() }, 'guild')
+  expect((await requestQuestSeal(deps, w.guild, w.held)).outcome).toBe('council_approved')
 })

@@ -280,6 +280,26 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
+  async haltedSessions(
+    guildId: string,
+    sessionIds: readonly string[]
+  ): Promise<ReadonlySet<string>> {
+    if (sessionIds.length === 0) {
+      return new Set()
+    }
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select s.session_id from council_sessions s
+        where s.session_id in ${tx(sessionIds)} and s.status = 'open'
+          and exists (select 1 from council_halts h
+            where h.guild_id = s.guild_id and h.session_id = s.session_id
+              and not exists (select 1 from council_votes v
+                where v.guild_id = s.guild_id and v.session_id = s.session_id
+                  and v.created_at > h.created_at))`
+      return new Set(rows.map((r) => String(r.session_id)))
+    })
+  }
+
   async approvalFor(
     guildId: string,
     questId: string,

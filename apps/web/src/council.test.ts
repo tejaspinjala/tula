@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test'
 import {
+  councilChamberState,
   councilCostText,
   councilOpenNow,
+  councilSessionLabel,
   councilStatusLabel,
   councilVoteLabel,
   loadCouncilSessions,
@@ -20,6 +22,8 @@ const row = (over: Record<string, unknown> = {}) => ({
   reason: 'block',
   createdAt: '2026-10-20T10:00:00.000Z',
   sealId: 'seal1',
+  questTitle: 'Announce market day',
+  halted: false,
   costMicros: 42,
   votes: [{ voice: 'skeptic', vote: 'block', reasons: ['risky'], abstainCode: null }],
   ...over,
@@ -84,6 +88,51 @@ test('display helpers: hash prefix, cost, vote label, and whether a session is o
   expect(councilVoteLabel('block')).toBe('Block')
   expect(councilVoteLabel('abstain')).toBe('Abstain')
   expect(councilVoteLabel('<b>x</b>')).toBe('Unknown')
-  expect(councilOpenNow([{ status: 'escalated' }, { status: 'open' }])).toBe(true)
-  expect(councilOpenNow([{ status: 'approved' }, { status: 'weird' }])).toBe(false)
+  expect(
+    councilOpenNow([
+      { status: 'escalated', halted: false },
+      { status: 'open', halted: false },
+    ])
+  ).toBe(true)
+  expect(
+    councilOpenNow([
+      { status: 'approved', halted: false },
+      { status: 'weird', halted: false },
+    ])
+  ).toBe(false)
+})
+
+test('an open session halted by Bar the Gates reads as halted and does not make the elders confer', () => {
+  expect(councilSessionLabel({ status: 'open', halted: true })).toBe('Halted: the Gates are barred')
+  expect(councilSessionLabel({ status: 'open', halted: false })).toBe('Conferring')
+  expect(councilSessionLabel({ status: 'approved', halted: false })).toBe('Approved')
+  expect(councilOpenNow([{ status: 'open', halted: true }])).toBe(false)
+  expect(
+    councilOpenNow([
+      { status: 'open', halted: true },
+      { status: 'open', halted: false },
+    ])
+  ).toBe(true)
+})
+
+test('the chamber confers while a session is open, shows halted while only halted ones are, else idles', () => {
+  expect(councilChamberState([])).toBe('idle')
+  expect(councilChamberState([{ status: 'approved', halted: false }])).toBe('idle')
+  expect(councilChamberState([{ status: 'open', halted: false }])).toBe('conferring')
+  expect(councilChamberState([{ status: 'open', halted: true }])).toBe('halted')
+  expect(
+    councilChamberState([
+      { status: 'open', halted: true },
+      { status: 'open', halted: false },
+    ])
+  ).toBe('conferring')
+})
+
+test('the Quest title and the halted flag parse from a session', async () => {
+  const page = await loadCouncilSessions(
+    session,
+    () => reply({ sessions: [row({ halted: true, status: 'open' })], next: null }),
+    { limit: 5 }
+  )
+  expect(page.sessions[0]).toMatchObject({ questTitle: 'Announce market day', halted: true })
 })

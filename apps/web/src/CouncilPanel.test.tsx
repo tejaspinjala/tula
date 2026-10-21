@@ -21,6 +21,8 @@ const sess = (id: string, over: Record<string, unknown> = {}) => ({
   reason: 'block',
   createdAt: '2026-10-20T10:00:00.000Z',
   sealId,
+  questTitle: 'Announce market day',
+  halted: false,
   costMicros: 1500,
   votes: VOICES.map((voice) => ({
     voice,
@@ -120,4 +122,61 @@ test('a ?session= link from the scroll opens that session straight to its votes'
   expect(detail?.querySelectorAll('li')).toHaveLength(5)
   window.history.pushState({}, '', '/')
   await m.unmount()
+})
+
+test('a burst of council events refetches the ledger once, not once per event', async () => {
+  const { LiveEvents } = await import('./live-events')
+  const event = (seq: number) => ({ seq, type: 'council.voted', payload: {}, occurredAt: 'x' })
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const show = (n: number) =>
+    root.render(
+      <LiveEvents.Provider value={Array.from({ length: n }, (_, i) => event(i + 1))}>
+        <CouncilPanel session={session} />
+      </LiveEvents.Provider>
+    )
+  await act(async () => {
+    show(0)
+    await wait()
+  })
+  const before = urls.length
+  for (let n = 1; n <= 7; n += 1) {
+    await act(async () => {
+      show(n)
+      await wait(5)
+    })
+  }
+  await act(async () => wait(600))
+  expect(urls.length - before).toBe(1)
+  await act(async () => root.unmount())
+})
+
+test('rows and detail name the Quest by its title with the id only as a short form, and show a halted session as halted', async () => {
+  const before = globalThis.fetch
+  const questId = '33333333-3333-4333-8333-333333333333'
+  globalThis.fetch = Object.assign(
+    async () =>
+      Response.json({
+        sessions: [sess('s9', { status: 'open', halted: true, sealId: null, questId })],
+        next: null,
+      }),
+    { preconnect: realFetch.preconnect }
+  )
+  try {
+    const m = await mount(<CouncilPanel session={session} />)
+    const row = m.host.querySelector('[data-testid="council-row"]')?.textContent ?? ''
+    expect(row).toContain('Announce market day')
+    expect(row).toContain('33333333')
+    expect(row).not.toContain(questId)
+    expect(row).toContain('Halted: the Gates are barred')
+    expect(row).not.toContain('Conferring')
+    await press(m.host, 'Open')
+    const detail = m.host.querySelector('[data-testid="council-detail"]')?.textContent ?? ''
+    expect(detail).toContain('Announce market day')
+    expect(detail).not.toContain(questId)
+    await m.unmount()
+  } finally {
+    globalThis.fetch = before
+  }
 })

@@ -622,9 +622,9 @@ describe('requestQuestSeal', () => {
         presence: c.presence,
       })
       for (let i = 0; i < 5; i += 1) {
-        await expect(
-          requestQuestSeal({ ...c.deps, council: barred }, c.guild, c.quest)
-        ).rejects.toThrow()
+        expect(
+          (await requestQuestSeal({ ...c.deps, council: barred }, c.guild, c.quest)).outcome
+        ).toBe('council_pending')
       }
       expect(await c.seals.forQuest(c.guild, c.quest.id)).toBeNull()
     })

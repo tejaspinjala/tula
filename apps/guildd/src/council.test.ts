@@ -243,9 +243,9 @@ describe('CouncilEngine.convene', () => {
       gates: new MemoryGateStore(),
       ...councilGuards(),
     })
-    await expect(
-      first.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
-    ).rejects.toThrow()
+    expect(
+      (await first.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })).status
+    ).toBe('halted')
     expect(seenSessionBeforeVoice).toBe(true)
     const resumed = new ScriptedCouncilModel(() => voteReply('approve'))
     const second = new CouncilEngine({
@@ -267,9 +267,9 @@ describe('CouncilEngine.convene', () => {
     const { engine, store } = setup(() => {
       throw new GatewayError('gates_barred')
     })
-    await expect(
-      engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
-    ).rejects.toThrow()
+    expect(await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })).toEqual(
+      { status: 'halted' }
+    )
     const opened = await store.open(GUILD, {
       questId: 'q1',
       proposalHash: proposal.hash,
@@ -382,9 +382,9 @@ describe('CouncilEngine.convene', () => {
       throw new GatewayError('gates_barred')
     })
     for (let i = 0; i < 6; i += 1) {
-      await expect(
-        engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
-      ).rejects.toThrow()
+      expect(
+        (await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })).status
+      ).toBe('halted')
     }
     const opened = await store.open(GUILD, {
       questId: 'q1',

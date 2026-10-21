@@ -300,6 +300,23 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
         expect(await store.approvalFor(g, 'q1', OTHER_HASH)).toBeNull()
       })
 
+      test('haltedSessions lists open sessions halted with no newer vote, per guild', async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.haltedSessions(g, [id])).toEqual(new Set())
+        await store.recordVote(g, id, vote('architect'))
+        await store.halt(g, id, 'q1')
+        expect(await store.haltedSessions(g, [id])).toEqual(new Set([id]))
+        expect(await store.haltedSessions(g, [])).toEqual(new Set())
+        const other = await make()
+        expect(await other.store.haltedSessions(await other.newGuild(), [id])).toEqual(new Set())
+        await store.recordVote(g, id, vote('skeptic'))
+        expect(await store.haltedSessions(g, [id])).toEqual(new Set())
+        await store.halt(g, id, 'q2')
+        expect(await store.haltedSessions(g, [id])).toEqual(new Set([id]))
+        await store.escalate(g, id, 'block')
+        expect(await store.haltedSessions(g, [id])).toEqual(new Set())
+      })
+
       test('approvalsFor returns only the pairs holding an approval, in one read', async () => {
         const { store, g, id } = await twoQuests()
         await store.approve(g, id, { questId: 'q1', day: DAY, cap: 5 })
