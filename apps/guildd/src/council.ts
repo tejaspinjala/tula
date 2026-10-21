@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CouncilCall, CouncilReply } from './model-gateway'
 import { GatewayError } from './model-gateway'
 import type { Clock } from './ports/clock'
+import type { ConfigStore } from './ports/config-store'
 import {
   type AbstainCode,
   COUNCIL_VOICES,
@@ -11,6 +12,8 @@ import {
   type CouncilVote,
   type NewCouncilVote,
 } from './ports/council-store'
+import type { GateStore } from './ports/gate-store'
+import { isAway, type PresenceStore } from './ports/presence-store'
 
 /** The model call the Council makes; the model gateway implements it, a test scripts it. */
 export interface CouncilModel {
@@ -43,21 +46,19 @@ export function parseVoteOutput(text: string): VoteOutput | null {
 }
 
 /** Why a session was not approved. */
-export type EscalateReason = 'block' | 'abstention' | 'approval_not_enabled'
+export type EscalateReason = 'block' | 'abstention' | 'approval_cap'
 
-/** The tally's decision: always to escalate in this release (approval lands in #150). */
-export interface TallyResult {
-  decision: 'escalate'
-  reason: EscalateReason
-}
+/** The tally's decision: approve on five approvals while approvals remain, else escalate with a reason. */
+export type TallyResult = { decision: 'approve' } | { decision: 'escalate'; reason: EscalateReason }
 
 /**
  * Tallies the votes of a session. Pure and deterministic: only votes are judgment, the tally is
- * code. In this release every outcome escalates to the Guild Master's Seal, with the reason: any
- * block first, then any abstention or missing voice, otherwise the unanimous approval that
- * the Council is not yet allowed to act on. An error never approves.
+ * code. Approves only when all five voices approved and `approvalsRemainingToday` is at least 1
+ * (a cap of 0 never approves). Otherwise it escalates to the Guild Master's Seal with the reason:
+ * any block first, then any abstention or missing voice, then the exhausted daily approvals. An
+ * error never approves.
  */
-export function tally(votes: readonly CouncilVote[]): TallyResult {
+export function tally(votes: readonly CouncilVote[], approvalsRemainingToday: number): TallyResult {
   if (votes.some((v) => v.vote === 'block')) {
     return { decision: 'escalate', reason: 'block' }
   }
@@ -67,7 +68,10 @@ export function tally(votes: readonly CouncilVote[]): TallyResult {
   if (approvals.length < COUNCIL_VOICES.length) {
     return { decision: 'escalate', reason: 'abstention' }
   }
-  return { decision: 'escalate', reason: 'approval_not_enabled' }
+  if (approvalsRemainingToday < 1) {
+    return { decision: 'escalate', reason: 'approval_cap' }
+  }
+  return { decision: 'approve' }
 }
 
 const COMMON_RULES =
@@ -127,7 +131,11 @@ export function councilEvidence(votes: readonly CouncilVote[], reason: string): 
           : ''
     return `${v.voice} ${v.vote}${why}`
   })
-  return [`Council of Elders did not approve (${reason})`, ...items].join('; ')
+  const lead =
+    reason === 'approved'
+      ? 'Council of Elders approved (all five voices)'
+      : `Council of Elders did not approve (${reason})`
+  return [lead, ...items].join('; ')
 }
 
 /**
@@ -145,6 +153,8 @@ export type ConveneResult =
   | { status: 'cap_reached' }
   /** Another worker holds the session and is running its voices: not yet. */
   | { status: 'in_progress' }
+  /** Five approvals and no settled outcome for this Quest yet: the caller re-checks, then {@link CouncilEngine.approve}s. */
+  | { status: 'unanimous'; session: CouncilSession; votes: CouncilVote[] }
   | { status: 'escalated'; session: CouncilSession; votes: CouncilVote[]; reason: string }
 
 /** Collaborators of {@link CouncilEngine}. */
@@ -152,12 +162,30 @@ export interface CouncilDeps {
   store: CouncilStore
   model: CouncilModel
   clock: Pick<Clock, 'now'>
+  /** Bar the Gates, read immediately before an approval. */
+  gates: Pick<GateStore, 'isBarred'>
+  /** Read again immediately before an approval: the Seal Policy must still be `routine_alone`. */
+  config: Pick<ConfigStore, 'current'>
+  /** Read again immediately before an approval: the Guild Master must still be away. */
+  presence: Pick<PresenceStore, 'get'>
 }
+
+/** What {@link CouncilEngine.approve} did. */
+export type ApproveOutcome =
+  | 'approved'
+  /** Bar the Gates holds (or could not be read): nothing approved, `council.halted` recorded once. */
+  | 'halted'
+  /** The Seal Policy is no longer `routine_alone` or the Guild Master is no longer away. */
+  | 'not_allowed'
+  | 'cap_reached'
+  /** The session is closed (escalated) or unknown: nothing to approve on. */
+  | 'not_found'
 
 /**
  * The Council of Elders. `convene` opens the session before any voice runs, runs each voice that
  * has not voted yet (so a restart resumes), records every vote, tallies in code and settles the
- * session. In this release the outcome is always escalation to the Guild Master's Seal.
+ * session. The outcome is unanimous (the caller re-checks, then approves per Quest) or escalation
+ * to the Guild Master's Seal.
  */
 export class CouncilEngine {
   constructor(private readonly deps: CouncilDeps) {}
@@ -175,6 +203,8 @@ export class CouncilEngine {
       quest: { id: string; hallId: string }
       proposal: { hash: string; content: string }
       sessionCap: number
+      /** The guild's Council approvals per day; the tally approves only while some remain. */
+      approvalCap: number
     }
   ): Promise<ConveneResult> {
     const { store, clock } = this.deps
@@ -210,6 +240,8 @@ export class CouncilEngine {
             )
           }
         }
+        // The voices are done: give the claim up so a halted approval can resume the session.
+        await store.release(guildId, session.id, owner)
       } catch (error) {
         const barred =
           error instanceof GatewayError &&
@@ -224,17 +256,84 @@ export class CouncilEngine {
       }
     }
     const votes = await store.votes(guildId, session.id)
-    const { reason } = tally(votes)
+    const outcome = tally(
+      votes,
+      await this.approvalsRemaining(guildId, input.quest.id, input.approvalCap)
+    )
+    if (!unavailable && session.status !== 'escalated' && outcome.decision === 'approve') {
+      return { status: 'unanimous', session, votes }
+    }
+    const reason = outcome.decision === 'escalate' ? outcome.reason : 'approval_cap'
     const settled = session.reason ?? (unavailable ? 'council_unavailable' : reason)
     if (session.status === 'open') {
       await store.escalate(guildId, session.id, settled)
     }
     return {
       status: 'escalated',
-      session: { ...session, status: 'escalated', reason: settled },
+      session:
+        session.status === 'approved'
+          ? session
+          : { ...session, status: 'escalated', reason: settled },
       votes,
       reason: settled,
     }
+  }
+
+  /** Council approvals the guild may still give today, this Quest's own earlier approval aside. */
+  async approvalsRemaining(guildId: string, questId: string, cap: number): Promise<number> {
+    const day = this.deps.clock.now().toISOString().slice(0, 10)
+    return cap - (await this.deps.store.approvalsToday(guildId, day, questId))
+  }
+
+  /** The session that approved `questId` on the Proposal `proposalHash`, or null. */
+  async approvedSession(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    return this.deps.store.approvalFor(guildId, questId, proposalHash)
+  }
+
+  /**
+   * Gives the Quest its Council approval, after re-checking Bar the Gates right now, then the
+   * Seal Policy (still `routine_alone`) and presence (Guild Master still away), both read fresh:
+   * a Guild Master who returned during the vote, or a policy changed to `always`, is
+   * `not_allowed` and the Proposal takes the normal Seal. A barred
+   * guild (or a bar check that cannot be read) never approves: the session is left unsettled to
+   * resume, `council.halted` is appended and the result is `halted`. Otherwise the approval is
+   * consumed atomically against `cap` for this Quest alone; when the cap is spent the result is
+   * `cap_reached` and an open session is escalated as `approval_cap`. A session another Quest
+   * already approved stays approved.
+   */
+  async approve(
+    guildId: string,
+    input: { session: CouncilSession; questId: string; cap: number }
+  ): Promise<ApproveOutcome> {
+    const { store, gates, clock, config, presence } = this.deps
+    const { session, questId } = input
+    let barred: boolean
+    try {
+      barred = await gates.isBarred(guildId)
+    } catch {
+      barred = true
+    }
+    if (barred) {
+      await store.halt(guildId, session.id, questId)
+      return 'halted'
+    }
+    const { config: current } = await config.current(guildId)
+    if (
+      current.sealPolicy !== 'routine_alone' ||
+      !isAway(await presence.get(guildId), clock.now())
+    ) {
+      return 'not_allowed'
+    }
+    const day = clock.now().toISOString().slice(0, 10)
+    const result = await store.approve(guildId, session.id, { questId, day, cap: input.cap })
+    if (result === 'cap_reached') {
+      await store.escalate(guildId, session.id, 'approval_cap')
+    }
+    return result
   }
 
   private async runVoice(

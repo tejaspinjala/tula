@@ -29,6 +29,7 @@ async function setup() {
     },
   })
   const handoffs = new MemoryHandoffStore()
+  const seals = new MemorySealStore(clock)
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const engine = new WorkflowEngine({
     store: new MemoryWorkflowStore(clock),
@@ -36,10 +37,10 @@ async function setup() {
     quests,
     tripwires,
     proposals,
-    seals: new MemorySealStore(clock),
+    seals,
     handoffs,
   })
-  return { engine, quests, config, guild, proposals, tripwires, handoffs }
+  return { engine, quests, config, guild, proposals, tripwires, handoffs, seals }
 }
 
 /** Two agents in a row (a plain brief, then the sealed announcement), then the gate. */
@@ -241,6 +242,34 @@ test('run state reports each node: agents from their Quest, the gate from the Ve
   ])
   expect(await engine.state(guild, crypto.randomUUID())).toBeNull()
   expect((await quests.list(guild, { limit: 10 })).quests).toHaveLength(2)
+})
+
+test('a Council-approved Seal finishes the publish node as done, and the gate reads approved', async () => {
+  const { engine, guild, seals } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const run = await engine.run(guild, 'chain', {})
+  if (!run.ok) {
+    throw new Error('run should start')
+  }
+  const draft = run.quests.find((q) => q.nodeId === 'draft')
+  if (!draft) {
+    throw new Error('no draft Quest')
+  }
+  const seal = await seals.request(guild, {
+    questId: draft.questId,
+    requestedBy: 'heralds-member-1',
+    kind: 'post',
+    text: 'Hello',
+    evidence: 'verdict: pass',
+  })
+  await seals.councilApprove(guild, seal.id, {
+    sessionId: crypto.randomUUID(),
+    expectedHash: seal.actionHash,
+  })
+  const state = await engine.state(guild, run.instance.id)
+  expect(state?.nodes.find((n) => n.id === 'seal')?.status).toBe('approved')
+  expect(state?.nodes.find((n) => n.id === 'publish')?.status).toBe('done')
 })
 
 test('the seeded template is saved once, active, and runs', async () => {

@@ -22,6 +22,7 @@ export type ReplaySealStatus =
   | 'consumed'
   | 'released'
   | 'expired'
+  | 'council_approved'
 
 /** The state of the ledger view implied by the log up to a point. */
 export interface ReplayState {
@@ -50,6 +51,7 @@ const SEAL_EVENT: Record<string, ReplaySealStatus> = {
   'seal.consumed': 'consumed',
   'seal.released': 'released',
   'seal.expired': 'expired',
+  'seal.council_approved': 'council_approved',
 }
 
 const questPayload = z.object({ questId: z.string() })
@@ -72,6 +74,7 @@ function emptyState(): ReplayState {
       consumed: [],
       released: [],
       expired: [],
+      council_approved: [],
     },
     pausedHalls: [],
     balances: { operating: 0, reserve: 0, profit: 0 },

@@ -74,3 +74,21 @@ test('unknown events and malformed payloads leave the state unchanged', () => {
   expect(state.quests.queued).toEqual([])
   expect(state.appliedSeq).toBe(2)
 })
+
+test('a Council-approved Seal is its own status in the ledger and never counts as approved or posted', () => {
+  const state = replayTo(
+    [
+      ev(1, '10:00:00', 'seal.requested', { sealId: 's9', questId: 'q9', actionHash: 'h' }),
+      ev(2, '10:01:00', 'seal.council_approved', {
+        sealId: 's9',
+        questId: 'q9',
+        actionHash: 'h',
+        sessionId: 'c1',
+      }),
+    ],
+    null
+  )
+  expect(state.seals.council_approved).toEqual(['s9'])
+  expect(state.seals.approved).toEqual([])
+  expect(state.seals.consumed).toEqual([])
+})

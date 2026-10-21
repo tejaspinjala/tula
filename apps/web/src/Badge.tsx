@@ -15,6 +15,7 @@ export function sealTone(status: string): Tone {
     case 'requested':
       return 'warn'
     case 'approved':
+    case 'approved by the Council':
     case 'posted':
       return 'ok'
     case 'denied':

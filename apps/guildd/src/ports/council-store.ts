@@ -20,8 +20,11 @@ export interface CouncilSession {
   proposalHash: string
   /** UTC day `YYYY-MM-DD` the session was convened; counts against the daily sessions cap. */
   day: string
-  /** `open` until its outcome is settled; `escalated` once it went to the Guild Master's Seal. */
-  status: 'open' | 'escalated'
+  /**
+   * `open` until its outcome is settled; `escalated` once it went to the Guild Master's Seal;
+   * `approved` once a Quest consumed an approval on it (see {@link CouncilStore.approve}).
+   */
+  status: 'open' | 'escalated' | 'approved'
   /** Code of why it escalated; null while open. */
   reason: string | null
   createdAt: string
@@ -50,6 +53,9 @@ export type OpenSessionResult =
   | { status: 'created'; session: CouncilSession }
   | { status: 'existing'; session: CouncilSession }
   | { status: 'cap_reached' }
+
+/** The outcome of {@link CouncilStore.approve}. */
+export type ApproveResult = 'approved' | 'cap_reached' | 'not_found'
 
 /**
  * Port for the Council of Elders' sessions and votes. Every method is scoped to one guild. A
@@ -109,4 +115,32 @@ export interface CouncilStore {
   recordFailure(guildId: string, sessionId: string): Promise<number>
   /** Settles the session as escalated; it also clears any claim. with a reason code; true the first time only. Appends `council.escalated`. */
   escalate(guildId: string, sessionId: string, reason: string): Promise<boolean>
+  /**
+   * Council approvals given on `day` to Quests other than `excludingQuestId`: the Quest's own
+   * earlier approval is never counted against it, so a retry after a crash is not refused.
+   */
+  approvalsToday(guildId: string, day: string, excludingQuestId: string): Promise<number>
+  /**
+   * Gives `questId` its own approval on the session, atomically against `cap` approvals per `day`
+   * (counted per Quest, never per session: two Quests with the same Proposal hash share a session
+   * but each consume one approval). Idempotent per (session, Quest): a retry returns `approved`
+   * without consuming another. `cap_reached` changes nothing. The first approval settles an open
+   * session as `approved` and clears its claim. Appends `council.approved` once per Quest.
+   */
+  approve(
+    guildId: string,
+    sessionId: string,
+    input: { questId: string; day: string; cap: number }
+  ): Promise<ApproveResult>
+  /**
+   * Appends `council.halted` (Bar the Gates stopped the session; the Quest stays Awaiting Seal),
+   * once per (session, Quest): true the first time, false for every repeat (nothing appended), so
+   * passes that keep finding the guild barred never grow the audit chain.
+   */
+  halt(guildId: string, sessionId: string, questId: string): Promise<boolean>
+  /**
+   * The id of the session that gave `questId` an approval on the Proposal with `proposalHash`, or
+   * null when it has none. Lets a crashed settlement find and finish its own approval.
+   */
+  approvalFor(guildId: string, questId: string, proposalHash: string): Promise<string | null>
 }

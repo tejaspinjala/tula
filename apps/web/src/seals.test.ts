@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { type PasskeyBrowser, PasskeyRequestError } from './passkeys'
-import { decideSeal, listSeals, markPosted, releaseStale } from './seals'
+import { decideSeal, listSeals, markPosted, releaseStale, sealStatusLabel } from './seals'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -132,4 +132,16 @@ test('releasing a stale reservation re-authenticates first', async () => {
   const done = await releaseStale(session, seal, fetcher, browser)
   expect(done.status).toBe('released')
   expect(seen.at(-1)?.headers.get('x-reauth-proof')).toBe('p1')
+})
+
+test('a Council-approved Seal parses and reads as approved by the Council, never as a stamp', async () => {
+  const { fetcher } = fakes({
+    [`/api/guilds/${guild}/seals?status=requested&limit=20`]: {
+      body: { seals: [{ ...seal, status: 'council_approved' }], next: null },
+    },
+  })
+  const page = await listSeals(session, fetcher)
+  expect(page.seals[0]?.status).toBe('council_approved')
+  expect(sealStatusLabel('council_approved')).toBe('approved by the Council')
+  expect(sealStatusLabel('consumed')).toBe('posted')
 })

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
 import {
+  type ApproveResult,
   COUNCIL_VOICES,
   type CouncilSession,
   type CouncilStore,
@@ -16,7 +17,7 @@ const sessionRow = z.object({
   quest_id: z.string(),
   proposal_hash: z.string(),
   day: z.string(),
-  status: z.enum(['open', 'escalated']),
+  status: z.enum(['open', 'escalated', 'approved']),
   reason: z.string().nullable(),
   created_at: z.coerce.date(),
 })
@@ -212,6 +213,83 @@ export class PgCouncilStore implements CouncilStore {
         reason,
       })
       return true
+    })
+  }
+
+  async approvalsToday(guildId: string, day: string, excludingQuestId: string): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select count(*)::int as n from council_approvals
+        where day = ${day}::date and quest_id <> ${excludingQuestId}`
+      return Number(row?.n ?? 0)
+    })
+  }
+
+  async approve(
+    guildId: string,
+    sessionId: string,
+    input: { questId: string; day: string; cap: number }
+  ): Promise<ApproveResult> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      const [session] = await tx`
+        select status, proposal_hash from council_sessions where session_id = ${sessionId}`
+      if (!session || session.status === 'escalated') {
+        return 'not_found'
+      }
+      const [own] = await tx`
+        select 1 as one from council_approvals
+        where session_id = ${sessionId} and quest_id = ${input.questId}`
+      if (own) {
+        return 'approved'
+      }
+      const [taken] = await tx`
+        select count(*)::int as n from council_approvals where day = ${input.day}::date`
+      if (Number(taken?.n ?? 0) >= input.cap) {
+        return 'cap_reached'
+      }
+      await tx`
+        insert into council_approvals (guild_id, session_id, quest_id, day)
+        values (${guildId}, ${sessionId}, ${input.questId}, ${input.day}::date)`
+      await tx`
+        update council_sessions set status = 'approved', claimed_until = null, claim_owner = null
+        where session_id = ${sessionId} and status = 'open'`
+      await appendEvent(tx, this.keys, 'council.approved', {
+        sessionId,
+        questId: input.questId,
+        proposalHash: String(session.proposal_hash),
+      })
+      return 'approved'
+    })
+  }
+
+  async halt(guildId: string, sessionId: string, questId: string): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const inserted = await tx`
+        insert into council_halts (guild_id, session_id, quest_id)
+        select ${guildId}, session_id, ${questId} from council_sessions
+        where session_id = ${sessionId}
+        on conflict do nothing
+        returning session_id`
+      if (inserted.length === 0) {
+        return false
+      }
+      await appendEvent(tx, this.keys, 'council.halted', { sessionId, questId })
+      return true
+    })
+  }
+
+  async approvalFor(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select a.session_id from council_approvals a
+        join council_sessions s on s.guild_id = a.guild_id and s.session_id = a.session_id
+        where a.quest_id = ${questId} and s.proposal_hash = ${proposalHash}`
+      return row ? String(row.session_id) : null
     })
   }
 

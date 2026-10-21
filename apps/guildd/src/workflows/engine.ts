@@ -456,7 +456,7 @@ export class WorkflowEngine {
           ? 'rejected'
           : 'approved'
     }
-    return seal.status === 'consumed'
+    return seal.status === 'consumed' || seal.status === 'council_approved'
       ? 'done'
       : seal.status === 'reserved'
         ? 'publishing'

@@ -1,4 +1,5 @@
 import {
+  type ApproveResult,
   COUNCIL_VOICES,
   type CouncilSession,
   type CouncilStore,
@@ -16,6 +17,14 @@ export class MemoryCouncilStore implements CouncilStore {
   /** Live claims: session id to the owner and the epoch ms the claim ends. */
   private readonly claims = new Map<string, { owner: string; until: number }>()
   private readonly failures = new Map<string, number>()
+  /** One row per (session, Quest) approval. */
+  private readonly approvals: Array<{
+    guildId: string
+    sessionId: string
+    questId: string
+    day: string
+  }> = []
+  private readonly halts = new Set<string>()
   private readonly voteRows = new Map<string, CouncilVote>()
 
   async open(
@@ -147,7 +156,7 @@ export class MemoryCouncilStore implements CouncilStore {
     }
     for (const s of this.sessions.values()) {
       if (s.id === sessionId) {
-        if (s.status === 'escalated') {
+        if (s.status !== 'open') {
           return false
         }
         s.status = 'escalated'
@@ -157,5 +166,56 @@ export class MemoryCouncilStore implements CouncilStore {
       }
     }
     return false
+  }
+
+  async approvalsToday(guildId: string, day: string, excludingQuestId: string): Promise<number> {
+    return this.approvals.filter(
+      (a) => a.guildId === guildId && a.day === day && a.questId !== excludingQuestId
+    ).length
+  }
+
+  async approve(
+    guildId: string,
+    sessionId: string,
+    input: { questId: string; day: string; cap: number }
+  ): Promise<ApproveResult> {
+    const session = this.find(guildId, sessionId)
+    if (!session || session.status === 'escalated') {
+      return 'not_found'
+    }
+    if (this.approvals.some((a) => a.sessionId === sessionId && a.questId === input.questId)) {
+      return 'approved'
+    }
+    const taken = this.approvals.filter((a) => a.guildId === guildId && a.day === input.day).length
+    if (taken >= input.cap) {
+      return 'cap_reached'
+    }
+    this.approvals.push({ guildId, sessionId, questId: input.questId, day: input.day })
+    session.status = 'approved'
+    this.claims.delete(sessionId)
+    return 'approved'
+  }
+
+  async halt(guildId: string, sessionId: string, questId: string): Promise<boolean> {
+    if (!this.find(guildId, sessionId)) {
+      return false
+    }
+    const key = `${sessionId}:${questId}`
+    if (this.halts.has(key)) {
+      return false
+    }
+    // The memory adapter keeps no event log; the Postgres adapter appends `council.halted`.
+    this.halts.add(key)
+    return true
+  }
+
+  async approvalFor(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    const session = this.sessions.get(`${guildId}:${proposalHash}`)
+    const given = this.approvals.some((a) => a.sessionId === session?.id && a.questId === questId)
+    return session && given ? session.id : null
   }
 }

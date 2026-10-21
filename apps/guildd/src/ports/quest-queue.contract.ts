@@ -252,6 +252,21 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         expect((await events(g)).filter((e) => e === 'quest.done')).toHaveLength(1)
       })
 
+      test('a Council-approved Seal finishes the Quest with the coded reason council_approved', async () => {
+        const { queue, newGuild } = await make()
+        const g = await newGuild()
+        const id = await held(queue, g)
+        const done = await queue.settleSeal(g, id, 'posted', { reason: 'council_approved' })
+        expect(done).toMatchObject({ state: 'done', lastError: 'council_approved' })
+        expect(await queue.get(g, id)).toMatchObject({
+          state: 'done',
+          lastError: 'council_approved',
+        })
+        expect(await queue.settleSeal(g, id, 'posted', { reason: 'council_approved' })).toEqual(
+          done
+        )
+      })
+
       test('a rejected Seal sends the Quest back for a revision round while rounds remain', async () => {
         const { queue, newGuild } = await make()
         const g = await newGuild()

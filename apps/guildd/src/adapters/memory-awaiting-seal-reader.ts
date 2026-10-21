@@ -33,6 +33,7 @@ export class MemoryAwaitingSealReader implements AwaitingSealReader {
           seal !== null &&
           seal.round === quest.round &&
           seal.status !== 'consumed' &&
+          seal.status !== 'council_approved' &&
           seal.status !== 'denied' &&
           seal.status !== 'expired'
         if (live) {
