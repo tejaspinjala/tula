@@ -70,32 +70,80 @@ async function found(name: string) {
 const brief = (jobKey: string) => ({ templateId: 'herald-brief', jobKey, title: 'Brief' })
 
 describe('quest routes', () => {
-  test('a waiting Quest lists the latest block reason from the routing log; one that was never blocked lists none', async () => {
-    const g = await found('W')
-    const waiting = questBody.parse(await (await post(g, brief('w1'))).json())
-    const fresh = questBody.parse(await (await post(g, brief('w2'))).json())
-    await harness.adapters.routingLog.record(g, {
-      decisionKey: `${waiting.id}:1`,
-      source: 'template',
-      goalSha256: null,
-      hallId: 'heralds',
-      rank: 'journeyman',
-      dataClass: 'private',
-      classifierClaim: null,
-      outcome: 'blocked',
-      providerId: null,
-      profileId: null,
-      reason: 'private_provider_unavailable',
+  const blockEntry = (decisionKey: string, outcome: 'blocked' | 'routed') => ({
+    decisionKey,
+    source: 'template' as const,
+    goalSha256: null,
+    hallId: 'heralds',
+    rank: 'journeyman' as const,
+    dataClass: 'private' as const,
+    classifierClaim: null,
+    outcome,
+    providerId: null,
+    profileId: null,
+    reason: outcome === 'blocked' ? ('private_provider_unavailable' as const) : null,
+  })
+  const claim = async (g: string, id: string) => {
+    const claimed = await harness.adapters.quests.claim(g, {
+      leaseMs: 60_000,
+      maxActive: 1000,
+      questId: id,
     })
-    const listed = z
+    if (!claimed) {
+      throw new Error('expected a claim')
+    }
+    return claimed
+  }
+  /** Claims the Quest and releases it back to the queue, as a transient routing block does. */
+  const blockOnce = async (g: string, id: string) => {
+    const claimed = await claim(g, id)
+    await harness.adapters.routingLog.record(g, blockEntry(`${id}:${claimed.attempts}`, 'blocked'))
+    await harness.adapters.quests.releaseClaim(g, id, claimed.attempts, new Date(0))
+  }
+  const blockReasons = async (g: string) =>
+    z
       .object({
         quests: z.array(z.object({ id: z.string(), blockReason: z.string().nullable() })),
       })
-      .parse(await (await get(g, '?limit=10')).json())
-    expect(listed.quests.find((q) => q.id === waiting.id)?.blockReason).toBe(
+      .parse(await (await get(g, '?limit=10')).json()).quests
+
+  test('a waiting Quest lists the block reason of its current attempt; one that was never blocked lists none', async () => {
+    const g = await found('W')
+    const waiting = questBody.parse(await (await post(g, brief('w1'))).json())
+    const fresh = questBody.parse(await (await post(g, brief('w2'))).json())
+    await blockOnce(g, waiting.id)
+    const listed = await blockReasons(g)
+    expect(listed.find((q) => q.id === waiting.id)?.blockReason).toBe(
       'private_provider_unavailable'
     )
-    expect(listed.quests.find((q) => q.id === fresh.id)?.blockReason).toBeNull()
+    expect(listed.find((q) => q.id === fresh.id)?.blockReason).toBeNull()
+  })
+
+  test('a Quest routed after a block and failed back to the queue lists no block reason', async () => {
+    const g = await found('W2')
+    const quest = questBody.parse(await (await post(g, brief('w1'))).json())
+    await blockOnce(g, quest.id)
+    const second = await claim(g, quest.id)
+    await harness.adapters.routingLog.record(
+      g,
+      blockEntry(`${quest.id}:${second.attempts}`, 'routed')
+    )
+    await harness.adapters.quests.fail(g, quest.id, second.attempts, 'boom')
+    const after = await harness.adapters.quests.get(g, quest.id)
+    expect(after?.state).toBe('queued')
+    expect((await blockReasons(g)).find((q) => q.id === quest.id)?.blockReason).toBeNull()
+  })
+
+  test('a block older than a page of later log entries still lists its reason', async () => {
+    const g = await found('W3')
+    const quest = questBody.parse(await (await post(g, brief('w1'))).json())
+    await blockOnce(g, quest.id)
+    for (let i = 0; i < 120; i += 1) {
+      await harness.adapters.routingLog.record(g, blockEntry(`other-${i}:1`, 'routed'))
+    }
+    expect((await blockReasons(g)).find((q) => q.id === quest.id)?.blockReason).toBe(
+      'private_provider_unavailable'
+    )
   })
 
   test('posting from a template queues a Quest; a repeated job key is 200 with the same Quest', async () => {
