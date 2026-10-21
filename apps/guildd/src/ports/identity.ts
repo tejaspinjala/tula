@@ -35,6 +35,8 @@ export const CHALLENGE_TTL_MS = 5 * 60 * 1000
 export const FOUNDING_TTL_MS = 15 * 60 * 1000
 /** How long a one-time enrolment token stays valid (15 minutes). */
 export const ENROL_TTL_MS = 15 * 60 * 1000
+/** How long a desktop hand-off code stays valid (60 seconds). */
+export const DESKTOP_CODE_TTL_MS = 60 * 1000
 /** Outstanding ceremony challenges kept per guild and per kind; the oldest of a kind are evicted beyond this. */
 export const MAX_OUTSTANDING_CHALLENGES = 20
 
@@ -131,6 +133,18 @@ export interface IdentityProvider {
     challengeId: string,
     response: RegistrationResponseJSON
   ): Promise<IdentitySession>
+  /**
+   * Mints a single-use code that lets the desktop shell open its own session from this live
+   * session (browser sign-in hand-back), `<guild id>.<at least 128 random bits>`. Valid for
+   * `DESKTOP_CODE_TTL_MS`; one outstanding per guild (minting again replaces it). Returned once;
+   * only its hash is kept. Throws `unauthenticated` without a live session.
+   */
+  beginDesktopHandoff(sessionToken: string): Promise<{ code: string; expiresAt: Date }>
+  /**
+   * Spends the code and opens a new session for the guild it names, as a passkey sign-in would.
+   * A wrong, expired, spent or other-guild code all throw `invalid_challenge`, indistinguishably.
+   */
+  exchangeDesktopCode(code: string): Promise<IdentitySession>
   /** Starts a passkey sign-in for the guild. */
   beginSignIn(
     guildId: string

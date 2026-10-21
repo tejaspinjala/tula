@@ -146,6 +146,14 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return this.openSession(guildId)
   }
 
+  async beginDesktopHandoff(_sessionToken: string): Promise<{ code: string; expiresAt: Date }> {
+    throw new Error('not implemented')
+  }
+
+  async exchangeDesktopCode(_code: string): Promise<IdentitySession> {
+    throw new Error('not implemented')
+  }
+
   async beginRegistration(
     guildId: string,
     auth: { sessionToken?: string; foundingToken?: string } = {}

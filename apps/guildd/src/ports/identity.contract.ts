@@ -4,6 +4,7 @@ import type { MemoryClock } from '../adapters/memory-clock'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
 import {
   CHALLENGE_TTL_MS,
+  DESKTOP_CODE_TTL_MS,
   ENROL_TTL_MS,
   FOUNDING_TTL_MS,
   IdentityError,
@@ -302,6 +303,123 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
           token,
           session.token,
           createHash('sha256').update(token).digest('base64url'),
+        ]) {
+          expect(serialised).not.toContain(secret)
+        }
+      })
+    })
+
+    describe('hand-off of a browser sign-in to the desktop shell (one-time code)', () => {
+      async function signedIn() {
+        const s = await registered()
+        const session = await signIn(s)
+        return { ...s, session }
+      }
+
+      async function signIn(s: Awaited<ReturnType<typeof registered>>) {
+        const begin = await s.identity.beginSignIn(s.guildId)
+        return s.identity.finishSignIn(
+          s.guildId,
+          begin.challengeId,
+          await s.key.assert(begin.options)
+        )
+      }
+
+      test('a signed-in session mints a code that opens a fresh session of the same guild and member', async () => {
+        const s = await signedIn()
+        const { code, expiresAt } = await s.identity.beginDesktopHandoff(s.session.token)
+        expect(expiresAt.getTime()).toBe(s.clock.now().getTime() + DESKTOP_CODE_TTL_MS)
+        expect(DESKTOP_CODE_TTL_MS).toBe(60_000)
+        const opened = await s.identity.exchangeDesktopCode(code)
+        expect(opened.guildId).toBe(s.guildId)
+        expect(opened.token).not.toBe(s.session.token)
+        expect(opened.token).not.toContain(code)
+        expect(await s.identity.resolveSession(opened.token)).toEqual(
+          await s.identity.resolveSession(s.session.token)
+        )
+      })
+
+      test('the code is at least 128 random bits, bound to its guild, and distinct each time', async () => {
+        const s = await signedIn()
+        const a = (await s.identity.beginDesktopHandoff(s.session.token)).code
+        const b = (await s.identity.beginDesktopHandoff(s.session.token)).code
+        expect(a).not.toBe(b)
+        expect(a.startsWith(`${s.guildId}.`)).toBe(true)
+        expect(a.slice(s.guildId.length + 1).length).toBeGreaterThanOrEqual(22)
+      })
+
+      test('minting needs a live session', async () => {
+        const s = await signedIn()
+        expect(await failure(s.identity.beginDesktopHandoff('nope'))).toBe('unauthenticated')
+        await s.identity.revokeSession(s.session.token)
+        expect(await failure(s.identity.beginDesktopHandoff(s.session.token))).toBe(
+          'unauthenticated'
+        )
+        s.clock.advance(SESSION_TTL_MS + 1)
+        const again = await signIn(s)
+        s.clock.advance(SESSION_TTL_MS + 1)
+        expect(await failure(s.identity.beginDesktopHandoff(again.token))).toBe('unauthenticated')
+      })
+
+      test('a replayed, expired, wrong or other-guild code all fail the same way', async () => {
+        const s = await signedIn()
+        const otherGuild = await s.newGuild()
+        const otherKey = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const founding = await s.identity.issueFoundingToken(otherGuild)
+        const reg = await s.identity.beginRegistration(otherGuild, {
+          foundingToken: founding.token,
+        })
+        await s.identity.finishRegistration(
+          otherGuild,
+          reg.challengeId,
+          await otherKey.register(reg.options)
+        )
+        const otherBegin = await s.identity.beginSignIn(otherGuild)
+        const other = await s.identity.finishSignIn(
+          otherGuild,
+          otherBegin.challengeId,
+          await otherKey.assert(otherBegin.options)
+        )
+        const spent = (await s.identity.beginDesktopHandoff(s.session.token)).code
+        await s.identity.exchangeDesktopCode(spent)
+        const stale = (await s.identity.beginDesktopHandoff(s.session.token)).code
+        s.clock.advance(DESKTOP_CODE_TTL_MS + 1)
+        const foreign = (await s.identity.beginDesktopHandoff(other.token)).code
+        const outcomes = await Promise.all([
+          failure(s.identity.exchangeDesktopCode(spent)),
+          failure(s.identity.exchangeDesktopCode(stale)),
+          failure(s.identity.exchangeDesktopCode('garbage')),
+          failure(s.identity.exchangeDesktopCode(`${s.guildId}.garbage`)),
+          failure(s.identity.exchangeDesktopCode(foreign.replace(otherGuild, s.guildId))),
+        ])
+        expect(new Set(outcomes)).toEqual(new Set(['invalid_challenge']))
+      })
+
+      test('two simultaneous exchanges of one code open exactly one session', async () => {
+        const s = await signedIn()
+        const { code } = await s.identity.beginDesktopHandoff(s.session.token)
+        const outcomes = await Promise.all([
+          failure(s.identity.exchangeDesktopCode(code)),
+          failure(s.identity.exchangeDesktopCode(code)),
+        ])
+        expect(outcomes.filter((o) => o === 'no_error')).toHaveLength(1)
+      })
+
+      test('minting and exchanging append non-secret events', async () => {
+        const s = await signedIn()
+        const { code } = await s.identity.beginDesktopHandoff(s.session.token)
+        const opened = await s.identity.exchangeDesktopCode(code)
+        const events = (await s.events(s.guildId)).filter((e) => e.type.startsWith('identity.'))
+        expect(events.map((e) => e.type).slice(-3)).toEqual([
+          'identity.desktop_code_issued',
+          'identity.desktop_code_spent',
+          'identity.signed_in',
+        ])
+        const serialised = JSON.stringify(events)
+        for (const secret of [
+          code,
+          opened.token,
+          createHash('sha256').update(code).digest('base64url'),
         ]) {
           expect(serialised).not.toContain(secret)
         }
