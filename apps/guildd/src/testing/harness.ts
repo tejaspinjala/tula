@@ -152,6 +152,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       config: composed.config,
       notes: composed.notes,
       missives: composed.missives,
+      dossiers: composed.dossiers,
+      dossierStore: composed.dossierStore,
       seals: composed.seals,
       proposals: composed.proposals,
       workflows: composed.workflows,

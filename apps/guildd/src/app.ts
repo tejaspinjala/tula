@@ -10,6 +10,7 @@ import {
   verifyFrom,
 } from './audit-chain'
 import { costPerPost } from './cost-per-post'
+import type { DossierService } from './dossiers'
 import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
 import { createEventHub } from './event-hub'
@@ -29,6 +30,7 @@ import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider, type IdentitySession } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import { MAX_MISSIVE_PAGE, type MissiveStore } from './ports/missive-store'
 import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
@@ -98,6 +100,10 @@ export interface AppDeps {
   notes: NoteStore
   /** Missives between the Members of a Hall, read by the Guild Master in the ledger. */
   missives: MissiveStore
+  /** Dossiers: assembles verified packets about finished Quests; the Guild Master creates and reads them. */
+  dossiers: DossierService
+  /** The stored Dossiers, listed per Hall and read by id. */
+  dossierStore: DossierStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
