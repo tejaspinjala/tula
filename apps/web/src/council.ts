@@ -1,58 +1,93 @@
+import { z } from 'zod'
 import type { Fetcher } from './artifacts'
-import type { Session } from './passkeys'
+import { formatDollars } from './costs'
+import { PasskeyRequestError, type Session } from './passkeys'
+
+// The Council's session route is read only here, validated with Zod. Statuses and votes stay plain
+// strings at the boundary: a value a newer server adds still parses and is shown as "Unknown",
+// never trusted into markup. Reasons are model text: render them as text only.
+
+const voteBody = z.object({
+  voice: z.string(),
+  vote: z.string(),
+  reasons: z.array(z.string()),
+  abstainCode: z.string().nullable(),
+})
+const sessionBody = z.object({
+  id: z.string(),
+  questId: z.string(),
+  proposalHash: z.string(),
+  day: z.string(),
+  status: z.string(),
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+  sealId: z.string().nullable(),
+  costMicros: z.number().nullable(),
+  votes: z.array(voteBody),
+})
+const pageBody = z.object({ sessions: z.array(sessionBody), next: z.string().nullable() })
 
 /** One Council voice's vote. */
-export interface CouncilVoteView {
-  voice: string
-  vote: string
-  reasons: string[]
-  abstainCode: string | null
-}
+export type CouncilVoteView = z.infer<typeof voteBody>
 
 /** One Council session as the panel shows it. */
-export interface CouncilSessionView {
-  id: string
-  questId: string
-  proposalHash: string
-  day: string
-  status: string
-  reason: string | null
-  createdAt: string
-  sealId: string | null
-  costMicros: number | null
-  votes: CouncilVoteView[]
-}
+export type CouncilSessionView = z.infer<typeof sessionBody>
 
 /** Reads one page of the Council's sessions, newest first. */
 export async function loadCouncilSessions(
-  _session: Session,
-  _fetcher: Fetcher,
-  _query: { limit: number; after?: string }
+  session: Session,
+  fetcher: Fetcher,
+  query: { limit: number; after?: string }
 ): Promise<{ sessions: CouncilSessionView[]; next: string | null }> {
-  return { sessions: [], next: null }
+  const after = query.after === undefined ? '' : `&after=${encodeURIComponent(query.after)}`
+  const res = await fetcher(
+    `/api/guilds/${session.guildId}/council/sessions?limit=${query.limit}${after}`,
+    {
+      headers: { authorization: `Bearer ${session.token}` },
+    }
+  )
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  return pageBody.parse(data)
 }
 
-/** The first characters of a Proposal hash. */
-export function proposalPrefix(_hash: string): string {
-  return ''
+/** The first eight characters of a Proposal hash: enough to tell sessions apart. */
+export function proposalPrefix(hash: string): string {
+  return hash.slice(0, 8)
 }
 
-/** A session's cost as text. */
-export function councilCostText(_micros: number | null): string {
-  return ''
+/** A session's cost: dollars, or a note when no voice was metered. */
+export function councilCostText(micros: number | null): string {
+  return micros === null ? 'not metered' : formatDollars(micros)
 }
 
-/** A session status in words. */
-export function councilStatusLabel(_status: string): string {
-  return ''
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Conferring',
+  escalated: 'Sent to the Seal desk',
+  approved: 'Approved',
+  halted: 'Halted',
 }
 
-/** A vote in words. */
-export function councilVoteLabel(_vote: string): string {
-  return ''
+/** A session status in words; a status this client does not know reads as "Unknown". */
+export function councilStatusLabel(status: string): string {
+  return Object.hasOwn(STATUS_LABELS, status) ? (STATUS_LABELS[status] ?? 'Unknown') : 'Unknown'
 }
 
-/** Whether any session is still open. */
-export function councilOpenNow(_sessions: readonly { status: string }[]): boolean {
-  return false
+const VOTE_LABELS: Record<string, string> = {
+  approve: 'Approve',
+  block: 'Block',
+  abstain: 'Abstain',
+}
+
+/** A vote in words; anything else reads as "Unknown". */
+export function councilVoteLabel(vote: string): string {
+  return Object.hasOwn(VOTE_LABELS, vote) ? (VOTE_LABELS[vote] ?? 'Unknown') : 'Unknown'
+}
+
+/** Whether any of these sessions is still open: the elders confer while one is. */
+export function councilOpenNow(sessions: readonly { status: string }[]): boolean {
+  return sessions.some((s) => s.status === 'open')
 }
