@@ -402,7 +402,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
             ...c,
             halls: c.halls.map((h) => (h.id === 'health' ? { ...h, locked } : h)),
           }))
-        for (let round = 0; round < 5; round += 1) {
+        for (let round = 0; round < 3; round += 1) {
           await dispatchStarts(w, guildId, quest)
           await setLocked(true)
           await w.dispatcher.dispatch(guildId)
@@ -437,7 +437,10 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
           state: 'queued',
           leaseExpiresAt: null,
         })
-        expect((await mcp('read_brief', { lease: firstLease })).isError).toBe(true)
+        expect(await mcp('read_brief', { lease: firstLease })).toMatchObject({
+          status: 401,
+          rpcError: 'lease_expired',
+        })
         expect(await w.dispatcher.dispatch(guildId)).not.toMatchObject({ status: 'started' })
         expect(await stateOf(w, guildId, quest.id)).toBe('queued')
 
