@@ -3,6 +3,7 @@
 //! docs/spikes/tauri-passkeys.md). The remote page gets no native commands; only the local
 //! first-run page can set the address.
 
+mod handoff;
 mod settings;
 
 use std::path::PathBuf;
@@ -170,6 +171,31 @@ mod tests {
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_ne!(conf["app"]["withGlobalTauri"], true);
         assert_eq!(conf["app"]["security"]["csp"]["default-src"], "'self'");
+    }
+
+    #[test]
+    fn no_capability_exposes_the_opener_or_deep_link_plugins_to_any_page() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            let capability: serde_json::Value = serde_json::from_str(&text).unwrap();
+            for permission in capability["permissions"].as_array().unwrap() {
+                let name = permission.as_str().unwrap_or_default();
+                assert!(
+                    !name.starts_with("opener:") && !name.starts_with("deep-link:"),
+                    "{name} would hand a page a native plugin"
+                );
+            }
+            assert!(capability.get("remote").is_none(), "no capability may name remote urls");
+        }
+    }
+
+    #[test]
+    fn the_guildhall_scheme_is_registered_for_deep_links() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = conf["plugins"]["deep-link"]["desktop"]["schemes"].as_array().unwrap();
+        assert!(schemes.iter().any(|s| s == handoff::SCHEME), "{schemes:?}");
     }
 
     #[test]
