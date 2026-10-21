@@ -237,6 +237,23 @@ mod tests {
     }
 
     #[test]
+    fn the_single_instance_plugin_with_deep_links_is_registered_first() {
+        let manifest = include_str!("../Cargo.toml");
+        let line = manifest
+            .lines()
+            .find(|l| l.starts_with("tauri-plugin-single-instance"))
+            .expect("tauri-plugin-single-instance is a dependency");
+        assert!(line.contains("deep-link"), "{line}");
+        let main_fn = include_str!("main.rs").split("fn main() {").nth(1).unwrap();
+        let builder = main_fn.split("#[cfg(test)]").next().unwrap();
+        let first = builder.find(".plugin(").unwrap();
+        assert!(
+            builder[first..].starts_with(".plugin(tauri_plugin_single_instance::init"),
+            "single-instance must be the first plugin"
+        );
+    }
+
+    #[test]
     fn the_guildhall_scheme_is_registered_for_deep_links() {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
