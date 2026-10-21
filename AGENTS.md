@@ -28,6 +28,7 @@ Always latest, majors included (Dependabot, grouped, targets `develop`). Each we
 - Briefs and reports are pointers (issue, path:line, test name, command and exit code, SHA), never pasted content.
 - A ticket fits well under 35% of a worker's context; past 35%, stop and hand off.
 - Read real exit codes; never judge a result from piped output.
+- Run tests with `bun run test` (`bun test --timeout 60000`), not bare `bun test`: Postgres-backed setup queues behind a cluster-wide DDL lock shared by every worktree, and under concurrent load that wait exceeds Bun's 5s default (bunfig has no timeout key and `setDefaultTimeout` resets per file, #126).
 - Tests run against a per-worktree database `<base>_test_<hash of repo root>` (created and migrated by the preload); `CI=true` or `TEST_DB_ISOLATE=false` uses `<base>_test`; `bun run test:db:prune` drops this project's other worktree databases (run `bun scripts/drop-test-dbs.ts --dry-run` first to list them).
 
 ## Fixed standards
