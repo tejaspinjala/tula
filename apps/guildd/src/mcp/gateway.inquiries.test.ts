@@ -195,7 +195,7 @@ describe('Inquiries through the MCP gateway', () => {
     const s = await setup()
     await asked(s)
     expect(s.activity.emittedEvents).toContainEqual(
-      expect.objectContaining({ hallId: 'heralds', peerHallId: 'scribes' })
+      expect.objectContaining({ hallId: 'heralds', toHallId: 'scribes' })
     )
   })
 

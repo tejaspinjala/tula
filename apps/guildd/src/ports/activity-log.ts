@@ -29,8 +29,8 @@ export const memberActivityPayload = z.strictObject({
   memberId: z.string(),
   hallId: z.string(),
   activity: activitySchema,
-  /** The other Hall of a cross-Hall activity (an Inquiry): `hallId` is the source, this the target. */
-  peerHallId: z.string().optional(),
+  /** The other Hall a cross-Hall activity is aimed at; absent for work inside one Hall. */
+  toHallId: z.string().optional(),
 })
 
 /** How long repeats of one Member's one activity coalesce into a single event, in milliseconds. */
@@ -41,9 +41,9 @@ export interface NewActivity {
   questId: string
   memberId: string
   hallId: string
+  /** The other Hall a cross-Hall activity is aimed at (a Dossier request); absent otherwise. */
+  toHallId?: string
   activity: Activity
-  /** The other Hall of a cross-Hall activity: `hallId` is where it came from, this where it went. */
-  peerHallId?: string
   /** The instant it happened. */
   at: Date
   /** Repeats of the same Member and activity within this long after an emitted one coalesce. */

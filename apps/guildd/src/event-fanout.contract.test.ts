@@ -55,6 +55,8 @@ function countingApp(
     notes: harness.adapters.notes,
     missives: harness.adapters.missives,
     inquiries: harness.adapters.inquiries,
+    dossiers: harness.adapters.dossiers,
+    dossierStore: harness.adapters.dossierStore,
     quests: harness.adapters.quests,
     mcp: harness.adapters.mcp,
     streamTickets: harness.adapters.streamTickets,

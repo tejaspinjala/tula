@@ -12,6 +12,7 @@ import {
 import { costPerPost } from './cost-per-post'
 import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
+import type { DossierService } from './dossiers'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
@@ -25,6 +26,7 @@ import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
+import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider, type IdentitySession } from './ports/identity'
@@ -101,6 +103,10 @@ export interface AppDeps {
   missives: MissiveStore
   /** Inquiries between Halls, listed and read by the Guild Master. */
   inquiries: InquiryStore
+  /** Dossiers: assembles verified packets about finished Quests; the Guild Master creates and reads them. */
+  dossiers: DossierService
+  /** The stored Dossiers, listed per Hall and read by id. */
+  dossierStore: DossierStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
@@ -260,6 +266,15 @@ const missivePage = z.object({
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
 })
+const dossierPage = z.object({
+  after: z
+    .string()
+    .regex(/^[1-9][0-9]{0,15}$/)
+    .transform(Number)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_DOSSIER_PAGE).default(50),
+})
+const createDossierInput = z.strictObject({ questId: uuid })
 const inquiryPage = z.object({
   after: z
     .string()
@@ -515,6 +530,9 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/halls/:hallId/missives', limited('missives-read'))
   app.get('/guilds/:id/halls/:hallId/inquiries', limited('missives-read'))
   app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
+  app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
+  app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
+  app.post('/guilds/:id/dossiers', limited('dossier-write'))
   app.get('/guilds/:id/workflows', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
@@ -1060,6 +1078,64 @@ export function createApp(deps: AppDeps): Hono {
         ...(page.data.after === undefined ? {} : { after: page.data.after }),
       })
     )
+  })
+
+  // Dossiers for the Guild Master: a Hall's (about its Quests or requested by it) newest first, one
+  // by id, and a new one for any finished Quest. Code assembles them from stored records and
+  // re-checks every hash; the Guild Master is not a Hall, so the private boundary does not apply.
+  app.get('/guilds/:id/halls/:hallId/dossiers', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const page = dossierPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    return c.json(
+      await deps.dossierStore.list(who.guild, {
+        hallId: hallId.data,
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
+    )
+  })
+
+  app.get('/guilds/:id/dossiers/:dossierId', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const dossier = await deps.dossierStore.get(who.guild, c.req.param('dossierId'))
+    return dossier ? c.json(dossier) : c.json({ error: 'dossier_not_found' }, 404)
+  })
+
+  app.post('/guilds/:id/dossiers', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = createDossierInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const made = await deps.dossiers.request(who.guild, body.data.questId, {
+      kind: 'guild_master',
+    })
+    if (!made.ok) {
+      return made.error === 'unknown_quest'
+        ? c.json({ error: 'quest_not_found' }, 404)
+        : c.json({ error: made.error }, 422)
+    }
+    return c.json(made.dossier, 201)
   })
 
   // A Hall's Inquiries for the Guild Master, asked and received, newest first. The question and
