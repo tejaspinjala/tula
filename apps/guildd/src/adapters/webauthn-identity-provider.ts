@@ -26,6 +26,7 @@ import {
   SESSION_TTL_MS,
 } from '../ports/identity'
 import type { KeyProvider } from '../ports/key-provider'
+import { WEBAUTHN_CEREMONY_TIMEOUT_MS } from '../webauthn-timeout'
 import type {
   IdentityStore,
   StoredChallenge,
@@ -267,6 +268,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   private registrationOptions(guildId: string, existing: StoredCredential[]) {
     return generateRegistrationOptions({
       rpID: this.config.rpId,
+      timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
       rpName: this.config.rpName,
       userName: 'guild-master',
       userDisplayName: 'Guild Master',
@@ -353,6 +355,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
   async beginDiscoverableSignIn() {
     const options = await generateAuthenticationOptions({
       rpID: this.config.rpId,
+      timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
       userVerification: 'required',
       allowCredentials: [],
     })
@@ -598,6 +601,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     }
     const options = await generateAuthenticationOptions({
       rpID: this.config.rpId,
+      timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
       userVerification: 'required',
       allowCredentials,
     })
@@ -609,6 +613,7 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return generateAuthenticationOptions({
       ...(challenge ? { challenge } : {}),
       rpID: this.config.rpId,
+      timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
       userVerification: 'required',
       allowCredentials: credentials.map((c) => ({ id: c.id, transports: c.transports })),
     })
