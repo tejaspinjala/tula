@@ -11,6 +11,7 @@ import {
   type CouncilVote,
   type NewCouncilVote,
 } from './ports/council-store'
+import type { GateStore } from './ports/gate-store'
 
 /** The model call the Council makes; the model gateway implements it, a test scripts it. */
 export interface CouncilModel {
@@ -43,13 +44,10 @@ export function parseVoteOutput(text: string): VoteOutput | null {
 }
 
 /** Why a session was not approved. */
-export type EscalateReason = 'block' | 'abstention' | 'approval_not_enabled'
+export type EscalateReason = 'block' | 'abstention' | 'approval_cap'
 
-/** The tally's decision: always to escalate in this release (approval lands in #150). */
-export interface TallyResult {
-  decision: 'escalate'
-  reason: EscalateReason
-}
+/** The tally's decision: approve on five approvals while approvals remain, else escalate with a reason. */
+export type TallyResult = { decision: 'approve' } | { decision: 'escalate'; reason: EscalateReason }
 
 /**
  * Tallies the votes of a session. Pure and deterministic: only votes are judgment, the tally is
@@ -57,7 +55,8 @@ export interface TallyResult {
  * block first, then any abstention or missing voice, otherwise the unanimous approval that
  * the Council is not yet allowed to act on. An error never approves.
  */
-export function tally(votes: readonly CouncilVote[]): TallyResult {
+export function tally(votes: readonly CouncilVote[], approvalsRemainingToday: number): TallyResult {
+  void approvalsRemainingToday
   if (votes.some((v) => v.vote === 'block')) {
     return { decision: 'escalate', reason: 'block' }
   }
@@ -67,7 +66,7 @@ export function tally(votes: readonly CouncilVote[]): TallyResult {
   if (approvals.length < COUNCIL_VOICES.length) {
     return { decision: 'escalate', reason: 'abstention' }
   }
-  return { decision: 'escalate', reason: 'approval_not_enabled' }
+  return { decision: 'escalate', reason: 'approval_cap' }
 }
 
 const COMMON_RULES =
@@ -145,6 +144,8 @@ export type ConveneResult =
   | { status: 'cap_reached' }
   /** Another worker holds the session and is running its voices: not yet. */
   | { status: 'in_progress' }
+  /** Five approvals and no settled outcome for this Quest yet: the caller re-checks, then {@link CouncilEngine.approve}s. */
+  | { status: 'unanimous'; session: CouncilSession; votes: CouncilVote[] }
   | { status: 'escalated'; session: CouncilSession; votes: CouncilVote[]; reason: string }
 
 /** Collaborators of {@link CouncilEngine}. */
@@ -152,6 +153,8 @@ export interface CouncilDeps {
   store: CouncilStore
   model: CouncilModel
   clock: Pick<Clock, 'now'>
+  /** Bar the Gates, read immediately before an approval. */
+  gates: Pick<GateStore, 'isBarred'>
 }
 
 /**
@@ -175,6 +178,8 @@ export class CouncilEngine {
       quest: { id: string; hallId: string }
       proposal: { hash: string; content: string }
       sessionCap: number
+      /** The guild's Council approvals per day; the tally approves only while some remain. */
+      approvalCap: number
     }
   ): Promise<ConveneResult> {
     const { store, clock } = this.deps
@@ -224,7 +229,7 @@ export class CouncilEngine {
       }
     }
     const votes = await store.votes(guildId, session.id)
-    const { reason } = tally(votes)
+    const { reason } = tally(votes, input.approvalCap) as { reason: string }
     const settled = session.reason ?? (unavailable ? 'council_unavailable' : reason)
     if (session.status === 'open') {
       await store.escalate(guildId, session.id, settled)
@@ -235,6 +240,14 @@ export class CouncilEngine {
       votes,
       reason: settled,
     }
+  }
+
+  /** What {@link CouncilEngine.approve} did. */
+  async approve(
+    _guildId: string,
+    _input: { session: CouncilSession; questId: string; cap: number }
+  ): Promise<'approved' | 'halted' | 'cap_reached'> {
+    throw new Error('not implemented')
   }
 
   private async runVoice(

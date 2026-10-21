@@ -134,6 +134,7 @@ export const FAIL_REASONS = [
   'hall_locked',
   'hall_not_found',
   'private_provider_unavailable',
+  'council_approved',
   'unknown',
 ] as const
 

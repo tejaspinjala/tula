@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryCouncilStore } from './adapters/memory-council-store'
+import { MemoryGateStore } from './adapters/memory-gate-store'
 import {
   buildBrief,
   COUNCIL_CLAIM_TTL_MS,
@@ -20,10 +21,11 @@ const proposal = { hash: 'd'.repeat(64), content: 'Hello guild' }
 
 function setup(script: ConstructorParameters<typeof ScriptedCouncilModel>[0]) {
   const store = new MemoryCouncilStore()
+  const gates = new MemoryGateStore()
   const model = new ScriptedCouncilModel(script)
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
-  const engine = new CouncilEngine({ store, model, clock })
-  return { store, model, engine, clock }
+  const engine = new CouncilEngine({ store, model, clock, gates })
+  return { store, model, engine, clock, gates }
 }
 
 function fakeVote(voice: CouncilVote['voice'], vote: CouncilVote['vote']): CouncilVote {
@@ -61,18 +63,41 @@ describe('parseVoteOutput', () => {
 })
 
 describe('tally', () => {
-  test('always escalates in this release, and says why', () => {
-    const all = (v: CouncilVote['vote']) => COUNCIL_VOICES.map((voice) => fakeVote(voice, v))
-    expect(tally(all('approve'))).toEqual({ decision: 'escalate', reason: 'approval_not_enabled' })
-    expect(tally(all('abstain')).decision).toBe('escalate')
-    expect(tally([...all('approve').slice(0, 4), fakeVote('user', 'block')])).toEqual({
-      decision: 'escalate',
-      reason: 'block',
-    })
-    expect(tally(all('approve').slice(0, 3))).toEqual({
+  const all = (v: CouncilVote['vote']) => COUNCIL_VOICES.map((voice) => fakeVote(voice, v))
+  const mix = (...choices: CouncilVote['vote'][]) =>
+    COUNCIL_VOICES.map((voice, i) => fakeVote(voice, choices[i] ?? 'approve'))
+
+  test('five approvals while approvals remain approve', () => {
+    expect(tally(all('approve'), 1)).toEqual({ decision: 'approve' })
+    expect(tally(all('approve'), 5)).toEqual({ decision: 'approve' })
+  })
+
+  test('any block escalates as block, whatever else voted', () => {
+    expect(tally(mix('block'), 5)).toEqual({ decision: 'escalate', reason: 'block' })
+    expect(tally(all('block'), 5)).toEqual({ decision: 'escalate', reason: 'block' })
+    expect(tally(mix('block', 'abstain'), 5)).toEqual({ decision: 'escalate', reason: 'block' })
+  })
+
+  test('an abstention or a missing voice escalates as abstention', () => {
+    expect(tally(all('abstain'), 5)).toEqual({ decision: 'escalate', reason: 'abstention' })
+    expect(tally(mix('approve', 'approve', 'approve', 'approve', 'abstain'), 5)).toEqual({
       decision: 'escalate',
       reason: 'abstention',
     })
+    expect(tally(all('approve').slice(0, 4), 5)).toEqual({
+      decision: 'escalate',
+      reason: 'abstention',
+    })
+    expect(tally([], 5)).toEqual({ decision: 'escalate', reason: 'abstention' })
+  })
+
+  test('a cap of zero never approves, and the approval that would exceed the cap escalates', () => {
+    expect(tally(all('approve'), 0)).toEqual({ decision: 'escalate', reason: 'approval_cap' })
+    expect(tally(all('approve'), -1)).toEqual({ decision: 'escalate', reason: 'approval_cap' })
+  })
+
+  test('a block outranks the cap, so the reason names what the voices said', () => {
+    expect(tally(mix('block'), 0)).toEqual({ decision: 'escalate', reason: 'block' })
   })
 })
 
@@ -114,7 +139,7 @@ describe('councilEvidence', () => {
 describe('CouncilEngine.convene', () => {
   test('five voices each run once with a fresh brief and the Proposal framed; the outcome is escalation', async () => {
     const { engine, model, store } = setup(() => voteReply('approve', 'looks fine'))
-    const result = await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    const result = await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     expect(result.status).toBe('escalated')
     if (result.status !== 'escalated') {
       return
@@ -129,7 +154,7 @@ describe('CouncilEngine.convene', () => {
       expect(call.hallId).toBe('heralds')
     }
     expect(new Set(model.calls.map((c) => c.brief)).size).toBe(5)
-    expect(result.reason).toBe('approval_not_enabled')
+    expect(result.reason).toBe('approval_cap')
     expect(
       (
         await store.open(GUILD, {
@@ -157,7 +182,7 @@ describe('CouncilEngine.convene', () => {
       }
       return voteReply('block', 'no')
     })
-    const result = await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    const result = await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     if (result.status !== 'escalated') {
       throw new Error('expected escalation')
     }
@@ -173,8 +198,8 @@ describe('CouncilEngine.convene', () => {
 
   test('convening twice for one hash yields one session and runs no voice twice', async () => {
     const { engine, model } = setup(() => voteReply('approve'))
-    const first = await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
-    const second = await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    const first = await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
+    const second = await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     if (first.status !== 'escalated' || second.status !== 'escalated') {
       throw new Error('expected escalation')
     }
@@ -202,12 +227,14 @@ describe('CouncilEngine.convene', () => {
       }
       return voteReply('approve')
     })
-    const first = new CouncilEngine({ store, model: crashing, clock })
-    await expect(first.convene(GUILD, { quest, proposal, sessionCap: 5 })).rejects.toThrow()
+    const first = new CouncilEngine({ store, model: crashing, clock, gates: new MemoryGateStore() })
+    await expect(
+      first.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
+    ).rejects.toThrow()
     expect(seenSessionBeforeVoice).toBe(true)
     const resumed = new ScriptedCouncilModel(() => voteReply('approve'))
-    const second = new CouncilEngine({ store, model: resumed, clock })
-    const result = await second.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    const second = new CouncilEngine({ store, model: resumed, clock, gates: new MemoryGateStore() })
+    const result = await second.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     expect(result.status).toBe('escalated')
     // Two voices finished before the bar; only the other three run on resume.
     expect(resumed.calls.map((c) => c.system).sort()).toEqual(
@@ -219,7 +246,9 @@ describe('CouncilEngine.convene', () => {
     const { engine, store } = setup(() => {
       throw new GatewayError('gates_barred')
     })
-    await expect(engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).rejects.toThrow()
+    await expect(
+      engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
+    ).rejects.toThrow()
     const opened = await store.open(GUILD, {
       questId: 'q1',
       proposalHash: proposal.hash,
@@ -249,8 +278,10 @@ describe('CouncilEngine.convene', () => {
       }
       return voteReply('approve')
     })
-    await expect(engine.convene(GUILD, { quest, proposal, sessionCap: 1 })).rejects.toThrow()
-    const resumed = await engine.convene(GUILD, { quest, proposal, sessionCap: 1 })
+    await expect(
+      engine.convene(GUILD, { quest, proposal, sessionCap: 1, approvalCap: 0 })
+    ).rejects.toThrow()
+    const resumed = await engine.convene(GUILD, { quest, proposal, sessionCap: 1, approvalCap: 0 })
     expect(resumed.status).toBe('escalated')
     // Voices 1 and 2 ran once; voice 3 failed once and reran; voices 4 and 5 ran once.
     expect(model.calls).toHaveLength(6)
@@ -272,8 +303,8 @@ describe('CouncilEngine.convene', () => {
       return voteReply('approve')
     })
     const [a, b] = await Promise.all([
-      engine.convene(GUILD, { quest, proposal, sessionCap: 5 }),
-      engine.convene(GUILD, { quest, proposal, sessionCap: 5 }),
+      engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 }),
+      engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 }),
     ])
     expect(model.calls.length).toBeLessThanOrEqual(5)
     expect([a.status, b.status].sort()).toEqual(['escalated', 'in_progress'])
@@ -291,13 +322,13 @@ describe('CouncilEngine.convene', () => {
       throw new Error('unexpected cap')
     }
     await store.claim(GUILD, opened.session.id, 'other-worker', clock.now(), 5 * 60_000)
-    expect((await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).status).toBe(
-      'in_progress'
-    )
+    expect(
+      (await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })).status
+    ).toBe('in_progress')
     clock.advance(5 * 60_000 + 1)
-    expect((await engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).status).toBe(
-      'escalated'
-    )
+    expect(
+      (await engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })).status
+    ).toBe('escalated')
     expect(model.calls).toHaveLength(5)
   })
 
@@ -309,7 +340,7 @@ describe('CouncilEngine.convene', () => {
     const { engine, store } = setup(() => {
       throw new GatewayError('unknown_profile')
     })
-    const ask = () => engine.convene(GUILD, { quest, proposal, sessionCap: 5 })
+    const ask = () => engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     await expect(ask()).rejects.toThrow()
     await expect(ask()).rejects.toThrow()
     const third = await ask()
@@ -330,7 +361,9 @@ describe('CouncilEngine.convene', () => {
       throw new GatewayError('gates_barred')
     })
     for (let i = 0; i < 6; i += 1) {
-      await expect(engine.convene(GUILD, { quest, proposal, sessionCap: 5 })).rejects.toThrow()
+      await expect(
+        engine.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
+      ).rejects.toThrow()
     }
     const opened = await store.open(GUILD, {
       questId: 'q1',
@@ -343,9 +376,121 @@ describe('CouncilEngine.convene', () => {
 
   test('the sessions cap reached convenes nothing and runs no voice', async () => {
     const { engine, model } = setup(() => voteReply('approve'))
-    expect(await engine.convene(GUILD, { quest, proposal, sessionCap: 0 })).toEqual({
-      status: 'cap_reached',
-    })
+    expect(await engine.convene(GUILD, { quest, proposal, sessionCap: 0, approvalCap: 0 })).toEqual(
+      {
+        status: 'cap_reached',
+      }
+    )
     expect(model.calls).toHaveLength(0)
+  })
+})
+
+describe('CouncilEngine approval', () => {
+  const ask = (engine: CouncilEngine, over: { id?: string; cap?: number } = {}) =>
+    engine.convene(GUILD, {
+      quest: { id: over.id ?? 'q1', hallId: 'heralds' },
+      proposal,
+      sessionCap: 5,
+      approvalCap: over.cap ?? 5,
+    })
+
+  test('five approvals under the cap are unanimous and nothing is settled yet', async () => {
+    const { engine, store } = setup(() => voteReply('approve'))
+    const result = await ask(engine)
+    expect(result.status).toBe('unanimous')
+    if (result.status !== 'unanimous') {
+      return
+    }
+    expect(result.votes).toHaveLength(5)
+    expect(result.session.status).toBe('open')
+    expect(await store.approvalsToday(GUILD, '2030-01-01', 'other')).toBe(0)
+  })
+
+  test('approve settles the session as approved and gives the Quest its approval', async () => {
+    const { engine, store } = setup(() => voteReply('approve'))
+    const unanimous = await ask(engine)
+    if (unanimous.status !== 'unanimous') {
+      throw new Error('expected unanimous')
+    }
+    const approved = await engine.approve(GUILD, {
+      session: unanimous.session,
+      questId: 'q1',
+      cap: 5,
+    })
+    expect(approved).toBe('approved')
+    expect(await store.approvalsToday(GUILD, '2030-01-01', 'other')).toBe(1)
+    const reopened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    expect(reopened.status === 'existing' && reopened.session.status).toBe('approved')
+  })
+
+  test('Bar the Gates re-checked just before approving halts: no approval, session left unsettled', async () => {
+    const { engine, store, gates } = setup(() => voteReply('approve'))
+    const unanimous = await ask(engine)
+    if (unanimous.status !== 'unanimous') {
+      throw new Error('expected unanimous')
+    }
+    await gates.bar({ guildId: GUILD, memberId: 'gm' }, 'guild')
+    const result = await engine.approve(GUILD, {
+      session: unanimous.session,
+      questId: 'q1',
+      cap: 5,
+    })
+    expect(result).toBe('halted')
+    expect(await store.approvalsToday(GUILD, '2030-01-01', 'other')).toBe(0)
+    await gates.lift({ guildId: GUILD, memberId: 'gm' }, 'guild')
+    expect(await engine.approve(GUILD, { session: unanimous.session, questId: 'q1', cap: 5 })).toBe(
+      'approved'
+    )
+  })
+
+  test('the approval that would exceed the cap escalates the open session as approval_cap', async () => {
+    const { engine, store } = setup(() => voteReply('approve'))
+    const first = await ask(engine, { cap: 1 })
+    if (first.status !== 'unanimous') {
+      throw new Error('expected unanimous')
+    }
+    const other = { id: 'q2', hallId: 'heralds' }
+    await store.approve(GUILD, first.session.id, { questId: 'q9', day: '2030-01-01', cap: 1 })
+    expect(await engine.approve(GUILD, { session: first.session, questId: other.id, cap: 1 })).toBe(
+      'cap_reached'
+    )
+    const reopened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    expect(reopened.status === 'existing' && reopened.session).toMatchObject({
+      status: 'escalated',
+      reason: 'approval_cap',
+    })
+  })
+
+  test('a second Quest on an approved session escalates when the cap is spent, and the session stays approved', async () => {
+    const { engine, store } = setup(() => voteReply('approve'))
+    const first = await ask(engine, { cap: 1 })
+    if (first.status !== 'unanimous') {
+      throw new Error('expected unanimous')
+    }
+    expect(await engine.approve(GUILD, { session: first.session, questId: 'q1', cap: 1 })).toBe(
+      'approved'
+    )
+    const second = await ask(engine, { id: 'q2', cap: 1 })
+    expect(second.status).toBe('escalated')
+    if (second.status === 'escalated') {
+      expect(second.reason).toBe('approval_cap')
+    }
+    const reopened = await store.open(GUILD, {
+      questId: 'q1',
+      proposalHash: proposal.hash,
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    expect(reopened.status === 'existing' && reopened.session.status).toBe('approved')
   })
 })

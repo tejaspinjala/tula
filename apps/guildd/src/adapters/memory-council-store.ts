@@ -1,4 +1,5 @@
 import {
+  type ApproveResult,
   COUNCIL_VOICES,
   type CouncilSession,
   type CouncilStore,
@@ -134,5 +135,21 @@ export class MemoryCouncilStore implements CouncilStore {
       }
     }
     return false
+  }
+
+  async approvalsToday(_guildId: string, _day: string, _excludingQuestId: string): Promise<number> {
+    throw new Error('not implemented')
+  }
+
+  async approve(
+    _guildId: string,
+    _sessionId: string,
+    _input: { questId: string; day: string; cap: number }
+  ): Promise<ApproveResult> {
+    throw new Error('not implemented')
+  }
+
+  async halt(_guildId: string, _sessionId: string, _questId: string): Promise<void> {
+    throw new Error('not implemented')
   }
 }

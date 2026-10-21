@@ -87,6 +87,7 @@ export class MemorySealStore implements SealStore {
       decidedAt: null,
       decisionNote: null,
       decidedBy: null,
+      councilSessionId: null,
       reservedUntil: null,
       consumedAt: null,
     }
@@ -165,6 +166,14 @@ export class MemorySealStore implements SealStore {
         null
       ),
     }
+  }
+
+  async councilApprove(
+    _guildId: string,
+    _id: string,
+    _decision: { sessionId: string; expectedHash: string }
+  ): Promise<SealResult> {
+    throw new Error('not implemented')
   }
 
   async reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {

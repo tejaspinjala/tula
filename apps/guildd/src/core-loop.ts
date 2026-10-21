@@ -154,6 +154,7 @@ async function consultCouncil(
     quest,
     proposal,
     sessionCap: councilSessionCap(config),
+    approvalCap: councilApprovalCap(config),
   })
   if (result.status === 'in_progress') {
     return 'pending'
@@ -166,6 +167,8 @@ export type QuestSealOutcome =
   | { outcome: 'requested'; seal: Seal }
   | { outcome: 'rejected'; quest: Quest }
   | { outcome: 'no_proposal' }
+  /** The Council of Elders approved in the Guild Master's absence: the Seal is `council_approved` and the Quest is done. */
+  | { outcome: 'council_approved'; seal: Seal; quest: Quest }
   /** The Council is mid-session on another worker: not yet; no Seal is requested this pass. */
   | { outcome: 'council_pending' }
 

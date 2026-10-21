@@ -229,5 +229,75 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
       expect((await store.open(b, input({ sessionCap: 1 }))).status).toBe('created')
       expect(await store.votes(a, opened.session.id)).toHaveLength(1)
     })
+
+    describe('approvals', () => {
+      async function twoQuests() {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const opened = await store.open(g, input())
+        if (opened.status === 'cap_reached') {
+          throw new Error('unexpected cap')
+        }
+        return { store, g, id: opened.session.id }
+      }
+
+      test('approvals are counted per Quest, not per session: two Quests on one session consume one each', async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 1 })).toBe('approved')
+        expect(await store.approve(g, id, { questId: 'q2', day: DAY, cap: 1 })).toBe('cap_reached')
+        expect(await store.approvalsToday(g, DAY, 'q9')).toBe(1)
+      })
+
+      test('a retry for the same Quest consumes nothing more, and its own approval is not counted against it', async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 1 })).toBe('approved')
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 1 })).toBe('approved')
+        expect(await store.approvalsToday(g, DAY, 'q1')).toBe(0)
+        expect(await store.approvalsToday(g, DAY, 'q2')).toBe(1)
+      })
+
+      test('a cap of zero never approves; the cap counts only its own day', async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 0 })).toBe('cap_reached')
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 1 })).toBe('approved')
+        expect(await store.approve(g, id, { questId: 'q2', day: '2026-01-02', cap: 1 })).toBe(
+          'approved'
+        )
+      })
+
+      test('same-tick approvals never exceed the cap', async () => {
+        const { store, g, id } = await twoQuests()
+        const results = await Promise.all(
+          ['q1', 'q2', 'q3', 'q4'].map((questId) =>
+            store.approve(g, id, { questId, day: DAY, cap: 2 })
+          )
+        )
+        expect(results.filter((r) => r === 'approved')).toHaveLength(2)
+      })
+
+      test('the first approval settles an open session as approved and ends its claim', async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.claim(g, id, 'a', new Date('2026-01-01T00:00:00Z'), 60_000)).toBe(true)
+        await store.approve(g, id, { questId: 'q1', day: DAY, cap: 5 })
+        const again = await store.open(g, input())
+        if (again.status === 'cap_reached') {
+          throw new Error('unexpected cap')
+        }
+        expect(again.session.status).toBe('approved')
+        expect(await store.claim(g, id, 'b', new Date('2026-01-01T00:00:00Z'), 60_000)).toBe(false)
+        expect(await store.escalate(g, id, 'block')).toBe(false)
+      })
+
+      test('an escalated session cannot be approved, and another guild cannot approve or halt', async () => {
+        const { store, g, id } = await twoQuests()
+        const other = await make()
+        await store.escalate(g, id, 'block')
+        expect(await store.approve(g, id, { questId: 'q1', day: DAY, cap: 5 })).toBe('not_found')
+        const { store: s2, newGuild } = other
+        const h = await newGuild()
+        expect(await s2.approve(h, id, { questId: 'q1', day: DAY, cap: 5 })).toBe('not_found')
+        await store.halt(g, id, 'q1')
+      })
+    })
   })
 }

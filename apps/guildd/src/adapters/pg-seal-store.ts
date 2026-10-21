@@ -36,6 +36,7 @@ export const sealRow = z.object({
   decided_at: date.nullable(),
   decision_note: z.string().nullable(),
   decided_by: z.string().nullable(),
+  council_session_id: z.string().nullable(),
   reserved_until: date.nullable(),
   consumed_at: date.nullable(),
   reservation_token_hash: z.string().nullable().optional(),
@@ -45,7 +46,7 @@ type Row = z.infer<typeof sealRow>
 const EXPIRE_BATCH = 100
 /** The `seals` columns {@link toSeal} reads (never the reservation token hash). */
 export const SEAL_COLUMNS =
-  'seal_id, quest_id, round, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, reserved_until, consumed_at'
+  'seal_id, quest_id, round, requested_by, kind, text, evidence, action_hash, status, requested_at, expires_at, decided_at, decision_note, decided_by, council_session_id, reserved_until, consumed_at'
 
 /** Maps a parsed row to a {@link Seal}, reading time-derived states against `now`. */
 export function toSeal(r: Row, now: Date): Seal {
@@ -76,6 +77,7 @@ export function toSeal(r: Row, now: Date): Seal {
     decidedAt: r.decided_at,
     decisionNote: r.decision_note,
     decidedBy: r.decided_by,
+    councilSessionId: r.council_session_id,
     reservedUntil: r.reserved_until,
     consumedAt: r.consumed_at,
   }
@@ -215,6 +217,14 @@ export class PgSealStore implements SealStore {
       )
       return { ok: true, seal }
     })
+  }
+
+  async councilApprove(
+    _guildId: string,
+    _id: string,
+    _decision: { sessionId: string; expectedHash: string }
+  ): Promise<SealResult> {
+    throw new Error('not implemented')
   }
 
   async reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {

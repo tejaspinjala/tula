@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
 import {
+  type ApproveResult,
   COUNCIL_VOICES,
   type CouncilSession,
   type CouncilStore,
@@ -16,7 +17,7 @@ const sessionRow = z.object({
   quest_id: z.string(),
   proposal_hash: z.string(),
   day: z.string(),
-  status: z.enum(['open', 'escalated']),
+  status: z.enum(['open', 'escalated', 'approved']),
   reason: z.string().nullable(),
   created_at: z.coerce.date(),
 })
@@ -190,6 +191,22 @@ export class PgCouncilStore implements CouncilStore {
       })
       return true
     })
+  }
+
+  async approvalsToday(_guildId: string, _day: string, _excludingQuestId: string): Promise<number> {
+    throw new Error('not implemented')
+  }
+
+  async approve(
+    _guildId: string,
+    _sessionId: string,
+    _input: { questId: string; day: string; cap: number }
+  ): Promise<ApproveResult> {
+    throw new Error('not implemented')
+  }
+
+  async halt(_guildId: string, _sessionId: string, _questId: string): Promise<void> {
+    throw new Error('not implemented')
   }
 
   private async lock(tx: TenantTx, guildId: string): Promise<void> {
