@@ -54,6 +54,7 @@ function countingApp(
     config: harness.adapters.config,
     notes: harness.adapters.notes,
     missives: harness.adapters.missives,
+    inquiries: harness.adapters.inquiries,
     dossiers: harness.adapters.dossiers,
     dossierStore: harness.adapters.dossierStore,
     bugReports: harness.adapters.bugReports,

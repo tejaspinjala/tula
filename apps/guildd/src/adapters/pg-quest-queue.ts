@@ -274,9 +274,9 @@ export class PgQuestQueue implements QuestQueue {
   }
 
   /**
-   * Posts a Quest inside the caller's transaction, so another write (a Bug Report) commits or rolls
-   * back with it. Takes the per-guild quest lock like {@link post}; a repeated job key returns the
-   * original with `created: false`.
+   * Posts a Quest inside the caller's transaction, so another write (a Bug Report, an Inquiry and
+   * its answer Quest) commits or rolls back with it. Takes the per-guild quest lock like {@link post};
+   * a repeated job key returns the original with `created: false`.
    */
   async postIn(
     tx: TenantTx,
