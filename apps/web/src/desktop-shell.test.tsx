@@ -59,12 +59,18 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
+let current: ReturnType<typeof createRoot> | null = null
+
 async function mount() {
   requests.length = 0
+  // One page at a time, as in the shell: the earlier one stops listening for fragments.
+  await act(async () => current?.unmount())
   const host = document.createElement('div')
   document.body.appendChild(host)
+  const root = createRoot(host)
+  current = root
   await act(async () => {
-    createRoot(host).render(<App browser={{ create: async () => ({}), get: async () => ({}) }} />)
+    root.render(<App browser={{ create: async () => ({}), get: async () => ({}) }} />)
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   return host
@@ -87,4 +93,21 @@ test('a code that no longer works leaves the title offering only the browser, wi
   const options = [...host.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim())
   expect(options).toEqual(['Sign in with your browser'])
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('Sign in with your browser')
+})
+
+test('a code delivered while the page is already open (the shell only changes the fragment) is exchanged too', async () => {
+  cookieLive = false
+  exchangeStatus = 201
+  window.location.hash = ''
+  const host = await mount()
+  expect(requests.some((r) => r.url === '/api/auth/desktop/exchange')).toBe(false)
+  await act(async () => {
+    window.location.hash = `#desktop-code=${code}`
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  expect(window.location.hash).toBe('')
+  expect(requests.filter((r) => r.url === '/api/auth/desktop/exchange')).toHaveLength(1)
+  expect(requests.some((r) => r.url === `/api/guilds/${guild}`)).toBe(true)
+  expect(host.textContent).not.toContain('Sign in with your browser')
 })
