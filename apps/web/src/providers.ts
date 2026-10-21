@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
+import { confirmVersion, loadCurrent, saveConfig } from './builder/api'
 import type { BuilderConfig } from './builder/model'
 import type { PasskeyBrowser, Session } from './passkeys'
 
@@ -64,11 +65,17 @@ export function withPrivateEligible(config: BuilderConfig, id: string, on: boole
  * applies at once (`applied`).
  */
 export async function setProviderPrivate(
-  _session: Session,
-  _id: string,
-  _on: boolean,
-  _fetcher: Fetcher,
-  _browser: PasskeyBrowser
+  session: Session,
+  id: string,
+  on: boolean,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<'applied' | 'confirmed'> {
-  return 'applied'
+  const { config } = await loadCurrent(session, fetcher)
+  const saved = await saveConfig(session, withPrivateEligible(config, id, on), fetcher)
+  if (saved.status === 'applied') {
+    return 'applied'
+  }
+  await confirmVersion(session, saved.version, fetcher, browser)
+  return 'confirmed'
 }

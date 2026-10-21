@@ -1,0 +1,13 @@
+# A provider is private-eligible only because the Guild Master attested it, with a passkey, after being told where private text goes
+
+ADR-0006 says the classifier model "may only be bound to a private-eligible provider" but not how a provider becomes one. This amends that sentence: **private-eligible is the Guild Master's per-provider attestation, confirmed with a passkey, never a property the Guildhall infers or a model claims.**
+
+**Any provider kind may be chosen.** An `api_key` provider, or the host's `subscription` provider (ADR-0008), may be marked private-eligible. The Guildhall does not rank vendors or auth paths as safe or unsafe; that is a judgment about the Guild Master's own data and trust, and it is theirs. Hosted mode is unchanged: subscription providers are dropped there (ADR-0008), so a subscription provider never serves private work on a hosted Guildhall whatever its flag says.
+
+**The UI discloses the destination.** Settings, Providers shows each provider's private-eligible state with one sentence built by a pure function from provider data (vendor, auth path, host or hosted) and nothing else, for example "Private Quests will be sent to Anthropic through your Claude subscription on this Mac." No model writes it. The Guild Master reads where private text goes before they attest.
+
+**Widening.** `provider.privateEligible` travels in the existing guild config. Turning it on is a widening change: saved pending, applied only by the passkey confirm on `POST /guilds/:id/config/versions/:version/confirm`. Turning it off narrows where private text may go, so it is a tightening change and applies at once; changing anything else about the provider (id or auth) in the same save stays widening. Routing already refuses private work for a provider that is not private-eligible, and the classifier is bound to a private-eligible provider's cheap tier when one exists (deterministic code, re-read when config changes).
+
+We rejected letting the Guildhall decide from the vendor or the auth path (it cannot know the Guild Master's contract or risk appetite, and a wrong "safe" label is worse than none), and treating the switch as a plain setting without a passkey (it widens where private text flows).
+
+Amends ADR-0006.

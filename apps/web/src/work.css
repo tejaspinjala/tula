@@ -38,6 +38,19 @@
   gap: calc(var(--px) * 3);
 }
 
+.provider-list {
+  margin: 0;
+  padding: 0;
+}
+
+.provider-name {
+  font-family: var(--font-label);
+}
+
+.provider-state {
+  font-size: var(--text-sm);
+}
+
 /* A paper note: one Seal, Quest, Proposal or Suggestion on a sheet. */
 .work-note {
   list-style: none;
