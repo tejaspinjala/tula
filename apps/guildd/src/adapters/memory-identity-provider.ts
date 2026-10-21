@@ -19,6 +19,7 @@ export class MemoryIdentityStore implements IdentityStore {
   private readonly sessions = new Map<string, StoredSession>()
   private readonly founding = new Map<string, { tokenHash: string; expiresAt: Date }>()
   private readonly enrolments = new Map<string, { tokenHash: string; expiresAt: Date }>()
+  private readonly desktopCodes = new Map<string, { codeHash: string; expiresAt: Date }>()
   private readonly events = new Map<string, IdentityEvent[]>()
   private readonly masters = new Map<string, StoredMember>()
 
@@ -140,6 +141,22 @@ export class MemoryIdentityStore implements IdentityStore {
       this.credentials.set(guildId, [...list, credential])
     }
     this.record(guildId, ...events)
+    return true
+  }
+
+  async issueDesktopCode(guildId: string, codeHash: string, expiresAt: Date, event: IdentityEvent) {
+    this.desktopCodes.set(guildId, { codeHash, expiresAt })
+    this.record(guildId, event)
+  }
+
+  // No await between the checks and the writes, so this is atomic within the process.
+  async spendDesktopCode(guildId: string, codeHash: string, now: Date, event: IdentityEvent) {
+    const held = this.desktopCodes.get(guildId)
+    if (held === undefined || held.codeHash !== codeHash || held.expiresAt <= now) {
+      return false
+    }
+    this.desktopCodes.delete(guildId)
+    this.record(guildId, event)
     return true
   }
 

@@ -14,6 +14,7 @@ import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
   type CheckpointAssertion,
+  DESKTOP_CODE_TTL_MS,
   ENROL_TTL_MS,
   FOUNDING_TTL_MS,
   IdentityError,
@@ -146,12 +147,36 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return this.openSession(guildId)
   }
 
-  async beginDesktopHandoff(_sessionToken: string): Promise<{ code: string; expiresAt: Date }> {
-    throw new Error('not implemented')
+  async beginDesktopHandoff(sessionToken: string) {
+    const live = await this.liveSession(sessionToken)
+    if (!live) {
+      throw new IdentityError('unauthenticated')
+    }
+    const code = `${live.guildId}.${randomToken()}`
+    const expiresAt = new Date(this.config.clock.now().getTime() + DESKTOP_CODE_TTL_MS)
+    await this.store.issueDesktopCode(live.guildId, await hashOf(code), expiresAt, {
+      type: 'identity.desktop_code_issued',
+      payload: { sessionId: live.session.id },
+    })
+    return { code, expiresAt }
   }
 
-  async exchangeDesktopCode(_code: string): Promise<IdentitySession> {
-    throw new Error('not implemented')
+  async exchangeDesktopCode(code: string) {
+    const guildId = guildPrefix.safeParse(code.split('.')[0])
+    // Malformed, wrong, expired, spent and other-guild codes all land here, with the same refusal.
+    if (!guildId.success) {
+      throw new IdentityError('invalid_challenge')
+    }
+    const spent = await this.store.spendDesktopCode(
+      guildId.data,
+      await hashOf(code),
+      this.config.clock.now(),
+      { type: 'identity.desktop_code_spent', payload: {} }
+    )
+    if (!spent) {
+      throw new IdentityError('invalid_challenge')
+    }
+    return this.openSession(guildId.data)
   }
 
   async beginRegistration(

@@ -118,6 +118,23 @@ export interface IdentityStore {
     now: Date,
     events: IdentityEvent[]
   ): Promise<boolean>
+  /** Stores or replaces the guild's desktop hand-off code hash, appending `event` in the same transaction. */
+  issueDesktopCode(
+    guildId: string,
+    codeHash: string,
+    expiresAt: Date,
+    event: IdentityEvent
+  ): Promise<void>
+  /**
+   * Atomically spends the unexpired desktop code `codeHash` and appends `event`, in one transaction.
+   * @returns false (changing nothing, appending nothing) when the code is absent, spent or expired.
+   */
+  spendDesktopCode(
+    guildId: string,
+    codeHash: string,
+    now: Date,
+    event: IdentityEvent
+  ): Promise<boolean>
   /**
    * The one guild holding the credential id, or null when none (or, never expected, several) does.
    * Crosses tenants on purpose, through the security-definer `guild_for_credential` (migration 0057).

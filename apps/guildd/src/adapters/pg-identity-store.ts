@@ -207,6 +207,38 @@ export class PgIdentityStore implements IdentityStore {
     })
   }
 
+  async issueDesktopCode(
+    guildId: string,
+    codeHash: string,
+    expiresAt: Date,
+    event: IdentityEvent
+  ): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`insert into identity_desktop_codes (guild_id, code_hash, expires_at)
+        values (${guildId}, ${codeHash}, ${expiresAt})
+        on conflict (guild_id) do update set code_hash = excluded.code_hash, expires_at = excluded.expires_at`
+      await this.append(tx, event)
+    })
+  }
+
+  async spendDesktopCode(
+    guildId: string,
+    codeHash: string,
+    now: Date,
+    event: IdentityEvent
+  ): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // The delete takes the row lock, so two exchanges of one code cannot both spend it.
+      const spent = await tx`delete from identity_desktop_codes
+        where guild_id = ${guildId} and code_hash = ${codeHash} and expires_at > ${now} returning 1`
+      if (spent.length === 0) {
+        return false
+      }
+      await this.append(tx, event)
+      return true
+    })
+  }
+
   async clearReauth(guildId: string, sessionId: string, hash: string): Promise<boolean> {
     const rows = await this.db.withGuild(
       guildId,

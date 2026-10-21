@@ -118,3 +118,13 @@ test('setReauth for an unknown session appends no event', async () => {
   ).rejects.toThrow()
   expect(await count(guildId, 'events')).toBe(before)
 })
+
+test("one guild cannot spend another guild's desktop code, even with its hash", async () => {
+  const a = await foundTestGuild(db, { name: 'CodeA', goal: 'g' })
+  const b = await foundTestGuild(db, { name: 'CodeB', goal: 'g' })
+  await store.issueDesktopCode(a, 'hash-a', new Date(T0.getTime() + 60_000), note)
+  expect(await store.spendDesktopCode(b, 'hash-a', T0, note)).toBe(false)
+  expect(await count(a, 'identity_desktop_codes')).toBe(1)
+  expect(await store.spendDesktopCode(a, 'hash-a', T0, note)).toBe(true)
+  expect(await count(a, 'identity_desktop_codes')).toBe(0)
+})
