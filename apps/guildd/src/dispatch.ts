@@ -94,8 +94,12 @@ export async function routeClaimed(
   return { status: 'blocked', reason: outcome.reason, disposition: 'retry_scheduled' }
 }
 
-/** Blocks no wait can fix: the Quest dies with its coded reason. A locked Hall is not one: its Quests park and resume on unlock. */
-const PERMANENT: readonly BlockReason[] = ['hall_not_found', 'private_provider_unavailable']
+/**
+ * Blocks no wait can fix: the Quest dies with its coded reason. A locked Hall and private work with
+ * no private-eligible provider are not: those Quests wait (park) and dispatch once the Guild Master
+ * unlocks the Hall or marks a provider private-eligible.
+ */
+const PERMANENT: readonly BlockReason[] = ['hall_not_found']
 
 /** Collaborators of {@link startRun}. */
 export interface StartRunDeps {
