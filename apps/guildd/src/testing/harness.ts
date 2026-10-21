@@ -85,6 +85,8 @@ export interface HarnessOptions {
       | 'pushStore'
       | 'guildMasterLooks'
       | 'presence'
+      | 'councilStore'
+      | 'council'
       | 'pushNotifier'
       | 'vapidPublicKey'
       | 'platformOperators'
@@ -175,6 +177,8 @@ export async function createHarness(options: HarnessOptions = {}) {
       pushStore: composed.pushStore,
       guildMasterLooks: composed.guildMasterLooks,
       presence: composed.presence,
+      councilStore: composed.councilStore,
+      council: composed.council,
       pushNotifier: composed.pushNotifier,
       pushRelay: composed.pushRelay,
       gateway: composed.gateway,

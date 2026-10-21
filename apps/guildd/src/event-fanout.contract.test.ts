@@ -65,6 +65,8 @@ function countingApp(
     pushStore: harness.adapters.pushStore,
     guildMasterLooks: harness.adapters.guildMasterLooks,
     presence: harness.adapters.presence,
+    councilStore: harness.adapters.councilStore,
+    council: harness.adapters.council,
     pushNotifier: harness.adapters.pushNotifier,
     pushRelay: harness.adapters.pushRelay,
     vapidPublicKey: null,

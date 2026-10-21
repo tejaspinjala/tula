@@ -73,6 +73,15 @@ const cases: Array<[ReplayEvent, string]> = [
     'Verdict recorded for Proposal pr1: failed',
   ],
   [ev('seal.requested', { sealId: 's1', questId: 'q1' }), 'Seal s1 requested for Quest q1'],
+  [ev('council.convened', { sessionId: 'c1' }), 'The Council of Elders convened'],
+  [
+    ev('council.voted', { sessionId: 'c1', voice: 'ops' }),
+    'A voice of the Council of Elders voted',
+  ],
+  [
+    ev('council.escalated', { sessionId: 'c1' }),
+    'The Council of Elders sent a Proposal to the Guild Master',
+  ],
   [ev('seal.approved', { sealId: 's1', questId: 'q1' }), 'Seal s1 approved'],
   [ev('seal.denied', { sealId: 's1', questId: 'q1' }), 'Seal s1 denied'],
   [ev('seal.reserved', { sealId: 's1', questId: 'q1' }), 'Seal s1 reserved'],

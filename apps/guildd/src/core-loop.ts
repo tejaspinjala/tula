@@ -1,14 +1,23 @@
+import { type CouncilEngine, councilEvidence } from './council'
+import { councilApprovalCap, councilSessionCap } from './guild-config'
+import { GatewayError } from './model-gateway'
 import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
+import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import { isAway, type PresenceStore } from './ports/presence-store'
+import type { Verdict } from './ports/proposal-store'
 import type { Quest, QuestQueue } from './ports/quest-queue'
 import type { Seal, SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
+import { QUEST_TEMPLATES } from './quests'
+import { isRoutine } from './routine'
 import { type SealEngine, SealRequestError } from './seals'
 
 /** One stderr line naming the failed step and the ids, never the error text. */
 function logPassFailure(step: string, guildId: string, questId: string, error: unknown): void {
   const name = error instanceof Error ? error.name : 'unknown'
-  process.stderr.write(`seal ${step} failed: guild=${guildId} quest=${questId} ${name}\n`)
+  const code = error instanceof GatewayError ? ` code=${error.code}` : ''
+  process.stderr.write(`seal ${step} failed: guild=${guildId} quest=${questId} ${name}${code}\n`)
 }
 
 /** Dead-letters a Quest whose Seal can never be requested, isolating a failure of that too. */
@@ -93,10 +102,63 @@ export interface SealRequestDeps {
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealEngine, 'requestSeal'>
   /**
-   * Read at request time for the guild's Seal Policy. Absent means `always`. Every level requests a
-   * Seal for now; the Council of Elders branch for `routine_alone` lands with the Council.
+   * Read at request time for the guild's Seal Policy and Council caps. Absent means `always`: the
+   * Council never convenes without it.
    */
   config?: Pick<ConfigStore, 'current'>
+  /** Whether the Guild Master is away (read at request time, never cached). Absent: never away. */
+  presence?: Pick<PresenceStore, 'get'>
+  /** The Council of Elders. Absent: it never convenes. */
+  council?: Pick<CouncilEngine, 'convene'>
+  /** The instant "away" is judged at. Absent: the Council never convenes. */
+  clock?: Pick<Clock, 'now'>
+}
+
+/**
+ * Convenes the Council of Elders when, and only when, all of these hold, each decided by code:
+ * the Seal Policy is `routine_alone`, the Guild Master is away, the Proposal is routine and the
+ * guild is under its daily sessions cap. Returns the Council's votes as Seal evidence, or null
+ * when it did not convene. The outcome is always escalation to the Guild Master's Seal in this
+ * release, so the Seal is requested either way; approval in place of a Seal comes later (#150).
+ */
+async function consultCouncil(
+  deps: SealRequestDeps,
+  guildId: string,
+  quest: Quest,
+  proposal: { hash: string; content: string },
+  verdict: Verdict
+): Promise<string | 'pending' | null> {
+  if (!deps.config) {
+    return null
+  }
+  const { config } = await deps.config.current(guildId)
+  if (config.sealPolicy !== 'routine_alone' || !deps.presence || !deps.council || !deps.clock) {
+    return null
+  }
+  if (!isAway(await deps.presence.get(guildId), deps.clock.now())) {
+    return null
+  }
+  const template = QUEST_TEMPLATES.find((t) => t.id === quest.templateId)
+  const routine = isRoutine({
+    templateRoutineEligible: template?.routineEligible === true,
+    dataClass: quest.dataClass,
+    proposalHash: proposal.hash,
+    verdict,
+    // The Council gives no approvals yet, so the whole daily allowance remains.
+    approvalsRemainingToday: councilApprovalCap(config),
+  })
+  if (!routine) {
+    return null
+  }
+  const result = await deps.council.convene(guildId, {
+    quest,
+    proposal,
+    sessionCap: councilSessionCap(config),
+  })
+  if (result.status === 'in_progress') {
+    return 'pending'
+  }
+  return result.status === 'escalated' ? councilEvidence(result.votes, result.reason) : null
 }
 
 /** What {@link requestQuestSeal} did: asked for a Seal, rejected the Proposal, or found none. */
@@ -104,6 +166,8 @@ export type QuestSealOutcome =
   | { outcome: 'requested'; seal: Seal }
   | { outcome: 'rejected'; quest: Quest }
   | { outcome: 'no_proposal' }
+  /** The Council is mid-session on another worker: not yet; no Seal is requested this pass. */
+  | { outcome: 'council_pending' }
 
 /**
  * Asks for the Seal of a Quest held in `awaiting_seal`, gated on the Verdict bound to the hash of
@@ -138,16 +202,17 @@ export async function requestQuestSeal(
       quest: await deps.quests.settleSeal(guildId, quest.id, 'rejected'),
     }
   }
-  // The Seal Policy is read at runtime, here, where the Council branch will go (#149): only
-  // `routine_alone`, while the Guild Master is away and for a routine Proposal, will route to the
-  // Council. Until it exists every level asks for a Seal, so the policy is read but not yet acted on.
-  await deps.config?.current(guildId)
+  const verdictEvidence = `Verdict passed: ${verdict.findings.map((f) => `${f.check} (${f.detail})`).join('; ')}`
+  const council = await consultCouncil(deps, guildId, quest, proposal, verdict)
+  if (council === 'pending') {
+    return { outcome: 'council_pending' }
+  }
   const seal = await deps.seals.requestSeal(guildId, {
     questId: quest.id,
     requestedBy: quest.ownerId,
     kind: proposal.kind,
     text: proposal.content,
-    evidence: `Verdict passed: ${verdict.findings.map((f) => `${f.check} (${f.detail})`).join('; ')}`,
+    evidence: council === null ? verdictEvidence : `${verdictEvidence}; ${council}`,
     round: quest.round,
   })
   return { outcome: 'requested', seal }

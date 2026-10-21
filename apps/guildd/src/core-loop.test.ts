@@ -1,18 +1,24 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryConfigStore } from './adapters/memory-config-store'
+import { MemoryCouncilStore } from './adapters/memory-council-store'
 import { MemoryIdentityStore } from './adapters/memory-identity-provider'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryPresenceStore } from './adapters/memory-presence-store'
 import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { reconcileSeals, requestPendingSeals, requestQuestSeal } from './core-loop'
+import { CouncilEngine } from './council'
 import { defaultConfig } from './guild-config'
+import { GatewayError } from './model-gateway'
+import type { Quest } from './ports/quest-queue'
 import { SEAL_TTL_MS } from './ports/seal-store'
 import { ProposalEngine } from './proposals'
 import { SealEngine } from './seals'
+import { ScriptedCouncilModel, voteReply } from './testing/scripted-council-model'
 import type { ContentPolicy } from './verdict'
 
 async function setup(roundLimit = 2) {
@@ -127,7 +133,7 @@ describe('requestQuestSeal', () => {
     return { ...s, deps, draft }
   }
 
-  test('under every Seal Policy the Seal step still requests a Seal (the Council comes later)', async () => {
+  test('with no Council wired, every Seal Policy still requests a Seal and reads the policy', async () => {
     for (const sealPolicy of ['always', 'routine_alone'] as const) {
       const g = await gate()
       await g.draft('Hello guild')
@@ -142,6 +148,180 @@ describe('requestQuestSeal', () => {
       expect(result.outcome).toBe('requested')
       expect(reads).toEqual([g.guild])
     }
+  })
+
+  describe('the Council of Elders', () => {
+    async function council(
+      over: { sealPolicy?: 'always' | 'routine_alone'; sessionCap?: number } = {}
+    ) {
+      const g = await gate()
+      const proposal = await g.draft('Hello guild')
+      const model = new ScriptedCouncilModel((call) =>
+        voteReply(call.system.includes('skeptic') ? 'block' : 'approve', `${call.questId} reason`)
+      )
+      const store = new MemoryCouncilStore()
+      const presence = new MemoryPresenceStore(g.clock)
+      const config = {
+        current: async () => ({
+          version: 1,
+          config: {
+            ...defaultConfig(),
+            sealPolicy: over.sealPolicy ?? ('routine_alone' as const),
+            caps: {
+              ...defaultConfig().caps,
+              ...(over.sessionCap === undefined
+                ? {}
+                : { maxCouncilSessionsPerDay: over.sessionCap }),
+            },
+          },
+        }),
+      }
+      const deps = {
+        ...g.deps,
+        config,
+        presence,
+        clock: g.clock,
+        council: new CouncilEngine({ store, model, clock: g.clock }),
+      }
+      return { ...g, deps, model, store, presence, proposal }
+    }
+
+    test('a routine Proposal while away convenes one session with five votes and the Seal carries them as evidence', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('requested')
+      expect(c.model.calls).toHaveLength(5)
+      const seal = await c.seals.forQuest(c.guild, c.quest.id)
+      expect(seal?.status).toBe('requested')
+      expect(seal?.evidence).toContain('Verdict passed')
+      expect(seal?.evidence).toContain('Council of Elders')
+      for (const voice of ['architect', 'skeptic', 'security', 'ops', 'user']) {
+        expect(seal?.evidence).toContain(voice)
+      }
+      expect(seal?.evidence).toContain('skeptic block')
+      expect(seal?.evidence).toContain(`${c.quest.id} reason`)
+      expect(seal?.actionHash).toBe(c.proposal.hash)
+    })
+
+    test('a session another worker is running means not yet: no Seal is requested', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      const opened = await c.store.open(c.guild, {
+        questId: c.quest.id,
+        proposalHash: c.proposal.hash,
+        day: c.clock.now().toISOString().slice(0, 10),
+        sessionCap: 20,
+      })
+      if (opened.status === 'cap_reached') {
+        throw new Error('unexpected cap')
+      }
+      await c.store.claim(c.guild, opened.session.id, 'other-worker', c.clock.now(), 300_000)
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('council_pending')
+      expect(c.model.calls).toHaveLength(0)
+      expect(await c.seals.forQuest(c.guild, c.quest.id)).toBeNull()
+    })
+
+    test('a permanent config error three times requests the Seal with council_unavailable; the code is logged', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      const failing = new CouncilEngine({
+        store: c.store,
+        model: new ScriptedCouncilModel(() => {
+          throw new GatewayError('unknown_profile')
+        }),
+        clock: c.clock,
+      })
+      const deps = { ...c.deps, council: failing }
+      const lines: string[] = []
+      const spy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        lines.push(String(chunk))
+        return true
+      })
+      try {
+        await requestPendingSeals(deps, c.guild)
+        await requestPendingSeals(deps, c.guild)
+      } finally {
+        spy.mockRestore()
+      }
+      expect(await c.seals.forQuest(c.guild, c.quest.id)).toBeNull()
+      expect(
+        lines.some((l) => l.includes('seal request failed') && l.includes('unknown_profile'))
+      ).toBe(true)
+      expect(lines.join('')).not.toContain(c.proposal.content)
+      const third = await requestQuestSeal(deps, c.guild, c.quest)
+      expect(third.outcome).toBe('requested')
+      const seal = await c.seals.forQuest(c.guild, c.quest.id)
+      expect(seal?.evidence).toContain('Verdict passed')
+      expect(seal?.evidence).toContain('council_unavailable')
+    })
+
+    test('Bar the Gates mid-session never turns into a Seal request', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      const barred = new CouncilEngine({
+        store: c.store,
+        model: new ScriptedCouncilModel(() => {
+          throw new GatewayError('gates_barred')
+        }),
+        clock: c.clock,
+      })
+      for (let i = 0; i < 5; i += 1) {
+        await expect(
+          requestQuestSeal({ ...c.deps, council: barred }, c.guild, c.quest)
+        ).rejects.toThrow()
+      }
+      expect(await c.seals.forQuest(c.guild, c.quest.id)).toBeNull()
+    })
+
+    test('asking again convenes no second session and runs no voice twice', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      await requestQuestSeal(c.deps, c.guild, c.quest)
+      await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(c.model.calls).toHaveLength(5)
+    })
+
+    test.each([
+      [
+        'the Guild Master is present',
+        async (c: Awaited<ReturnType<typeof council>>) => c.presence.returnHome(c.guild),
+      ],
+      [
+        'the return time has passed',
+        async (c: Awaited<ReturnType<typeof council>>) => {
+          await c.presence.goAway(c.guild, new Date(c.clock.now().getTime() + 1000).toISOString())
+          c.clock.advance(2000)
+        },
+      ],
+    ])('no session when %s: the Seal is requested as today', async (_name, arrange) => {
+      const c = await council()
+      await arrange(c)
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('requested')
+      expect(c.model.calls).toHaveLength(0)
+      expect((await c.seals.forQuest(c.guild, c.quest.id))?.evidence).not.toContain('Council')
+    })
+
+    test('no session under always, for a private-class Quest, a non-eligible template, or a reached sessions cap', async () => {
+      const cases: Array<[Awaited<ReturnType<typeof council>>, Quest]> = []
+      const always = await council({ sealPolicy: 'always' })
+      cases.push([always, always.quest])
+      const priv = await council()
+      cases.push([priv, { ...priv.quest, dataClass: 'private' }])
+      const ineligible = await council()
+      cases.push([ineligible, { ...ineligible.quest, templateId: 'herald-brief' }])
+      const capped = await council({ sessionCap: 0 })
+      cases.push([capped, capped.quest])
+      for (const [c, quest] of cases) {
+        await c.presence.goAway(c.guild, null)
+        const result = await requestQuestSeal(c.deps, c.guild, quest)
+        expect(result.outcome).toBe('requested')
+        expect(c.model.calls).toHaveLength(0)
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.evidence).not.toContain('Council')
+      }
+    })
   })
 
   test('a passing Verdict requests a Seal bound to the Proposal hash and the Quest round', async () => {

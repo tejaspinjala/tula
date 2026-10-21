@@ -654,3 +654,56 @@ describe('Bar the Gates mid-call', () => {
     expect(probe.mock.calls.length).toBe(after)
   })
 })
+
+describe('councilComplete', () => {
+  const call = {
+    sessionId: 'sess-1',
+    questId: 'quest-1',
+    hallId: 'heralds',
+    system: 'You are the skeptic.',
+    brief: 'Judge this.',
+  }
+
+  test('serves a voice from the mid tier profile, metered against the guild day under a Council run', async () => {
+    const s = await setup()
+    s.provider.script({
+      ok: true,
+      text: '{"vote":"approve","reasons":[]}',
+      usage: { inputTokens: 1000, outputTokens: 100 },
+    })
+    const out = await s.gateway.councilComplete(GUILD, call)
+    expect(out.text).toContain('approve')
+    expect(out.usage).toEqual({ inputTokens: 1000, outputTokens: 100 })
+    expect(out.costMicros).toBe(3000 + 1500)
+    expect(s.provider.seen[0]?.request.model).toBe('model-from-config')
+    expect(s.provider.seen[0]?.request.system).toBe(call.system)
+    expect(await s.ledger.dayTotals(GUILD, '2026-03-04')).toEqual({
+      tokens: 1100,
+      costMicros: 4500,
+    })
+    expect((await s.ledger.getRun(GUILD, 'council:sess-1'))?.questId).toBe('quest-1')
+  })
+
+  test('a daily cap reached refuses the call as cap_reached before the provider is called', async () => {
+    const s = await setup(config({ dailyTokens: 10 }))
+    await expect(s.gateway.councilComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'cap_reached',
+    })
+    expect(s.provider.seen).toHaveLength(0)
+  })
+
+  test('Bar the Gates refuses the call', async () => {
+    const s = await setup()
+    await s.gates.bar({ guildId: GUILD, memberId: 'gm' }, 'guild')
+    await expect(s.gateway.councilComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'gates_barred',
+    })
+  })
+
+  test('a provider failure ends as provider_failed', async () => {
+    const s = await setup()
+    await expect(s.gateway.councilComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'provider_failed',
+    })
+  })
+})
