@@ -46,7 +46,7 @@ export interface NewActivity {
   activity: Activity
   /** The instant it happened. */
   at: Date
-  /** Repeats of the same Member and activity within this long after an emitted one coalesce. */
+  /** Repeats of the same Member and activity within this long after an emitted one coalesce (cross-Hall activity, which names `toHallId`, never does). */
   windowMs: number
 }
 
