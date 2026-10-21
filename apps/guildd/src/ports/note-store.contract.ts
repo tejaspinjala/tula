@@ -253,5 +253,18 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.search(other, 'private', open)).notes).toEqual([])
       expect(await store.get(other, secret.id, undefined, { includePrivate: true })).toBeNull()
     })
+
+    test('a repeated add with the same key and another data class returns the original note unchanged', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const input = { kind: 'text', claim: 'assumption', title: 'Once', body: 'b' } as const
+      const first = await store.add(g, input, 'a', 'key:1', 'internal')
+      const again = await store.add(g, input, 'a', 'key:1', 'private')
+      expect(again).toEqual(first)
+      expect(again.dataClass).toBe('internal')
+      const privateFirst = await store.add(g, input, 'a', 'key:2', 'private')
+      expect((await store.add(g, input, 'a', 'key:2', 'internal')).dataClass).toBe('private')
+      expect(privateFirst.dataClass).toBe('private')
+    })
   })
 }

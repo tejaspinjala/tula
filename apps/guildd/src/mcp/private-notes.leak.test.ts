@@ -264,4 +264,56 @@ describe('private notes never leave their Hall through any read path', () => {
     expect(out).toMatchObject({ isError: true, data: { error: 'private_boundary' } })
     expect(JSON.stringify(out)).not.toContain(SECRET)
   })
+  const handoffCiting = (ref: string) => ({
+    goal: 'g',
+    doneCondition: 'Do the work',
+    met: true,
+    evidence: [{ kind: 'note', ref }],
+    openItems: [],
+    artifacts: [],
+  })
+
+  test('a private Quest may cite a private note of its Hall as Handoff evidence', async () => {
+    const s = await setup()
+    const id = await privateNote(s)
+    const citer = await s.joined('scribes', 'scribes-member-1', { dataClass: 'private' })
+    const out = await callTool(s.transport, 'complete_quest', {
+      lease: citer.lease,
+      handoff: handoffCiting(id),
+    })
+    expect(out.isError).toBe(false)
+  })
+
+  test('an ordinary work-Hall Quest citing a private note is refused as for an unknown note', async () => {
+    const s = await setup()
+    const id = await privateNote(s)
+    const citer = await s.joined('scribes', 'scribes-member-1')
+    const unknown = crypto.randomUUID()
+    const refused = await callTool(s.transport, 'complete_quest', {
+      lease: citer.lease,
+      handoff: handoffCiting(id),
+    })
+    const baseline = await callTool(s.transport, 'complete_quest', {
+      lease: citer.lease,
+      handoff: handoffCiting(unknown),
+    })
+    expect(refused).toMatchObject({ isError: true, data: { error: 'invalid_handoff' } })
+    expect(JSON.stringify(refused).replaceAll(id, 'X')).toBe(
+      JSON.stringify(baseline).replaceAll(unknown, 'X')
+    )
+  })
+
+  test('private reads are Hall-wide for private-class Quests: B reads A\u2019s note, another Hall cannot', async () => {
+    const s = await setup()
+    const id = await privateNote(s)
+    const sameHall = await s.joined('scribes', 'scribes-member-1', { dataClass: 'private' })
+    const read = await callTool(s.transport, 'read_archive', { lease: sameHall.lease, noteId: id })
+    expect(read).toMatchObject({ isError: false, data: { note: { body: SECRET } } })
+    const otherHall = await s.joined('heralds', 'heralds-member-2', { dataClass: 'private' })
+    const refused = await callTool(s.transport, 'read_archive', {
+      lease: otherHall.lease,
+      noteId: id,
+    })
+    expect(refused).toMatchObject({ isError: true, data: { error: 'not_found' } })
+  })
 })

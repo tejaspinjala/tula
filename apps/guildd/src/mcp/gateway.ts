@@ -701,6 +701,9 @@ export class McpGateway {
   /**
    * Whether the leased Quest may read private notes of its own Hall: only a private-class Quest or
    * a Quest in a private Hall. A work-Hall Member on an ordinary Quest never does.
+   * Deliberately Hall-wide: the private Archive belongs to the Hall, so any private-class Quest
+   * of that Hall reads the Hall's private notes (private Quests run only in private-eligible
+   * Halls); no other Hall ever does, since reads are scoped to the Quest's own Hall.
    */
   private async mayReadPrivate(caller: Caller): Promise<boolean> {
     if (caller.quest.dataClass === 'private') {
@@ -1538,8 +1541,9 @@ export class McpGateway {
           })
         }
       }
+      const includePrivate = await this.mayReadPrivate(caller)
       for (const ref of h.evidence.filter((e) => e.kind === 'note')) {
-        if (!(await hallNote(this.deps.notes, guild, quest.hallId, ref.ref))) {
+        if (!(await hallNote(this.deps.notes, guild, quest.hallId, ref.ref, includePrivate))) {
           issues.push({
             path: 'evidence',
             message: `note ${ref.ref} is not in this Hall's Archive`,
