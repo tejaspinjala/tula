@@ -147,6 +147,21 @@ export function missiveCap(config: GuildConfig): number {
   return config.caps.maxMissivesPerQuest ?? DEFAULT_MAX_MISSIVES_PER_QUEST
 }
 
+/** Inquiries one Quest may ask (stub). */
+export function inquiryCap(_config: GuildConfig): number {
+  return 0
+}
+
+/** Bug Reports one Quest may file (stub). */
+export function bugReportCap(_config: GuildConfig): number {
+  return 0
+}
+
+/** Dossiers one Quest may request (stub). */
+export function dossierCap(_config: GuildConfig): number {
+  return 0
+}
+
 /** Research calls one Quest may make when the config sets no cap: none, so research is off. */
 export const DEFAULT_MAX_RESEARCH_PER_QUEST = 0
 

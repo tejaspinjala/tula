@@ -1,14 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  bugReportCap,
   campaignQuestCap,
   classifyChange,
   defaultConfig,
+  dossierCap,
   type GuildConfig,
   guildConfig,
   guildContentPolicy,
   guildTreasury,
   hallAcceptsQuests,
   hallMemberCap,
+  inquiryCap,
   isLearningRepoAllowed,
   learningRepoAllowlist,
   missiveCap,
@@ -131,6 +134,31 @@ describe('classifyChange', () => {
     expect(
       guildConfig.safeParse({ ...base, caps: { ...base.caps, maxResearchPerQuest: 101 } }).success
     ).toBe(false)
+  })
+  test('Milestone 2 caps default to 3, 3 and 5; raising one is widening, lowering applies at once, bounds are 0-50', () => {
+    expect(inquiryCap(base)).toBe(3)
+    expect(bugReportCap(base)).toBe(3)
+    expect(dossierCap(base)).toBe(5)
+    for (const key of [
+      'maxInquiriesPerQuest',
+      'maxBugReportsPerQuest',
+      'maxDossiersPerQuest',
+    ] as const) {
+      const raised = { ...base, caps: { ...base.caps, [key]: 10 } }
+      expect(classifyChange(base, raised)).toBe('widening')
+      expect(classifyChange(raised, { ...base, caps: { ...base.caps, [key]: 1 } })).toBe(
+        'tightening'
+      )
+      expect(guildConfig.safeParse({ ...base, caps: { ...base.caps, [key]: 50 } }).success).toBe(
+        true
+      )
+      expect(guildConfig.safeParse({ ...base, caps: { ...base.caps, [key]: 51 } }).success).toBe(
+        false
+      )
+      expect(guildConfig.safeParse({ ...base, caps: { ...base.caps, [key]: -1 } }).success).toBe(
+        false
+      )
+    }
   })
   test('the id `hall` is reserved for Missives: no Member or Captain may take it', () => {
     const [first, ...rest] = base.halls
