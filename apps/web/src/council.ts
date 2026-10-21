@@ -16,12 +16,16 @@ const voteBody = z.object({
 const sessionBody = z.object({
   id: z.string(),
   questId: z.string(),
+  /** The Quest's title, read by the server; null when it is not found in this guild. */
+  questTitle: z.string().nullable(),
   proposalHash: z.string(),
   day: z.string(),
   status: z.string(),
   reason: z.string().nullable(),
   createdAt: z.string(),
   sealId: z.string().nullable(),
+  /** Open but stopped by Bar the Gates, with no vote cast since. */
+  halted: z.boolean(),
   costMicros: z.number().nullable(),
   votes: z.array(voteBody),
 })
@@ -87,7 +91,12 @@ export function councilVoteLabel(vote: string): string {
   return Object.hasOwn(VOTE_LABELS, vote) ? (VOTE_LABELS[vote] ?? 'Unknown') : 'Unknown'
 }
 
+/** A session's status in words, "Halted" while Bar the Gates holds an open one. */
+export function councilSessionLabel(session: { status: string; halted: boolean }): string {
+  return councilStatusLabel(session.status)
+}
+
 /** Whether any of these sessions is still open: the elders confer while one is. */
-export function councilOpenNow(sessions: readonly { status: string }[]): boolean {
+export function councilOpenNow(sessions: readonly { status: string; halted: boolean }[]): boolean {
   return sessions.some((s) => s.status === 'open')
 }

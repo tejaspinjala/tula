@@ -18,7 +18,8 @@ const entries = [
     seq: 5,
     kind: 'council_approved',
     occurredAt: '2026-03-01T09:00:00.000Z',
-    questId: 'q1',
+    questId: '11111111-aaaa-4aaa-8aaa-111111111111',
+    questTitle: 'Announce market day',
     sessionId: 'sess-1',
     sealId: null,
     reason: null,
@@ -30,6 +31,7 @@ const entries = [
     kind: 'escalated',
     occurredAt: '2026-03-01T10:00:00.000Z',
     questId: 'q2',
+    questTitle: null,
     sessionId: 'sess-2',
     sealId: null,
     reason: 'blocked',
@@ -68,12 +70,12 @@ beforeEach(() => {
   window_ = { since: SINCE, until: '2026-03-01T12:00:00.000Z', open: false }
 })
 
-async function mount(onOpenCouncil: (id: string) => void = () => {}) {
+async function mount(onOpenCouncil: (id: string) => void = () => {}, onShow?: () => void) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
-    root.render(<AwayScroll session={session} onOpenCouncil={onOpenCouncil} />)
+    root.render(<AwayScroll session={session} onOpenCouncil={onOpenCouncil} onShow={onShow} />)
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   const dialog = () => host.querySelector('dialog')
@@ -94,6 +96,26 @@ test('opens once on load for a window that ended unseen, listing what happened',
   const again = await mount()
   expect(again.dialog()?.open ?? false).toBe(false)
   await again.unmount()
+})
+
+test('names the Quest by its title with the id only as a short form, and says so when a title is missing', async () => {
+  const view = await mount()
+  const items = [...view.host.querySelectorAll('li')].map((li) => li.textContent ?? '')
+  expect(items[0]).toContain('Announce market day')
+  expect(items[0]).toContain('11111111')
+  expect(items[0]).not.toContain('11111111-aaaa-4aaa-8aaa-111111111111')
+  expect(items[1]).toContain('q2')
+  await view.unmount()
+})
+
+test('tells the app when it opens, so the Bag can step aside', async () => {
+  let shown = 0
+  const view = await mount(undefined, () => {
+    shown += 1
+  })
+  expect(view.dialog()?.open).toBe(true)
+  expect(shown).toBe(1)
+  await view.unmount()
 })
 
 test('stays shut while the Guild Master is still away', async () => {

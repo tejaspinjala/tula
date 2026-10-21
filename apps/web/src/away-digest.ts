@@ -12,6 +12,8 @@ const entryBody = z.object({
   kind: z.string(),
   occurredAt: z.string(),
   questId: z.string().nullable(),
+  /** The Quest's title, read by the server; null when the line has no Quest or it is not found. */
+  questTitle: z.string().nullable(),
   sessionId: z.string().nullable(),
   sealId: z.string().nullable(),
   reason: z.string().nullable(),

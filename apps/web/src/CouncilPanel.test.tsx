@@ -21,6 +21,8 @@ const sess = (id: string, over: Record<string, unknown> = {}) => ({
   reason: 'block',
   createdAt: '2026-10-20T10:00:00.000Z',
   sealId,
+  questTitle: 'Announce market day',
+  halted: false,
   costMicros: 1500,
   votes: VOICES.map((voice) => ({
     voice,
@@ -120,4 +122,33 @@ test('a ?session= link from the scroll opens that session straight to its votes'
   expect(detail?.querySelectorAll('li')).toHaveLength(5)
   window.history.pushState({}, '', '/')
   await m.unmount()
+})
+
+test('rows and detail name the Quest by its title with the id only as a short form, and show a halted session as halted', async () => {
+  const before = globalThis.fetch
+  const questId = '33333333-3333-4333-8333-333333333333'
+  globalThis.fetch = Object.assign(
+    async () =>
+      Response.json({
+        sessions: [sess('s9', { status: 'open', halted: true, sealId: null, questId })],
+        next: null,
+      }),
+    { preconnect: realFetch.preconnect }
+  )
+  try {
+    const m = await mount(<CouncilPanel session={session} />)
+    const row = m.host.querySelector('[data-testid="council-row"]')?.textContent ?? ''
+    expect(row).toContain('Announce market day')
+    expect(row).toContain('33333333')
+    expect(row).not.toContain(questId)
+    expect(row).toContain('Halted: the Gates are barred')
+    expect(row).not.toContain('Conferring')
+    await press(m.host, 'Open')
+    const detail = m.host.querySelector('[data-testid="council-detail"]')?.textContent ?? ''
+    expect(detail).toContain('Announce market day')
+    expect(detail).not.toContain(questId)
+    await m.unmount()
+  } finally {
+    globalThis.fetch = before
+  }
 })

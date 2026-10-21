@@ -20,6 +20,8 @@ export interface AwayScrollProps {
   session: Session
   /** Opens one Council session's votes in the Council panel. */
   onOpenCouncil: (sessionId: string) => void
+  /** Called each time the scroll opens, so the Bag can step aside and nothing shows through. */
+  onShow?: (() => void) | undefined
 }
 
 /** Entries one page of the scroll holds. */
@@ -62,7 +64,8 @@ function Entry({
  * Bag, or a return time noticed on load) and is remembered per viewer in localStorage. The Bag can
  * ask for it again. Each Council line opens its votes in the Council panel.
  */
-export function AwayScroll({ session, onOpenCouncil }: AwayScrollProps) {
+export function AwayScroll({ session, onOpenCouncil, onShow }: AwayScrollProps) {
+  void onShow
   const dialog = useRef<HTMLDialogElement>(null)
   const [shown, setShown] = useState(false)
   const [page, setPage] = useState<AwayDigestPage | null>(null)
