@@ -289,7 +289,8 @@ export interface QuestQueue {
   fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest>
   /**
    * Releases the lease of every active Quest of the guild without spending an attempt: each goes
-   * back to `queued`, deliverable at once, with `reason` as its last error. Atomic and idempotent;
+   * back to `queued`, deliverable at once, with `reason` as its last error. Each claim it gives back is
+   * refunded (`maxAttempts` rises by one), so a bar or a re-lock never shrinks the crash-retry budget. Atomic and idempotent;
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
   releaseLeases(guildId: string, reason: FailReason, halls?: readonly string[]): Promise<number>
