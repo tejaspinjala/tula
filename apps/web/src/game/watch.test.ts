@@ -1,5 +1,25 @@
 import { expect, test } from 'bun:test'
-import { watchSize } from './watch'
+import { refitScale, watchSize } from './watch'
+
+test('a refit first re-reads the parent size (Phaser never polls it) and only then refreshes', () => {
+  const calls: string[] = []
+  let moved = true
+  const scale = {
+    getParentBounds: () => {
+      calls.push('bounds')
+      return moved
+    },
+    refresh: () => {
+      calls.push('refresh')
+    },
+  }
+  refitScale(scale)
+  expect(calls).toEqual(['bounds', 'refresh'])
+  calls.length = 0
+  moved = false
+  refitScale(scale)
+  expect(calls).toEqual(['bounds'])
+})
 
 /** A stand-in observer that lets the test fire a size change by hand. */
 function fakeObserver() {
