@@ -44,6 +44,8 @@ export function stateWord(key: string): string {
       return 'awaiting Seal'
     case 'consumed':
       return 'posted'
+    case 'council_approved':
+      return 'approved by the Council'
     case 'dead':
       return 'dead-lettered'
     default:

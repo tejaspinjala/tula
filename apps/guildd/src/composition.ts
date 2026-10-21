@@ -255,7 +255,15 @@ export async function compose(
   const presence = overrides.presence ?? new PgPresenceStore(db, keys, clock)
   const councilStore = overrides.councilStore ?? new PgCouncilStore(db, keys)
   const council =
-    overrides.council ?? new CouncilEngine({ store: councilStore, model: gateway, clock })
+    overrides.council ??
+    new CouncilEngine({
+      store: councilStore,
+      model: gateway,
+      clock,
+      gates: gateStore,
+      config,
+      presence,
+    })
   const adapters: AppDeps = {
     ...overrides,
     ...(research ? { research } : {}),

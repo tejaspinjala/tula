@@ -19,6 +19,7 @@ const sealBody = z.object({
     'reserved',
     'consumed',
     'released',
+    'council_approved',
   ]),
   requestedAt: z.string(),
   expiresAt: z.string(),
@@ -149,7 +150,10 @@ export function parseEvidence(evidence: string): { lead: string | null; items: s
   }
 }
 
-/** The word the inbox shows for a Seal status: `consumed` reads `posted`. */
+/** The word the inbox shows for a Seal status: `consumed` reads `posted`, `council_approved` reads as the Council's approval. */
 export function sealStatusLabel(status: string): string {
+  if (status === 'council_approved') {
+    return 'approved by the Council'
+  }
   return status === 'consumed' ? 'posted' : status
 }

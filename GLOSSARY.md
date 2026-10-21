@@ -115,7 +115,7 @@ _Avoid_: template
 ## Governance
 
 **Seal**:
-The Guild Master's approval: single-use, expiring, bound to the exact action.
+The Guild Master's approval: single-use, expiring, bound to the exact action. When the Council of Elders approves a routine Proposal in place of it, the request settles as `council_approved`, naming the Council session and never a Guild Master; that is not a Seal.
 _Avoid_: approval, sign-off
 
 **Seal Policy**:

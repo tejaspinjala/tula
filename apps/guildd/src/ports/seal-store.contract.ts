@@ -121,6 +121,57 @@ export function sealStoreContract(name: string, make: () => Promise<SealStoreFix
       expect((await store.get(g, seal.id))?.decidedBy).toBe(who)
     })
 
+    test('a Council approval names the session, never a Guild Master, and is final', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal, hash } = await seed(store, g)
+      const session = crypto.randomUUID()
+      const done = await store.councilApprove(g, seal.id, {
+        sessionId: session,
+        expectedHash: hash,
+      })
+      expect(done).toMatchObject({
+        ok: true,
+        seal: { status: 'council_approved', councilSessionId: session, decidedBy: null },
+      })
+      expect((await store.get(g, seal.id))?.decidedAt).not.toBeNull()
+      // The same session again is a no-op success; nothing else can follow.
+      expect(
+        await store.councilApprove(g, seal.id, { sessionId: session, expectedHash: hash })
+      ).toMatchObject({ ok: true, seal: { status: 'council_approved' } })
+      expect(
+        await store.councilApprove(g, seal.id, {
+          sessionId: crypto.randomUUID(),
+          expectedHash: hash,
+        })
+      ).toEqual({ ok: false, reason: 'not_requested' })
+      expect(await store.decide(g, seal.id, { verdict: 'denied', expectedHash: hash })).toEqual({
+        ok: false,
+        reason: 'not_requested',
+      })
+      expect(await store.reserve(g, seal.id, TEXT)).toEqual({ ok: false, reason: 'not_approved' })
+    })
+
+    test('a Council approval is bound to the hash, and a Guild Master decision names no session', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const { seal } = await seed(store, g)
+      expect(
+        await store.councilApprove(g, seal.id, {
+          sessionId: crypto.randomUUID(),
+          expectedHash: 'f'.repeat(64),
+        })
+      ).toEqual({ ok: false, reason: 'hash_mismatch' })
+      expect(
+        await store.councilApprove(g, crypto.randomUUID(), {
+          sessionId: crypto.randomUUID(),
+          expectedHash: seal.actionHash,
+        })
+      ).toEqual({ ok: false, reason: 'not_found' })
+      const decided = await approve(store, g, seal.id)
+      expect(decided).toMatchObject({ ok: true, seal: { councilSessionId: null } })
+    })
+
     test('a decision is final: it cannot be decided again or flipped', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
