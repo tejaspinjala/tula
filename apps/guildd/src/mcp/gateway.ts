@@ -1042,6 +1042,16 @@ export class McpGateway {
     if (!accepts.ok) {
       return refuse(accepts.error)
     }
+    // A private answer must not flow back to a Quest that may not hold private data: only a
+    // private-class asker, or one in a private Hall, may ask a private Hall (as for spawn_subquest).
+    const sourceKind = config.halls.find((h) => h.id === quest.hallId)?.kind
+    if (
+      resolved.hall.kind === 'private' &&
+      quest.dataClass !== 'private' &&
+      sourceKind !== 'private'
+    ) {
+      return refuse('private_boundary')
+    }
     if (await this.deps.tripwires.isPaused(guild, resolved.hall.id)) {
       return refuse('hall_paused')
     }
