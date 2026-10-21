@@ -97,6 +97,16 @@ async function signedIn() {
 const graph = (): WorkflowGraph => structuredClone(LEARNING_TO_LINKEDIN)
 
 describe('workflow routes', () => {
+  test('Rites are served under /rites and the old /workflows path is gone', async () => {
+    const who = await signedIn()
+    expect((await send('GET', `/guilds/${who.guildId}/rites`, undefined, who.auth)).status).toBe(
+      200
+    )
+    expect(
+      (await send('GET', `/guilds/${who.guildId}/workflows`, undefined, who.auth)).status
+    ).toBe(404)
+  })
+
   test('every route needs a real session: none, and the dev header, are refused', async () => {
     const who = await signedIn()
     expect((await send('GET', who.base)).status).toBe(401)

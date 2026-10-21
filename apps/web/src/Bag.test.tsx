@@ -64,7 +64,7 @@ test('the Bag menu lists every page, the Hall tools and Sign out, as a modal dia
     'Treasury',
     'Ledger of Deeds',
     'Guild builder',
-    'Workflows',
+    'Rites',
     'Guild chat',
     'Mailbox',
     'Council',
