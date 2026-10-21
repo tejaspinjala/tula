@@ -111,3 +111,29 @@ test('the stream reconnects on the shared jittered backoff and says so in-world 
     await act(async () => root.unmount())
   }
 })
+
+test("?quest=<id> opens that Quest's detail; an unknown id opens nothing", async () => {
+  window.history.replaceState({}, '', '/quests?quest=q1')
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(<QuestBoardPanel session={session} />)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const detail = host.querySelector('[data-testid="quest-detail"]')
+  expect(detail?.textContent).toContain('Queued thing')
+  expect(detail?.textContent).toContain('d')
+  await act(async () => root.unmount())
+  window.history.replaceState({}, '', '/quests?quest=nope')
+  const other = document.createElement('div')
+  document.body.appendChild(other)
+  const again = createRoot(other)
+  await act(async () => {
+    again.render(<QuestBoardPanel session={session} />)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  expect(other.querySelector('[data-testid="quest-detail"]')).toBeNull()
+  await act(async () => again.unmount())
+  window.history.replaceState({}, '', '/')
+})
