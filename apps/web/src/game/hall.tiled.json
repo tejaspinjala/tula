@@ -508,9 +508,9 @@
           "id": 16,
           "name": "coins",
           "type": "coins",
-          "x": 320,
+          "x": 240,
           "y": 192,
-          "width": 32,
+          "width": 80,
           "height": 16,
           "rotation": 0,
           "visible": true
