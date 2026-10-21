@@ -22,6 +22,8 @@ export interface QuestTemplate {
   /** Whether finishing the Quest needs a Seal; deterministic, never a model decision. */
   requiresSeal: boolean
   roundLimit: number
+  /** Internal templates are posted only by code (an Inquiry); no Guild Master or Member path posts them. */
+  internal?: boolean
 }
 
 /** The Quest templates the Guild Master can post from. Code, not model output. */
@@ -56,7 +58,41 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     requiresSeal: false,
     roundLimit: 2,
   },
+  {
+    id: 'inquiry-answer',
+    name: 'Inquiry answer',
+    // Only a default: an Inquiry posts this template onto the Hall it was asked of.
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    doneCondition: 'The Inquiry is answered once with answer_inquiry',
+    requiresSeal: false,
+    roundLimit: 2,
+    internal: true,
+  },
 ]
+
+/**
+ * The Fix Quest template: internal, never in {@link QUEST_TEMPLATES}, so `postQuest`,
+ * `spawn_subquest`, `post_to_board` and the web template choices cannot post it
+ * (`unknown_template`). Only filing a Bug Report posts a Fix Quest, with the Hall of the report and
+ * a done-condition built from its reproduction (the `doneCondition` here is the template default).
+ */
+export const FIX_QUEST_TEMPLATE: QuestTemplate = {
+  id: 'fix-quest',
+  name: 'Fix Quest',
+  hallId: 'heralds',
+  rank: 'journeyman',
+  dataClass: 'internal',
+  doneCondition: 'The defect in the Bug Report is fixed and its reproduction behaves as expected',
+  requiresSeal: false,
+  roundLimit: 2,
+}
+
+/** The templates a Guild Master, a Member or a workflow may post from: every one that is not internal. */
+export const POSTABLE_TEMPLATES: readonly QuestTemplate[] = QUEST_TEMPLATES.filter(
+  (t) => t.internal !== true
+)
 
 /** What the Guild Master supplies when posting a Quest from a template. */
 export const postQuestInput = z.object({
@@ -126,7 +162,7 @@ export async function postQuest(
   guildId: string,
   input: PostQuestInput
 ): Promise<PostQuestResult> {
-  const template = QUEST_TEMPLATES.find((t) => t.id === input.templateId)
+  const template = POSTABLE_TEMPLATES.find((t) => t.id === input.templateId)
   if (!template) {
     return { ok: false, error: 'unknown_template' }
   }

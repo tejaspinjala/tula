@@ -105,6 +105,12 @@ export const caps = z.strictObject({
   maxMissivesPerQuest: z.number().int().min(0).max(200).optional(),
   /** Research calls one Quest may make; 0 (research off) when absent. Enabling or raising it widens risk. */
   maxResearchPerQuest: z.number().int().min(0).max(100).optional(),
+  /** Inquiries one Quest may ask; {@link DEFAULT_MAX_INQUIRIES_PER_QUEST} when absent. Raising it widens risk. */
+  maxInquiriesPerQuest: z.number().int().min(0).max(50).optional(),
+  /** Bug Reports one Quest may file; {@link DEFAULT_MAX_BUG_REPORTS_PER_QUEST} when absent. Raising it widens risk. */
+  maxBugReportsPerQuest: z.number().int().min(0).max(50).optional(),
+  /** Dossiers one Quest may request; {@link DEFAULT_MAX_DOSSIERS_PER_QUEST} when absent. Raising it widens risk. */
+  maxDossiersPerQuest: z.number().int().min(0).max(50).optional(),
 })
 
 /** The post window of a config that does not set one (72 hours). */
@@ -145,6 +151,30 @@ export const DEFAULT_MAX_MISSIVES_PER_QUEST = 20
 /** The guild's cap on Missives one Quest may send (all its attempts). */
 export function missiveCap(config: GuildConfig): number {
   return config.caps.maxMissivesPerQuest ?? DEFAULT_MAX_MISSIVES_PER_QUEST
+}
+
+/** Inquiries one Quest may ask when the config sets no cap. */
+export const DEFAULT_MAX_INQUIRIES_PER_QUEST = 3
+
+/** Bug Reports one Quest may file when the config sets no cap. */
+export const DEFAULT_MAX_BUG_REPORTS_PER_QUEST = 3
+
+/** Dossiers one Quest may request when the config sets no cap. */
+export const DEFAULT_MAX_DOSSIERS_PER_QUEST = 5
+
+/** The guild's cap on Inquiries one Quest may ask (all its attempts). */
+export function inquiryCap(config: GuildConfig): number {
+  return config.caps.maxInquiriesPerQuest ?? DEFAULT_MAX_INQUIRIES_PER_QUEST
+}
+
+/** The guild's cap on Bug Reports one Quest may file (all its attempts). */
+export function bugReportCap(config: GuildConfig): number {
+  return config.caps.maxBugReportsPerQuest ?? DEFAULT_MAX_BUG_REPORTS_PER_QUEST
+}
+
+/** The guild's cap on Dossiers one Quest may request (all its attempts). */
+export function dossierCap(config: GuildConfig): number {
+  return config.caps.maxDossiersPerQuest ?? DEFAULT_MAX_DOSSIERS_PER_QUEST
 }
 
 /** Research calls one Quest may make when the config sets no cap: none, so research is off. */
@@ -531,6 +561,9 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     campaignQuestCap(next) <= campaignQuestCap(prev) &&
     missiveCap(next) <= missiveCap(prev) &&
     researchCap(next) <= researchCap(prev) &&
+    inquiryCap(next) <= inquiryCap(prev) &&
+    bugReportCap(next) <= bugReportCap(prev) &&
+    dossierCap(next) <= dossierCap(prev) &&
     othersSame(prev.caps, next.caps, [
       'dailyTokens',
       'dailySpendCents',
@@ -541,6 +574,9 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxQuestsPerCampaign',
       'maxMissivesPerQuest',
       'maxResearchPerQuest',
+      'maxInquiriesPerQuest',
+      'maxBugReportsPerQuest',
+      'maxDossiersPerQuest',
     ]) &&
     subsetOf(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&

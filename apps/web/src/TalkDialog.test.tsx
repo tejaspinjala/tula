@@ -37,6 +37,7 @@ const scene: SceneState = {
   apprentices: [],
   campaigns: [],
   gateClosed: false,
+  couriers: [],
   coinsCents: 0,
   appliedSeq: 5,
 }
@@ -241,6 +242,17 @@ test('the Seal desk dialog lists waiting Seals and Review Seal opens the Seal in
   await run.unmount()
 })
 
+test('a Hall mailbox dialog names the Hall and Open Mailbox opens the Mailbox on that Hall', async () => {
+  const run = await show({ kind: 'mailbox', hallId: 'heralds' })
+  const dialog = run.host.querySelector('dialog')
+  expect(dialog?.open).toBe(true)
+  expect(dialog?.textContent).toContain('Heralds')
+  expect(await violations(run.host)).toEqual([])
+  await click(run.host, 'Open Mailbox')
+  expect(run.paths).toEqual(['/mailbox?hall=heralds'])
+  await run.unmount()
+})
+
 const exchange = {
   missives: [
     {
@@ -248,6 +260,8 @@ const exchange = {
       from: 'ana',
       to: 'bo',
       text: 'On it, drafting now.',
+      hallId: 'heralds',
+      toHall: null,
       sentAt: '2026-01-01T00:02:00.000Z',
     },
     {
@@ -255,6 +269,8 @@ const exchange = {
       from: 'bo',
       to: 'ana',
       text: '<img src=x onerror=alert(1)> please draft the brief',
+      hallId: 'heralds',
+      toHall: null,
       sentAt: '2026-01-01T00:01:00.000Z',
     },
     {
@@ -262,6 +278,8 @@ const exchange = {
       from: 'bo',
       to: 'cy',
       text: 'a note for someone else',
+      hallId: 'heralds',
+      toHall: null,
       sentAt: '2026-01-01T00:00:00.000Z',
     },
   ],

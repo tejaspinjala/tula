@@ -89,3 +89,12 @@ test('targets are the same by what they are, not by object', () => {
   expect(sameTarget(null, null)).toBe(true)
   expect(sameTarget(null, desk)).toBe(false)
 })
+
+test('a Hall mailbox is a target by Hall; interacting with it opens it', () => {
+  const box: Target = { kind: 'mailbox', hallId: 'heralds' }
+  expect(sameTarget(box, { kind: 'mailbox', hallId: 'heralds' })).toBe(true)
+  expect(sameTarget(box, { kind: 'mailbox', hallId: 'vault' })).toBe(false)
+  expect(sameTarget(box, desk)).toBe(false)
+  const near = talkReducer(initialTalk, { type: 'near', target: box })
+  expect(talkReducer(near, { type: 'interact' }).open).toEqual(box)
+})

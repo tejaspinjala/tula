@@ -13,11 +13,14 @@ import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { MemorySearchProvider } from './adapters/memory-search-provider'
 import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
+import { PgBugReportStore } from './adapters/pg-bug-report-store'
 import { PgConfigStore } from './adapters/pg-config-store'
+import { PgDossierStore } from './adapters/pg-dossier-store'
 import { PgGateStore } from './adapters/pg-gate-store'
 import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgInquiryStore } from './adapters/pg-inquiry-store'
 import { PgMissiveStore } from './adapters/pg-missive-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
@@ -41,10 +44,13 @@ import { SystemClock } from './adapters/system-clock'
 import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
+import { BugReportService } from './bug-reports'
 import { createDb } from './db/client'
 import { Dispatcher } from './dispatch'
+import { DossierService } from './dossiers'
 import {
   loadEnv,
+  loadInquiryExpiryMs,
   loadPlatformOperators,
   loadResearchEnv,
   loadSandboxEnv,
@@ -108,7 +114,9 @@ export async function compose(
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const missives = overrides.missives ?? new PgMissiveStore(db, keys)
-  const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
+  const pgQuests = new PgQuestQueue(db, keys, clock)
+  const quests = overrides.quests ?? pgQuests
+  const inquiries = overrides.inquiries ?? new PgInquiryStore(db, keys, pgQuests)
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
   // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
@@ -168,6 +176,22 @@ export async function compose(
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   const workflowStore = new PgWorkflowStore(db, keys, clock)
   const handoffs = new PgHandoffStore(db, keys)
+  const dossierStore = overrides.dossierStore ?? new PgDossierStore(db, keys)
+  const dossiers =
+    overrides.dossiers ??
+    new DossierService({
+      quests,
+      handoffs,
+      objectStore,
+      proposals: new PgProposalStore(db, keys, clock),
+      seals: sealStore,
+      store: dossierStore,
+      clock,
+    })
+  const bugReportStore = overrides.bugReportStore ?? new PgBugReportStore(db, keys, pgQuests)
+  const bugReports =
+    overrides.bugReports ??
+    new BugReportService({ config, store: bugReportStore, clock, tripwires })
   const treasury =
     overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config })
   // Governed web research is off unless the host configures a search provider (ADR-0010).
@@ -202,9 +226,14 @@ export async function compose(
       config,
       notes,
       missives,
+      inquiries,
+      inquiryExpiryMs: loadInquiryExpiryMs(),
       objectStore,
       handoffs,
       ...(research ? { research } : {}),
+      dossiers,
+      bugReports,
+      bugReportStore,
       activity,
       toolsets: new PgToolsetStore(db),
       proposals,
@@ -261,6 +290,11 @@ export async function compose(
       }),
     notes,
     missives,
+    inquiries,
+    dossiers,
+    dossierStore,
+    bugReports,
+    bugReportStore,
     quests,
     mcp,
     tripwires,

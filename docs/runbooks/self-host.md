@@ -67,6 +67,7 @@ below is passed through from your environment. First boot: set `OBJECT_STORE_CRE
 | `BRAVE_SEARCH_API_KEY` | none | with `brave` | Brave Search API token (secret). |
 | `RESEARCH_PRIVATE_ELIGIBLE` | `false` | optional | `true` lets private-class Quests send queries to the provider; leave `false` unless your agreement with it allows that. |
 | `RESEARCH_CALL_COST_CENTS` | `1` | optional | Paper cents the Treasury charges per research call (0 to 10000). |
+| `INQUIRY_EXPIRY_DAYS` | `7` | optional | Days an Inquiry waits for its answer before the sweep expires it (1 to 90). |
 | `RESEARCH_MEMORY_SEED` | none | with `memory` | JSON `{results, pages}` the memory provider serves. |
 
 ### Migrations (`apps/guildd/src/db/migrate-cli.ts`)

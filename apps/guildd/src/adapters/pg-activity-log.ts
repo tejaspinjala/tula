@@ -17,7 +17,11 @@ export class PgActivityLog implements ActivityLog {
 
   async record(guildId: string, input: NewActivity): Promise<{ emitted: boolean }> {
     return this.db.withGuild(guildId, async (tx) => {
-      const won = await tx`
+      // Cross-Hall activity (it names the other Hall) is never coalesced, and starts no window.
+      const won =
+        input.toHallId !== undefined
+          ? [{ won: 1 }]
+          : await tx`
         insert into member_activity (guild_id, member_id, activity, last_at)
         values (${guildId}, ${input.memberId}, ${input.activity}, ${input.at})
         on conflict (guild_id, member_id, activity) do update set last_at = excluded.last_at
@@ -30,6 +34,7 @@ export class PgActivityLog implements ActivityLog {
         questId: input.questId,
         memberId: input.memberId,
         hallId: input.hallId,
+        ...(input.toHallId === undefined ? {} : { toHallId: input.toHallId }),
         activity: input.activity,
       })
       return { emitted: true }

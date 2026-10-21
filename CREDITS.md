@@ -24,5 +24,6 @@ The packages are `@fontsource/pixelify-sans`, `@fontsource/jersey-10`, `@fontsou
 | `apps/web/public/game/chars.png` (Member and Guild Master characters) | Kenney | CC0 1.0 | Roguelike Characters, https://kenney.nl/assets/roguelike-characters. The page lists "Creative Commons CC0" (checked 2026-10-20). The walk cycle is four poses made in code, not drawn frames. |
 | `apps/web/public/game/font.png`, `font.fnt` (bitmap font) | Kenney | CC0 1.0 | Rasterised from Kenney Fonts, https://kenney.nl/assets/kenney-fonts. The page lists "Creative Commons CC0" (checked 2026-10-20). |
 | `apps/web/src/game/*.tiled.json` | Guildhall | Same licence as this repository | The hall is hand-written Tiled JSON; plaza, archive, vault and trail are written by `scripts/gen-town-maps.ts`. |
+| The courier sprite (`makeCourier` in `apps/web/src/game/HallScene.ts`) | Guildhall | Same licence as this repository | Sixteen-pixel figure with a letter, drawn in code as rectangles; no third-party image. |
 
 Nothing from Nintendo, Game Freak, Creatures, The Pokémon Company or ConcernedApe is used.

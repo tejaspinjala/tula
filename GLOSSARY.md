@@ -59,7 +59,7 @@ The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests 
 _Avoid_: backlog
 
 **Missive**:
-A short note (up to 2000 characters) one Member of a Hall sends another Member of the same Hall, or the whole Hall (`send_missive`, `read_missives`). Capped per Quest (`maxMissivesPerQuest`, refused as `missive_cap`). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame, and the Guild Master reads a Hall's Missives in the ledger. Hall-scoped in v1; cross-Hall Missives are the Milestone 2 extension. Work products travel as Handoffs (ids and hashes), not Missives.
+A short note (up to 2000 characters) one Member sends another Member of its Hall, the whole Hall, or, with `toHall`, a Member or the whole of another Hall (`send_missive`, `read_missives`). Capped per Quest, cross-Hall sends included (`maxMissivesPerQuest`, refused as `missive_cap`). Cross-Hall refusals: `unknown_hall`, `same_hall`, `not_in_hall`, and `private_boundary` (the one cross-Hall rule, by direction: pushing, a private Hall or a private-class Quest may not send to a work Hall; pulling, where data flows back to the requester as for a Dossier or an Inquiry answer, a private Hall or private-class data may not reach a Quest that is neither in a private Hall nor private-class). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame (a cross-Hall Missive also names the sending Hall), and the Guild Master reads Missives in the ledger and the Hall mailbox. Work products travel as Handoffs (ids and hashes), not Missives.
 _Avoid_: DM, chat, message, notification
 
 **Research**:
@@ -73,16 +73,20 @@ The port to a web search service (Brave Search in v1) that the Research tool que
 The port that reads one https page as plain text for a Research result: https only, no private or loopback hosts, no redirects, text content only, byte-capped.
 
 **Inquiry**:
-One precise question from one Hall to another, answered once and filed in the Archive.
+One precise question from one Hall to another, answered once and filed in the Archive. A Member asks with `ask_hall` (up to 1000 characters; refused `unknown_hall`, `same_hall`, `hall_locked`, `hall_paused`, `unknown_owner`); guildd posts an answer Quest on the target Hall's Quest Board (template `inquiry-answer`, internal to code: no other path posts it; the stricter data class of the asking Quest and the target Hall) and the Member working it answers once with `answer_inquiry` (up to 4000 characters); the asker reads it with `read_inquiry`. The answer flows back, so it is a pull under the private boundary (see Missive): a Quest that is not private-class and not in a private Hall may not ask a private Hall (`private_boundary`). Capped per Quest (`maxInquiriesPerQuest`, refused as `inquiry_cap`); an unanswered Inquiry expires (`INQUIRY_EXPIRY_DAYS`, default 7). The question and answer are untrusted: stored as data and shown to a model only inside a per-call random nonce frame.
 _Avoid_: chat, ping
 
 **Dossier**:
-A code-generated, verified handoff packet about something a Hall produced.
+A code-generated, verified handoff packet about a finished Quest in another Hall (`request_dossier`, or the Guild Master from the web): goal, done-condition, Verdict, Seal state, Handoff hash and artifact hashes, with the Handoff hash and every artifact re-checked against the ObjectStore and marked `verified` or listing the failed checks. Never written by a model; immutable; capped per Quest (`maxDossiersPerQuest`, refused as `dossier_cap`). Refusals: `quest_not_finished`, `unknown_quest`, and the cross-Hall codes `unknown_hall`, `same_hall`, `private_boundary` (a pull: a requester that is neither in a private Hall nor private-class may not receive a Dossier of a private Hall or of a private-class Quest; the Guild Master is exempt).
 _Avoid_: summary, report
 
 **Bug Report**:
-A defect found by any Hall, filed with a reproduction; it becomes a **Fix Quest** on the owning Hall's Quest Board.
+A defect found by any Hall, filed with a reproduction (steps, expected, actual; a missing or blank field is refused `reproduction_required`) and up to 20 evidence references (artifact hashes or Dossier ids) against the Hall that owns the broken work (`file_bug_report`, or the Guild Master from the web). Any Member may file, against another Hall or its own, under the cross-Hall rule (`unknown_hall`, `private_boundary`), capped per Quest (`maxBugReportsPerQuest`, refused as `bug_report_cap`). Filing posts a **Fix Quest** on the owning Hall's Quest Board in the same transaction; a report with the same reproduction as an open one for that Hall is stored `duplicate`, linked to it, and posts nothing. When the Fix Quest's Handoff is accepted (met, nothing left open) the report becomes `fixed` with that Handoff's hash, in the Handoff's transaction.
 _Avoid_: issue
+
+**Fix Quest**:
+The Quest a **Bug Report** posts on the owning Hall's Quest Board (template `fix-quest`). Internal: only filing a Bug Report posts it, never `post_quest`, `spawn_subquest`, `post_to_board` or the web templates.
+_Avoid_: ticket
 
 **Brief**:
 The compact instructions compiled by code for one agent run: the Quest, its done-condition and pointers to the exact files, artifacts and skill sections it needs.
@@ -237,8 +241,23 @@ A team Campaign (one with a board Quest) got its first board Quest / the last in
 **missive.sent**:
 A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).
 
+**inquiry.asked** / **inquiry.answered** / **inquiry.expired**:
+An Inquiry was asked, answered, or expired unanswered (payload: inquiry id, asking and target Hall ids, asking and answer Quest ids, plus the answering Member id on `inquiry.answered`; ids only, never the question or answer, which the Hall inquiries routes serve).
+
+**dossier.created**:
+A Dossier was assembled about a finished Quest (payload: dossier id, subject Quest id, subject Hall id, requesting Hall id or null for the Guild Master, dossier hash, `verified`; ids and hashes only, never the body, which the Hall dossiers routes serve).
+
+**bug_report.filed**:
+A Bug Report was filed and its Fix Quest posted (payload: Bug Report id, Fix Quest id, owning Hall id, reproduction hash; ids and hashes only, never the title or reproduction, which the Hall bug-report routes serve).
+
+**bug_report.duplicate**:
+A Bug Report was filed with the reproduction of an open one and stored as a duplicate, posting nothing (payload: Bug Report id, the open report's id, owning Hall id).
+
+**bug_report.fixed**:
+A Bug Report's Fix Quest had its Handoff accepted and the report became fixed (payload: Bug Report id, Fix Quest id, owning Hall id, Handoff hash).
+
 **member.activity**:
-A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.
+A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id, optionally `toHallId`, the other Hall of cross-Hall work such as an Inquiry or a Dossier request, and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event, except cross-Hall activity (it names `toHallId`), which is never coalesced.
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).

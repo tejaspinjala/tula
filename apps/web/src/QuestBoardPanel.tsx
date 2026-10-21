@@ -146,6 +146,10 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
     }
   }, [session])
 
+  const [openQuest, setOpenQuest] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get('quest')
+  )
+  const shown = quests.find((q) => q.id === openQuest) ?? null
   const campaigns = campaignsOf(quests)
   const board = groupByState(inCampaign(quests, campaign))
 
@@ -154,6 +158,21 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
       {!session && <p>Sign in with a passkey to see the Quest Board.</p>}
       {failed && <p role="alert">The Quest Board could not be loaded.</p>}
       {streamNotice(streamFailures) !== null && <p role="status">{streamNotice(streamFailures)}</p>}
+      {session && shown && (
+        <section aria-label="Quest detail" data-testid="quest-detail" className="work-note">
+          <h3>{shown.title}</h3>
+          <p>
+            <Badge tone={questTone(shown.state)}>{COLUMN_NAMES[shown.state]}</Badge> in{' '}
+            {shown.hallId}
+          </p>
+          <p>
+            <strong>Done when</strong> {shown.doneCondition}
+          </p>
+          <p>{roundText(shown)}</p>
+          {shown.state === 'dead' && shown.lastError && <p>{shown.lastError}</p>}
+          <PixelButton onClick={() => setOpenQuest(null)}>Close</PixelButton>
+        </section>
+      )}
       {session && campaigns.length > 0 && (
         <label className="block">
           Campaign

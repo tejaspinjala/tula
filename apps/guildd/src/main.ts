@@ -65,12 +65,32 @@ const researchSweep = research
     })
   : null
 
+// Unanswered Inquiries past their deadline are expired on their own timer (idempotent per guild).
+const INQUIRY_SWEEP_MS = 60_000
+const inquirySweep = startDispatchLoop({
+  guildSweeps: [(guildId) => adapters.inquiries.expireOverdue(guildId, adapters.clock.now())],
+  guildIds: (after, limit) => adapters.db.guildIds(after, limit),
+  intervalMs: INQUIRY_SWEEP_MS,
+  timer: {
+    schedule: (fn, ms) => setInterval(fn, ms),
+    clear: (handle) => clearInterval(handle),
+  },
+  onError: (error, guildId) => {
+    process.stderr.write(
+      `inquiry sweep failed: guild=${guildId ?? 'all'} ${error instanceof Error ? error.name : 'unknown'}\n`
+    )
+  },
+})
+
 // Always registered, loop or not: the background announcements of a global bar end at a page
 // boundary and what they left untold is finished by the next boot.
 const shutdown = () => {
-  void Promise.allSettled([loop?.stop(), researchSweep?.stop(), adapters.gates.stop()]).finally(
-    () => process.exit(0)
-  )
+  void Promise.allSettled([
+    loop?.stop(),
+    researchSweep?.stop(),
+    inquirySweep.stop(),
+    adapters.gates.stop(),
+  ]).finally(() => process.exit(0))
 }
 process.once('SIGTERM', shutdown)
 process.once('SIGINT', shutdown)

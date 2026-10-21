@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { apprenticeSeats, hallLayout, questBoardIn } from './layout'
+import { apprenticeSeats, hallLayout, mailboxIn, questBoardIn } from './layout'
 import { findPath } from './walk'
 
 const layout = hallLayout()
@@ -28,5 +28,17 @@ test('apprentice seats are distinct, walkable, inside the room and not on the Qu
       expect(seat.y >= room.y && seat.y < room.y + room.h).toBe(true)
       expect(seat).not.toEqual(board)
     }
+  }
+})
+
+test('every room has a walkable mailbox tile, clear of the Quest Board and reachable', () => {
+  for (const room of layout.rooms) {
+    const box = mailboxIn(layout, room)
+    const board = questBoardIn(layout, room)
+    expect(layout.walkable(box.x, box.y)).toBe(true)
+    expect(box).not.toEqual(board)
+    expect(box.y).toBeGreaterThan(room.y)
+    expect(box.x >= room.x && box.x < room.x + room.w).toBe(true)
+    expect(findPath(layout.walkable, { x: room.x + 1, y: room.y + 2 }, box)).not.toBeNull()
   }
 })

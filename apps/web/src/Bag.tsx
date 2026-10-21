@@ -5,6 +5,7 @@ import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
+import { MailboxPanel } from './MailboxPanel'
 import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
@@ -97,6 +98,8 @@ function PageBody({
       return <WorkflowPanel session={session} />
     case 'missives':
       return <MissivesPanel session={session} onTalk={onTalkTo} />
+    case 'mailbox':
+      return <MailboxPanel session={session} />
     case 'gates':
       return (
         <>

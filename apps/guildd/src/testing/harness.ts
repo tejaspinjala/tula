@@ -43,6 +43,10 @@ export const UNLIMITED_RATE_LIMITS = {
   'learning-scan': { client: NO_LIMIT, guild: NO_LIMIT },
   'events-history': { client: NO_LIMIT, guild: NO_LIMIT },
   'missives-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'dossier-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'dossier-write': { client: NO_LIMIT, guild: NO_LIMIT },
+  'bug-report-read': { client: NO_LIMIT, guild: NO_LIMIT },
+  'bug-report-write': { client: NO_LIMIT, guild: NO_LIMIT },
   'session-check': { client: NO_LIMIT },
 }
 
@@ -66,6 +70,7 @@ export interface HarnessOptions {
       | 'config'
       | 'notes'
       | 'missives'
+      | 'inquiries'
       | 'seals'
       | 'proposals'
       | 'workflows'
@@ -152,6 +157,11 @@ export async function createHarness(options: HarnessOptions = {}) {
       config: composed.config,
       notes: composed.notes,
       missives: composed.missives,
+      inquiries: composed.inquiries,
+      dossiers: composed.dossiers,
+      dossierStore: composed.dossierStore,
+      bugReports: composed.bugReports,
+      bugReportStore: composed.bugReportStore,
       seals: composed.seals,
       proposals: composed.proposals,
       workflows: composed.workflows,

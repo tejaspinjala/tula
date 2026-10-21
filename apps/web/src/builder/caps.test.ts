@@ -41,6 +41,9 @@ test('the guild caps carry the server bounds and defaults', () => {
     ['maxChildrenPerQuest', 0, 20, 3],
     ['maxSpawnDepth', 0, 5, 2],
     ['maxQuestsPerCampaign', 0, 100, 10],
+    ['maxInquiriesPerQuest', 0, 50, 3],
+    ['maxBugReportsPerQuest', 0, 50, 3],
+    ['maxDossiersPerQuest', 0, 50, 5],
   ])
 })
 

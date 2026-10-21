@@ -1,7 +1,13 @@
 import type { BuilderConfig, BuilderHall } from './model'
 
 /** The guild-level cap keys the builder edits. */
-export type GuildCapKey = 'maxChildrenPerQuest' | 'maxSpawnDepth' | 'maxQuestsPerCampaign'
+export type GuildCapKey =
+  | 'maxChildrenPerQuest'
+  | 'maxSpawnDepth'
+  | 'maxQuestsPerCampaign'
+  | 'maxInquiriesPerQuest'
+  | 'maxBugReportsPerQuest'
+  | 'maxDossiersPerQuest'
 
 /** One editable cap: its key, label, bounds and the value the server uses when unset. */
 export interface CapField {
@@ -17,6 +23,9 @@ export const GUILD_CAPS: readonly CapField[] = [
   { key: 'maxChildrenPerQuest', label: 'Sub-Quests per Quest', min: 0, max: 20, fallback: 3 },
   { key: 'maxSpawnDepth', label: 'Spawn depth', min: 0, max: 5, fallback: 2 },
   { key: 'maxQuestsPerCampaign', label: 'Quests per Campaign', min: 0, max: 100, fallback: 10 },
+  { key: 'maxInquiriesPerQuest', label: 'Inquiries per Quest', min: 0, max: 50, fallback: 3 },
+  { key: 'maxBugReportsPerQuest', label: 'Bug Reports per Quest', min: 0, max: 50, fallback: 3 },
+  { key: 'maxDossiersPerQuest', label: 'Dossiers per Quest', min: 0, max: 50, fallback: 5 },
 ]
 
 /** Bounds and default of a Hall's `maxConcurrentMembers`. */

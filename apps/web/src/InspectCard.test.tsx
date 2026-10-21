@@ -45,6 +45,7 @@ const scene: SceneState = {
   apprentices: [],
   campaigns: [],
   gateClosed: false,
+  couriers: [],
   coinsCents: 0,
   appliedSeq: 5,
 }
@@ -67,6 +68,8 @@ const sent = (id: string, from: string, to: string, text: string) => ({
   from,
   to,
   text,
+  hallId: 'heralds',
+  toHall: null,
   sentAt: at,
 })
 

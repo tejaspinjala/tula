@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Glob } from 'bun'
 import {
   loadEnv,
+  loadInquiryExpiryMs,
   loadPlatformOperators,
   loadResearchEnv,
   loadSandboxEnv,
@@ -312,6 +313,17 @@ describe('loadResearchEnv', () => {
     expect(() => loadResearchEnv({ ...memory, RESEARCH_MEMORY_SEED: '{' })).toThrow()
     expect(loadResearchEnv(memory)).toMatchObject({ kind: 'memory', privateEligible: false })
     expect(() => loadResearchEnv({ ...memory, NODE_ENV: 'production' })).toThrow()
+  })
+})
+
+describe('loadInquiryExpiryMs', () => {
+  test('defaults to 7 days and takes whole days between 1 and 90', () => {
+    expect(loadInquiryExpiryMs({})).toBe(7 * 86_400_000)
+    expect(loadInquiryExpiryMs({ INQUIRY_EXPIRY_DAYS: '2' })).toBe(2 * 86_400_000)
+  })
+
+  test.each(['0', '91', '-1', 'soon', '1.5'])('rejects %s at boot', (value) => {
+    expect(() => loadInquiryExpiryMs({ INQUIRY_EXPIRY_DAYS: value })).toThrow()
   })
 })
 

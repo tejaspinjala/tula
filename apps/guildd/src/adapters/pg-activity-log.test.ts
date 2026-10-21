@@ -42,6 +42,18 @@ test('an emitted activity appends member.activity with ids and the enum only', a
   })
 })
 
+test('a cross-Hall activity names the target Hall in its event', async () => {
+  const guild = await foundTestGuild(db, { name: 'Activity', goal: 'g' })
+  await new PgActivityLog(db, new MemoryKeyProvider()).record(guild, {
+    ...input,
+    activity: 'messaging',
+    toHallId: 'h-scribes',
+  })
+  const events = await owner`
+    select payload from events where guild_id = ${guild} and type = 'member.activity'`
+  expect(events[0]?.payload).toMatchObject({ hallId: 'h-forge', toHallId: 'h-scribes' })
+})
+
 test('a coalesced activity appends no event', async () => {
   const guild = await foundTestGuild(db, { name: 'Activity', goal: 'g' })
   const log = new PgActivityLog(db, new MemoryKeyProvider())

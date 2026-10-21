@@ -5,7 +5,7 @@ import {
   spawnChildrenCap,
   spawnDepthCap,
 } from '../guild-config'
-import { QUEST_TEMPLATES, type QuestTemplate } from '../quests'
+import { POSTABLE_TEMPLATES, type QuestTemplate } from '../quests'
 import { MAX_DONE_CONDITION, subagentsDoneCondition } from './fanout'
 import { type WorkflowError, type WorkflowGraph, type WorkflowNode, workflowGraph } from './graph'
 
@@ -78,7 +78,7 @@ const isTrigger = (n: WorkflowNode) => n.type === 'trigger.manual' || n.type ===
 export function validateWorkflow(
   input: unknown,
   config: GuildConfig,
-  templates: readonly QuestTemplate[] = QUEST_TEMPLATES
+  templates: readonly QuestTemplate[] = POSTABLE_TEMPLATES
 ): WorkflowError[] {
   const parsed = workflowGraph.safeParse(input)
   if (!parsed.success) {

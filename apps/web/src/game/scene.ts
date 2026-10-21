@@ -65,6 +65,15 @@ export interface SceneApprentice {
   seq: number
 }
 
+/** A courier's one trip between two Halls, raised by the event at `seq`. */
+export interface SceneCourier {
+  seq: number
+  fromHall: string
+  toHall: string
+  /** The Member the trip is for (who gets the "From" bubble on arrival), or null. */
+  toMemberId: string | null
+}
+
 /** Everything the game draws, derived from the event log; the game decides nothing. */
 export interface SceneState {
   rooms: SceneRoom[]
@@ -77,6 +86,8 @@ export interface SceneState {
   /** Team Campaigns with Quests still on the boards. */
   campaigns: string[]
   gateClosed: boolean
+  /** Couriers that crossed between Halls (the latest few), each walking once. */
+  couriers: SceneCourier[]
   /** Treasury spend so far, in cents. */
   coinsCents: number
   appliedSeq: number
@@ -123,10 +134,18 @@ export const memberActivityPayload = z.strictObject({
   memberId: z.string(),
   hallId: z.string(),
   activity: z.enum(ACTIVITIES),
+  /** The other Hall a cross-Hall activity is aimed at (a courier walks there). */
+  toHallId: z.string().optional(),
 })
 /** A parsed `member.activity` payload. */
 export type MemberActivity = z.infer<typeof memberActivityPayload>
-const missivePayload = z.object({ missiveId: z.string(), from: z.string() })
+const missivePayload = z.object({
+  missiveId: z.string(),
+  from: z.string(),
+  to: z.string().optional(),
+  hall: z.string().optional(),
+  toHall: z.string().optional(),
+})
 const spendPayload = z.object({ kind: z.string(), amountCents: z.number() })
 
 /** Treasury entry kinds that move operating spend: a reserve is negative, a settle refund or release positive. */
@@ -140,6 +159,9 @@ function hallOf(payload: unknown): string | undefined {
   return p.success ? (p.data.hallId ?? p.data.hall) : undefined
 }
 
+/** How many of the latest couriers a scene state keeps. */
+const MAX_COURIERS = 3
+
 /** Longest missive excerpt a bubble carries. */
 const EXCERPT_CHARS = 80
 
@@ -148,12 +170,21 @@ export function deriveScene(input: SceneInput): SceneState {
   const { roster, events, upTo } = input
   const replay = replayTo(events, upTo === null ? null : { seq: upTo })
   const byId = new Map(input.quests.map((q) => [q.id, q]))
+  const hallNames = new Map(roster.halls.map((h) => [h.id, h.name]))
   const claimSeq = new Map<string, number>()
   const claimHall = new Map<string, string>()
   const spawns: { parentId: string; childId: string; seq: number }[] = []
   const campaigns = new Set<string>()
   const sayings = new Map<string, SceneBubble>()
   const saidAt = new Map<string, number>()
+  const received = new Map<string, SceneBubble & { at: number }>()
+  const couriers: SceneCourier[] = []
+  /** The Member a cross-Hall Missive is for: the named one in that Hall, else its Captain or first Member. */
+  const addressee = (toHall: string, to: string | undefined): string | null => {
+    const hall = roster.halls.find((h) => h.id === toHall)
+    const everyone = hall ? [...(hall.captain ? [hall.captain] : []), ...hall.members] : []
+    return everyone.find((m) => m.id === to)?.id ?? everyone[0]?.id ?? null
+  }
   const activities = new Map<string, { questId: string; name: Activity; seq: number }>()
   const doneAt = new Map<string, number>()
   const paused = new Set<string>()
@@ -180,6 +211,14 @@ export function deriveScene(input: SceneInput): SceneState {
     } else if (event.type === 'member.activity') {
       const p = memberActivityPayload.safeParse(event.payload)
       if (p.success) {
+        if (p.data.toHallId !== undefined && p.data.toHallId !== p.data.hallId) {
+          couriers.push({
+            seq: event.seq,
+            fromHall: p.data.hallId,
+            toHall: p.data.toHallId,
+            toMemberId: null,
+          })
+        }
         activities.set(p.data.memberId, {
           questId: p.data.questId,
           name: p.data.activity,
@@ -209,9 +248,30 @@ export function deriveScene(input: SceneInput): SceneState {
     } else if (event.type === 'missive.sent') {
       const p = missivePayload.safeParse(event.payload)
       const text = p.success ? input.missiveTexts?.[p.data.missiveId] : undefined
+      const toHall = p.success ? p.data.toHall : undefined
+      const fromHall = p.success ? p.data.hall : undefined
+      const toMemberId = p.success && toHall !== undefined ? addressee(toHall, p.data.to) : null
+      if (p.success && toHall !== undefined && fromHall !== undefined) {
+        couriers.push({ seq: event.seq, fromHall, toHall, toMemberId })
+      }
       if (p.success && text !== undefined) {
-        sayings.set(p.data.from, { text, seq: event.seq })
-        saidAt.set(p.data.from, Date.parse(event.occurredAt))
+        // A Missive that crossed Halls names the Hall it is going to on the sender, and the Hall it
+        // came from on the addressee, who sees it when the courier arrives.
+        const goingTo = toHall === undefined ? undefined : hallNames.get(toHall)
+        const comingFrom = fromHall === undefined ? undefined : hallNames.get(fromHall)
+        const spokenAt = Date.parse(event.occurredAt)
+        sayings.set(p.data.from, {
+          text: goingTo === undefined ? text : `To ${goingTo}: ${text}`,
+          seq: event.seq,
+        })
+        saidAt.set(p.data.from, spokenAt)
+        if (toMemberId !== null && comingFrom !== undefined) {
+          received.set(toMemberId, {
+            text: `From ${comingFrom}: ${text}`,
+            seq: event.seq,
+            at: spokenAt,
+          })
+        }
       }
     } else if (event.type === 'hall.paused' || event.type === 'hall.resumed') {
       const p = hallPayload.safeParse(event.payload)
@@ -308,6 +368,13 @@ export function deriveScene(input: SceneInput): SceneState {
       }
     }
   }
+  for (const [memberId, got] of received) {
+    const member = members[memberId]
+    const stale = input.now !== undefined && input.now - got.at > BUBBLE_FRESH_MS
+    if (member && !stale && (member.bubble === null || got.seq > member.bubble.seq)) {
+      member.bubble = { text: got.text.slice(0, EXCERPT_CHARS), seq: got.seq }
+    }
+  }
   const settled = new Set([...replay.quests.done, ...replay.quests.dead])
   const apprentices: SceneApprentice[] = spawns.flatMap((spawn) => {
     const hallId =
@@ -353,6 +420,7 @@ export function deriveScene(input: SceneInput): SceneState {
     apprentices,
     campaigns: [...campaigns],
     gateClosed,
+    couriers: couriers.slice(-MAX_COURIERS),
     coinsCents,
     appliedSeq: replay.appliedSeq,
   }
