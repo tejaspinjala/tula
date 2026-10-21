@@ -127,7 +127,7 @@ export function councilEvidence(votes: readonly CouncilVote[], reason: string): 
       v.abstainCode !== null
         ? ` (${v.abstainCode})`
         : v.reasons.length > 0
-          ? ` - ${v.reasons.map(clean).join(', ')}`
+          ? ` - ${v.reasons.map((r) => clean(r).replace(/\.+$/, '')).join(', ')}`
           : ''
     return `${v.voice} ${v.vote}${why}`
   })

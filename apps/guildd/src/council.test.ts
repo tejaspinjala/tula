@@ -143,6 +143,15 @@ describe('councilEvidence', () => {
     expect(text).not.toContain('\n')
     expect(text.slice(text.indexOf('architect'))).not.toContain(';')
   })
+
+  test('joins reasons with a comma, never leaving a full stop before it', () => {
+    const text = councilEvidence(
+      [{ ...fakeVote('architect', 'block'), reasons: ['Too risky.', 'No tests', 'Unclear...'] }],
+      'block'
+    )
+    expect(text).toContain('architect block - Too risky, No tests, Unclear')
+    expect(text).not.toContain('., ')
+  })
 })
 
 describe('CouncilEngine.convene', () => {
