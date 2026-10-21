@@ -94,12 +94,8 @@ export async function routeClaimed(
   return { status: 'blocked', reason: outcome.reason, disposition: 'retry_scheduled' }
 }
 
-/** Blocks no wait can fix: the Quest dies with its coded reason. */
-const PERMANENT: readonly BlockReason[] = [
-  'hall_locked',
-  'hall_not_found',
-  'private_provider_unavailable',
-]
+/** Blocks no wait can fix: the Quest dies with its coded reason. A locked Hall is not one: its Quests park and resume on unlock. */
+const PERMANENT: readonly BlockReason[] = ['hall_not_found', 'private_provider_unavailable']
 
 /** Collaborators of {@link startRun}. */
 export interface StartRunDeps {
@@ -366,7 +362,13 @@ export async function dispatch(deps: DispatchDeps, guildId: string): Promise<Dis
   await requestPendingSeals(deps, guildId)
   // Runs that just settled (Seals posted or rejected, Quests failed) feed the Tripwires before any claim.
   await watchHalls(deps, guildId)
+  // A locked Hall pauses its work: live leases go back to the queue and its Quests are not claimed.
+  const lockedHalls = config.halls.filter((h) => h.locked).map((h) => h.id)
+  if (lockedHalls.length > 0) {
+    await deps.quests.releaseLeases(guildId, 'routing_blocked', lockedHalls)
+  }
   const claimed = await deps.quests.claim(guildId, {
+    skipHalls: lockedHalls,
     leaseMs: DISPATCH_LEASE_MS,
     maxActive: questConcurrency(config),
     hallCaps: hallCaps(config),

@@ -713,6 +713,7 @@ export function pickClaimable(
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    !options.skipHalls?.includes(q.hallId) &&
     !hallFull(q) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
