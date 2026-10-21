@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import hallMap from './hall.tiled.json'
+import { hallMapFor } from './hallmap'
 
 /** A rectangle in tiles. */
 export interface TileRect {
@@ -56,8 +57,9 @@ const tiledMap = z.object({
 const COLLISION_LAYER = 'collision'
 
 /** Reads the Tiled hall map (walls, furniture, rooms, doorways, desks, gate). */
-export function hallLayout(_roomCount = 6): HallLayout {
-  const map = tiledMap.parse(hallMap)
+export function hallLayout(roomCount = 6): HallLayout {
+  const source = hallMapFor(hallMap, roomCount)
+  const map = tiledMap.parse(source)
   const size = map.tilewidth
   let collision: number[] = []
   const objects: z.infer<typeof mapObject>[] = []
@@ -100,7 +102,7 @@ export function hallLayout(_roomCount = 6): HallLayout {
     sealDesk: one('seal-desk'),
     gate: one('gate'),
     coins: one('coins'),
-    source: hallMap,
+    source,
     walkable: (x, y) =>
       Number.isInteger(x) &&
       Number.isInteger(y) &&
@@ -197,10 +199,25 @@ export interface RoomTag {
 
 /** The label, veil and door of each of `slots` room slots, from the Halls in roster order. */
 export function roomTags(
-  _halls: readonly { name: string; locked: boolean; paused: boolean }[],
-  _slots: number
+  halls: readonly { name: string; locked: boolean; paused: boolean }[],
+  slots: number
 ): RoomTag[] {
-  return []
+  return Array.from({ length: Math.max(slots, halls.length) }, (_slot, index): RoomTag => {
+    const hall = halls[index]
+    if (!hall) {
+      return { text: 'Locked room', veil: 0.45, closed: true }
+    }
+    const text = hall.locked
+      ? `${hall.name} (locked)`
+      : hall.paused
+        ? `${hall.name} (paused)`
+        : hall.name
+    return {
+      text: text.slice(0, 22),
+      veil: hall.locked ? 0.6 : hall.paused ? 0.35 : 0,
+      closed: hall.locked,
+    }
+  })
 }
 
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */
