@@ -25,6 +25,7 @@ import { PgMissiveStore } from './adapters/pg-missive-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
 import { PgPostCostReader } from './adapters/pg-post-cost-reader'
+import { PgPresenceStore } from './adapters/pg-presence-store'
 import { PgProposalStore } from './adapters/pg-proposal-store'
 import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
@@ -254,6 +255,7 @@ export async function compose(
     ...(research ? { research } : {}),
     subscriptionEnabled: subscriptionProvider !== undefined,
     guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
+    presence: overrides.presence ?? new PgPresenceStore(db, keys, clock),
     pushStore,
     pushNotifier,
     pushRelay:

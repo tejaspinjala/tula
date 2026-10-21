@@ -46,6 +46,7 @@ import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import type { PostCostReader } from './ports/post-cost-reader'
+import type { PresenceStore } from './ports/presence-store'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
 import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
@@ -166,6 +167,8 @@ export interface AppDeps {
   pushStore: PushStore
   /** The Guild Master's saved character look, the same on every device. */
   guildMasterLooks: GuildMasterLookStore
+  /** The Guild Master's presence (away mode); the Council reads it through `isAway`. */
+  presence: PresenceStore
   /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */

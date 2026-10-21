@@ -64,6 +64,7 @@ function countingApp(
     streamTickets: harness.adapters.streamTickets,
     pushStore: harness.adapters.pushStore,
     guildMasterLooks: harness.adapters.guildMasterLooks,
+    presence: harness.adapters.presence,
     pushNotifier: harness.adapters.pushNotifier,
     pushRelay: harness.adapters.pushRelay,
     vapidPublicKey: null,
