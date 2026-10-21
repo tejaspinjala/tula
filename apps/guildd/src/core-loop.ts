@@ -179,7 +179,7 @@ async function consultCouncil(
     sessionCap: councilSessionCap(config0),
     approvalCap: councilApprovalCap(config0),
   })
-  if (result.status === 'in_progress') {
+  if (result.status === 'in_progress' || result.status === 'halted') {
     return { kind: 'pending' }
   }
   if (result.status === 'cap_reached') {
