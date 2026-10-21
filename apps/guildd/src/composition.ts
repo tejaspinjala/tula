@@ -14,6 +14,7 @@ import { MemorySearchProvider } from './adapters/memory-search-provider'
 import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgConfigStore } from './adapters/pg-config-store'
+import { PgDossierStore } from './adapters/pg-dossier-store'
 import { PgGateStore } from './adapters/pg-gate-store'
 import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
@@ -43,6 +44,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { Dispatcher } from './dispatch'
+import { DossierService } from './dossiers'
 import {
   loadEnv,
   loadPlatformOperators,
@@ -168,6 +170,18 @@ export async function compose(
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   const workflowStore = new PgWorkflowStore(db, keys, clock)
   const handoffs = new PgHandoffStore(db, keys)
+  const dossierStore = overrides.dossierStore ?? new PgDossierStore(db, keys)
+  const dossiers =
+    overrides.dossiers ??
+    new DossierService({
+      quests,
+      handoffs,
+      objectStore,
+      proposals: new PgProposalStore(db, keys, clock),
+      seals: sealStore,
+      store: dossierStore,
+      clock,
+    })
   const treasury =
     overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config })
   // Governed web research is off unless the host configures a search provider (ADR-0010).
@@ -205,6 +219,7 @@ export async function compose(
       objectStore,
       handoffs,
       ...(research ? { research } : {}),
+      dossiers,
       activity,
       toolsets: new PgToolsetStore(db),
       proposals,
@@ -261,6 +276,8 @@ export async function compose(
       }),
     notes,
     missives,
+    dossiers,
+    dossierStore,
     quests,
     mcp,
     tripwires,

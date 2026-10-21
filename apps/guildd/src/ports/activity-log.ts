@@ -29,6 +29,8 @@ export const memberActivityPayload = z.strictObject({
   memberId: z.string(),
   hallId: z.string(),
   activity: activitySchema,
+  /** The other Hall a cross-Hall activity is aimed at; absent for work inside one Hall. */
+  toHallId: z.string().optional(),
 })
 
 /** How long repeats of one Member's one activity coalesce into a single event, in milliseconds. */
@@ -39,6 +41,8 @@ export interface NewActivity {
   questId: string
   memberId: string
   hallId: string
+  /** The other Hall a cross-Hall activity is aimed at (a Dossier request); absent otherwise. */
+  toHallId?: string
   activity: Activity
   /** The instant it happened. */
   at: Date

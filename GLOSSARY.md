@@ -77,7 +77,7 @@ One precise question from one Hall to another, answered once and filed in the Ar
 _Avoid_: chat, ping
 
 **Dossier**:
-A code-generated, verified handoff packet about something a Hall produced.
+A code-generated, verified handoff packet about a finished Quest in another Hall (`request_dossier`, or the Guild Master from the web): goal, done-condition, Verdict, Seal state, Handoff hash and artifact hashes, with the Handoff hash and every artifact re-checked against the ObjectStore and marked `verified` or listing the failed checks. Never written by a model; immutable; capped per Quest (`maxDossiersPerQuest`, refused as `dossier_cap`). Refusals: `quest_not_finished`, `unknown_quest`, and the cross-Hall codes `unknown_hall`, `same_hall`, `private_boundary`.
 _Avoid_: summary, report
 
 **Bug Report**:
@@ -237,8 +237,11 @@ A team Campaign (one with a board Quest) got its first board Quest / the last in
 **missive.sent**:
 A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).
 
+**dossier.created**:
+A Dossier was assembled about a finished Quest (payload: dossier id, subject Quest id, subject Hall id, requesting Hall id or null for the Guild Master, dossier hash, `verified`; ids and hashes only, never the body, which the Hall dossiers routes serve).
+
 **member.activity**:
-A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.
+A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id, optionally the target hall id for cross-Hall work such as a Dossier request, and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).
