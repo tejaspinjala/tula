@@ -12,11 +12,18 @@ const { LiveEvents } = await import('./live-events')
 
 const urls: string[] = []
 const fresh: ReturnType<typeof missive>[] = []
-const missive = (id: string, from: string, to: string, text: string) => ({
+const missive = (
+  id: string,
+  from: string,
+  to: string,
+  text: string,
+  halls: { hallId: string; toHall: string | null } = { hallId: 'heralds', toHall: null }
+) => ({
   id,
   from,
   to,
   text,
+  ...halls,
   sentAt: '2026-01-01T00:00:00.000Z',
 })
 const roster = {
@@ -54,6 +61,10 @@ beforeAll(() => {
         return Response.json({
           missives: [
             ...fresh,
+            missive('m4', 'health-m', 'hall', 'Greetings from afar.', {
+              hallId: 'health',
+              toHall: 'heralds',
+            }),
             missive('m3', 'heralds-member-2', 'heralds-captain', '<b>Which tone?</b>'),
             missive('m2', 'heralds-captain', 'heralds-member-2', 'Warm and brief.'),
           ],
@@ -86,11 +97,14 @@ test('a Hall’s exchange is listed newest first with Member names, as plain tex
   const heading = m.host.querySelector('h2')
   expect(heading?.textContent).toBe('Guild chat')
   const rows = [...m.host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
-  expect(rows).toHaveLength(2)
-  expect(rows[0]).toContain('Herald Journeyman')
-  expect(rows[0]).toContain('Herald Captain')
-  expect(rows[0]).toContain('<b>Which tone?</b>')
-  expect(rows[1]).toContain('Warm and brief.')
+  expect(rows).toHaveLength(3)
+  expect(rows[0]).toContain('from Health')
+  expect(rows[0]).toContain('Greetings from afar.')
+  expect(rows[1]).toContain('Herald Journeyman')
+  expect(rows[1]).toContain('Herald Captain')
+  expect(rows[1]).toContain('<b>Which tone?</b>')
+  expect(rows[1]).not.toContain('from Heralds')
+  expect(rows[2]).toContain('Warm and brief.')
   expect(m.host.querySelector('b')).toBeNull()
   expect(urls.some((u) => u.includes('/halls/heralds/missives?limit=20'))).toBe(true)
   await m.unmount()
@@ -116,8 +130,8 @@ test('older Missives load on request and are appended below', async () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
   })
   const rows = [...m.host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
-  expect(rows).toHaveLength(3)
-  expect(rows[2]).toContain('Welcome to the Campaign.')
+  expect(rows).toHaveLength(4)
+  expect(rows[3]).toContain('Welcome to the Campaign.')
   expect(
     [...m.host.querySelectorAll('button')].some((b) => b.textContent === 'Load older missives')
   ).toBe(false)

@@ -7,6 +7,8 @@ const missiveBody = z.object({
   from: z.string(),
   to: z.string(),
   text: z.string(),
+  hallId: z.string(),
+  toHall: z.string().nullable(),
   sentAt: z.string(),
 })
 const pageBody = z.object({ missives: z.array(missiveBody), next: z.number().nullable() })
@@ -40,4 +42,13 @@ export async function loadMissives(
 /** The Missives `memberId` sent or received, plus those sent to the whole Hall (`hall`); the list is one Hall's. */
 export function missivesOf(missives: readonly HallMissive[], memberId: string): HallMissive[] {
   return missives.filter((m) => m.from === memberId || m.to === memberId || m.to === 'hall')
+}
+
+/** Stub. */
+export function crossHallLabel(
+  _missive: HallMissive,
+  _viewedHall: string,
+  _hallName: (hallId: string) => string
+): string | null {
+  return null
 }
