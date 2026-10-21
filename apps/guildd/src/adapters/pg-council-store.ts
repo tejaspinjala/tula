@@ -88,6 +88,13 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
+  async list(
+    _guildId: string,
+    _page: { limit: number; after?: string }
+  ): Promise<{ sessions: CouncilSession[]; next: string | null }> {
+    return { sessions: [], next: null }
+  }
+
   async recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean> {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)

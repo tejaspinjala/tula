@@ -50,6 +50,13 @@ export class MemoryCouncilStore implements CouncilStore {
     return { status: 'created', session: { ...session } }
   }
 
+  async list(
+    _guildId: string,
+    _page: { limit: number; after?: string }
+  ): Promise<{ sessions: CouncilSession[]; next: string | null }> {
+    return { sessions: [], next: null }
+  }
+
   async recordVote(guildId: string, sessionId: string, vote: NewCouncilVote): Promise<boolean> {
     if (this.owners.get(sessionId) !== guildId) {
       return false
