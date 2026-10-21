@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { DataClass } from './quest-queue'
 
 /** Largest page a {@link NoteStore} list or search returns. */
 export const MAX_NOTE_PAGE = 100
@@ -50,6 +51,8 @@ export interface NoteVersion {
 export interface Note extends NoteVersion {
   id: string
   kind: NoteKind
+  /** How sensitive the note is; `private` for a note filed by a private-class Quest. */
+  dataClass: DataClass
 }
 
 /** A NoteLink seen from its target: the note that links in with `[[title]]`. */
@@ -70,6 +73,14 @@ export interface NotePaging {
   after?: string
   limit: number
   hall?: string
+  /** Include private notes; omitted otherwise (the default), so a reader outside the private Hall never sees them. */
+  includePrivate?: boolean
+}
+
+/** Read options for {@link NoteStore.get}. */
+export interface NoteReadOptions {
+  /** Include a private note and private backlinks; refused (null) otherwise. */
+  includePrivate?: boolean
 }
 
 /** One page of notes in id order; `next` is the cursor for the following page, null at the end. */
@@ -157,11 +168,22 @@ export function mergeChanges(current: NoteVersion, changes: NoteChanges) {
  */
 export interface NoteStore {
   /** Adds a note (version 1), filed under `hallId` when given (otherwise no Hall: the Guild Master's own). A fact without evidence throws {@link NoteError} `evidence_required`. With an `idempotencyKey`, a key already used in this guild returns that note and writes nothing (a retried caller never duplicates it). */
-  add(guildId: string, input: NewNote, hallId?: string, idempotencyKey?: string): Promise<Note>
+  add(
+    guildId: string,
+    input: NewNote,
+    hallId?: string,
+    idempotencyKey?: string,
+    dataClass?: DataClass
+  ): Promise<Note>
   /** Writes a new NoteVersion with the given fields changed; throws {@link NoteError}. */
   edit(guildId: string, id: string, changes: NoteChanges): Promise<Note>
   /** The note, all its versions and its backlinks; null when absent for this guild or, with `hall`, filed under another Hall (or none). */
-  get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null>
+  get(
+    guildId: string,
+    id: string,
+    hall?: string,
+    options?: NoteReadOptions
+  ): Promise<NoteDetail | null>
   /** Notes in id order, strictly after `after`, at most `limit`. */
   list(guildId: string, page: NotePaging): Promise<NotePage>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */

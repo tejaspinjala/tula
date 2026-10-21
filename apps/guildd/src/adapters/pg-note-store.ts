@@ -11,6 +11,7 @@ import {
   NoteError,
   type NotePage,
   type NotePaging,
+  type NoteReadOptions,
   type NoteStore,
   type NoteVersion,
   nextVersion,
@@ -18,6 +19,7 @@ import {
   titleKey,
   wikiLinks,
 } from '../ports/note-store'
+import type { DataClass } from '../ports/quest-queue'
 
 const versionRow = z.object({
   version: z.number(),
@@ -31,7 +33,7 @@ const backlinkRow = z.object({ note_id: z.string(), title: z.string() })
 
 function toNote(row: z.infer<typeof noteRow>): Note {
   const { note_id, kind, ...version } = row
-  return { id: note_id, kind, ...version }
+  return { id: note_id, kind, dataClass: 'internal', ...version }
 }
 
 /**
@@ -48,7 +50,8 @@ export class PgNoteStore implements NoteStore {
     guildId: string,
     input: NewNote,
     hallId?: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    _dataClass?: DataClass
   ): Promise<Note> {
     const version = nextVersion(input, 1)
     return this.db.withGuild(guildId, async (tx) => {
@@ -70,7 +73,7 @@ export class PgNoteStore implements NoteStore {
       const id = z.object({ note_id: z.string() }).parse(row).note_id
       await this.writeVersion(tx, guildId, id, version)
       await appendEvent(tx, this.keys, 'note.added', { noteId: id, version: 1, kind: input.kind })
-      return { id, kind: input.kind, ...version }
+      return { id, kind: input.kind, dataClass: 'internal', ...version }
     })
   }
 
@@ -102,11 +105,16 @@ export class PgNoteStore implements NoteStore {
         version: version.version,
         kind: current.kind,
       })
-      return { id, kind: current.kind, ...version }
+      return { id, kind: current.kind, dataClass: 'internal', ...version }
     })
   }
 
-  async get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null> {
+  async get(
+    guildId: string,
+    id: string,
+    hall?: string,
+    _options?: NoteReadOptions
+  ): Promise<NoteDetail | null> {
     return this.db.withGuild(guildId, async (tx) => {
       const [row] = await tx`
         select n.note_id, n.kind, v.version, v.title, v.body, v.trust, v.evidence

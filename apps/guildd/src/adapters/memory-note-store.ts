@@ -8,6 +8,7 @@ import {
   NoteError,
   type NotePage,
   type NotePaging,
+  type NoteReadOptions,
   type NoteStore,
   type NoteVersion,
   nextVersion,
@@ -15,6 +16,7 @@ import {
   titleKey,
   wikiLinks,
 } from '../ports/note-store'
+import type { DataClass } from '../ports/quest-queue'
 
 interface Stored {
   kind: Note['kind']
@@ -41,7 +43,8 @@ export class MemoryNoteStore implements NoteStore {
     guildId: string,
     input: NewNote,
     hallId?: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    _dataClass?: DataClass
   ): Promise<Note> {
     const version = nextVersion(input, 1)
     // No await from here to the writes, so same-tick calls with one key cannot both insert.
@@ -50,14 +53,14 @@ export class MemoryNoteStore implements NoteStore {
     const stored = keyed === undefined ? undefined : this.notes(guildId).get(keyed)
     const current = stored?.versions.at(-1)
     if (keyed !== undefined && stored && current) {
-      return { id: keyed, kind: stored.kind, ...current }
+      return { id: keyed, kind: stored.kind, dataClass: 'internal', ...current }
     }
     const id = crypto.randomUUID()
     this.notes(guildId).set(id, { kind: input.kind, hall: hallId ?? null, versions: [version] })
     if (idempotencyKey !== undefined) {
       this.keyed.set(slot, id)
     }
-    return { id, kind: input.kind, ...version }
+    return { id, kind: input.kind, dataClass: 'internal', ...version }
   }
 
   async edit(guildId: string, id: string, changes: NoteChanges): Promise<Note> {
@@ -68,10 +71,15 @@ export class MemoryNoteStore implements NoteStore {
     }
     const version = nextVersion(mergeChanges(current, changes), current.version + 1)
     stored.versions.push(version)
-    return { id, kind: stored.kind, ...version }
+    return { id, kind: stored.kind, dataClass: 'internal', ...version }
   }
 
-  async get(guildId: string, id: string, hall?: string): Promise<NoteDetail | null> {
+  async get(
+    guildId: string,
+    id: string,
+    hall?: string,
+    _options?: NoteReadOptions
+  ): Promise<NoteDetail | null> {
     const stored = this.notes(guildId).get(id)
     const current = stored?.versions.at(-1)
     if (!stored || !current || (hall !== undefined && stored.hall !== hall)) {
@@ -91,7 +99,7 @@ export class MemoryNoteStore implements NoteStore {
     }
     backlinks.sort((a, b) => a.id.localeCompare(b.id))
     return {
-      note: { id, kind: stored.kind, ...current },
+      note: { id, kind: stored.kind, dataClass: 'internal', ...current },
       versions: [...stored.versions],
       backlinks,
     }
@@ -122,7 +130,7 @@ export class MemoryNoteStore implements NoteStore {
         (page.hall === undefined || stored.hall === page.hall) &&
         keep(current)
       ) {
-        matches.push({ id, kind: stored.kind, ...current })
+        matches.push({ id, kind: stored.kind, dataClass: 'internal', ...current })
       }
     }
     matches.sort((a, b) => (a.id < b.id ? -1 : 1))

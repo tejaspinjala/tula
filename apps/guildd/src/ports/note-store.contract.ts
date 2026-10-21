@@ -182,5 +182,76 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.get(g, target.id, 'a'))?.backlinks.map((b) => b.id)).toEqual([own.id])
       expect((await store.get(g, target.id))?.backlinks).toHaveLength(2)
     })
+
+    test('a note carries a data class: internal by default, private when filed as private', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const plain = await store.add(g, { ...fact, title: 'Plain', body: 'p' }, 'a')
+      const secret = await store.add(
+        g,
+        { ...fact, title: 'Secret', body: 's' },
+        'a',
+        undefined,
+        'private'
+      )
+      expect(plain.dataClass).toBe('internal')
+      expect(secret.dataClass).toBe('private')
+      const detail = await store.get(g, secret.id, 'a', { includePrivate: true })
+      expect(detail?.note.dataClass).toBe('private')
+      const edited = await store.edit(g, secret.id, { body: 'changed' })
+      expect(edited.dataClass).toBe('private')
+    })
+
+    test('private notes are omitted from list, search and get unless the reader asks for them', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const plain = await store.add(g, { ...fact, title: 'Plain', body: 'shared word' }, 'a')
+      const secret = await store.add(
+        g,
+        { ...fact, title: 'Secret', body: 'shared word' },
+        'a',
+        undefined,
+        'private'
+      )
+      const page = { limit: 10, hall: 'a' }
+      expect((await store.list(g, page)).notes.map((n) => n.id)).toEqual([plain.id])
+      expect((await store.search(g, 'shared', page)).notes.map((n) => n.id)).toEqual([plain.id])
+      expect(await store.get(g, secret.id, 'a')).toBeNull()
+      expect(await store.get(g, secret.id)).toBeNull()
+      const open = { ...page, includePrivate: true }
+      expect((await store.list(g, open)).notes).toHaveLength(2)
+      expect((await store.search(g, 'shared', open)).notes).toHaveLength(2)
+      expect((await store.get(g, secret.id, 'a', { includePrivate: true }))?.note.id).toBe(
+        secret.id
+      )
+    })
+
+    test('a private note never shows as a backlink to a reader without private access', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'A', body: 'target' }, 'a')
+      await store.add(g, { ...fact, title: 'Linker', body: 'see [[A]]' }, 'a', undefined, 'private')
+      expect((await store.get(g, target.id, 'a'))?.backlinks).toEqual([])
+      expect(
+        (await store.get(g, target.id, 'a', { includePrivate: true }))?.backlinks
+      ).toHaveLength(1)
+    })
+
+    test('a private note of one guild is invisible to another guild', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const secret = await store.add(
+        g,
+        { ...fact, title: 'Secret', body: 'private words' },
+        'a',
+        undefined,
+        'private'
+      )
+      const open = { limit: 10, includePrivate: true }
+      expect((await store.list(other, open)).notes).toEqual([])
+      expect((await store.search(other, 'private', open)).notes).toEqual([])
+      expect(await store.get(other, secret.id, undefined, { includePrivate: true })).toBeNull()
+    })
   })
 }
