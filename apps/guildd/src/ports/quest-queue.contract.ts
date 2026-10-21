@@ -355,6 +355,22 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await events(g)).slice(-3)).toEqual(['quest.posted', 'quest.claimed', 'quest.dead'])
     })
 
+    test('giving a claim back spends no attempt of the retry budget: after four releases one failure still retries', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      for (let i = 0; i < 4; i += 1) {
+        const claimed = await queue.claim(g, LEASE)
+        expect(claimed?.id).toBe(q.id)
+        await queue.releaseClaim(g, q.id, claimed?.attempts ?? 0, clock.now())
+      }
+      const last = await queue.claim(g, LEASE)
+      expect(last?.id).toBe(q.id)
+      const failed = await queue.fail(g, q.id, last?.attempts ?? 0, 'sandbox_unavailable')
+      expect(failed.state).toBe('queued')
+      expect((await queue.deadLetters(g, { limit: 10 })).quests).toEqual([])
+    })
+
     test('a Quest whose lease lapses past its attempts is dead-lettered, not leased again', async () => {
       const { queue, clock, events, newGuild } = await make()
       const g = await newGuild()

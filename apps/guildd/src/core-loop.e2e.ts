@@ -393,6 +393,45 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       })
     })
 
+    test('waiting for a private-eligible provider does not shrink the retry budget: the first transient failure afterwards retries', async () => {
+      const w = await make()
+      const { guildId } = await w.newGuild()
+      await w.configure(guildId, (c) => ({
+        ...c,
+        halls: c.halls.map((h) =>
+          h.id === 'health'
+            ? {
+                ...h,
+                locked: false,
+                privateEligible: true,
+                members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+              }
+            : h
+        ),
+      }))
+      const quest = await post(w, guildId, {
+        templateId: 'health-log',
+        hallId: 'health',
+        rank: 'journeyman',
+        dataClass: 'private',
+        ownerId: 'health-member-1',
+        title: 'Log my week',
+        doneCondition: 'A private health note is filed in the Health Archive',
+      })
+      for (let i = 0; i < 4; i += 1) {
+        expect(await w.dispatcher.dispatch(guildId)).toMatchObject({ status: 'blocked' })
+        w.clock.advance(60 * 60 * 1000)
+      }
+      await w.configure(guildId, (c) => ({
+        ...c,
+        providers: c.providers.map((p) => ({ ...p, privateEligible: true })),
+      }))
+      await dispatchStarts(w, guildId, quest)
+      const running = await w.quests.get(guildId, quest.id)
+      await w.quests.fail(guildId, quest.id, running?.attempts ?? 0, 'worker_crash')
+      expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+    })
+
     describe('subagents', () => {
       const parentBrief = 'Summarise two topics'
       const startsQuest = async (w: E2eWorld, guild: string, questId: string) =>
