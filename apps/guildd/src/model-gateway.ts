@@ -582,7 +582,7 @@ export class ModelGateway {
    */
   async classifierComplete(
     guildId: string,
-    call: { decisionKey: string; hallId: string; prompt: string }
+    call: { decisionKey: string; hallId: string; prompt: string; signal?: AbortSignal }
   ): Promise<string> {
     if (await this.deps.gates.isBarred(guildId)) {
       throw new GatewayError('gates_barred')

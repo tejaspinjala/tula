@@ -10,11 +10,13 @@ export interface BoundClassifierDeps {
   gateway: {
     classifierComplete(
       guildId: string,
-      call: { decisionKey: string; hallId: string; prompt: string }
+      call: { decisionKey: string; hallId: string; prompt: string; signal?: AbortSignal }
     ): Promise<string>
   }
   /** Answers when no private-eligible provider is bound; calls no model. */
   standin: Classifier
+  /** Bound on one model call. */
+  timeoutMs?: number
 }
 
 /**

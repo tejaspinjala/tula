@@ -51,6 +51,17 @@ describe('bindClassifier', () => {
     })
   })
 
+  test('binds to the first cheap profile whose provider is private-eligible', () => {
+    const cfg: GuildConfig = {
+      ...configWith(true),
+      routingProfiles: [
+        { id: 'a-cheap', provider: 'cloud', tier: 'cheap' },
+        { id: 'b-cheap', provider: 'home', tier: 'cheap' },
+      ],
+    }
+    expect(bindClassifier(cfg)).toEqual({ kind: 'model', providerId: 'home', profileId: 'b-cheap' })
+  })
+
   test('a cheap tier on a provider that is not private-eligible binds the stand-in', () => {
     const cfg: GuildConfig = {
       ...configWith(true),
@@ -61,12 +72,28 @@ describe('bindClassifier', () => {
 })
 
 /** A gateway spy: records every classifier call and answers a scripted claim. */
-function spyGateway(answer: string) {
+function spyGateway(answer: string, hang = false) {
   const calls: string[] = []
+  const halls: string[] = []
+  const aborted: boolean[] = []
   return {
     calls,
-    classifierComplete: async (_guildId: string, call: { prompt: string }) => {
+    halls,
+    aborted,
+    classifierComplete: async (
+      _guildId: string,
+      call: { prompt: string; hallId: string; signal?: AbortSignal }
+    ) => {
       calls.push(call.prompt)
+      halls.push(call.hallId)
+      if (hang) {
+        await new Promise<void>((resolve) => {
+          call.signal?.addEventListener('abort', () => {
+            aborted.push(true)
+            resolve()
+          })
+        })
+      }
       return answer
     },
   }
@@ -114,6 +141,55 @@ describe('BoundClassifier', () => {
     expect(s.gateway.calls).toHaveLength(1)
     expect(s.gateway.calls[0]).toContain('secret plan')
     expect(out).toMatchObject({ status: 'routed', dataClass: 'private', providerId: 'home' })
+  })
+
+  test('spend is filed under the first open work Hall, not a private one listed first', async () => {
+    const s = setup(configWith(true))
+    const vault = s.live.config.halls.find((h) => h.id === 'vault')
+    const rest = s.live.config.halls.filter((h) => h.id !== 'vault')
+    if (vault) {
+      s.live.config = { ...s.live.config, halls: [vault, ...rest] }
+    }
+    await s.routeFree('plan')
+    const firstWork = s.live.config.halls.find((h) => h.kind === 'work' && !h.locked)
+    expect(s.gateway.halls[0]).toBe(firstWork?.id)
+  })
+
+  test("another guild's private-eligible config never binds this guild's classifier", async () => {
+    const gateway = spyGateway(claim)
+    const classifier = new BoundClassifier({
+      config: {
+        current: async (guildId) => ({ version: 1, config: configWith(guildId !== GUILD) }),
+      },
+      gateway,
+      standin: new MemoryClassifier(),
+    })
+    await classifier.classify({
+      guildId: GUILD,
+      decisionKey: 'k',
+      goal: 'plan',
+      halls: [{ id: 'heralds', kind: 'work' }],
+    })
+    expect(gateway.calls).toHaveLength(0)
+  })
+
+  test('the classifier timeout aborts the gateway call', async () => {
+    const gateway = spyGateway(claim, true)
+    const classifier = new BoundClassifier({
+      config: { current: async () => ({ version: 1, config: configWith(true) }) },
+      gateway,
+      standin: new MemoryClassifier(),
+      timeoutMs: 20,
+    })
+    await expect(
+      classifier.classify({
+        guildId: GUILD,
+        decisionKey: 'k',
+        goal: 'plan',
+        halls: [{ id: 'heralds', kind: 'work' }],
+      })
+    ).rejects.toThrow()
+    expect(gateway.aborted).toEqual([true])
   })
 
   test('turning the flag off unbinds at once, with no state kept between calls', async () => {

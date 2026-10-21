@@ -753,6 +753,96 @@ describe('classifierComplete', () => {
     expect(s.provider.seen).toHaveLength(0)
   })
 
+  test('binds to the first cheap profile whose provider is private-eligible', async () => {
+    const cfg = guildConfig.parse({
+      ...defaultConfig(),
+      providers: [
+        { id: 'cloud', auth: 'api_key', privateEligible: false },
+        { id: 'vault', auth: 'api_key', privateEligible: true },
+      ],
+      routingProfiles: [
+        { id: 'a-cheap', provider: 'cloud', tier: 'cheap', model: 'model-a', price: PRICE },
+        { id: 'b-cheap', provider: 'vault', tier: 'cheap', model: 'model-b', price: PRICE },
+      ],
+    })
+    const s = await setup(cfg)
+    await s.secrets.add(GUILD, 'vault', KEY)
+    s.provider.script({ ok: true, text: '{}', usage: { inputTokens: 1, outputTokens: 1 } })
+    await s.gateway.classifierComplete(GUILD, call)
+    expect(s.provider.seen[0]?.request.model).toBe('model-b')
+  })
+
+  test('a flag turned off between the check and the send still sends nothing', async () => {
+    const s = await setup(eligible(true))
+    let reads = 0
+    Object.defineProperty(s.live, 'config', {
+      get: () => {
+        reads += 1
+        return eligible(reads <= 1)
+      },
+    })
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'provider_not_private',
+    })
+    expect(s.provider.seen).toHaveLength(0)
+  })
+
+  test('a reached cap refuses the call before the provider', async () => {
+    const cfg = guildConfig.parse({
+      ...eligible(true),
+      caps: { ...defaultConfig().caps, dailyTokens: 10 },
+    })
+    const s = await setup(cfg)
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'cap_reached',
+    })
+    expect(s.provider.seen).toHaveLength(0)
+  })
+
+  test('a provider failure keeps the reservation', async () => {
+    const s = await setup(eligible(true))
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'provider_failed',
+    })
+    expect((await s.ledger.dayTotals(GUILD, '2026-03-04')).tokens).toBeGreaterThan(0)
+  })
+
+  test('another guild sees none of the classifier spend, even under the same decision key', async () => {
+    const s = await setup(eligible(true))
+    s.provider.script({ ok: true, text: '{}', usage: { inputTokens: 10, outputTokens: 5 } })
+    await s.gateway.classifierComplete(GUILD, call)
+    expect(await s.ledger.getRun(OTHER, 'classify:decision-1')).toBeNull()
+    expect(await s.ledger.dayTotals(OTHER, '2026-03-04')).toEqual({ tokens: 0, costMicros: 0 })
+  })
+
+  test('a retried decision is refused, not charged twice', async () => {
+    const s = await setup(eligible(true))
+    s.provider.script({ ok: true, text: '{}', usage: { inputTokens: 10, outputTokens: 5 } })
+    await s.gateway.classifierComplete(GUILD, call)
+    await expect(s.gateway.classifierComplete(GUILD, call)).rejects.toMatchObject({
+      code: 'duplicate_call',
+    })
+    expect(s.provider.seen).toHaveLength(1)
+  })
+
+  test('the caller signal aborts a slow provider call', async () => {
+    const s = await setup(eligible(true))
+    let seenAborted = false
+    spyOn(s.provider, 'complete').mockImplementation(
+      (_c, _r, signal) =>
+        new Promise((_, reject) => {
+          signal?.addEventListener('abort', () => {
+            seenAborted = true
+            reject(new ModelProviderError('aborted'))
+          })
+        })
+    )
+    await expect(
+      s.gateway.classifierComplete(GUILD, { ...call, signal: AbortSignal.timeout(30) })
+    ).rejects.toMatchObject({ code: 'provider_failed' })
+    expect(seenAborted).toBe(true)
+  })
+
   test('Bar the Gates refuses the call before the provider', async () => {
     const s = await setup(eligible(true))
     await s.gates.bar({ guildId: GUILD, memberId: 'gm' }, 'guild')
