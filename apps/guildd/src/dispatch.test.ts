@@ -252,6 +252,23 @@ describe('dispatch', () => {
     expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: second.id })
   })
 
+  test('a Hall locked at the config change (Quest already queued, lease gone) still has its sandbox killed on the next pass', async () => {
+    const w = world()
+    const base = defaultConfig()
+    let config = configWith()
+    const deps = { ...w.deps, config: { current: async () => ({ version: 1, config }) } }
+    const quest = await w.queue()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: quest.id })
+    expect(await w.started()).toEqual([quest.id])
+    // What the config store does in the lock transaction.
+    await w.quests.releaseLeases(w.guild, 'routing_blocked', ['heralds'])
+    config = configWith({
+      halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+    await dispatch(deps, w.guild)
+    expect(await w.started()).toEqual([])
+  })
+
   test('a sandbox that will not die does not stop the lock: the run is revoked, the lease released, other Halls go on', async () => {
     const w = world()
     const inner = new MemorySandboxRunner()
