@@ -19,7 +19,7 @@ import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
-import type { InquiryStore } from '../ports/inquiry-store'
+import type { Inquiry, InquiryStore } from '../ports/inquiry-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { type MissiveStore, WHOLE_HALL } from '../ports/missive-store'
 import { NoteError, type NoteStore } from '../ports/note-store'
@@ -1123,16 +1123,38 @@ export class McpGateway {
       answer: a.answer,
       at: this.deps.clock.now(),
     })
-    if (!answered.ok) {
-      return refuse(answered.error)
+    if (answered.ok) {
+      return this.fileInquiryAnswer(caller, answered.inquiry, a.answer)
     }
-    const { inquiry } = answered
+    if (answered.error === 'inquiry_answered') {
+      // A crash between the answer and its Archive filing leaves no note; the retry from the
+      // answer Quest files it now (same idempotency key, so never twice) and succeeds.
+      const stored = await this.deps.inquiries.get(guild, a.inquiryId)
+      if (
+        stored &&
+        stored.answerQuestId === quest.id &&
+        stored.noteId === null &&
+        stored.answer !== null
+      ) {
+        return this.fileInquiryAnswer(caller, stored, stored.answer)
+      }
+    }
+    return refuse(answered.error)
+  }
+
+  /** Files an answered Inquiry's answer in the Archive under the answering Hall and links the note. */
+  private async fileInquiryAnswer(
+    caller: Caller,
+    inquiry: Inquiry,
+    answer: string
+  ): Promise<ToolReply> {
+    const { guild, quest } = caller
     const note = await this.deps.notes.add(
       guild,
       {
         kind: 'text',
         title: `Inquiry answer ${inquiry.id}`,
-        body: `Answer to an Inquiry from Hall ${inquiry.fromHall} to Hall ${inquiry.toHall}.\nAsking Quest: ${inquiry.askQuestId}\nAnswering Quest: ${inquiry.answerQuestId}\n\n${a.answer}`,
+        body: `Answer to an Inquiry from Hall ${inquiry.fromHall} to Hall ${inquiry.toHall}.\nAsking Quest: ${inquiry.askQuestId}\nAnswering Quest: ${inquiry.answerQuestId}\n\n${answer}`,
         claim: 'assumption',
       },
       quest.hallId,
