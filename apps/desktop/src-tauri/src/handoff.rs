@@ -4,6 +4,8 @@
 //! `https://<host>/#desktop-code=<code>`. Pure functions only: the window and OS calls live in
 //! `main.rs`.
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -54,8 +56,9 @@ pub fn code_from_deep_link(link: &str) -> Option<(String, String)> {
     if url.scheme() != SCHEME || url.host_str() != Some("signed-in") || url.query().is_some() {
         return None;
     }
-    let _ = (&url, is_state(""), is_code(""));
-    None
+    let fragment = url.fragment()?;
+    let (code, state) = fragment.strip_prefix("code=")?.split_once("&state=")?;
+    (is_code(code) && is_state(state)).then(|| (code.to_string(), state.to_string()))
 }
 
 /// Where the main window goes to finish the sign-in: the server's origin with the code and the
@@ -64,8 +67,7 @@ pub fn return_url(server: &Url, code: &str, state: &str) -> Url {
     let mut url = server.clone();
     url.set_path("/");
     url.set_query(None);
-    let _ = state;
-    url.set_fragment(Some(&format!("desktop-code={code}")));
+    url.set_fragment(Some(&format!("desktop-code={code}&desktop-state={state}")));
     url
 }
 
@@ -82,22 +84,36 @@ pub struct PendingSignIn(Mutex<Option<(String, Instant)>>);
 impl PendingSignIn {
     /// Starts a sign-in: makes and remembers a fresh random state (replacing any earlier one).
     pub fn begin(&self, now: Instant) -> String {
-        let _ = now;
-        String::new()
+        let mut bytes = [0u8; 32];
+        getrandom::fill(&mut bytes).expect("the operating system has no randomness");
+        let state = URL_SAFE_NO_PAD.encode(bytes);
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some((state.clone(), now));
+        state
     }
 
     /// True once, for the pending state while it is fresh; then nothing is pending. A wrong state
     /// changes nothing, so a stray link cannot cancel the sign-in the user is doing.
     pub fn take(&self, state: &str, now: Instant) -> bool {
-        let _ = (state, now);
-        false
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match held.as_ref() {
+            Some((_, since)) if now.duration_since(*since) > STATE_TTL => {
+                *held = None;
+                false
+            }
+            Some((pending, _)) if pending == state => {
+                *held = None;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
 /// The browser sign-in address with the shell's `state` added.
 pub fn browser_url(requested: &Url, state: &str) -> Url {
-    let _ = state;
-    requested.clone()
+    let mut url = requested.clone();
+    url.query_pairs_mut().append_pair("state", state);
+    url
 }
 
 /// Whether a window the page asked to open is the browser sign-in (`/?desktop=1` on the server's
