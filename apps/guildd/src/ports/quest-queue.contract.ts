@@ -418,6 +418,8 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       await queue.claim(g, LEASE)
       expect(await queue.releaseLeases(g, 'routing_blocked', ['health'])).toBe(1)
       expect((await queue.get(g, a.quest.id))?.state).toBe('queued')
+      // A pause is not a crash: the claim it cost is refunded.
+      expect((await queue.get(g, a.quest.id))?.maxAttempts).toBe(a.quest.maxAttempts + 1)
       expect((await queue.get(g, b.quest.id))?.state).toBe('active')
       expect(await queue.claim(g, { ...LEASE, skipHalls: ['health'] })).toBeNull()
       expect((await queue.claim(g, LEASE))?.hallId).toBe('health')

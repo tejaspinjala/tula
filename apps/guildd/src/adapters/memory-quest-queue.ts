@@ -244,6 +244,8 @@ export class MemoryQuestQueue implements QuestQueue {
           leaseExpiresAt: null,
           notBefore: now,
           lastError: reason,
+          // A pause is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
+          maxAttempts: q.maxAttempts + 1,
         })
         released += 1
       }
