@@ -169,3 +169,16 @@ test('guildd shows as an alert only while it is down', async () => {
   expect(down.host.querySelector('[role="alert"]')?.textContent).toBe('guildd: down')
   await down.unmount()
 })
+
+test('the HUD tells the world how much room it takes, so the map is framed below it and never under it', async () => {
+  const proto = HTMLElement.prototype
+  const real = proto.getBoundingClientRect
+  proto.getBoundingClientRect = function bottomAt120() {
+    return Object.assign(real.call(this), { bottom: 120 })
+  }
+  const m = await mount(hud())
+  expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('120px')
+  await m.unmount()
+  expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('')
+  proto.getBoundingClientRect = real
+})
