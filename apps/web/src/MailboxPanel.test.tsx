@@ -21,6 +21,7 @@ const roster = {
       captain: { id: 'heralds-captain', name: 'Herald Captain' },
       members: [],
     },
+    { id: 'vault', name: 'Vault', kind: 'work', locked: false, captain: null, members: [] },
     { id: 'health', name: 'Health', kind: 'private', locked: true, captain: null, members: [] },
   ],
   next: null,
@@ -258,5 +259,31 @@ test('signed out, it asks for a passkey and reads nothing', async () => {
   const m = await mount(<MailboxPanel session={null} />)
   expect(m.host.textContent).toContain('Sign in')
   expect(calls).toEqual([])
+  await m.unmount()
+})
+
+test('the tabs come before the list; opening a row shows its detail as its own section with a Back control', async () => {
+  const m = await mount(<MailboxPanel session={session} />)
+  const tablist = m.host.querySelector('[role="tablist"]')
+  const list = m.host.querySelector('ul[aria-label="Inquiries"]')
+  expect(tablist && list && tablist.compareDocumentPosition(list) & 4).toBeTruthy()
+  await press(m.host, 'Open')
+  const detail = m.host.querySelector('[data-testid="mail-detail"]')
+  expect(detail?.closest('li')).toBeNull()
+  expect(detail?.textContent).toContain('Under the mat.')
+  expect(m.host.querySelector('ul[aria-label="Inquiries"]')).toBeNull()
+  await press(m.host, 'Back to the list')
+  expect(m.host.querySelector('[data-testid="mail-detail"]')).toBeNull()
+  expect(m.host.querySelectorAll('[data-testid="mail-row"]')).toHaveLength(1)
+  await m.unmount()
+})
+
+test('?hall=<id> starts the Mailbox on that Hall', async () => {
+  window.history.replaceState({}, '', '/mailbox?hall=vault')
+  calls.length = 0
+  const m = await mount(<MailboxPanel session={session} />)
+  const select = m.host.querySelector<HTMLSelectElement>('#mailbox-hall')
+  expect(select?.value).toBe('vault')
+  window.history.replaceState({}, '', '/')
   await m.unmount()
 })
