@@ -501,6 +501,24 @@ function subsetOf<T extends { id: string }>(prev: readonly T[], next: readonly T
   })
 }
 
+type Provider = GuildConfig['providers'][number]
+
+/**
+ * Every provider of `next` is in `prev` unchanged, or differs only by private eligibility going
+ * off (ADR-0012: turning it off narrows where private text may go, so it applies at once).
+ */
+function providersNoWider(prev: readonly Provider[], next: readonly Provider[]): boolean {
+  const before = new Map(prev.map((p) => [p.id, p]))
+  return next.every((n) => {
+    const p = before.get(n.id)
+    return (
+      p !== undefined &&
+      (!n.privateEligible || p.privateEligible) &&
+      same({ ...p, privateEligible: false }, { ...n, privateEligible: false })
+    )
+  })
+}
+
 type Agent = { id: string; name: string }
 type Member = GuildConfig['halls'][number]['members'][number]
 
@@ -615,7 +633,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxCouncilApprovalsPerDay',
       'maxCouncilSessionsPerDay',
     ]) &&
-    subsetOf(prev.providers, next.providers) &&
+    providersNoWider(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
     learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&
