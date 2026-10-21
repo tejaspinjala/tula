@@ -1,4 +1,5 @@
 import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
+import type { ConfigStore } from './ports/config-store'
 import type { Quest, QuestQueue } from './ports/quest-queue'
 import type { Seal, SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
@@ -91,6 +92,7 @@ export interface SealRequestDeps {
   sealStore: Pick<SealStore, 'forQuest'>
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealEngine, 'requestSeal'>
+  config?: Pick<ConfigStore, 'current'>
 }
 
 /** What {@link requestQuestSeal} did: asked for a Seal, rejected the Proposal, or found none. */

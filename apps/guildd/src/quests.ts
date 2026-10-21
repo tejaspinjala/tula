@@ -24,6 +24,7 @@ export interface QuestTemplate {
   roundLimit: number
   /** Internal templates are posted only by code (an Inquiry); no Guild Master or Member path posts them. */
   internal?: boolean
+  routineEligible?: boolean
 }
 
 /** The Quest templates the Guild Master can post from. Code, not model output. */

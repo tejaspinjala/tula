@@ -113,6 +113,16 @@ export const caps = z.strictObject({
   maxDossiersPerQuest: z.number().int().min(0).max(50).optional(),
 })
 
+/** Stub: filled in by the green commit. */
+export function councilApprovalCap(_config: GuildConfig): number {
+  return 0
+}
+
+/** Stub: filled in by the green commit. */
+export function councilSessionCap(_config: GuildConfig): number {
+  return 0
+}
+
 /** The post window of a config that does not set one (72 hours). */
 export const DEFAULT_SEAL_POST_WINDOW_HOURS = 72
 
