@@ -1,13 +1,20 @@
 //! Guildhall desktop: a native window that opens the configured Guildhall server. The window loads
 //! the remote https origin directly, so WebAuthn's RP ID stays the server's host (see
 //! docs/spikes/tauri-passkeys.md). The remote page gets no native commands; only the local
-//! first-run page can set the address.
+//! first-run page can set the address. Passkeys hang in the webview, so sign-in goes through the
+//! system browser and comes back by the `guildhall://` deep link (see `handoff.rs`).
 
+mod handoff;
 mod settings;
 
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_opener::OpenerExt;
+use url::Url;
 
 const CHANGE_ADDRESS: &str = "change-server-address";
 const TOGGLE_FULLSCREEN: &str = "toggle-fullscreen";
@@ -24,12 +31,43 @@ fn open_window<R: Runtime>(app: &AppHandle<R>, target: WebviewUrl) -> tauri::Res
     if let Some(window) = main_window(app) {
         let _ = window.close();
     }
-    WebviewWindowBuilder::new(app, "main", target)
+    let mut builder = WebviewWindowBuilder::new(app, "main", target.clone())
         .title("Guildhall")
         .inner_size(1280.0, 800.0)
         .min_inner_size(800.0, 600.0)
-        .build()?;
+        .user_agent(&handoff::desktop_user_agent());
+    if let WebviewUrl::External(server) = target {
+        // The remote page has no native bridge. Passkeys do not work in this webview, so the page
+        // asks for its sign-in page as a new window; only that one goes to the system browser, and
+        // every other new window is refused.
+        let handle = app.clone();
+        builder = builder.on_new_window(move |url, _features| {
+            if handoff::is_browser_sign_in(&server, &url) {
+                let state = handle.state::<handoff::PendingSignIn>().begin(Instant::now());
+                let target = handoff::browser_url(&url, &state);
+                let _ = handle.opener().open_url(target.as_str(), None::<&str>);
+            }
+            NewWindowResponse::Deny
+        });
+    }
+    builder.build()?;
     Ok(())
+}
+
+/// Finishes a browser sign-in: a `guildhall://signed-in#code=...` link sends the main window to
+/// the server with the code in the fragment, where the page exchanges it for a session. Links
+/// that are not a well-formed sign-in are ignored.
+fn finish_sign_in<R: Runtime>(app: &AppHandle<R>, links: &[Url]) {
+    let stored = settings_path(app).ok().and_then(|p| settings::load(&p));
+    let (Some(server), Some(window)) = (stored, main_window(app)) else {
+        return;
+    };
+    let pending = app.state::<handoff::PendingSignIn>();
+    let arrival = links.iter().find_map(|l| handoff::code_from_deep_link(l.as_str()));
+    if let Some((code, state)) = arrival.filter(|(_, s)| pending.take(s, Instant::now())) {
+        let _ = window.navigate(handoff::return_url(&server, &code, &state));
+        let _ = window.set_focus();
+    }
 }
 
 /// Opens the stored server, or the first-run page when none is stored.
@@ -61,6 +99,17 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 
 fn main() {
     tauri::Builder::default()
+        // First, as its docs require: on Windows and Linux a deep link starts a second process,
+        // which this hands to the running one (the deep-link feature turns argv into the URL event)
+        // and exits, so the link reaches the window that is waiting for it.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = main_window(app) {
+                let _ = window.set_focus();
+            }
+        }))
+        .manage(handoff::PendingSignIn::default())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![set_server_url])
         .setup(|app| {
             let change = MenuItemBuilder::with_id(CHANGE_ADDRESS, "Change Server Address…")
@@ -86,6 +135,12 @@ fn main() {
             let view = SubmenuBuilder::new(app, "View").item(&fullscreen).build()?;
             app.set_menu(MenuBuilder::new(app).items(&[&app_menu, &edit, &view]).build()?)?;
             open_server_or_prompt(app.handle())?;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| finish_sign_in(&handle, &event.urls()));
+            // The app may have been launched by the link itself.
+            if let Ok(Some(links)) = app.deep_link().get_current() {
+                finish_sign_in(app.handle(), &links);
+            }
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -170,6 +225,48 @@ mod tests {
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_ne!(conf["app"]["withGlobalTauri"], true);
         assert_eq!(conf["app"]["security"]["csp"]["default-src"], "'self'");
+    }
+
+    #[test]
+    fn no_capability_exposes_the_opener_or_deep_link_plugins_to_any_page() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            let capability: serde_json::Value = serde_json::from_str(&text).unwrap();
+            for permission in capability["permissions"].as_array().unwrap() {
+                let name = permission.as_str().unwrap_or_default();
+                assert!(
+                    !name.starts_with("opener:") && !name.starts_with("deep-link:"),
+                    "{name} would hand a page a native plugin"
+                );
+            }
+            assert!(capability.get("remote").is_none(), "no capability may name remote urls");
+        }
+    }
+
+    #[test]
+    fn the_single_instance_plugin_with_deep_links_is_registered_first() {
+        let manifest = include_str!("../Cargo.toml");
+        let line = manifest
+            .lines()
+            .find(|l| l.starts_with("tauri-plugin-single-instance"))
+            .expect("tauri-plugin-single-instance is a dependency");
+        assert!(line.contains("deep-link"), "{line}");
+        let main_fn = include_str!("main.rs").split("fn main() {").nth(1).unwrap();
+        let builder = main_fn.split("#[cfg(test)]").next().unwrap();
+        let first = builder.find(".plugin(").unwrap();
+        assert!(
+            builder[first..].starts_with(".plugin(tauri_plugin_single_instance::init"),
+            "single-instance must be the first plugin"
+        );
+    }
+
+    #[test]
+    fn the_guildhall_scheme_is_registered_for_deep_links() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = conf["plugins"]["deep-link"]["desktop"]["schemes"].as_array().unwrap();
+        assert!(schemes.iter().any(|s| s == handoff::SCHEME), "{schemes:?}");
     }
 
     #[test]

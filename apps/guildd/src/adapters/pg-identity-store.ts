@@ -2,13 +2,14 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
-import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
+import { MAX_OUTSTANDING_CHALLENGES, MAX_OUTSTANDING_DESKTOP_CODES } from '../ports/identity'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
   IdentityEvent,
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDesktopCode,
   StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
@@ -204,6 +205,46 @@ export class PgIdentityStore implements IdentityStore {
         await this.append(tx, event)
       }
       return true
+    })
+  }
+
+  async issueDesktopCode(
+    guildId: string,
+    code: StoredDesktopCode,
+    now: Date,
+    event: IdentityEvent
+  ): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      await tx`delete from identity_desktop_codes where guild_id = ${guildId} and expires_at <= ${now}`
+      await tx`insert into identity_desktop_codes
+          (guild_id, code_hash, state_hash, expires_at, session_expires_at)
+        values (${guildId}, ${code.codeHash}, ${code.stateHash}, ${code.expiresAt}, ${code.sessionExpiresAt})`
+      await tx`delete from identity_desktop_codes where guild_id = ${guildId} and code_hash in (
+          select code_hash from identity_desktop_codes
+          where guild_id = ${guildId}
+          order by expires_at desc, code_hash offset ${MAX_OUTSTANDING_DESKTOP_CODES})`
+      await this.append(tx, event)
+    })
+  }
+
+  async spendDesktopCode(
+    guildId: string,
+    codeHash: string,
+    stateHash: string,
+    now: Date,
+    event: IdentityEvent
+  ): Promise<Date | null> {
+    return this.db.withGuild(guildId, async (tx) => {
+      // The delete takes the row lock, so two exchanges of one code cannot both spend it.
+      const spent = await tx`delete from identity_desktop_codes
+        where guild_id = ${guildId} and code_hash = ${codeHash} and state_hash = ${stateHash}
+          and expires_at > ${now} returning session_expires_at`
+      const row = z.object({ session_expires_at: z.date() }).safeParse(spent[0])
+      if (!row.success) {
+        return null
+      }
+      await this.append(tx, event)
+      return row.data.session_expires_at
     })
   }
 

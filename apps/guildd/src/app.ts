@@ -224,6 +224,13 @@ const verifyQuery = z.object({
 const checkpointBeginBody = z.object({
   limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
 })
+const desktopBeginBody = z.object({ state: z.string().min(22).max(200) })
+// A missing state is not a malformed request: it fails like a wrong one.
+const desktopExchangeBody = z.object({
+  code: z.string().min(1).max(200),
+  state: z.string().max(200).default(''),
+})
+
 const checkpointFinishBody = assertFinishBody.extend({
   seq: z.number().int().min(1),
   mac: z.string().regex(/^[0-9a-f]{64}$/),
@@ -472,6 +479,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/passkeys/finish', limited('passkeys-finish'))
   app.post('/guilds/:id/enrol/begin', limited('enrol-begin'))
   app.post('/guilds/:id/enrol/finish', limited('enrol-finish'))
+  app.post('/auth/desktop/begin', limited('desktop-begin'))
+  app.post('/auth/desktop/exchange', limited('desktop-exchange'))
   app.post('/guilds/:id/sign-in/begin', limited('signin-begin'))
   app.post('/guilds/:id/sign-in/finish', limited('signin-finish'))
   app.post('/guilds/:id/events/ticket', limited('stream-ticket'))
@@ -683,6 +692,37 @@ export function createApp(deps: AppDeps): Hono {
       body.data.response
     )
     return sessionResponse(c, session, 201)
+  })
+
+  // Hand-off of a browser sign-in to the desktop shell (docs/spikes/tauri-passkeys.md, path b).
+  // A signed-in session mints a single-use code (60 s); the shell exchanges it for its own session.
+  app.post('/auth/desktop/begin', async (c) => {
+    const token = sessionTokenOf(c)
+    if (!token) {
+      return c.json({ error: 'unauthenticated' }, 401)
+    }
+    const body = desktopBeginBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json(await deps.identity.beginDesktopHandoff(token, body.data.state), 201)
+  })
+
+  // Every failure is one refusal: a wrong, expired, spent or other-guild code all answer 400
+  // invalid_challenge.
+  app.post('/auth/desktop/exchange', async (c) => {
+    if (wantsCookie(c) && !cookieModeAllowed(c)) {
+      return c.json({ error: 'csrf_refused' }, 403)
+    }
+    const body = desktopExchangeBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return sessionResponse(
+      c,
+      await deps.identity.exchangeDesktopCode(body.data.code, body.data.state),
+      201
+    )
   })
 
   // Unknown guilds get decoy options from the provider, so this answers the same for every id.

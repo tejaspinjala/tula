@@ -14,6 +14,7 @@ import type { Clock } from '../ports/clock'
 import {
   CHALLENGE_TTL_MS,
   type CheckpointAssertion,
+  DESKTOP_CODE_TTL_MS,
   ENROL_TTL_MS,
   FOUNDING_TTL_MS,
   IdentityError,
@@ -144,6 +145,47 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
       throw error
     }
     return this.openSession(guildId)
+  }
+
+  async beginDesktopHandoff(sessionToken: string, state: string) {
+    const live = await this.liveSession(sessionToken)
+    if (!live) {
+      throw new IdentityError('unauthenticated')
+    }
+    const now = this.config.clock.now()
+    const code = `${live.guildId}.${randomToken()}`
+    const expiresAt = new Date(now.getTime() + DESKTOP_CODE_TTL_MS)
+    await this.store.issueDesktopCode(
+      live.guildId,
+      {
+        codeHash: await hashOf(code),
+        stateHash: await hashOf(state),
+        expiresAt,
+        sessionExpiresAt: live.session.expiresAt,
+      },
+      now,
+      { type: 'identity.desktop_code_issued', payload: { sessionId: live.session.id } }
+    )
+    return { code, expiresAt }
+  }
+
+  async exchangeDesktopCode(code: string, state: string) {
+    const guildId = guildPrefix.safeParse(code.split('.')[0])
+    // Malformed, wrong, expired, spent, other-guild and wrong-state all land here, with the same refusal.
+    if (!guildId.success) {
+      throw new IdentityError('invalid_challenge')
+    }
+    const sourceExpiry = await this.store.spendDesktopCode(
+      guildId.data,
+      await hashOf(code),
+      await hashOf(state),
+      this.config.clock.now(),
+      { type: 'identity.desktop_code_spent', payload: {} }
+    )
+    if (!sourceExpiry) {
+      throw new IdentityError('invalid_challenge')
+    }
+    return this.openSession(guildId.data, sourceExpiry)
   }
 
   async beginRegistration(
@@ -287,9 +329,10 @@ export class WebAuthnIdentityProvider implements IdentityProvider {
     return this.openSession(guildId)
   }
 
-  private async openSession(guildId: string): Promise<IdentitySession> {
+  private async openSession(guildId: string, notAfter?: Date): Promise<IdentitySession> {
     const token = `${guildId}.${randomToken()}`
-    const expiresAt = new Date(this.config.clock.now().getTime() + SESSION_TTL_MS)
+    const full = this.config.clock.now().getTime() + SESSION_TTL_MS
+    const expiresAt = new Date(notAfter ? Math.min(full, notAfter.getTime()) : full)
     const sessionId = crypto.randomUUID()
     const master = await this.store.guildMaster(guildId)
     await this.store.saveSession(

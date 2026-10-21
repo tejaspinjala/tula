@@ -91,6 +91,7 @@ describe('hardening', () => {
       identity_challenges: true,
       identity_credentials: false,
       identity_enrolments: true,
+      identity_desktop_codes: true,
       identity_founding: true,
       identity_sessions: false,
     })
