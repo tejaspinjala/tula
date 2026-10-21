@@ -92,6 +92,7 @@ export function BuilderPanel({
   const [pending, setPending] = useState<SaveOutcome | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
   const [deployment, setDeployment] = useState<Deployment | null>(null)
 
   const reload = useCallback(async () => {
@@ -138,6 +139,7 @@ export function BuilderPanel({
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
   const edit = (next: BuilderConfig) => {
+    setStale(false)
     setDraft(next)
     setIssues([])
     setMessage(null)
@@ -184,12 +186,22 @@ export function BuilderPanel({
         setIssues(error.issues)
         setFailed('The server refused this config. See the marked nodes.')
       } else if (error instanceof PasskeyRequestError && error.code === 'stale') {
-        setFailed('The config changed since you loaded it. Reload to continue.')
+        setStale(true)
+        setFailed(
+          'The config changed since you loaded it. Reload to get the latest; your unsaved edits will be dropped.'
+        )
       } else {
         setFailed(`The change was refused (${error instanceof Error ? error.message : 'unknown'}).`)
       }
     }
   }
+  const reloadLatest = () =>
+    attempt(async () => {
+      await reload()
+      setStale(false)
+      setIssues([])
+      setMessage(null)
+    })
   const save = () =>
     attempt(async () => {
       setIssues([])
@@ -293,6 +305,11 @@ export function BuilderPanel({
             <p role="alert" className="error-text">
               {failed}
             </p>
+          )}
+          {stale && (
+            <button type="button" className="btn-primary" onClick={reloadLatest}>
+              Reload
+            </button>
           )}
           <section aria-labelledby="history-heading">
             <h3 id="history-heading" className="sub-title">
