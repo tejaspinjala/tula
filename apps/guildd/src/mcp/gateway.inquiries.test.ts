@@ -199,6 +199,27 @@ describe('Inquiries through the MCP gateway', () => {
     )
   })
 
+  test('an ask right after a Missive still names the other Hall in a member.activity event, and so does the answer', async () => {
+    const s = await setup()
+    const asker = await s.joined('heralds', 'heralds-member-2')
+    const sent = await callTool(s.transport, 'send_missive', {
+      lease: asker.lease,
+      to: 'hall',
+      text: 'hello',
+    })
+    expect(sent.isError).toBe(false)
+    const out = await s.ask(asker.lease, 'scribes', 'q')
+    const { inquiryId, answerQuestId } = askedBody.parse(out.data)
+    expect(s.activity.emittedEvents).toContainEqual(
+      expect.objectContaining({ hallId: 'heralds', toHallId: 'scribes' })
+    )
+    const answerer = await s.claimAnswerQuest(answerQuestId)
+    await callTool(s.transport, 'answer_inquiry', { lease: answerer.lease, inquiryId, answer: 'a' })
+    expect(s.activity.emittedEvents).toContainEqual(
+      expect.objectContaining({ hallId: 'scribes', toHallId: 'heralds' })
+    )
+  })
+
   test('an ask is refused for an unknown Hall, the same Hall, a locked Hall and a private boundary', async () => {
     const s = await setup()
     const asker = await s.joined('heralds', 'heralds-member-2')
