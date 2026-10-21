@@ -455,7 +455,16 @@ describe('CouncilEngine approval', () => {
       throw new Error('expected unanimous')
     }
     const other = { id: 'q2', hallId: 'heralds' }
-    await store.approve(GUILD, first.session.id, { questId: 'q9', day: '2030-01-01', cap: 1 })
+    const elsewhere = await store.open(GUILD, {
+      questId: 'q9',
+      proposalHash: 'e'.repeat(64),
+      day: '2030-01-01',
+      sessionCap: 5,
+    })
+    if (elsewhere.status === 'cap_reached') {
+      throw new Error('unexpected cap')
+    }
+    await store.approve(GUILD, elsewhere.session.id, { questId: 'q9', day: '2030-01-01', cap: 1 })
     expect(await engine.approve(GUILD, { session: first.session, questId: other.id, cap: 1 })).toBe(
       'cap_reached'
     )

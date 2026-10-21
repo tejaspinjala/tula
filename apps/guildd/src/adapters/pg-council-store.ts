@@ -193,20 +193,61 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
-  async approvalsToday(_guildId: string, _day: string, _excludingQuestId: string): Promise<number> {
-    throw new Error('not implemented')
+  async approvalsToday(guildId: string, day: string, excludingQuestId: string): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select count(*)::int as n from council_approvals
+        where day = ${day}::date and quest_id <> ${excludingQuestId}`
+      return Number(row?.n ?? 0)
+    })
   }
 
   async approve(
-    _guildId: string,
-    _sessionId: string,
-    _input: { questId: string; day: string; cap: number }
+    guildId: string,
+    sessionId: string,
+    input: { questId: string; day: string; cap: number }
   ): Promise<ApproveResult> {
-    throw new Error('not implemented')
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      const [session] = await tx`
+        select status, proposal_hash from council_sessions where session_id = ${sessionId}`
+      if (!session || session.status === 'escalated') {
+        return 'not_found'
+      }
+      const [own] = await tx`
+        select 1 as one from council_approvals
+        where session_id = ${sessionId} and quest_id = ${input.questId}`
+      if (own) {
+        return 'approved'
+      }
+      const [taken] = await tx`
+        select count(*)::int as n from council_approvals where day = ${input.day}::date`
+      if (Number(taken?.n ?? 0) >= input.cap) {
+        return 'cap_reached'
+      }
+      await tx`
+        insert into council_approvals (guild_id, session_id, quest_id, day)
+        values (${guildId}, ${sessionId}, ${input.questId}, ${input.day}::date)`
+      await tx`
+        update council_sessions set status = 'approved', claimed_until = null, claim_owner = null
+        where session_id = ${sessionId} and status = 'open'`
+      await appendEvent(tx, this.keys, 'council.approved', {
+        sessionId,
+        questId: input.questId,
+        proposalHash: String(session.proposal_hash),
+      })
+      return 'approved'
+    })
   }
 
-  async halt(_guildId: string, _sessionId: string, _questId: string): Promise<void> {
-    throw new Error('not implemented')
+  async halt(guildId: string, sessionId: string, questId: string): Promise<void> {
+    await this.db.withGuild(guildId, async (tx) => {
+      const [session] = await tx`
+        select 1 as one from council_sessions where session_id = ${sessionId}`
+      if (session) {
+        await appendEvent(tx, this.keys, 'council.halted', { sessionId, questId })
+      }
+    })
   }
 
   private async lock(tx: TenantTx, guildId: string): Promise<void> {

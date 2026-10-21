@@ -169,11 +169,41 @@ export class MemorySealStore implements SealStore {
   }
 
   async councilApprove(
-    _guildId: string,
-    _id: string,
-    _decision: { sessionId: string; expectedHash: string }
+    guildId: string,
+    id: string,
+    decision: { sessionId: string; expectedHash: string }
   ): Promise<SealResult> {
-    throw new Error('not implemented')
+    const stored = this.seals(guildId).get(id)
+    if (!stored) {
+      return { ok: false, reason: 'not_found' }
+    }
+    const seal = this.read(stored.seal)
+    if (seal.status === 'council_approved' && seal.councilSessionId === decision.sessionId) {
+      return { ok: true, seal }
+    }
+    if (seal.status === 'expired') {
+      this.write(guildId, stored, { status: 'expired' }, null)
+      return { ok: false, reason: 'expired' }
+    }
+    if (seal.status !== 'requested') {
+      return { ok: false, reason: 'not_requested' }
+    }
+    if (seal.actionHash !== decision.expectedHash) {
+      return { ok: false, reason: 'hash_mismatch' }
+    }
+    return {
+      ok: true,
+      seal: this.write(
+        guildId,
+        stored,
+        {
+          status: 'council_approved',
+          decidedAt: this.clock.now().toISOString(),
+          councilSessionId: decision.sessionId,
+        },
+        null
+      ),
+    }
   }
 
   async reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {

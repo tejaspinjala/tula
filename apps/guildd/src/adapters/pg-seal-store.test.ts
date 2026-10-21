@@ -201,3 +201,34 @@ test('list with decidedSince returns only Seals decided inside the window', asyn
   expect(page.seals.length).toBeGreaterThanOrEqual(4)
   expect(page.seals.length).toBeLessThanOrEqual(5)
 })
+
+test('the database refuses a Council approval that names a Guild Master, and a status without a session', async () => {
+  const { guild, seal } = await setup()
+  await expect(
+    db.withGuild(
+      guild,
+      (tx) => tx`
+        update seals set status = 'council_approved', decided_at = now(), decided_by = 'gm-1',
+          council_session_id = gen_random_uuid() where seal_id = ${seal.id}`
+    )
+  ).rejects.toThrow()
+  await expect(
+    db.withGuild(
+      guild,
+      (tx) => tx`
+        update seals set status = 'council_approved', decided_at = now() where seal_id = ${seal.id}`
+    )
+  ).rejects.toThrow()
+})
+
+test('a Council approval appends seal.council_approved naming the session and no decider', async () => {
+  const { guild, store, seal, hash } = await setup()
+  const sessionId = crypto.randomUUID()
+  await store.councilApprove(guild, seal.id, { sessionId, expectedHash: hash })
+  await store.councilApprove(guild, seal.id, { sessionId, expectedHash: hash })
+  const events = await owner`
+    select type, payload from events where guild_id = ${guild} and type ~ '^seal\\.' order by seq`
+  expect(events.map((e) => e.type)).toEqual(['seal.requested', 'seal.council_approved'])
+  expect(events[1]?.payload).toMatchObject({ sessionId, actionHash: hash })
+  expect(JSON.stringify(events[1]?.payload)).not.toContain('decidedBy')
+})

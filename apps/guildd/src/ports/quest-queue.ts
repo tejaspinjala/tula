@@ -610,7 +610,16 @@ export function sealSettleTransition(
     throw new QuestError('invalid_state')
   }
   if (outcome === 'posted') {
-    return { quest: { ...quest, state: 'done', leaseExpiresAt: null }, event: 'quest.done' }
+    // A coded reason on a finish (`council_approved`) says how the Quest was settled.
+    return {
+      quest: {
+        ...quest,
+        state: 'done',
+        leaseExpiresAt: null,
+        ...(opts.reason === undefined ? {} : { lastError: opts.reason }),
+      },
+      event: 'quest.done',
+    }
   }
   if (opts.terminal || quest.round >= quest.roundLimit) {
     return {

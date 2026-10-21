@@ -55,3 +55,32 @@ test('convening, each vote and the escalation append one audit event each; a rep
     ],
   ])
 })
+
+test('approving appends council.approved once per Quest; halting appends council.halted', async () => {
+  const store = new PgCouncilStore(db, new MemoryKeyProvider())
+  const g = await foundTestGuild(db, { name: 'Council approvals', goal: 'g' })
+  const hash = 'd'.repeat(64)
+  const opened = await store.open(g, {
+    questId: 'q1',
+    proposalHash: hash,
+    day: '2026-01-01',
+    sessionCap: 5,
+  })
+  if (opened.status === 'cap_reached') {
+    throw new Error('unexpected cap')
+  }
+  const id = opened.session.id
+  await store.approve(g, id, { questId: 'q1', day: '2026-01-01', cap: 5 })
+  await store.approve(g, id, { questId: 'q1', day: '2026-01-01', cap: 5 })
+  await store.approve(g, id, { questId: 'q2', day: '2026-01-01', cap: 5 })
+  await store.approve(g, id, { questId: 'q3', day: '2026-01-01', cap: 2 })
+  await store.halt(g, id, 'q4')
+  const events = (await db.withGuild(g, (tx) => eventsAfter(tx, 0, 100))).filter(
+    (e) => e.type === 'council.approved' || e.type === 'council.halted'
+  )
+  expect(events.map((e) => [e.type, e.payload])).toEqual([
+    ['council.approved', { sessionId: id, questId: 'q1', proposalHash: hash }],
+    ['council.approved', { sessionId: id, questId: 'q2', proposalHash: hash }],
+    ['council.halted', { sessionId: id, questId: 'q4' }],
+  ])
+})

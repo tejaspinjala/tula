@@ -220,11 +220,43 @@ export class PgSealStore implements SealStore {
   }
 
   async councilApprove(
-    _guildId: string,
-    _id: string,
-    _decision: { sessionId: string; expectedHash: string }
+    guildId: string,
+    id: string,
+    decision: { sessionId: string; expectedHash: string }
   ): Promise<SealResult> {
-    throw new Error('not implemented')
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      const locked = await this.lock(tx, guildId, id, now)
+      if (!locked) {
+        return { ok: false, reason: 'not_found' }
+      }
+      const current = locked.seal
+      if (
+        current.status === 'council_approved' &&
+        current.councilSessionId === decision.sessionId
+      ) {
+        return { ok: true, seal: current }
+      }
+      if (current.status === 'expired') {
+        await this.persistExpiry(tx, guildId, current)
+        return { ok: false, reason: 'expired' }
+      }
+      if (current.status !== 'requested') {
+        return { ok: false, reason: 'not_requested' }
+      }
+      if (current.actionHash !== decision.expectedHash) {
+        return { ok: false, reason: 'hash_mismatch' }
+      }
+      const seal = await this.update(
+        tx,
+        guildId,
+        id,
+        now,
+        tx`status = 'council_approved', decided_at = ${now}, council_session_id = ${decision.sessionId}`
+      )
+      await this.emit(tx, 'seal.council_approved', seal, { sessionId: decision.sessionId })
+      return { ok: true, seal }
+    })
   }
 
   async reserve(guildId: string, id: string, text: string): Promise<ReserveResult> {

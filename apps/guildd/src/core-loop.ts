@@ -77,13 +77,16 @@ export async function reconcileSeals(
           continue
         }
         const outcome =
-          seal.status === 'consumed'
+          seal.status === 'consumed' || seal.status === 'council_approved'
             ? 'posted'
             : seal.status === 'denied' || seal.status === 'expired'
               ? 'rejected'
               : null
         if (outcome !== null) {
-          await deps.quests.settleSeal(guildId, quest.id, outcome, { round: seal.round })
+          await deps.quests.settleSeal(guildId, quest.id, outcome, {
+            round: seal.round,
+            ...(seal.status === 'council_approved' ? { reason: 'council_approved' as const } : {}),
+          })
           settled += 1
         }
       } catch (error) {
@@ -98,7 +101,7 @@ export async function reconcileSeals(
 /** Collaborators of {@link requestQuestSeal}. */
 export interface SealRequestDeps {
   quests: Pick<QuestQueue, 'settleSeal'>
-  sealStore: Pick<SealStore, 'forQuest'>
+  sealStore: Pick<SealStore, 'forQuest' | 'councilApprove'>
   proposals: Pick<ProposalEngine, 'latestForQuest' | 'verdictFor'>
   seals: Pick<SealEngine, 'requestSeal'>
   /**
@@ -109,17 +112,25 @@ export interface SealRequestDeps {
   /** Whether the Guild Master is away (read at request time, never cached). Absent: never away. */
   presence?: Pick<PresenceStore, 'get'>
   /** The Council of Elders. Absent: it never convenes. */
-  council?: Pick<CouncilEngine, 'convene'>
+  council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining'>
   /** The instant "away" is judged at. Absent: the Council never convenes. */
   clock?: Pick<Clock, 'now'>
 }
 
+/** What consulting the Council came to: nothing, not yet, evidence for a Seal, or an approval. */
+type CouncilConsult =
+  | { kind: 'none' }
+  | { kind: 'pending' }
+  | { kind: 'evidence'; evidence: string }
+  | { kind: 'approved'; sessionId: string; evidence: string }
+
 /**
  * Convenes the Council of Elders when, and only when, all of these hold, each decided by code:
  * the Seal Policy is `routine_alone`, the Guild Master is away, the Proposal is routine and the
- * guild is under its daily sessions cap. Returns the Council's votes as Seal evidence, or null
- * when it did not convene. The outcome is always escalation to the Guild Master's Seal in this
- * release, so the Seal is requested either way; approval in place of a Seal comes later (#150).
+ * guild is under its daily sessions cap. Five approvals while approvals remain end in approval in
+ * place of a Seal, decided per Quest: isRoutine and the daily cap (this Quest's own earlier
+ * approval aside) are re-read after the vote and Bar the Gates is re-read immediately before the
+ * approval. Anything else returns the Council's votes as evidence on the Seal that is requested.
  */
 async function consultCouncil(
   deps: SealRequestDeps,
@@ -127,39 +138,73 @@ async function consultCouncil(
   quest: Quest,
   proposal: { hash: string; content: string },
   verdict: Verdict
-): Promise<string | 'pending' | null> {
+): Promise<CouncilConsult> {
   if (!deps.config) {
-    return null
+    return { kind: 'none' }
   }
-  const { config } = await deps.config.current(guildId)
-  if (config.sealPolicy !== 'routine_alone' || !deps.presence || !deps.council || !deps.clock) {
-    return null
+  const { config: config0 } = await deps.config.current(guildId)
+  const { council, presence, clock } = deps
+  if (config0.sealPolicy !== 'routine_alone' || !presence || !council || !clock) {
+    return { kind: 'none' }
   }
-  if (!isAway(await deps.presence.get(guildId), deps.clock.now())) {
-    return null
+  if (!isAway(await presence.get(guildId), clock.now())) {
+    return { kind: 'none' }
   }
   const template = QUEST_TEMPLATES.find((t) => t.id === quest.templateId)
-  const routine = isRoutine({
-    templateRoutineEligible: template?.routineEligible === true,
-    dataClass: quest.dataClass,
-    proposalHash: proposal.hash,
-    verdict,
-    // The Council gives no approvals yet, so the whole daily allowance remains.
-    approvalsRemainingToday: councilApprovalCap(config),
-  })
-  if (!routine) {
-    return null
+  const configs = deps.config
+  /** Routine now, on freshly read config; this Quest's own approval never counts against it. */
+  const routineNow = async (): Promise<{ routine: boolean; cap: number }> => {
+    const cap = councilApprovalCap((await configs.current(guildId)).config)
+    return {
+      cap,
+      routine: isRoutine({
+        templateRoutineEligible: template?.routineEligible === true,
+        dataClass: quest.dataClass,
+        proposalHash: proposal.hash,
+        verdict,
+        approvalsRemainingToday: await council.approvalsRemaining(guildId, quest.id, cap),
+      }),
+    }
   }
-  const result = await deps.council.convene(guildId, {
+  if (!(await routineNow()).routine) {
+    return { kind: 'none' }
+  }
+  const result = await council.convene(guildId, {
     quest,
     proposal,
-    sessionCap: councilSessionCap(config),
-    approvalCap: councilApprovalCap(config),
+    sessionCap: councilSessionCap(config0),
+    approvalCap: councilApprovalCap(config0),
   })
   if (result.status === 'in_progress') {
-    return 'pending'
+    return { kind: 'pending' }
   }
-  return result.status === 'escalated' ? councilEvidence(result.votes, result.reason) : null
+  if (result.status === 'cap_reached') {
+    return { kind: 'none' }
+  }
+  if (result.status === 'escalated') {
+    return { kind: 'evidence', evidence: councilEvidence(result.votes, result.reason) }
+  }
+  // Unanimous: re-check for this Quest alone before it settles.
+  const now = await routineNow()
+  if (!now.routine) {
+    return { kind: 'evidence', evidence: councilEvidence(result.votes, 'not_routine') }
+  }
+  const settled = await council.approve(guildId, {
+    session: result.session,
+    questId: quest.id,
+    cap: now.cap,
+  })
+  if (settled === 'halted') {
+    return { kind: 'pending' }
+  }
+  if (settled === 'cap_reached') {
+    return { kind: 'evidence', evidence: councilEvidence(result.votes, 'approval_cap') }
+  }
+  return {
+    kind: 'approved',
+    sessionId: result.session.id,
+    evidence: councilEvidence(result.votes, 'approved'),
+  }
 }
 
 /** What {@link requestQuestSeal} did: asked for a Seal, rejected the Proposal, or found none. */
@@ -206,8 +251,8 @@ export async function requestQuestSeal(
     }
   }
   const verdictEvidence = `Verdict passed: ${verdict.findings.map((f) => `${f.check} (${f.detail})`).join('; ')}`
-  const council = await consultCouncil(deps, guildId, quest, proposal, verdict)
-  if (council === 'pending') {
+  const consult = await consultCouncil(deps, guildId, quest, proposal, verdict)
+  if (consult.kind === 'pending') {
     return { outcome: 'council_pending' }
   }
   const seal = await deps.seals.requestSeal(guildId, {
@@ -215,16 +260,35 @@ export async function requestQuestSeal(
     requestedBy: quest.ownerId,
     kind: proposal.kind,
     text: proposal.content,
-    evidence: council === null ? verdictEvidence : `${verdictEvidence}; ${council}`,
+    evidence: consult.kind === 'none' ? verdictEvidence : `${verdictEvidence}; ${consult.evidence}`,
     round: quest.round,
   })
+  if (consult.kind === 'approved') {
+    // The Council approved in the Guild Master's absence: the request settles as council_approved
+    // (naming the session, never a member) and the Quest finishes. A crash between the steps is
+    // safe: the approval row, the Seal request and both settlements are each idempotent.
+    const approved = await deps.sealStore.councilApprove(guildId, seal.id, {
+      sessionId: consult.sessionId,
+      expectedHash: seal.actionHash,
+    })
+    if (approved.ok) {
+      return {
+        outcome: 'council_approved',
+        seal: approved.seal,
+        quest: await deps.quests.settleSeal(guildId, quest.id, 'posted', {
+          round: quest.round,
+          reason: 'council_approved',
+        }),
+      }
+    }
+  }
   return { outcome: 'requested', seal }
 }
 
 /** Collaborators of {@link requestPendingSeals}. */
 export interface PendingSealDeps extends SealRequestDeps {
   quests: Pick<QuestQueue, 'settleSeal'>
-  sealStore: Pick<SealStore, 'forQuest' | 'expireDue'>
+  sealStore: Pick<SealStore, 'forQuest' | 'councilApprove' | 'expireDue'>
   awaiting: AwaitingSealReader
 }
 

@@ -277,7 +277,9 @@ describe('requestQuestSeal', () => {
       expect(first.outcome).toBe('council_approved')
       expect(other.outcome).toBe('requested')
       expect((await c.seals.forQuest(c.guild, second.id))?.status).toBe('requested')
-      expect((await c.seals.forQuest(c.guild, second.id))?.evidence).toContain('approval_cap')
+      expect((await c.seals.forQuest(c.guild, second.id))?.evidence).not.toContain(
+        'Council of Elders approved'
+      )
       expect((await c.quests.get(c.guild, second.id))?.state).toBe('awaiting_seal')
       expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('done')
     })
