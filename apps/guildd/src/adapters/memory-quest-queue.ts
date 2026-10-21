@@ -165,6 +165,7 @@ export class MemoryQuestQueue implements QuestQueue {
       waitMode: 'all',
       attempts: 0,
       maxAttempts: parsed.maxAttempts,
+      refunds: 0,
       leaseExpiresAt: null,
       notBefore: now,
       lastError: null,
@@ -227,6 +228,10 @@ export class MemoryQuestQueue implements QuestQueue {
     const quest = this.mustFind(guildId, id)
     const delay = retryDelayMs(quest.attempts, this.random())
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
+  }
+
+  async forgiveRepeats(_guildId: string, _hallId: string): Promise<number> {
+    return 0
   }
 
   async releaseLeases(

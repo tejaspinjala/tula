@@ -124,6 +124,7 @@ export function toQuest(raw: unknown): Quest {
     waitMode: r.wait_mode,
     attempts: r.attempts,
     maxAttempts: r.max_attempts,
+    refunds: 0,
     leaseExpiresAt: r.lease_expires_at,
     notBefore: r.not_before,
     lastError: r.last_error === null ? null : failReason(r.last_error),
@@ -408,6 +409,10 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) =>
       failTransition(q, attempt, error, this.clock.now(), retryDelayMs(q.attempts, this.random()))
     )
+  }
+
+  async forgiveRepeats(_guildId: string, _hallId: string): Promise<number> {
+    return 0
   }
 
   async releaseLeases(

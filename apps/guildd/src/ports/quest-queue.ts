@@ -111,6 +111,8 @@ export interface Quest {
   /** Deliveries so far; each claim, including a reclaim after a lease expired, is one. */
   attempts: number
   maxAttempts: number
+  /** Claims that were given back (a wait, a bar, a park), so the loop Tripwire never counts them. */
+  refunds: number
   /** When the current lease ends; null unless `active`. */
   leaseExpiresAt: string | null
   /** The Quest is not delivered before this instant (retry backoff). */
@@ -306,6 +308,8 @@ export interface QuestQueue {
    * Idempotent: a repeat for the same delivery changes nothing.
    */
   releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /** Refunds every attempt of the Hall's open Quests, so a resume starts its loop count from zero; returns how many Quests changed. */
+  forgiveRepeats(guildId: string, hallId: string): Promise<number>
   /**
    * Dead-letters a claimed Quest with a coded reason (see {@link FAIL_REASONS}), cascading to its
    * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.

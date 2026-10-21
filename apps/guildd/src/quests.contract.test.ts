@@ -119,6 +119,17 @@ describe('quest routes', () => {
     expect(listed.find((q) => q.id === fresh.id)?.blockReason).toBeNull()
   })
 
+  test('a queued Quest in a locked Hall lists hall_locked as its block reason', async () => {
+    const g = await found('WL')
+    const { quest: waiting } = await harness.adapters.quests.post(g, {
+      ...quest('locked-1'),
+      hallId: 'health',
+    })
+    expect((await blockReasons(g)).find((q) => q.id === waiting.id)?.blockReason).toBe(
+      'hall_locked'
+    )
+  })
+
   test('a Quest routed after a block and failed back to the queue lists no block reason', async () => {
     const g = await found('W2')
     const quest = questBody.parse(await (await post(g, brief('w1'))).json())
