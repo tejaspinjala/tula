@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import hallMap from './hall.tiled.json'
+import { hallMapFor } from './hallmap'
 
 /** A rectangle in tiles. */
 export interface TileRect {
@@ -25,6 +26,8 @@ export interface HallLayout {
   sealDesk: TileRect
   gate: TileRect
   coins: TileRect
+  /** The Tiled JSON this layout reads, for the renderer. */
+  source: unknown
   /** True when a tile is inside the map and not blocked by the collision layer. */
   walkable: (x: number, y: number) => boolean
 }
@@ -54,8 +57,9 @@ const tiledMap = z.object({
 const COLLISION_LAYER = 'collision'
 
 /** Reads the Tiled hall map (walls, furniture, rooms, doorways, desks, gate). */
-export function hallLayout(): HallLayout {
-  const map = tiledMap.parse(hallMap)
+export function hallLayout(roomCount = 6): HallLayout {
+  const source = hallMapFor(hallMap, roomCount)
+  const map = tiledMap.parse(source)
   const size = map.tilewidth
   let collision: number[] = []
   const objects: z.infer<typeof mapObject>[] = []
@@ -98,6 +102,7 @@ export function hallLayout(): HallLayout {
     sealDesk: one('seal-desk'),
     gate: one('gate'),
     coins: one('coins'),
+    source,
     walkable: (x, y) =>
       Number.isInteger(x) &&
       Number.isInteger(y) &&
@@ -183,6 +188,36 @@ export function withClosedDoors(
   return (x, y) =>
     layout.walkable(x, y) &&
     !closed.some((door) => x >= door.x && x < door.x + door.w && y >= door.y && y < door.y + door.h)
+}
+
+/** What the scene draws for one room slot: its label, how dark its veil is, and whether its door is shut. */
+export interface RoomTag {
+  text: string
+  veil: number
+  closed: boolean
+}
+
+/** The label, veil and door of each of `slots` room slots, from the Halls in roster order. */
+export function roomTags(
+  halls: readonly { name: string; locked: boolean; paused: boolean }[],
+  slots: number
+): RoomTag[] {
+  return Array.from({ length: Math.max(slots, halls.length) }, (_slot, index): RoomTag => {
+    const hall = halls[index]
+    if (!hall) {
+      return { text: 'Locked room', veil: 0.45, closed: true }
+    }
+    const text = hall.locked
+      ? `${hall.name} (locked)`
+      : hall.paused
+        ? `${hall.name} (paused)`
+        : hall.name
+    return {
+      text: text.slice(0, 22),
+      veil: hall.locked ? 0.6 : hall.paused ? 0.35 : 0,
+      closed: hall.locked,
+    }
+  })
 }
 
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */

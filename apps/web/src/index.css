@@ -175,8 +175,11 @@ ul[aria-label] {
 
 .game-frame {
   position: absolute;
-  inset: 0;
+  /* The map is framed under the HUD (Hud.tsx sets --hud-inset), never beneath it. */
+  inset: calc(var(--hud-inset, 0px) + var(--px) * 2) 0 0 0;
   background: var(--px-wood-900);
+  /* A hard, blur-free copy of the frame, lifted into the strip above it, so the HUD sits on wood. */
+  box-shadow: 0 calc(-1 * (var(--hud-inset, 0px) + var(--px) * 2)) 0 0 var(--px-wood-900);
   overflow: hidden;
   touch-action: none;
 }
@@ -220,7 +223,7 @@ ul[aria-label] {
   position: absolute;
   top: calc(var(--px) * 3);
   left: calc(var(--px) * 3);
-  width: min(calc(var(--px) * 200), calc(100% - var(--px) * 6));
+  width: calc(100% - var(--px) * 6);
   z-index: 1;
   pointer-events: none;
 }
@@ -247,6 +250,11 @@ ul[aria-label] {
 }
 .hud .px-meter {
   flex: 1 1 100%;
+}
+@media (min-width: 64rem) {
+  .hud .px-meter {
+    flex: 1 1 calc(var(--px) * 90);
+  }
 }
 .hud-day {
   margin: 0;
@@ -677,7 +685,7 @@ ul.evidence-list {
   margin-top: var(--space-4);
 }
 
-@media (min-width: 48rem) {
+@media (min-width: 64rem) {
   .post-quest {
     grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   }

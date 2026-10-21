@@ -114,3 +114,55 @@ test('a speech bubble is clamped inside the camera view', () => {
   expect(bubbleCentreX(view, 120, 200)).toBe(200)
   expect(bubbleCentreX(view, 400, 200)).toBe(200)
 })
+
+/** Tiles reachable on foot from the Steward desk. */
+function reachable(l: ReturnType<typeof hallLayout>): Set<string> {
+  const start = { x: l.stewardDesk.x, y: l.stewardDesk.y + l.stewardDesk.h }
+  const seen = new Set<string>([`${start.x},${start.y}`])
+  const queue = [start]
+  for (let at = queue.shift(); at; at = queue.shift()) {
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const x = at.x + dx
+      const y = at.y + dy
+      if (l.walkable(x, y) && !seen.has(`${x},${y}`)) {
+        seen.add(`${x},${y}`)
+        queue.push({ x, y })
+      }
+    }
+  }
+  return seen
+}
+
+test('a guild with more Halls than the six slots gets a room for every Hall, all reachable on foot', () => {
+  for (const halls of [7, 9, 10, 20]) {
+    const big = hallLayout(halls)
+    expect(big.rooms.length).toBeGreaterThanOrEqual(halls)
+    expect(big.rooms.map((r) => r.slot)).toEqual(big.rooms.map((_r, i) => i))
+    expect(big.doorways).toHaveLength(big.rooms.length)
+    const seen = reachable(big)
+    for (const room of big.rooms) {
+      expect(seen.has(`${room.x + 5},${room.y + 5}`)).toBe(true)
+      expect(seatsIn(big, room, 4)).toHaveLength(4)
+    }
+    // The gate, desks and coin counter keep their tiles, and the map grows only downward.
+    expect(big.gate).toEqual(layout.gate)
+    expect(big.sealDesk).toEqual(layout.sealDesk)
+    expect(big.height).toBeGreaterThan(layout.height)
+    expect(big.width).toBe(layout.width)
+  }
+})
+
+test('six or fewer Halls keep the map as drawn', () => {
+  expect(hallLayout(3).height).toBe(layout.height)
+  expect(hallLayout(6).rooms).toEqual(layout.rooms)
+})
+
+test('a map for more Halls ships its own Tiled source with the same size as its layout', () => {
+  const big = hallLayout(9)
+  expect(big.source).toMatchObject({ width: big.width, height: big.height })
+})

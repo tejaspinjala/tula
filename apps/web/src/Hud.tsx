@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Session } from './passkeys'
 import { listSeals } from './seals'
 import { formatCents, loadTreasuryOverview, type TreasuryView } from './treasury'
@@ -29,6 +29,25 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
 
   // Each new `refresh` value (the Bag closed) re-reads the figures at once.
   const lastRead = useRef(refresh)
+  const bar = useRef<HTMLElement>(null)
+
+  // The world frames its map below the HUD (`--hud-inset`), so the HUD never covers a room label.
+  useLayoutEffect(() => {
+    const el = bar.current
+    if (!el) {
+      return
+    }
+    const root = document.documentElement
+    const measure = () =>
+      root.style.setProperty('--hud-inset', `${el.getBoundingClientRect().bottom}px`)
+    measure()
+    const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    watch?.observe(el)
+    return () => {
+      watch?.disconnect()
+      root.style.removeProperty('--hud-inset')
+    }
+  }, [])
   useEffect(() => {
     let live = true
     lastRead.current = refresh
@@ -54,7 +73,7 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
     waiting === null ? 'Seals' : `Seals ${waiting.count}${waiting.more ? '+' : ''} waiting`
 
   return (
-    <header className="hud">
+    <header className="hud" ref={bar}>
       <Frame variant="wood">
         <div className="hud-row">
           <h1 className="hud-plate">{guildName || 'Guildhall'}</h1>
