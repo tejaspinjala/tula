@@ -153,6 +153,21 @@ describe('Tripwire and Hall-pause routes', () => {
     expect(await harness.adapters.quests.claim(g, lease)).not.toBeNull()
   })
 
+  test('resuming a Hall forgives the loop count of its Quests, so the next watch does not re-pause it', async () => {
+    const who = await signedIn()
+    const g = who.guildId
+    const made = await send('POST', `/guilds/${g}/quests`, who.auth, brief('looping'))
+    const id = z.object({ id: z.string() }).parse(await made.json()).id
+    await harness.adapters.quests.claim(g, { ...lease, questId: id })
+    await harness.adapters.quests.fail(g, id, 1, 'timeout')
+    await send('POST', `/guilds/${g}/halls/heralds/pause`, who.auth)
+    await send('POST', `/guilds/${g}/halls/heralds/resume`, {
+      ...who.auth,
+      'x-reauth-proof': await who.proof(),
+    })
+    expect(await harness.adapters.quests.get(g, id)).toMatchObject({ attempts: 1, refunds: 1 })
+  })
+
   test('pause and resume are chained events carrying ids only', async () => {
     const who = await signedIn()
     const g = who.guildId

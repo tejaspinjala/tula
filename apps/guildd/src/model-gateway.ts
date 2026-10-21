@@ -393,7 +393,7 @@ export class ModelGateway {
    */
   private async serve(
     guildId: string,
-    run: { runId: string; profileId: string },
+    run: { runId: string; profileId: string; hallId?: string },
     data: z.output<typeof gatewayCall>,
     quest: Quest | null,
     timeoutMs?: number,
@@ -406,7 +406,15 @@ export class ModelGateway {
       this.deps.subscriptionProvider !== undefined
     )
     // Checked on the config this send uses, so a flag turned off since the caller's check wins.
-    if (opts.requirePrivate && !provider.privateEligible) {
+    // A private Quest, or any Quest in a private Hall, is private: effective class floors by Hall.
+    const hall = run.hallId ? config.halls.find((h) => h.id === run.hallId) : undefined
+    // A Hall gone from the config is unknown, so its class cannot be floored: fail closed.
+    if (run.hallId && !hall) {
+      throw new GatewayError('hall_locked')
+    }
+    const private_ =
+      opts.requirePrivate === true || quest?.dataClass === 'private' || hall?.kind === 'private'
+    if (private_ && !provider.privateEligible) {
       throw new GatewayError('provider_not_private')
     }
     if (!profile.model) {
@@ -568,7 +576,7 @@ export class ModelGateway {
     })
     const { response, costMicros } = await this.serve(
       guildId,
-      { runId, profileId: profile.id },
+      { runId, profileId: profile.id, hallId: call.hallId },
       {
         system: call.system,
         messages: [{ role: 'user', content: call.brief }],

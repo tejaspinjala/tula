@@ -62,4 +62,6 @@ export interface RoutingLog {
   record(guildId: string, entry: RoutingEntry): Promise<void>
   /** Decisions newest first, strictly below `after`, at most `limit` (capped at the maximum). */
   list(guildId: string, page: { after?: number; limit: number }): Promise<RoutingPage>
+  /** The decisions with exactly these keys (at most {@link MAX_ROUTING_PAGE} are looked up). */
+  forKeys(guildId: string, decisionKeys: readonly string[]): Promise<LoggedRouting[]>
 }

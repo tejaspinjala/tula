@@ -19,7 +19,7 @@ import type { DossierService } from './dossiers'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
-import { type GuildConfig, guildConfig, guildTripwires } from './guild-config'
+import { type GuildConfig, guildConfig, guildTripwires, lockedHallIds } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import { GatesBarredError, type LearningEngine } from './learning-engine'
 import { characterLook } from './look-catalogue'
@@ -55,7 +55,7 @@ import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
-import { type BlockReason, MAX_ROUTING_PAGE, type RoutingLog } from './ports/routing-log'
+import type { BlockReason, RoutingLog } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
 import type { SealStore } from './ports/seal-store'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
@@ -1434,20 +1434,31 @@ export function createApp(deps: AppDeps): Hono {
       who.guild,
       listed.quests.map((q) => q.id)
     )
-    // Why a waiting Quest waits: the latest routing block of its own decision keys (`<id>:<n>`).
+    // Why a waiting Quest waits: the block logged for its current attempt (`<id>:<attempts>`), so
+    // a decision of an earlier attempt never shows. One bounded, guild-scoped lookup per page.
+    const waiting = listed.quests.filter((q) => q.state === 'queued')
+    const logged = await deps.routingLog.forKeys(
+      who.guild,
+      waiting.map((q) => `${q.id}:${q.attempts}`)
+    )
     const blocked = new Map<string, BlockReason>()
-    if (listed.quests.some((q) => q.state === 'queued')) {
-      const log = await deps.routingLog.list(who.guild, { limit: MAX_ROUTING_PAGE })
-      for (const entry of log.entries) {
-        const id = entry.decisionKey.split(':')[0] ?? ''
-        if (entry.outcome === 'blocked' && entry.reason !== null && !blocked.has(id)) {
-          blocked.set(id, entry.reason)
-        }
+    for (const entry of logged) {
+      if (entry.outcome === 'blocked' && entry.reason !== null) {
+        blocked.set(entry.decisionKey, entry.reason)
       }
     }
+    // A locked Hall is skipped at claim and never logs a decision, so it is reported from the config.
+    const locked = new Set(
+      waiting.length > 0 ? lockedHallIds((await deps.config.current(who.guild)).config) : []
+    )
     const quests = listed.quests.map((q) => ({
       ...q,
-      blockReason: q.state === 'queued' ? (blocked.get(q.id) ?? null) : null,
+      blockReason:
+        q.state !== 'queued'
+          ? null
+          : locked.has(q.hallId)
+            ? ('hall_locked' as const)
+            : (blocked.get(`${q.id}:${q.attempts}`) ?? null),
     }))
     return c.json({ ...listed, quests, links })
   }
@@ -1557,7 +1568,12 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== check.guildId || !hallId.success) {
       return c.json({ error: 'not_found' }, 404)
     }
-    return (await deps.tripwires.resume(check.guildId, hallId.data))
+    const resumed = await deps.tripwires.resume(check.guildId, hallId.data)
+    if (resumed) {
+      // The loop count that paused the Hall must not re-pause it at the next pass.
+      await deps.quests.forgiveRepeats(check.guildId, hallId.data)
+    }
+    return resumed
       ? c.json({ hallId: hallId.data, paused: false })
       : c.json({ error: 'not_paused' }, 404)
   })

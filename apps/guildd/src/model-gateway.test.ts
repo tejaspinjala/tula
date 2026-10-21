@@ -669,6 +669,19 @@ describe('Bar the Gates mid-call', () => {
   })
 })
 
+describe('a Hall removed from the config mid-run', () => {
+  test('refuses the call as hall_locked with zero provider calls', async () => {
+    const s = await setup()
+    const run = await started(s.open())
+    s.live.config = guildConfig.parse({
+      ...s.live.config,
+      halls: s.live.config.halls.filter((h) => h.id !== 'heralds'),
+    })
+    expect(await codeOf(s.gateway.complete(run.token, message))).toBe('hall_locked')
+    expect(s.provider.seen).toHaveLength(0)
+  })
+})
+
 describe('councilComplete', () => {
   const call = {
     sessionId: 'sess-1',
@@ -696,6 +709,22 @@ describe('councilComplete', () => {
       costMicros: 4500,
     })
     expect((await s.ledger.getRun(GUILD, 'council:sess-1'))?.questId).toBe('quest-1')
+  })
+
+  test('a Council call for a private Hall on a provider that is not private-eligible never reaches it', async () => {
+    const base = config()
+    const s = await setup(
+      guildConfig.parse({
+        ...base,
+        halls: base.halls.map((h) =>
+          h.id === 'health' ? { ...h, locked: false, privateEligible: true } : h
+        ),
+      })
+    )
+    await expect(
+      s.gateway.councilComplete(GUILD, { ...call, hallId: 'health' })
+    ).rejects.toMatchObject({ code: 'provider_not_private' })
+    expect(s.provider.seen).toHaveLength(0)
   })
 
   test('a daily cap reached refuses the call as cap_reached before the provider is called', async () => {

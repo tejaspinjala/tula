@@ -165,6 +165,7 @@ export class MemoryQuestQueue implements QuestQueue {
       waitMode: 'all',
       attempts: 0,
       maxAttempts: parsed.maxAttempts,
+      refunds: 0,
       leaseExpiresAt: null,
       notBefore: now,
       lastError: null,
@@ -229,6 +230,21 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
+  async forgiveRepeats(guildId: string, hallId: string): Promise<number> {
+    let changed = 0
+    for (const q of this.guild(guildId).byId.values()) {
+      if (
+        q.hallId === hallId &&
+        (q.state === 'queued' || q.state === 'active') &&
+        q.refunds < q.attempts
+      ) {
+        this.guild(guildId).byId.set(q.id, { ...q, refunds: q.attempts })
+        changed += 1
+      }
+    }
+    return changed
+  }
+
   async releaseLeases(
     guildId: string,
     reason: FailReason,
@@ -246,6 +262,7 @@ export class MemoryQuestQueue implements QuestQueue {
           lastError: reason,
           // A pause is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
           maxAttempts: q.maxAttempts + 1,
+          refunds: q.refunds + 1,
         })
         released += 1
       }

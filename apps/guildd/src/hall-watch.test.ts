@@ -149,4 +149,32 @@ describe('watchHalls', () => {
     }
     expect(await watchHalls(w.deps, w.guild)).toEqual(['heralds'])
   })
+
+  describe('loop repeats', () => {
+    const lease = { leaseMs: 60_000, maxActive: 5 }
+
+    test('a Quest that keeps waiting (claims given back) never trips the loop Tripwire', async () => {
+      const w = world()
+      const q = await w.quest('heralds')
+      for (let i = 0; i < 12; i += 1) {
+        const claimed = await w.deps.quests.claim(w.guild, lease)
+        await w.deps.quests.releaseClaim(w.guild, q.id, claimed?.attempts ?? 0, w.clock.now())
+      }
+      expect(await watchHalls(w.deps, w.guild)).toEqual([])
+    })
+
+    test('a Quest that genuinely fails five times still trips it, and a resume forgives the count', async () => {
+      const w = world()
+      const q = await w.quest('heralds', { maxAttempts: 20 })
+      for (let i = 1; i <= 5; i += 1) {
+        w.clock.advance(60_000)
+        await w.deps.quests.claim(w.guild, lease)
+        await w.deps.quests.fail(w.guild, q.id, i, 'timeout')
+      }
+      expect(await watchHalls(w.deps, w.guild)).toEqual(['heralds'])
+      await w.deps.tripwires.resume(w.guild, 'heralds')
+      await w.deps.quests.forgiveRepeats(w.guild, 'heralds')
+      expect(await watchHalls(w.deps, w.guild)).toEqual([])
+    })
+  })
 })

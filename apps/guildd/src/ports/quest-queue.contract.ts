@@ -387,6 +387,39 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await queue.deadLetters(g, { limit: 10 })).quests).toEqual([])
     })
 
+    test('refunded claims are counted as refunds (a wait, a bar, a park); a failure is not', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      const first = await queue.claim(g, LEASE)
+      await queue.releaseClaim(g, q.id, first?.attempts ?? 0, clock.now())
+      const second = await queue.claim(g, LEASE)
+      expect(second).toMatchObject({ attempts: 2, refunds: 1 })
+      await queue.releaseLeases(g, 'routing_blocked')
+      expect(await queue.get(g, q.id)).toMatchObject({ attempts: 2, refunds: 2 })
+      await queue.claim(g, LEASE)
+      const failed = await queue.fail(g, q.id, 3, 'timeout')
+      expect(failed).toMatchObject({ attempts: 3, refunds: 2 })
+    })
+
+    test('forgiving the repeats of a Hall refunds the attempts of its open Quests only', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const a = await queue.post(g, quest({ hallId: 'health' }))
+      const b = await queue.post(g, quest({ hallId: 'heralds' }))
+      for (let i = 0; i < 2; i += 1) {
+        clock.advance(10_000)
+        await queue.claim(g, { ...LEASE, questId: a.quest.id })
+        await queue.fail(g, a.quest.id, i + 1, 'timeout')
+        clock.advance(10_000)
+        await queue.claim(g, { ...LEASE, questId: b.quest.id })
+        await queue.fail(g, b.quest.id, i + 1, 'timeout')
+      }
+      expect(await queue.forgiveRepeats(g, 'health')).toBe(1)
+      expect(await queue.get(g, a.quest.id)).toMatchObject({ attempts: 2, refunds: 2 })
+      expect(await queue.get(g, b.quest.id)).toMatchObject({ attempts: 2, refunds: 0 })
+    })
+
     test('a Quest whose lease lapses past its attempts is dead-lettered, not leased again', async () => {
       const { queue, clock, events, newGuild } = await make()
       const g = await newGuild()
