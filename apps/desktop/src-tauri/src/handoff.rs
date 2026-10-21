@@ -14,29 +14,59 @@ pub const USER_AGENT_TOKEN: &str = "GuildhallDesktop";
 
 /// The webview's user agent with the shell token appended (a custom agent replaces the default).
 pub fn desktop_user_agent() -> String {
-    unimplemented!()
+    #[cfg(target_os = "macos")]
+    let base = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+    #[cfg(target_os = "windows")]
+    let base = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let base = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+    format!("{base} {USER_AGENT_TOKEN}/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Whether `code` has the shape guildd mints: `<guild uuid>.<at least 16 base64url characters>`.
+fn is_code(code: &str) -> bool {
+    let Some((guild, secret)) = code.split_once('.') else {
+        return false;
+    };
+    let uuid = guild.len() == 36
+        && guild.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        });
+    uuid && secret.len() >= 16
+        && secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// The sign-in code in a `guildhall://signed-in#code=<code>` link, or `None` for anything else:
 /// another scheme or host, a missing or malformed code. A code is `<uuid>.<base64url>`, which is
 /// all the shell ever puts into a URL, so nothing else is passed on.
 pub fn code_from_deep_link(link: &str) -> Option<String> {
-    let _ = link;
-    unimplemented!()
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != SCHEME || url.host_str() != Some("signed-in") || url.query().is_some() {
+        return None;
+    }
+    let code = url.fragment()?.strip_prefix("code=")?;
+    is_code(code).then(|| code.to_string())
 }
 
 /// Where the main window goes to finish the sign-in: the server's origin with the code in the
 /// fragment, which a browser never sends to a server or writes to a log.
 pub fn return_url(server: &Url, code: &str) -> Url {
-    let _ = (server, code);
-    unimplemented!()
+    let mut url = server.clone();
+    url.set_path("/");
+    url.set_query(None);
+    url.set_fragment(Some(&format!("desktop-code={code}")));
+    url
 }
 
 /// Whether a window the page asked to open is the browser sign-in (`/?desktop=1` on the server's
 /// own origin), which the shell hands to the system browser. Every other request is refused.
 pub fn is_browser_sign_in(server: &Url, requested: &Url) -> bool {
-    let _ = (server, requested);
-    unimplemented!()
+    requested.scheme() == server.scheme()
+        && requested.host_str() == server.host_str()
+        && requested.port_or_known_default() == server.port_or_known_default()
+        && requested.path() == "/"
+        && requested.query_pairs().any(|(k, v)| k == "desktop" && v == "1")
 }
 
 #[cfg(test)]

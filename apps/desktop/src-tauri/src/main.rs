@@ -1,14 +1,19 @@
 //! Guildhall desktop: a native window that opens the configured Guildhall server. The window loads
 //! the remote https origin directly, so WebAuthn's RP ID stays the server's host (see
 //! docs/spikes/tauri-passkeys.md). The remote page gets no native commands; only the local
-//! first-run page can set the address.
+//! first-run page can set the address. Passkeys hang in the webview, so sign-in goes through the
+//! system browser and comes back by the `guildhall://` deep link (see `handoff.rs`).
 
 mod handoff;
 mod settings;
 
 use std::path::PathBuf;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_opener::OpenerExt;
+use url::Url;
 
 const CHANGE_ADDRESS: &str = "change-server-address";
 const TOGGLE_FULLSCREEN: &str = "toggle-fullscreen";
@@ -25,12 +30,39 @@ fn open_window<R: Runtime>(app: &AppHandle<R>, target: WebviewUrl) -> tauri::Res
     if let Some(window) = main_window(app) {
         let _ = window.close();
     }
-    WebviewWindowBuilder::new(app, "main", target)
+    let mut builder = WebviewWindowBuilder::new(app, "main", target.clone())
         .title("Guildhall")
         .inner_size(1280.0, 800.0)
         .min_inner_size(800.0, 600.0)
-        .build()?;
+        .user_agent(&handoff::desktop_user_agent());
+    if let WebviewUrl::External(server) = target {
+        // The remote page has no native bridge. Passkeys do not work in this webview, so the page
+        // asks for its sign-in page as a new window; only that one goes to the system browser, and
+        // every other new window is refused.
+        let handle = app.clone();
+        builder = builder.on_new_window(move |url, _features| {
+            if handoff::is_browser_sign_in(&server, &url) {
+                let _ = handle.opener().open_url(url.as_str(), None::<&str>);
+            }
+            NewWindowResponse::Deny
+        });
+    }
+    builder.build()?;
     Ok(())
+}
+
+/// Finishes a browser sign-in: a `guildhall://signed-in#code=...` link sends the main window to
+/// the server with the code in the fragment, where the page exchanges it for a session. Links
+/// that are not a well-formed sign-in are ignored.
+fn finish_sign_in<R: Runtime>(app: &AppHandle<R>, links: &[Url]) {
+    let stored = settings_path(app).ok().and_then(|p| settings::load(&p));
+    let (Some(server), Some(window)) = (stored, main_window(app)) else {
+        return;
+    };
+    if let Some(code) = links.iter().find_map(|l| handoff::code_from_deep_link(l.as_str())) {
+        let _ = window.navigate(handoff::return_url(&server, &code));
+        let _ = window.set_focus();
+    }
 }
 
 /// Opens the stored server, or the first-run page when none is stored.
@@ -62,6 +94,8 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![set_server_url])
         .setup(|app| {
             let change = MenuItemBuilder::with_id(CHANGE_ADDRESS, "Change Server Address…")
@@ -87,6 +121,12 @@ fn main() {
             let view = SubmenuBuilder::new(app, "View").item(&fullscreen).build()?;
             app.set_menu(MenuBuilder::new(app).items(&[&app_menu, &edit, &view]).build()?)?;
             open_server_or_prompt(app.handle())?;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| finish_sign_in(&handle, &event.urls()));
+            // The app may have been launched by the link itself.
+            if let Ok(Some(links)) = app.deep_link().get_current() {
+                finish_sign_in(app.handle(), &links);
+            }
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {

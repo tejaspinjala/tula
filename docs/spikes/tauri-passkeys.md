@@ -37,16 +37,19 @@ account. If the manual check shows path (a) works on the Guild Master's signed b
 changes: it already loads the remote https origin directly with no native bridge, so in-app sign-in is the
 same page. The shell is path-agnostic; only the hand-back below is missing.
 
-## Design for (b) (server and web work, not built here)
+## Design for (b) (built in #113)
 
 1. In the shell, a "Sign in with browser" action opens `https://<host>/?desktop=1` in the system browser
    (the opener plugin), and the app registers the `guildhall://` deep-link scheme.
 2. The page signs in with its passkey as usual, then calls `POST /auth/desktop/begin` with the session.
    guildd returns a one-time code (single use, 60 second expiry, bound to the guild and Member, stored
-   hashed) and the page redirects to `guildhall://signin?code=<code>`.
+   hashed) and the page hands `guildhall://signed-in#code=<code>` to the OS (a button, so the code is minted on a user gesture).
 3. The shell receives the deep link and loads `https://<host>/#desktop-code=<code>`. The web client posts
    it to `POST /auth/desktop/exchange` over TLS and receives the same Bearer session token a passkey
    sign-in returns, then clears the fragment.
 4. Rate-limit both endpoints; the code is useless after one exchange or 60 seconds.
 
-A follow-up ticket covers the server and web parts. No server auth was changed here.
+The shell asks for the system browser by opening `/?desktop=1` as a new window (it refuses every other
+new window), sets a `GuildhallDesktop/<version>` user-agent suffix so the page offers only
+"Sign in with your browser", and keeps the remote origin free of native commands. Not yet covered:
+Windows and Linux deep links need the single-instance plugin so a link reaches the running window.
