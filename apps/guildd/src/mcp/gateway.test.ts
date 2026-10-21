@@ -1485,6 +1485,52 @@ describe('MCP gateway', () => {
         })
       })
 
+      const withVault = (t: Setup) =>
+        reconfigure(t, t.guild, (c) => ({
+          ...c,
+          halls: [
+            ...c.halls,
+            {
+              id: 'vault',
+              name: 'Vault',
+              kind: 'private',
+              locked: false,
+              privateEligible: false,
+              captain: null,
+              members: [{ id: 'vault-member-1', name: 'Keeper', rank: 'journeyman' }],
+            },
+          ],
+        }))
+
+      test('a Member of a private Hall cannot send to a work Hall', async () => {
+        const s = await setup()
+        await withScribes(s)
+        await withVault(s)
+        const keeper = lease.parse(
+          (await s.claim(await s.post({ hallId: 'vault', ownerId: 'vault-member-1' }))).lease
+        )
+        expect(await sendTo(s, keeper, { toHall: 'scribes', to: 'hall' })).toMatchObject({
+          isError: true,
+          data: { error: 'private_boundary' },
+        })
+        expect(await s.deps.missives.list(s.guild, { hallId: 'scribes', limit: 10 })).toEqual({
+          missives: [],
+          next: null,
+        })
+      })
+
+      test('a private-class Quest can send to a private Hall', async () => {
+        const s = await setup()
+        await withVault(s)
+        const secret = lease.parse(
+          (await s.claim(await s.post({ dataClass: 'private', ownerId: 'heralds-member-2' }))).lease
+        )
+        expect(await sendTo(s, secret, { toHall: 'vault', to: 'vault-member-1' })).toMatchObject({
+          isError: false,
+          data: { created: true },
+        })
+      })
+
       test('cross-Hall sends count against the Missives-per-Quest cap', async () => {
         const s = await setup()
         await withScribes(s)

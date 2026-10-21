@@ -59,7 +59,7 @@ The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests 
 _Avoid_: backlog
 
 **Missive**:
-A short note (up to 2000 characters) one Member of a Hall sends another Member of the same Hall, or the whole Hall (`send_missive`, `read_missives`). Capped per Quest (`maxMissivesPerQuest`, refused as `missive_cap`). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame, and the Guild Master reads a Hall's Missives in the ledger. Hall-scoped in v1; cross-Hall Missives are the Milestone 2 extension. Work products travel as Handoffs (ids and hashes), not Missives.
+A short note (up to 2000 characters) one Member sends another Member of its Hall, the whole Hall, or, with `toHall`, a Member or the whole of another Hall (`send_missive`, `read_missives`). Capped per Quest, cross-Hall sends included (`maxMissivesPerQuest`, refused as `missive_cap`). Cross-Hall refusals: `unknown_hall`, `same_hall`, `not_in_hall`, and `private_boundary` (a private Hall or a private-class Quest may not reach a work Hall). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame (a cross-Hall Missive also names the sending Hall), and the Guild Master reads Missives in the ledger and the Hall mailbox. Work products travel as Handoffs (ids and hashes), not Missives.
 _Avoid_: DM, chat, message, notification
 
 **Research**:
@@ -73,7 +73,7 @@ The port to a web search service (Brave Search in v1) that the Research tool que
 The port that reads one https page as plain text for a Research result: https only, no private or loopback hosts, no redirects, text content only, byte-capped.
 
 **Inquiry**:
-One precise question from one Hall to another, answered once and filed in the Archive. A Member asks with `ask_hall` (up to 1000 characters); guildd posts an answer Quest on the target Hall's Quest Board (template `inquiry-answer`, internal to code: no other path posts it; the stricter data class of the asking Quest and the target Hall) and the Member working it answers once with `answer_inquiry` (up to 4000 characters); the asker reads it with `read_inquiry`. A Quest that is not private-class, in a work Hall, may not ask a private Hall (`private_boundary`), so a private answer never flows back to it. Capped per Quest (`maxInquiriesPerQuest`, refused as `inquiry_cap`); an unanswered Inquiry expires (`INQUIRY_EXPIRY_DAYS`, default 7). The question and answer are untrusted: stored as data and shown to a model only inside a per-call random nonce frame.
+One precise question from one Hall to another, answered once and filed in the Archive. A Member asks with `ask_hall` (up to 1000 characters; refused `unknown_hall`, `same_hall`, `hall_locked`, `hall_paused`, `unknown_owner`); guildd posts an answer Quest on the target Hall's Quest Board (template `inquiry-answer`, internal to code: no other path posts it; the stricter data class of the asking Quest and the target Hall) and the Member working it answers once with `answer_inquiry` (up to 4000 characters); the asker reads it with `read_inquiry`. A Quest that is not private-class, in a work Hall, may not ask a private Hall (`private_boundary`), so a private answer never flows back to it. Capped per Quest (`maxInquiriesPerQuest`, refused as `inquiry_cap`); an unanswered Inquiry expires (`INQUIRY_EXPIRY_DAYS`, default 7). The question and answer are untrusted: stored as data and shown to a model only inside a per-call random nonce frame.
 _Avoid_: chat, ping
 
 **Dossier**:
