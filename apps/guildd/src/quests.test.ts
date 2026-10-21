@@ -105,7 +105,7 @@ test('only the Herald announcement template is routine-eligible; internal templa
   expect(FIX_QUEST_TEMPLATE.routineEligible).not.toBe(true)
 })
 
-test('the inquiry-answer template is internal:the Guild Master cannot post it', async () => {
+test('the inquiry-answer template is internal: the Guild Master cannot post it', async () => {
   const { config, queue, tripwires, guild } = await setup()
   expect(
     await postQuest({ config, queue, tripwires }, guild, {

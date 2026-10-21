@@ -32,6 +32,15 @@ describe('Seal Policy and Council caps', () => {
     expect(result.success).toBe(false)
     expect(result.error?.issues.map((i) => i.message).join(' ')).toContain('seal_policy_locked')
   })
+  test('a stored autonomous config still loads, read as always, with a path-only warning', () => {
+    const warnings: string[] = []
+    const config = parseStoredConfig({ ...defaultConfig(), sealPolicy: 'autonomous' }, (m) =>
+      warnings.push(m)
+    )
+    expect(config.sealPolicy).toBe('always')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('sealPolicy')
+  })
   test('the Council caps default to 5 approvals and 20 sessions a day', () => {
     expect(councilApprovalCap(defaultConfig())).toBe(5)
     expect(councilSessionCap(defaultConfig())).toBe(20)

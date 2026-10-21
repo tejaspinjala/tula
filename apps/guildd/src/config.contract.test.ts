@@ -334,6 +334,14 @@ describe('guild config over HTTP', () => {
     expect(await verify.json()).toMatchObject({ intact: true })
   })
 
+  test('saving autonomous is refused with a 400 naming seal_policy_locked', async () => {
+    const who = await signedIn()
+    const config = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(await res.json())).toContain('seal_policy_locked')
+  })
+
   test('a widening change is stored inactive until confirmed with a fresh re-authentication', async () => {
     const who = await signedIn()
     const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
