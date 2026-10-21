@@ -30,6 +30,7 @@ function toMissive(r: unknown): Missive {
     seq: m.seq,
     id: m.missive_id,
     hallId: m.hall_id,
+    toHall: null,
     questId: m.quest_id,
     from: m.sender,
     to: m.addressee,

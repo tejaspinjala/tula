@@ -141,5 +141,50 @@ export function missiveStoreContract(name: string, make: () => Promise<MissiveSt
       await store.send(a, sent({ text: 'secret of A' }))
       expect((await store.list(b, { hallId: 'h-forge', limit: 10 })).missives).toEqual([])
     })
+
+    test('a cross-Hall Missive keeps both Halls and lists in both Halls’ ledgers', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.send(g, sent({ hallId: 'h-forge', toHall: 'h-herald', to: 'm-bo', text: 'over' }))
+      await store.send(g, sent({ hallId: 'h-forge', text: 'inside' }))
+      const there = await store.list(g, { hallId: 'h-herald', limit: 10 })
+      expect(there.missives.map((m) => [m.hallId, m.toHall, m.text])).toEqual([
+        ['h-forge', 'h-herald', 'over'],
+      ])
+      const here = await store.list(g, { hallId: 'h-forge', limit: 10 })
+      expect(here.missives.map((m) => [m.hallId, m.toHall, m.text])).toEqual([
+        ['h-forge', null, 'inside'],
+        ['h-forge', 'h-herald', 'over'],
+      ])
+    })
+
+    test('a cross-Hall Missive reaches the addressed Member or the whole receiving Hall only', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const questId = crypto.randomUUID()
+      const away = { questId, hallId: 'h-forge', toHall: 'h-herald' }
+      await store.send(g, sent({ ...away, to: 'm-bo', text: 'to bo' }))
+      await store.send(g, sent({ ...away, to: WHOLE_HALL, text: 'to heralds' }))
+      const bo = await store.list(g, { hallId: 'h-herald', member: 'm-bo', limit: 10 })
+      expect(bo.missives.map((m) => m.text)).toEqual(['to heralds', 'to bo'])
+      const cy = await store.list(g, { hallId: 'h-herald', member: 'm-cy', limit: 10 })
+      expect(cy.missives.map((m) => m.text)).toEqual(['to heralds'])
+      const sender = await store.list(g, { hallId: 'h-forge', member: 'm-ada', limit: 10 })
+      expect(sender.missives.map((m) => m.text)).toEqual(['to heralds', 'to bo'])
+      const forgeMate = await store.list(g, { hallId: 'h-forge', member: 'm-dee', limit: 10 })
+      expect(forgeMate.missives).toEqual([])
+    })
+
+    test('cross-Hall sends count against the Quest cap and a different destination is a different send', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const cap = { questId: crypto.randomUUID(), maxPerQuest: 2, toHall: 'h-herald' }
+      expect((await store.send(g, sent({ ...cap, text: 'a' }))).ok).toBe(true)
+      expect((await store.send(g, sent({ ...cap, toHall: 'h-other', text: 'a' }))).ok).toBe(true)
+      expect(await store.send(g, sent({ ...cap, text: 'c' }))).toEqual({
+        ok: false,
+        error: 'missive_cap',
+      })
+    })
   })
 }

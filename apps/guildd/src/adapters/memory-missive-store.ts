@@ -46,6 +46,7 @@ export class MemoryMissiveStore implements MissiveStore {
       seq: this.nextSeq++,
       id: crypto.randomUUID(),
       hallId: input.hallId,
+      toHall: null,
       questId: input.questId,
       from: input.from,
       to: input.to,

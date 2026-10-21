@@ -12,7 +12,10 @@ export interface Missive {
   /** Ordering key: later Missives have a larger one; the page cursor. */
   seq: number
   id: string
+  /** The sending Hall. */
   hallId: string
+  /** The destination Hall of a cross-Hall Missive; null for one within `hallId`. */
+  toHall: string | null
   questId: string
   /** The sending Member. */
   from: string
@@ -25,6 +28,8 @@ export interface Missive {
 /** What a Member's Quest sends. */
 export interface NewMissive {
   hallId: string
+  /** The destination Hall, when it is another Hall; `to` is then a Member of it or {@link WHOLE_HALL}. */
+  toHall?: string
   questId: string
   /** The attempt the send was made in; part of the idempotency key. */
   attempt: number
@@ -44,8 +49,12 @@ export type SendResult =
 
 /** What a list selects. */
 export interface MissiveQuery {
+  /** Missives sent from this Hall or addressed to it. */
   hallId: string
-  /** Only Missives this Member sent, received, or that went to the whole Hall. */
+  /**
+   * Only what this Member sent, what reached it (by id, or to its whole Hall), nothing a Member of
+   * the sending Hall merely overhears across Halls.
+   */
   member?: string
   /** Only Missives sent strictly after this instant. */
   since?: Date
