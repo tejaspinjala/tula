@@ -107,6 +107,19 @@ export class PgDossierStore implements DossierStore {
     })
   }
 
+  async countForQuest(guildId: string, questId: string): Promise<number> {
+    if (!z.uuid().safeParse(questId).success) {
+      return 0
+    }
+    const [row] = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select count(*)::int as n from dossiers
+        where guild_id = ${guildId} and requester_quest_id = ${questId}`
+    )
+    return z.object({ n: z.number() }).parse(row).n
+  }
+
   async get(guildId: string, id: string): Promise<Dossier | null> {
     if (!z.uuid().safeParse(id).success) {
       return null

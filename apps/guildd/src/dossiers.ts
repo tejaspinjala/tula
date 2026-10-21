@@ -1,7 +1,7 @@
 import { assembleDossier, citedArtifacts, type DossierSeal, type DossierVerdict } from './dossier'
 import type { Clock } from './ports/clock'
 import type { Dossier, DossierRequester, DossierStore } from './ports/dossier-store'
-import type { HandoffStore, StoredHandoff } from './ports/handoff-store'
+import type { HandoffStore } from './ports/handoff-store'
 import { hashBytes, type ObjectStore } from './ports/object-store'
 import type { ProposalStore } from './ports/proposal-store'
 import type { QuestQueue } from './ports/quest-queue'
@@ -14,7 +14,7 @@ export interface DossierServiceDeps {
   objectStore: Pick<ObjectStore, 'get'>
   proposals: Pick<ProposalStore, 'latestForQuest'>
   seals: Pick<SealStore, 'forQuest'>
-  store: DossierStore
+  store: Pick<DossierStore, 'create' | 'countForQuest'>
   clock: Clock
 }
 
@@ -34,8 +34,11 @@ export class DossierService {
 
   /**
    * Builds and stores a Dossier about `questId`. `unknown_quest` when the guild has no such
-   * Quest, `quest_not_finished` when no attempt has a Handoff, `dossier_cap` when a Member's Quest
-   * has used its allowance (`maxPerQuest`; the Guild Master has none).
+   * Quest. `quest_not_finished` unless the Quest is `done` (the final state: its Seal, if any,
+   * was settled) with a Handoff recorded for the attempt that finished it; a Quest that is
+   * queued again, active, awaiting its Seal or dead is not finished. `dossier_cap` when a
+   * Member's Quest has used its allowance (`maxPerQuest`; the Guild Master has none), checked
+   * before any artifact is read (the store's atomic check stays authoritative).
    */
   async request(
     guildId: string,
@@ -47,12 +50,19 @@ export class DossierService {
     if (!quest) {
       return { ok: false, error: 'unknown_quest' }
     }
-    let stored: StoredHandoff | null = null
-    for (let attempt = quest.attempts; attempt >= 1 && !stored; attempt--) {
-      stored = await this.deps.handoffs.get(guildId, quest.id, attempt)
+    if (quest.state !== 'done') {
+      return { ok: false, error: 'quest_not_finished' }
     }
+    const stored = await this.deps.handoffs.get(guildId, quest.id, quest.attempts)
     if (!stored) {
       return { ok: false, error: 'quest_not_finished' }
+    }
+    if (
+      maxPerQuest !== undefined &&
+      requester.kind === 'member' &&
+      (await this.deps.store.countForQuest(guildId, requester.questId)) >= maxPerQuest
+    ) {
+      return { ok: false, error: 'dossier_cap' }
     }
     const observed = new Map<string, { actualHash: string; size: number } | null>()
     for (const hash of citedArtifacts(stored.handoff)) {

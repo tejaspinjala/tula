@@ -102,6 +102,23 @@ export function dossierStoreContract(name: string, make: () => Promise<DossierSt
       }
     })
 
+    test('countForQuest counts the Dossiers a Quest requested, in its own guild only', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const requester = {
+        kind: 'member' as const,
+        questId: crypto.randomUUID(),
+        hallId: 'forge',
+        memberId: 'm-ada',
+      }
+      expect(await store.countForQuest(g, requester.questId)).toBe(0)
+      await store.create(g, made({ requester }))
+      await store.create(g, made({ requester }))
+      await store.create(g, made())
+      expect(await store.countForQuest(g, requester.questId)).toBe(2)
+      expect(await store.countForQuest(await newGuild(), requester.questId)).toBe(0)
+    })
+
     test('a cap of zero refuses the first request', async () => {
       const { store, newGuild } = await make()
       expect(await store.create(await newGuild(), made({ maxPerQuest: 0 }))).toEqual({

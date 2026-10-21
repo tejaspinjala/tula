@@ -51,6 +51,12 @@ export class MemoryDossierStore implements DossierStore {
     return { ok: true, dossier }
   }
 
+  async countForQuest(guildId: string, questId: string): Promise<number> {
+    return this.dossiers(guildId).filter(
+      (d) => d.requester.kind === 'member' && d.requester.questId === questId
+    ).length
+  }
+
   async get(guildId: string, id: string): Promise<Dossier | null> {
     return this.dossiers(guildId).find((d) => d.id === id) ?? null
   }

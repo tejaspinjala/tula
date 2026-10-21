@@ -86,6 +86,8 @@ export interface DossierPage {
 export interface DossierStore {
   /** Stores a Dossier, or refuses `dossier_cap` when the requesting Quest has used its allowance. */
   create(guildId: string, input: NewDossier): Promise<CreateDossierResult>
+  /** How many Dossiers the Quest has requested (all attempts): a cheap pre-check; `create` stays the authority on the cap. */
+  countForQuest(guildId: string, questId: string): Promise<number>
   /** One Dossier, or null when absent for this guild. */
   get(guildId: string, id: string): Promise<Dossier | null>
   /** One page of the Dossiers about a Hall's Quests or requested by its Members, newest first. */
