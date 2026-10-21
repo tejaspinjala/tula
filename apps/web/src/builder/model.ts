@@ -20,6 +20,9 @@ const guildCaps = z.looseObject({
   maxChildrenPerQuest: z.number().int().optional(),
   maxSpawnDepth: z.number().int().optional(),
   maxQuestsPerCampaign: z.number().int().optional(),
+  maxInquiriesPerQuest: z.number().int().optional(),
+  maxBugReportsPerQuest: z.number().int().optional(),
+  maxDossiersPerQuest: z.number().int().optional(),
 })
 const config = z.looseObject({
   steward: agent,
