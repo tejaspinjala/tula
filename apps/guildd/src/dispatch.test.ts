@@ -269,6 +269,33 @@ describe('dispatch', () => {
     expect(await w.started()).toEqual([])
   })
 
+  test('a sandbox list that throws is reported and does not stop claims in unlocked Halls', async () => {
+    const w = world()
+    const base = defaultConfig()
+    const inner = new MemorySandboxRunner()
+    const reports: string[] = []
+    const locked = configWith({
+      halls: base.halls.map((h) => (h.id === 'health' ? { ...h, locked: true } : h)),
+    })
+    const deps = {
+      ...w.deps,
+      config: { current: async () => ({ version: 1, config: locked }) },
+      sandboxes: {
+        start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        kill: (...args: Parameters<MemorySandboxRunner['kill']>) => inner.kill(...args),
+        list: async (): Promise<never> => {
+          throw new Error('docker down')
+        },
+      },
+      onError: (e: unknown) => {
+        reports.push(e instanceof Error ? e.message : 'other')
+      },
+    }
+    const open = await w.queue()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: open.id })
+    expect(reports).toEqual(['docker down'])
+  })
+
   test('a sandbox that will not die does not stop the lock: the run is revoked, the lease released, other Halls go on', async () => {
     const w = world()
     const inner = new MemorySandboxRunner()
