@@ -24,15 +24,48 @@ export class MemoryDossierStore implements DossierStore {
     return all
   }
 
-  async create(_guildId: string, _input: NewDossier): Promise<CreateDossierResult> {
-    throw new Error('not implemented')
+  async create(guildId: string, input: NewDossier): Promise<CreateDossierResult> {
+    const all = this.dossiers(guildId)
+    const { requester } = input
+    if (
+      requester.kind === 'member' &&
+      input.maxPerQuest !== undefined &&
+      all.filter((d) => d.requester.kind === 'member' && d.requester.questId === requester.questId)
+        .length >= input.maxPerQuest
+    ) {
+      return { ok: false, error: 'dossier_cap' }
+    }
+    const dossier: Dossier = {
+      id: crypto.randomUUID(),
+      seq: this.nextSeq++,
+      subjectQuestId: input.subjectQuestId,
+      subjectHallId: input.subjectHallId,
+      requester,
+      body: input.body,
+      hash: input.hash,
+      verified: input.verified,
+      failedChecks: [...input.failedChecks],
+      createdAt: input.at.toISOString(),
+    }
+    all.push(dossier)
+    return { ok: true, dossier }
   }
 
   async get(guildId: string, id: string): Promise<Dossier | null> {
     return this.dossiers(guildId).find((d) => d.id === id) ?? null
   }
 
-  async list(_guildId: string, _query: DossierQuery): Promise<DossierPage> {
-    throw new Error('not implemented')
+  async list(guildId: string, query: DossierQuery): Promise<DossierPage> {
+    const visible = this.dossiers(guildId)
+      .filter(
+        (d) =>
+          (d.subjectHallId === query.hallId ||
+            (d.requester.kind === 'member' && d.requester.hallId === query.hallId)) &&
+          (query.after === undefined || d.seq < query.after)
+      )
+      .sort((a, b) => b.seq - a.seq)
+    const page = visible.slice(0, query.limit)
+    const last = page.at(-1)
+    return { dossiers: page, next: visible.length > page.length && last ? last.seq : null }
   }
 }
