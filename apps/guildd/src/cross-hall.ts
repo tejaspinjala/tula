@@ -24,7 +24,30 @@ export interface CrossHallInput {
   toMember?: string | undefined
 }
 
-/** Resolves a cross-Hall target inside the caller's guild and applies the private boundary (stub). */
-export function resolveCrossHall(_input: CrossHallInput): CrossHallResolution {
-  return { ok: false, error: 'unknown_hall' }
+/**
+ * The one cross-Hall addressing rule. Resolves the target Hall (and optional Member) among the
+ * caller guild's Halls, so another guild's Hall is indistinguishable from an unknown one, then
+ * applies the private boundary: a private source Hall or a private-class Quest may not reach a work
+ * Hall. Deterministic, never a model decision.
+ */
+export function resolveCrossHall(input: CrossHallInput): CrossHallResolution {
+  const source = input.halls.find((h) => h.id === input.sourceHall)
+  const target = input.halls.find((h) => h.id === input.toHall)
+  if (!source || !target) {
+    return { ok: false, error: 'unknown_hall' }
+  }
+  if (source.id === target.id) {
+    return { ok: false, error: 'same_hall' }
+  }
+  if (
+    target.kind === 'work' &&
+    (source.kind === 'private' || input.sourceDataClass === 'private')
+  ) {
+    return { ok: false, error: 'private_boundary' }
+  }
+  if (input.toMember === undefined) {
+    return { ok: true, hall: target, member: null }
+  }
+  const member = target.members.find((m) => m.id === input.toMember)
+  return member ? { ok: true, hall: target, member } : { ok: false, error: 'not_in_hall' }
 }
