@@ -237,7 +237,7 @@ export class HallScene extends Phaser.Scene {
   private elders: Phaser.GameObjects.Container[] = []
   private conferMark: Phaser.GameObjects.BitmapText | null = null
   /** True while a Council session is open: the elders confer. */
-  private councilOpen = false
+  private councilState: 'idle' | 'conferring' | 'halted' = 'idle'
   private readonly keys: Keys = { left: false, right: false, up: false, down: false }
   private detachKeys: (() => void) | null = null
 
@@ -1004,7 +1004,7 @@ export class HallScene extends Phaser.Scene {
 
   /**
    * The Council chamber: a dais and a long table in the corridor, five robed elders standing behind
-   * it and a label above. Drawn once; `setCouncilOpen` makes the elders confer.
+   * it and a label above. Drawn once; `setCouncilState` makes the elders confer or shows them halted.
    */
   private drawCouncil(): void {
     const s = this.layout.tileSize
@@ -1044,8 +1044,8 @@ export class HallScene extends Phaser.Scene {
   }
 
   /** The elders confer (bob in turn, with a "..." above) while a Council session is open. */
-  setCouncilOpen(open: boolean): void {
-    this.councilOpen = open
+  setCouncilState(state: 'idle' | 'conferring' | 'halted'): void {
+    this.councilState = state
     this.applyConfer()
   }
 
@@ -1055,7 +1055,7 @@ export class HallScene extends Phaser.Scene {
     this.elders.forEach((elder, index) => {
       this.tweens.killTweensOf(elder)
       elder.y = baseY
-      if (this.councilOpen && !this.options.reducedMotion) {
+      if (this.councilState === 'conferring' && !this.options.reducedMotion) {
         this.tweens.add({
           targets: elder,
           y: baseY - 2,
@@ -1067,7 +1067,8 @@ export class HallScene extends Phaser.Scene {
         })
       }
     })
-    this.conferMark?.setVisible(this.councilOpen)
+    this.conferMark?.setText(this.councilState === 'halted' ? 'HALTED' : '...')
+    this.conferMark?.setVisible(this.councilState !== 'idle')
   }
 
   /** Rooms, gate, scrolls and the coin counter: redrawn whenever the state changes. */

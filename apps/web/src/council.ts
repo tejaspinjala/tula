@@ -111,7 +111,10 @@ export type CouncilChamberState = 'idle' | 'conferring' | 'halted'
 export function councilChamberState(
   sessions: readonly { status: string; halted: boolean }[]
 ): CouncilChamberState {
-  return 'idle'
+  if (councilOpenNow(sessions)) {
+    return 'conferring'
+  }
+  return sessions.some((s) => s.status === 'open' && s.halted) ? 'halted' : 'idle'
 }
 
 /** Whether any of these sessions is still open: the elders confer while one is. */
