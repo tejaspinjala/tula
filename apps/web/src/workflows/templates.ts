@@ -19,4 +19,5 @@ export const QUEST_TEMPLATE_CHOICES: readonly TemplateChoice[] = [
     requiresSeal: true,
   },
   { id: 'team-plan', name: 'Team plan', hallId: 'heralds', requiresSeal: false },
+  { id: 'inquiry-answer', name: 'Inquiry answer', hallId: 'heralds', requiresSeal: false },
 ]

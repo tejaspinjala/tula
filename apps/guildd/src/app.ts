@@ -260,6 +260,14 @@ const missivePage = z.object({
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
 })
+const inquiryPage = z.object({
+  after: z
+    .string()
+    .regex(/^[1-9][0-9]{0,15}$/)
+    .transform(Number)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_INQUIRY_PAGE).default(50),
+})
 const sealPage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
@@ -505,6 +513,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.get('/guilds/:id/events/history', limited('events-history'))
   app.get('/guilds/:id/halls/:hallId/missives', limited('missives-read'))
+  app.get('/guilds/:id/halls/:hallId/inquiries', limited('missives-read'))
+  app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
   app.get('/guilds/:id/workflows', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
@@ -1050,6 +1060,44 @@ export function createApp(deps: AppDeps): Hono {
         ...(page.data.after === undefined ? {} : { after: page.data.after }),
       })
     )
+  })
+
+  // A Hall's Inquiries for the Guild Master, asked and received, newest first. The question and
+  // answer are Members' words, untrusted: the ledger shows them as text and never as markup.
+  app.get('/guilds/:id/halls/:hallId/inquiries', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const page = inquiryPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    return c.json(
+      await deps.inquiries.list(who.guild, {
+        hallId: hallId.data,
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
+    )
+  })
+
+  // One Inquiry for the Guild Master; an unknown id and another guild's id look the same.
+  app.get('/guilds/:id/inquiries/:inquiryId', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const inquiry = await deps.inquiries.get(who.guild, c.req.param('inquiryId'))
+    return inquiry ? c.json(inquiry) : c.json({ error: 'inquiry_not_found' }, 404)
   })
 
   // Quests. Posting and every transition is an event appended by the QuestQueue. Like the
