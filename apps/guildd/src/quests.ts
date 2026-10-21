@@ -58,6 +58,23 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
   },
 ]
 
+/**
+ * The Fix Quest template: internal, never in {@link QUEST_TEMPLATES}, so `postQuest`,
+ * `spawn_subquest`, `post_to_board` and the web template choices cannot post it
+ * (`unknown_template`). Only filing a Bug Report posts a Fix Quest, with the Hall of the report and
+ * a done-condition built from its reproduction (the `doneCondition` here is the template default).
+ */
+export const FIX_QUEST_TEMPLATE: QuestTemplate = {
+  id: 'fix-quest',
+  name: 'Fix Quest',
+  hallId: 'heralds',
+  rank: 'journeyman',
+  dataClass: 'internal',
+  doneCondition: 'The defect in the Bug Report is fixed and its reproduction behaves as expected',
+  requiresSeal: false,
+  roundLimit: 2,
+}
+
 /** What the Guild Master supplies when posting a Quest from a template. */
 export const postQuestInput = z.object({
   templateId: z.string().min(1).max(64),

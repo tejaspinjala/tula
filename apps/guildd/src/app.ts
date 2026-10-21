@@ -9,6 +9,7 @@ import {
   verifyChain,
   verifyFrom,
 } from './audit-chain'
+import type { BugReportService } from './bug-reports'
 import { costPerPost } from './cost-per-post'
 import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
@@ -22,6 +23,12 @@ import { GatesBarredError, type LearningEngine } from './learning-engine'
 import { characterLook } from './look-catalogue'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, gatewayCall, type ModelGateway } from './model-gateway'
+import {
+  BUG_REPORT_STATUSES,
+  type BugReportStore,
+  fileBugReportInput,
+  MAX_BUG_REPORT_PAGE,
+} from './ports/bug-report-store'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
@@ -104,6 +111,10 @@ export interface AppDeps {
   dossiers: DossierService
   /** The stored Dossiers, listed per Hall and read by id. */
   dossierStore: DossierStore
+  /** Bug Reports: files one and posts its Fix Quest; the Guild Master files and reads them. */
+  bugReports: BugReportService
+  /** The stored Bug Reports, listed per Hall and read by id. */
+  bugReportStore: BugReportStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
@@ -272,6 +283,15 @@ const dossierPage = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_DOSSIER_PAGE).default(50),
 })
 const createDossierInput = z.strictObject({ questId: uuid })
+const bugReportPage = z.object({
+  after: z
+    .string()
+    .regex(/^[1-9][0-9]{0,15}$/)
+    .transform(Number)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_BUG_REPORT_PAGE).default(50),
+  status: z.enum(BUG_REPORT_STATUSES).optional(),
+})
 const sealPage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
@@ -520,6 +540,9 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
   app.post('/guilds/:id/dossiers', limited('dossier-write'))
+  app.get('/guilds/:id/halls/:hallId/bug-reports', limited('bug-report-read'))
+  app.get('/guilds/:id/bug-reports/:reportId', limited('bug-report-read'))
+  app.post('/guilds/:id/bug-reports', limited('bug-report-write'))
   app.get('/guilds/:id/workflows', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
   app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
@@ -1123,6 +1146,64 @@ export function createApp(deps: AppDeps): Hono {
         : c.json({ error: made.error }, 422)
     }
     return c.json(made.dossier, 201)
+  })
+
+  // Bug Reports for the Guild Master: file one against any Hall (a Fix Quest is posted on that
+  // Hall's Quest Board), list a Hall's newest first by status, read one by id. The Guild Master is
+  // not a Hall, so the private boundary does not apply, and has no cap.
+  app.get('/guilds/:id/halls/:hallId/bug-reports', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const page = bugReportPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      status: c.req.query('status'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    return c.json(
+      await deps.bugReportStore.list(who.guild, {
+        hallId: hallId.data,
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+        ...(page.data.status === undefined ? {} : { status: page.data.status }),
+      })
+    )
+  })
+
+  app.get('/guilds/:id/bug-reports/:reportId', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const report = await deps.bugReportStore.get(who.guild, c.req.param('reportId'))
+    return report ? c.json(report) : c.json({ error: 'bug_report_not_found' }, 404)
+  })
+
+  app.post('/guilds/:id/bug-reports', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = fileBugReportInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const filed = await deps.bugReports.file(who.guild, body.data, { kind: 'guild_master' })
+    if (!filed.ok) {
+      return filed.error === 'unknown_hall'
+        ? c.json({ error: 'hall_not_found' }, 404)
+        : c.json({ error: filed.error }, 422)
+    }
+    return c.json({ ...filed.report, fixQuest: filed.fixQuest }, 201)
   })
 
   // Quests. Posting and every transition is an event appended by the QuestQueue. Like the

@@ -13,6 +13,7 @@ import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { MemorySearchProvider } from './adapters/memory-search-provider'
 import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
+import { PgBugReportStore } from './adapters/pg-bug-report-store'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgDossierStore } from './adapters/pg-dossier-store'
 import { PgGateStore } from './adapters/pg-gate-store'
@@ -42,6 +43,7 @@ import { SystemClock } from './adapters/system-clock'
 import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
+import { BugReportService } from './bug-reports'
 import { createDb } from './db/client'
 import { Dispatcher } from './dispatch'
 import { DossierService } from './dossiers'
@@ -110,7 +112,8 @@ export async function compose(
   const secrets = overrides.secrets ?? new PgSecretStore(db, keys)
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const missives = overrides.missives ?? new PgMissiveStore(db, keys)
-  const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
+  const pgQuests = new PgQuestQueue(db, keys, clock)
+  const quests = overrides.quests ?? pgQuests
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
   // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
@@ -182,6 +185,9 @@ export async function compose(
       store: dossierStore,
       clock,
     })
+  const bugReportStore = overrides.bugReportStore ?? new PgBugReportStore(db, keys, pgQuests)
+  const bugReports =
+    overrides.bugReports ?? new BugReportService({ config, store: bugReportStore, clock })
   const treasury =
     overrides.treasury ?? new Treasury({ store: new PgTreasuryStore(db, keys, clock), config })
   // Governed web research is off unless the host configures a search provider (ADR-0010).
@@ -220,6 +226,8 @@ export async function compose(
       handoffs,
       ...(research ? { research } : {}),
       dossiers,
+      bugReports,
+      bugReportStore,
       activity,
       toolsets: new PgToolsetStore(db),
       proposals,
@@ -278,6 +286,8 @@ export async function compose(
     missives,
     dossiers,
     dossierStore,
+    bugReports,
+    bugReportStore,
     quests,
     mcp,
     tripwires,
