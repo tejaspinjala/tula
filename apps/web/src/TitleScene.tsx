@@ -4,7 +4,7 @@ import { useReducedMotion } from './ui/pixel'
 const STARS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const
 
 /**
- * The title backdrop: the guild town at dusk, the Hall is generated pixel art, the rest stepped CSS
+ * The title backdrop: the guild town by day or night, the Hall is generated pixel art, the rest stepped CSS
  * blocks (no Phaser, so the signed-out bundle stays small). Stars twinkle and the Hall windows glow in
  * frames; with reduced motion the scene is a still picture. Colours are pixel tokens, so night
  * and day follow the theme.
@@ -17,10 +17,15 @@ export function TitleScene({ children }: { children: ReactNode }) {
         <div className="title-band title-band-1" />
         <div className="title-band title-band-2" />
         <div className="title-band title-band-3" />
+        <div className="title-band title-band-4" />
+        <div className="title-band title-band-5" />
         {STARS.map((id) => (
           <span key={id} className={`title-star title-star-${id}`} />
         ))}
         <span className="title-moon" />
+        <span className="title-sun" />
+        <span className="title-cloud title-cloud-1" />
+        <span className="title-cloud title-cloud-2" />
       </div>
       <div className="title-town" aria-hidden="true">
         <div className="title-hill" />
