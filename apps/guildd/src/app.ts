@@ -55,7 +55,7 @@ import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
-import type { RoutingLog } from './ports/routing-log'
+import { type BlockReason, MAX_ROUTING_PAGE, type RoutingLog } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
 import type { SealStore } from './ports/seal-store'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
@@ -1434,7 +1434,22 @@ export function createApp(deps: AppDeps): Hono {
       who.guild,
       listed.quests.map((q) => q.id)
     )
-    return c.json({ ...listed, links })
+    // Why a waiting Quest waits: the latest routing block of its own decision keys (`<id>:<n>`).
+    const blocked = new Map<string, BlockReason>()
+    if (listed.quests.some((q) => q.state === 'queued')) {
+      const log = await deps.routingLog.list(who.guild, { limit: MAX_ROUTING_PAGE })
+      for (const entry of log.entries) {
+        const id = entry.decisionKey.split(':')[0] ?? ''
+        if (entry.outcome === 'blocked' && entry.reason !== null && !blocked.has(id)) {
+          blocked.set(id, entry.reason)
+        }
+      }
+    }
+    const quests = listed.quests.map((q) => ({
+      ...q,
+      blockReason: q.state === 'queued' ? (blocked.get(q.id) ?? null) : null,
+    }))
+    return c.json({ ...listed, quests, links })
   }
 
   // Model gateway: a run calls with its per-run token (not a session), and the real provider key

@@ -49,6 +49,7 @@ export interface SceneMember {
 export interface SceneRoom {
   hallId: string
   name: string
+  kind: 'work' | 'private'
   locked: boolean
   paused: boolean
   memberIds: string[]
@@ -320,6 +321,7 @@ export function deriveScene(input: SceneInput): SceneState {
     return {
       hallId: hall.id,
       name: hall.name,
+      kind: hall.kind,
       locked: hall.locked,
       paused: paused.has(hall.id),
       memberIds: everyone.map((m) => m.id),

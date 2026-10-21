@@ -25,6 +25,7 @@ import {
   mailboxIn,
   questBoardIn,
   refitHall,
+  roomProps,
   roomTags,
   seatsIn,
   withClosedDoors,
@@ -1071,6 +1072,36 @@ export class HallScene extends Phaser.Scene {
     this.conferMark?.setVisible(this.councilState !== 'idle')
   }
 
+  /** The pixels of one cozy prop at a pixel position (same flat, outlined style as the furniture). */
+  private propParts(
+    kind: 'plant' | 'shelf' | 'cushion' | 'lamp',
+    x: number,
+    y: number
+  ): Phaser.GameObjects.Rectangle[] {
+    const box = (dx: number, dy: number, w: number, h: number, fill: number) =>
+      this.add
+        .rectangle(x + dx, y + dy, w, h, fill, 1)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, 0x3e2716)
+        .setDepth(4)
+    switch (kind) {
+      case 'plant':
+        return [box(4, 9, 8, 6, 0xb77a45), box(3, 2, 10, 8, 0x4f8a3c), box(6, 0, 4, 4, 0x9fd06a)]
+      case 'shelf':
+        return [
+          box(0, 2, 28, 12, 0x8a5a32),
+          box(2, 4, 4, 8, 0x8e4a8a),
+          box(7, 5, 4, 7, 0xa8322a),
+          box(12, 4, 4, 8, 0x2f5f94),
+          box(17, 6, 4, 6, 0xf2c14e),
+        ]
+      case 'cushion':
+        return [box(1, 5, 14, 9, 0xe86a4f), box(4, 7, 8, 4, 0xf6e7c1)]
+      case 'lamp':
+        return [box(6, 10, 4, 5, 0x5a3a22), box(3, 1, 10, 9, 0xf2c14e)]
+    }
+  }
+
   /** Rooms, gate, scrolls and the coin counter: redrawn whenever the state changes. */
   private drawDynamic(state: SceneState): void {
     for (const object of this.dynamic) {
@@ -1095,6 +1126,73 @@ export class HallScene extends Phaser.Scene {
             .setOrigin(0, 0)
             .setDepth(10)
         )
+      }
+      if (tag && tag.warmth > 0) {
+        // A lived-in private room: warm lamplight over the floor, a worn rug and a small lamp.
+        add(
+          this.add
+            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0xf2c14e, tag.warmth)
+            .setOrigin(0, 0)
+            .setDepth(9)
+        )
+        const rugW = Math.max(2, room.w - 4) * s
+        const rugH = 2 * s
+        const rugX = (room.x + room.w / 2) * s
+        const rugY = (room.y + room.h - 3) * s
+        const edge = (w: number, h: number, color: number, alpha: number) =>
+          add(this.add.rectangle(rugX, rugY, w, h, color, alpha).setDepth(2))
+        edge(rugW, rugH, 0x5a3a22, 1)
+        edge(rugW - 4, rugH - 4, 0xb06a5a, 1)
+        edge(rugW - 10, rugH - 10, 0xd9a066, 1)
+        edge(rugW - 14, rugH - 14, 0x8e4a8a, 1)
+        // Fringe at both short ends and a row of diamonds down the middle.
+        for (let f = 0; f < 4; f++) {
+          const fy = rugY - rugH / 2 + 4 + f * ((rugH - 8) / 3)
+          add(this.add.rectangle(rugX - rugW / 2 - 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
+          add(this.add.rectangle(rugX + rugW / 2 + 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
+        }
+        for (let d = -3; d <= 3; d++) {
+          add(
+            this.add
+              .rectangle(rugX + d * 14, rugY, 4, 4, 0xf6e7c1, 1)
+              .setDepth(2)
+              .setAngle(45)
+          )
+        }
+        add(
+          this.add
+            .rectangle((room.x + 1) * s + 8, (room.y + 2) * s + 8, 6, 8, 0xf2c14e, 1)
+            .setStrokeStyle(1, 0x5a3a22)
+            .setDepth(4)
+        )
+        if (hall) {
+          for (const prop of roomProps(hall.hallId, room)) {
+            for (const part of this.propParts(prop.kind, prop.x * s, prop.y * s)) {
+              add(part)
+            }
+          }
+        }
+      }
+      if (tag?.privateMark) {
+        // The privacy mark: a small folding screen (three panels, a darker top rail), not a lock.
+        const mx = (room.x + room.w) * s - 20
+        const my = room.y * s + 4
+        for (let panel = 0; panel < 3; panel++) {
+          add(
+            this.add
+              .rectangle(
+                mx + panel * 5,
+                my + 6 + (panel % 2),
+                5,
+                12,
+                panel === 1 ? 0xd9a066 : 0xb77a45,
+                1
+              )
+              .setStrokeStyle(1, 0x3e2716)
+              .setDepth(12)
+          )
+        }
+        add(this.add.rectangle(mx + 5, my + 1, 16, 2, 0x3e2716, 1).setDepth(12))
       }
       if (tag) {
         add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))

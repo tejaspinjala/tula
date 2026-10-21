@@ -70,6 +70,34 @@ async function found(name: string) {
 const brief = (jobKey: string) => ({ templateId: 'herald-brief', jobKey, title: 'Brief' })
 
 describe('quest routes', () => {
+  test('a waiting Quest lists the latest block reason from the routing log; one that was never blocked lists none', async () => {
+    const g = await found('W')
+    const waiting = questBody.parse(await (await post(g, brief('w1'))).json())
+    const fresh = questBody.parse(await (await post(g, brief('w2'))).json())
+    await harness.adapters.routingLog.record(g, {
+      decisionKey: `${waiting.id}:1`,
+      source: 'template',
+      goalSha256: null,
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'private',
+      classifierClaim: null,
+      outcome: 'blocked',
+      providerId: null,
+      profileId: null,
+      reason: 'private_provider_unavailable',
+    })
+    const listed = z
+      .object({
+        quests: z.array(z.object({ id: z.string(), blockReason: z.string().nullable() })),
+      })
+      .parse(await (await get(g, '?limit=10')).json())
+    expect(listed.quests.find((q) => q.id === waiting.id)?.blockReason).toBe(
+      'private_provider_unavailable'
+    )
+    expect(listed.quests.find((q) => q.id === fresh.id)?.blockReason).toBeNull()
+  })
+
   test('posting from a template queues a Quest; a repeated job key is 200 with the same Quest', async () => {
     const g = await found('Q')
     const first = await post(g, brief('k1'))

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Badge } from '../Badge'
 import { LookPicker, LookPreview } from '../game/LookPicker'
 import { choiceFor } from '../game/look'
+import { type Deployment, describePrivateDestination, providersOf } from '../providers'
 import { GUILD_CAPS, guildCapValue, HALL_CAP, setGuildCap, setHallCap, widenedCaps } from './caps'
 import {
   addMember,
@@ -28,6 +29,8 @@ export interface InspectorProps {
   selected: string | null
   onChange: (next: BuilderConfig) => void
   onSelect: (id: string | null) => void
+  /** Where private text goes (the server's report); null while unknown. */
+  deployment?: Deployment | null
 }
 
 function DeleteWithConfirm({ what, onConfirm }: { what: string; onConfirm: () => void }) {
@@ -114,12 +117,42 @@ function GuildCaps({ saved, config, onChange }: InspectorProps) {
   )
 }
 
+/** The plain sentence, per provider, on where an unlocked private Hall's text would go. */
+function PrivateDisclosure({
+  config,
+  deployment,
+}: {
+  config: BuilderConfig
+  deployment: Deployment | null
+}) {
+  const providers = providersOf(config)
+  const eligible = providers.filter((p) => p.privateEligible)
+  return (
+    <section aria-labelledby="private-disclosure-heading" className="private-disclosure">
+      <h3 id="private-disclosure-heading" className="sub-title">
+        Where private text goes
+      </h3>
+      {deployment === null ? (
+        <p className="muted">Where private text goes could not be loaded.</p>
+      ) : (
+        providers.map((p) => <p key={p.id}>{describePrivateDestination(p, deployment)}</p>)
+      )}
+      {eligible.length === 0 && (
+        <p className="muted">
+          No provider is private-eligible yet, so Private Quests here will wait.
+        </p>
+      )}
+    </section>
+  )
+}
+
 function HallEditor({
   hall,
   saved,
   config,
   onChange,
   onSelect,
+  deployment = null,
 }: InspectorProps & { hall: BuilderHall }) {
   return (
     <>
@@ -148,6 +181,9 @@ function HallEditor({
         />{' '}
         Private routing eligible
       </label>
+      {hall.kind === 'private' && !hall.locked && (
+        <PrivateDisclosure config={config} deployment={deployment} />
+      )}
       <label>
         Captain name
         <input

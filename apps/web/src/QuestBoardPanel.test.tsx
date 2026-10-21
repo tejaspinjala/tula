@@ -25,6 +25,16 @@ const quest = {
   lastError: null,
 }
 
+const privateWaiting = {
+  ...quest,
+  id: 'q-private',
+  title: 'Log my week',
+  hallId: 'health',
+  dataClass: 'private',
+  lastError: 'routing_blocked',
+  blockReason: 'hall_locked',
+}
+
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
   globalThis.fetch = Object.assign(
@@ -35,7 +45,7 @@ beforeAll(() => {
         return Response.json({ ...quest, id: 'q2' }, { status: 201 })
       }
       if (url.includes('/quests')) {
-        return Response.json({ quests: [quest], next: null })
+        return Response.json({ quests: [quest, privateWaiting], next: null })
       }
       return Response.json({ error: 'down' }, { status: 503 })
     },
@@ -136,4 +146,24 @@ test("?quest=<id> opens that Quest's detail; an unknown id opens nothing", async
   expect(other.querySelector('[data-testid="quest-detail"]')).toBeNull()
   await act(async () => again.unmount())
   window.history.replaceState({}, '', '/')
+})
+
+test('a private Quest wears a Private badge and a waiting one shows its real reason; a public one has neither', async () => {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(<QuestBoardPanel session={session} />)
+  })
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20))
+  })
+  const cards = [...host.querySelectorAll('li.work-note')]
+  const privateCard = cards.find((c) => c.textContent?.includes('Log my week'))
+  const plainCard = cards.find((c) => c.textContent?.includes('Queued thing'))
+  expect(privateCard?.textContent).toContain('Private')
+  expect(privateCard?.textContent).toContain('Waiting: Hall locked')
+  expect(plainCard?.textContent).not.toContain('Private')
+  expect(plainCard?.textContent).not.toContain('Waiting')
+  await act(async () => root.unmount())
 })
