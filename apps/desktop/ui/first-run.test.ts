@@ -10,7 +10,9 @@ function referencedAssets(): string[] {
   const html = read('index.html')
   const css = read('first-run.css')
   const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1] ?? '')
-  for (const m of css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/g)) refs.push(m[1] ?? '')
+  for (const m of css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/g)) {
+    refs.push(m[1] ?? '')
+  }
   return refs
 }
 

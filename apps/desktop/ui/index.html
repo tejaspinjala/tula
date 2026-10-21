@@ -2,17 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Guildhall</title>
     <link rel="stylesheet" href="first-run.css" />
   </head>
   <body>
-    <form id="form">
-      <h1>Guildhall</h1>
-      <label for="address">Where is your Guildhall? (the address you open in a browser)</label>
-      <input id="address" placeholder="guild.example.com" />
-      <button type="submit">Enter the guild</button>
-      <div id="error" role="alert"></div>
-    </form>
+    <div class="scene" aria-hidden="true">
+      <div class="band band-1"></div>
+      <div class="band band-2"></div>
+      <div class="band band-3"></div>
+      <span class="star star-a"></span>
+      <span class="star star-b"></span>
+      <span class="star star-c"></span>
+      <span class="star star-d"></span>
+      <span class="moon"></span>
+      <div class="hill"></div>
+      <div class="hall"></div>
+      <div class="ground"></div>
+    </div>
+    <main class="content">
+      <h1 class="wordmark">Guildhall</h1>
+      <p class="tagline">Your guild awaits</p>
+      <form id="form" class="dialogue">
+        <label for="address" class="speaker">Where is your Guildhall?</label>
+        <p class="hint" id="hint">Enter the address you open in a browser.</p>
+        <input id="address" placeholder="guild.example.com" aria-describedby="hint" autocomplete="off" />
+        <button type="submit" class="btn">Enter the guild</button>
+        <p id="error" class="line" role="alert"></p>
+      </form>
+    </main>
     <script src="first-run.js"></script>
   </body>
 </html>

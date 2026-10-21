@@ -1,31 +1,333 @@
+/* The desktop first-run page in the pixel kit's language. Local files only (CSP is default-src 'self').
+   Tokens mirror apps/web/src/styles/tokens.css; every size below is a whole multiple of --px. */
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("fonts/pixelify-sans-latin-400-normal.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Jersey 10";
+  src: url("fonts/jersey-10-latin-400-normal.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Silkscreen";
+  src: url("fonts/silkscreen-latin-400-normal.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --px: 0.125rem;
+  --font-body: "Pixelify Sans", monospace;
+  --font-head: "Jersey 10", "Pixelify Sans", monospace;
+  --font-label: "Silkscreen", monospace;
+  --text-sm: 1rem;
+  --text-md: 1.25rem;
+  --head-lg: 2.5rem;
+  --px-ink: #2b1d14;
+  --px-wood-900: #3e2716;
+  --px-wood-700: #5a3a22;
+  --px-wood-300: #b77a45;
+  --px-wood-100: #d9a066;
+  --px-dialog: #f8f8f4;
+  --px-dialog-text: #484848;
+  --px-dialog-shadow: #c8c8c0;
+  --px-dialog-frame: #4a5a78;
+  --px-grass-700: #2f5d34;
+  --px-grass-500: #4f8a3c;
+  --px-sky-700: #2f5f94;
+  --px-gold-500: #f2c14e;
+  --px-berry-500: #8e4a8a;
+  --px-danger-700: #a8322a;
+  --px-focus: var(--px-gold-500);
+  --px-on-wood: #f6e7c1;
+  --px-on-gold: #2b1d14;
+}
+
+@media (min-width: 100rem) {
+  :root {
+    --px: 0.1875rem;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --px-ink: #f3e3bf;
+    --px-dialog: #1f2433;
+    --px-dialog-text: #e8e4d8;
+    --px-dialog-shadow: #0e1018;
+    --px-dialog-frame: #8fa3c8;
+    --px-grass-700: #9fd06a;
+    --px-danger-700: #e86a4f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #2a1d14;
-  color: #f2e3c6;
-  font: 18px monospace;
+  min-height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  background: var(--px-sky-700);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  color: var(--px-dialog-text);
 }
-form {
-  display: grid;
-  gap: 12px;
-  width: min(28rem, 90vw);
+
+.scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
-input,
-button {
-  font: inherit;
-  padding: 10px;
-  border: 2px solid #8a5a33;
-  background: #3f2718;
-  color: inherit;
+
+.band {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
-button {
-  background: #c88a1a;
-  color: #2a1d14;
+.band-1 {
+  top: 0;
+  height: 30%;
+  background: var(--px-wood-900);
+}
+.band-2 {
+  top: 30%;
+  height: 22%;
+  background: var(--px-berry-500);
+}
+.band-3 {
+  top: 52%;
+  height: 18%;
+  background: var(--px-wood-300);
+}
+
+.star {
+  position: absolute;
+  width: calc(var(--px) * 2);
+  height: calc(var(--px) * 2);
+  background: var(--px-gold-500);
+  animation: twinkle 2.4s steps(2) infinite;
+}
+.star-a {
+  top: 6%;
+  left: 8%;
+}
+.star-b {
+  top: 12%;
+  left: 24%;
+  animation-delay: 0.4s;
+}
+.star-c {
+  top: 4%;
+  left: 46%;
+  animation-delay: 0.8s;
+}
+.star-d {
+  top: 16%;
+  left: 62%;
+  animation-delay: 1.2s;
+}
+
+.moon {
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: calc(var(--px) * 14);
+  height: calc(var(--px) * 14);
+  background: var(--px-gold-500);
+  clip-path: polygon(
+    30% 0,
+    70% 0,
+    70% 15%,
+    85% 15%,
+    85% 30%,
+    100% 30%,
+    100% 70%,
+    85% 70%,
+    85% 85%,
+    70% 85%,
+    70% 100%,
+    30% 100%,
+    30% 85%,
+    15% 85%,
+    15% 70%,
+    0 70%,
+    0 30%,
+    15% 30%,
+    15% 15%,
+    30% 15%
+  );
+}
+
+.hill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 38%;
+  height: 12%;
+  background: var(--px-grass-700);
+}
+
+.hall {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  bottom: 38%;
+  width: calc(var(--px) * 96);
+  height: calc(var(--px) * 64);
+  background: url("art/title-hall.png") 0 0 / 100% 100%;
+  image-rendering: pixelated;
+}
+
+.ground {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 38%;
+  background: var(--px-grass-500);
+  border-top: calc(var(--px) * 2) solid var(--px-grass-700);
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 36rem);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wordmark {
+  margin: 1rem 0 0;
+  text-align: center;
+  font-family: var(--font-head);
+  font-size: var(--head-lg);
+  font-weight: 400;
+  color: var(--px-gold-500);
+  text-shadow:
+    calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900),
+    calc(var(--px) * -1) calc(var(--px) * -1) 0 var(--px-wood-900);
+}
+
+.tagline {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  color: var(--px-wood-100);
+  text-shadow: var(--px) var(--px) 0 var(--px-wood-900);
+}
+
+/* The dialogue box: stacked hard borders, a DS text shadow and a wood drop shadow. */
+.dialogue {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--px) * 3);
+  margin: auto calc(var(--px) * 4) 1.5rem;
+  padding: calc(var(--px) * 6) calc(var(--px) * 8);
+  min-height: calc(var(--px) * 40);
+  border: calc(var(--px) * 2) solid var(--px-dialog-frame);
+  background: var(--px-dialog);
+  color: var(--px-dialog-text);
+  text-shadow: var(--px) var(--px) 0 var(--px-dialog-shadow);
+  box-shadow:
+    0 0 0 calc(var(--px) * 2) var(--px-dialog),
+    0 0 0 calc(var(--px) * 4) var(--px-dialog-frame),
+    calc(var(--px) * 6) calc(var(--px) * 6) 0 var(--px-wood-900);
+}
+
+.speaker {
+  align-self: flex-start;
+  padding: 0 calc(var(--px) * 3);
+  background: var(--px-wood-700);
+  color: var(--px-on-wood);
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  text-shadow: none;
+}
+
+.hint,
+.line {
+  margin: 0;
+  line-height: 1.5;
+}
+
+input {
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  border: calc(var(--px) * 2) solid var(--px-dialog-frame);
+  background: var(--px-dialog);
+  color: var(--px-dialog-text);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  text-shadow: none;
+}
+
+input:focus-visible,
+.btn:focus-visible {
+  outline: calc(var(--px) * 2) solid var(--px-ink);
+  box-shadow: 0 0 0 calc(var(--px) * 2) var(--px-focus);
+}
+
+.btn {
+  align-self: flex-start;
+  min-height: calc(var(--px) * 22);
+  padding: calc(var(--px) * 3) calc(var(--px) * 6);
+  border: calc(var(--px) * 2) solid var(--px-ink);
+  background: var(--px-gold-500);
+  color: var(--px-on-gold);
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  text-shadow: none;
   cursor: pointer;
+  box-shadow: 0 calc(var(--px) * 2) 0 var(--px-wood-900);
+  margin-bottom: calc(var(--px) * 2);
 }
-#error {
-  color: #ff8a7a;
-  min-height: 1.4em;
+.btn:hover {
+  background: var(--px-wood-100);
+}
+.btn:active {
+  transform: translateY(calc(var(--px) * 2));
+  box-shadow: none;
+}
+
+/* An error is a line in the same box, marked with an icon as well as colour. */
+.line:not(:empty) {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--px) * 3);
+  color: var(--px-danger-700);
+}
+.line:not(:empty)::before {
+  content: "";
+  flex: none;
+  width: calc(var(--px) * 8);
+  height: calc(var(--px) * 8);
+  margin-top: calc(var(--px) * 2);
+  background: currentcolor;
+  mask: url("art/icon-warn.png") 0 0 / 100% 100%;
+  image-rendering: pixelated;
+}
+
+@keyframes twinkle {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star {
+    animation: none;
+  }
 }
