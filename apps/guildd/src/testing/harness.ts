@@ -68,6 +68,7 @@ export interface HarnessOptions {
       | 'config'
       | 'notes'
       | 'missives'
+      | 'inquiries'
       | 'seals'
       | 'proposals'
       | 'workflows'
@@ -154,6 +155,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       config: composed.config,
       notes: composed.notes,
       missives: composed.missives,
+      inquiries: composed.inquiries,
       dossiers: composed.dossiers,
       dossierStore: composed.dossierStore,
       seals: composed.seals,

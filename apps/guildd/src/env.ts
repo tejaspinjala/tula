@@ -389,6 +389,17 @@ export function loadSubscriptionEnv(source: Record<string, string | undefined> =
   return subscriptionSchema.parse(source)
 }
 
+/**
+ * Reads `INQUIRY_EXPIRY_DAYS` (default 7, whole days from 1 to 90) as milliseconds: how long an
+ * Inquiry waits for its answer before the sweep expires it. Throws at boot on a bad value.
+ */
+export function loadInquiryExpiryMs(
+  source: Record<string, string | undefined> = process.env
+): number {
+  const days = z.coerce.number().int().min(1).max(90).default(7).parse(source.INQUIRY_EXPIRY_DAYS)
+  return days * 86_400_000
+}
+
 /** Reads `SANDBOX_START_TIMEOUT_MS` (default 10s): how long a Quest's worker may take to start; throws at boot on a bad value. */
 export function loadSandboxStartTimeoutMs(
   source: Record<string, string | undefined> = process.env

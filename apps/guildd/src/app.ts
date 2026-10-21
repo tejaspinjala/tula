@@ -30,6 +30,7 @@ import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider, type IdentitySession } from './ports/identity'
+import { type InquiryStore, MAX_INQUIRY_PAGE } from './ports/inquiry-store'
 import type { KeyProvider } from './ports/key-provider'
 import { MAX_MISSIVE_PAGE, type MissiveStore } from './ports/missive-store'
 import type { ModelLedger } from './ports/model-ledger'
@@ -100,6 +101,8 @@ export interface AppDeps {
   notes: NoteStore
   /** Missives between the Members of a Hall, read by the Guild Master in the ledger. */
   missives: MissiveStore
+  /** Inquiries between Halls, listed and read by the Guild Master. */
+  inquiries: InquiryStore
   /** Dossiers: assembles verified packets about finished Quests; the Guild Master creates and reads them. */
   dossiers: DossierService
   /** The stored Dossiers, listed per Hall and read by id. */
@@ -272,6 +275,14 @@ const dossierPage = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_DOSSIER_PAGE).default(50),
 })
 const createDossierInput = z.strictObject({ questId: uuid })
+const inquiryPage = z.object({
+  after: z
+    .string()
+    .regex(/^[1-9][0-9]{0,15}$/)
+    .transform(Number)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_INQUIRY_PAGE).default(50),
+})
 const sealPage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
@@ -517,6 +528,8 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/learning/scan', limited('learning-scan'))
   app.get('/guilds/:id/events/history', limited('events-history'))
   app.get('/guilds/:id/halls/:hallId/missives', limited('missives-read'))
+  app.get('/guilds/:id/halls/:hallId/inquiries', limited('missives-read'))
+  app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
   app.post('/guilds/:id/dossiers', limited('dossier-write'))
@@ -1123,6 +1136,44 @@ export function createApp(deps: AppDeps): Hono {
         : c.json({ error: made.error }, 422)
     }
     return c.json(made.dossier, 201)
+  })
+
+  // A Hall's Inquiries for the Guild Master, asked and received, newest first. The question and
+  // answer are Members' words, untrusted: the ledger shows them as text and never as markup.
+  app.get('/guilds/:id/halls/:hallId/inquiries', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const page = inquiryPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    return c.json(
+      await deps.inquiries.list(who.guild, {
+        hallId: hallId.data,
+        limit: page.data.limit,
+        ...(page.data.after === undefined ? {} : { after: page.data.after }),
+      })
+    )
+  })
+
+  // One Inquiry for the Guild Master; an unknown id and another guild's id look the same.
+  app.get('/guilds/:id/inquiries/:inquiryId', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const inquiry = await deps.inquiries.get(who.guild, c.req.param('inquiryId'))
+    return inquiry ? c.json(inquiry) : c.json({ error: 'inquiry_not_found' }, 404)
   })
 
   // Quests. Posting and every transition is an event appended by the QuestQueue. Like the

@@ -73,7 +73,7 @@ The port to a web search service (Brave Search in v1) that the Research tool que
 The port that reads one https page as plain text for a Research result: https only, no private or loopback hosts, no redirects, text content only, byte-capped.
 
 **Inquiry**:
-One precise question from one Hall to another, answered once and filed in the Archive.
+One precise question from one Hall to another, answered once and filed in the Archive. A Member asks with `ask_hall` (up to 1000 characters); guildd posts an answer Quest on the target Hall's Quest Board (template `inquiry-answer`, internal to code: no other path posts it; the stricter data class of the asking Quest and the target Hall) and the Member working it answers once with `answer_inquiry` (up to 4000 characters); the asker reads it with `read_inquiry`. A Quest that is not private-class, in a work Hall, may not ask a private Hall (`private_boundary`), so a private answer never flows back to it. Capped per Quest (`maxInquiriesPerQuest`, refused as `inquiry_cap`); an unanswered Inquiry expires (`INQUIRY_EXPIRY_DAYS`, default 7). The question and answer are untrusted: stored as data and shown to a model only inside a per-call random nonce frame.
 _Avoid_: chat, ping
 
 **Dossier**:
@@ -237,11 +237,14 @@ A team Campaign (one with a board Quest) got its first board Quest / the last in
 **missive.sent**:
 A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).
 
+**inquiry.asked** / **inquiry.answered** / **inquiry.expired**:
+An Inquiry was asked, answered, or expired unanswered (payload: inquiry id, asking and target Hall ids, asking and answer Quest ids, plus the answering Member id on `inquiry.answered`; ids only, never the question or answer, which the Hall inquiries routes serve).
+
 **dossier.created**:
 A Dossier was assembled about a finished Quest (payload: dossier id, subject Quest id, subject Hall id, requesting Hall id or null for the Guild Master, dossier hash, `verified`; ids and hashes only, never the body, which the Hall dossiers routes serve).
 
 **member.activity**:
-A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id, optionally the target hall id for cross-Hall work such as a Dossier request, and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event.
+A Member called an MCP tool or a model turn began for its Quest (payload: quest id, member id, hall id, optionally `toHallId`, the other Hall of cross-Hall work such as an Inquiry or a Dossier request, and `activity`, one of reading_brief, reading_archive, writing_archive, researching, writing, spawning, waiting, messaging, proposing, thinking; ids and the name only, never a tool argument or any text). guildd emits it, never the model; repeats of one Member's one activity inside a few seconds are one event, except cross-Hall activity (it names `toHallId`), which is never coalesced.
 
 **quest.spawned**:
 A Quest spawned a Sub-Quest (payload: parent quest id, child quest id, depth; ids and a number only, never the brief).

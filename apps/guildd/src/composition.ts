@@ -19,6 +19,7 @@ import { PgGateStore } from './adapters/pg-gate-store'
 import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
 import { PgHandoffStore } from './adapters/pg-handoff-store'
 import { PgIdentityStore } from './adapters/pg-identity-store'
+import { PgInquiryStore } from './adapters/pg-inquiry-store'
 import { PgMissiveStore } from './adapters/pg-missive-store'
 import { PgModelLedger } from './adapters/pg-model-ledger'
 import { PgNoteStore } from './adapters/pg-note-store'
@@ -47,6 +48,7 @@ import { Dispatcher } from './dispatch'
 import { DossierService } from './dossiers'
 import {
   loadEnv,
+  loadInquiryExpiryMs,
   loadPlatformOperators,
   loadResearchEnv,
   loadSandboxEnv,
@@ -111,6 +113,13 @@ export async function compose(
   const notes = overrides.notes ?? new PgNoteStore(db, keys)
   const missives = overrides.missives ?? new PgMissiveStore(db, keys)
   const quests = overrides.quests ?? new PgQuestQueue(db, keys, clock)
+  const inquiries =
+    overrides.inquiries ??
+    new PgInquiryStore(
+      db,
+      keys,
+      quests instanceof PgQuestQueue ? quests : new PgQuestQueue(db, keys, clock)
+    )
   const tripwires = overrides.tripwires ?? new PgTripwireStore(db, keys, clock)
   const gateStore = new PgGateStore(db, keys)
   // Hardened Docker sandboxes when SANDBOX_RUNNER=docker (required in production); memory otherwise.
@@ -216,6 +225,8 @@ export async function compose(
       config,
       notes,
       missives,
+      inquiries,
+      inquiryExpiryMs: loadInquiryExpiryMs(),
       objectStore,
       handoffs,
       ...(research ? { research } : {}),
@@ -276,6 +287,7 @@ export async function compose(
       }),
     notes,
     missives,
+    inquiries,
     dossiers,
     dossierStore,
     quests,

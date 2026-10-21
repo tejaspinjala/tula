@@ -98,3 +98,15 @@ test('the Summon test Quest is posted from a template whose done-condition needs
   expect(template?.requiresSeal).toBe(false)
   expect(QUEST_TEMPLATES.find((t) => t.id === 'herald-announcement')?.requiresSeal).toBe(true)
 })
+
+test('the inquiry-answer template is internal: the Guild Master cannot post it', async () => {
+  const { config, queue, tripwires, guild } = await setup()
+  expect(
+    await postQuest({ config, queue, tripwires }, guild, {
+      templateId: 'inquiry-answer',
+      jobKey: 'k',
+      title: 'T',
+    })
+  ).toEqual({ ok: false, error: 'unknown_template' })
+  expect((await queue.list(guild, { limit: 10 })).quests).toEqual([])
+})
