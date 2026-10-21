@@ -19,7 +19,11 @@ export interface DossierServiceDeps {
 }
 
 /** Why a Dossier could not be made. */
-export type DossierRefusal = 'unknown_quest' | 'quest_not_finished' | 'dossier_cap'
+export type DossierRefusal =
+  | 'unknown_quest'
+  | 'quest_not_finished'
+  | 'dossier_cap'
+  | 'private_boundary'
 
 /** The outcome of {@link DossierService.request}. */
 export type DossierOutcome = { ok: true; dossier: Dossier } | { ok: false; error: DossierRefusal }
@@ -39,16 +43,24 @@ export class DossierService {
    * queued again, active, awaiting its Seal or dead is not finished. `dossier_cap` when a
    * Member's Quest has used its allowance (`maxPerQuest`; the Guild Master has none), checked
    * before any artifact is read (the store's atomic check stays authoritative).
+   * `private_boundary` when the Quest is private-class and a Member requester is not inside the
+   * private boundary (`mayReadPrivate`, set for a private Hall or a private-class Quest); the
+   * Guild Master is never refused. The gateway's cross-Hall rule is the first check; this is the
+   * second, so no caller can build a private Dossier by forgetting it.
    */
   async request(
     guildId: string,
     questId: string,
     requester: DossierRequester,
-    maxPerQuest?: number
+    maxPerQuest?: number,
+    mayReadPrivate = false
   ): Promise<DossierOutcome> {
     const quest = await this.deps.quests.get(guildId, questId)
     if (!quest) {
       return { ok: false, error: 'unknown_quest' }
+    }
+    if (quest.dataClass === 'private' && requester.kind === 'member' && !mayReadPrivate) {
+      return { ok: false, error: 'private_boundary' }
     }
     if (quest.state !== 'done') {
       return { ok: false, error: 'quest_not_finished' }
