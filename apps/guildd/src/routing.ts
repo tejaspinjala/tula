@@ -131,6 +131,8 @@ async function classifyStep(
   let claim: RoutingEntry['classifierClaim'] = null
   try {
     const raw: unknown = await deps.classifier.classify({
+      guildId: input.guildId,
+      decisionKey: input.decisionKey,
       goal: work.goal,
       halls: open.map((h) => ({ id: h.id, kind: h.kind })),
     })
