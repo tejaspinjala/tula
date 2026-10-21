@@ -84,6 +84,7 @@ export interface HarnessOptions {
       | 'streamTickets'
       | 'pushStore'
       | 'guildMasterLooks'
+      | 'presence'
       | 'pushNotifier'
       | 'vapidPublicKey'
       | 'platformOperators'
@@ -173,6 +174,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       streamTickets: composed.streamTickets,
       pushStore: composed.pushStore,
       guildMasterLooks: composed.guildMasterLooks,
+      presence: composed.presence,
       pushNotifier: composed.pushNotifier,
       pushRelay: composed.pushRelay,
       gateway: composed.gateway,

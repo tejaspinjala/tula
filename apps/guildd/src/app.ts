@@ -46,6 +46,7 @@ import type { ModelProvider } from './ports/model-provider'
 import { MAX_NOTE_PAGE, NoteError, type NoteStore, newNote, noteFields } from './ports/note-store'
 import type { ObjectStore } from './ports/object-store'
 import type { PostCostReader } from './ports/post-cost-reader'
+import { isAway, type PresenceState, type PresenceStore } from './ports/presence-store'
 import { MAX_PROPOSAL_PAGE } from './ports/proposal-store'
 import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
@@ -166,6 +167,8 @@ export interface AppDeps {
   pushStore: PushStore
   /** The Guild Master's saved character look, the same on every device. */
   guildMasterLooks: GuildMasterLookStore
+  /** The Guild Master's presence (away mode); the Council reads it through `isAway`. */
+  presence: PresenceStore
   /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */
@@ -1664,6 +1667,52 @@ export function createApp(deps: AppDeps): Hono {
     }
     await deps.guildMasterLooks.set(who.guild, body.data.look)
     return c.json({ look: body.data.look })
+  })
+
+  // Away mode (ADR-0011): the Guild Master steps away, optionally until a time, and returns with one
+  // tap. It needs a Guild Master session but no Seal: away mode narrows nothing, and the Council
+  // can only act inside caps already sealed. A passed return time reads as present.
+  const awayBody = z.object({ until: z.string().datetime().nullable().optional() }).strict()
+  function presenceView(state: PresenceState) {
+    return isAway(state, deps.clock.now()) ? state : { away: false, since: null, until: null }
+  }
+
+  app.get('/guilds/:id/guild-master/presence', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    return c.json(presenceView(await deps.presence.get(who.guild)))
+  })
+
+  app.post('/guilds/:id/guild-master/away', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const body = awayBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_away' }, 400)
+    }
+    const until = body.data.until ? new Date(body.data.until).toISOString() : null
+    const nowMs = deps.clock.now().getTime()
+    // A return time must be in the future and at most 30 days ahead; no return time stays allowed.
+    if (
+      until !== null &&
+      (new Date(until).getTime() <= nowMs || new Date(until).getTime() > nowMs + 30 * 86_400_000)
+    ) {
+      return c.json({ error: 'invalid_away' }, 400)
+    }
+    return c.json(presenceView(await deps.presence.goAway(who.guild, until)))
+  })
+
+  app.post('/guilds/:id/guild-master/return', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    await deps.presence.returnHome(who.guild)
+    return c.json(presenceView(await deps.presence.get(who.guild)))
   })
 
   // Trades a signed-in session for a 30 second, single-use ticket that opens one event stream.

@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { ArchivePanel } from './ArchivePanel'
 import { ArtifactViewer } from './ArtifactViewer'
+import { AwayPanel } from './AwayPanel'
 import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
 import { GatesPanel } from './GatesPanel'
@@ -110,6 +111,7 @@ function PageBody({
     case 'settings':
       return (
         <>
+          <AwayPanel session={session} />
           <ThemeControls />
           <VaultPanel session={session} />
           <PasskeyPanel session={session} onSession={onSession} />

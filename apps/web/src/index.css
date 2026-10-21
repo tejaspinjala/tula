@@ -253,6 +253,14 @@ ul[aria-label] {
   font-family: var(--font-label);
   font-size: var(--text-sm);
 }
+.hud-away {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--px) * 2);
+}
+.hud-away p {
+  margin: 0;
+}
 .hud-alert {
   margin: 0;
   padding: calc(var(--px) * 1) calc(var(--px) * 3);

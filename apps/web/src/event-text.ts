@@ -124,6 +124,10 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'A workflow version was saved'
     case 'workflow.version_confirmed':
       return 'A workflow version was confirmed'
+    case 'guildmaster.away':
+      return 'Guild Master went away'
+    case 'guildmaster.returned':
+      return 'Guild Master returned'
     default:
       return `Event ${event.type}, number ${event.seq}`
   }
