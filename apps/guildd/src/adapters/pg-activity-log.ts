@@ -30,6 +30,7 @@ export class PgActivityLog implements ActivityLog {
         questId: input.questId,
         memberId: input.memberId,
         hallId: input.hallId,
+        ...(input.toHallId === undefined ? {} : { toHallId: input.toHallId }),
         activity: input.activity,
       })
       return { emitted: true }

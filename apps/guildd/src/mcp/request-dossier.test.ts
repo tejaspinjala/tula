@@ -121,6 +121,7 @@ async function setup() {
       dataClass: opts.dataClass ?? 'internal',
       doneCondition: 'The brief ships',
     })
+    await callTool(transport, 'claim_quest', { assignment: await gateway.assign(guild, quest) })
     const hash =
       opts.stored === false
         ? 'c'.repeat(64)
