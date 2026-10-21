@@ -1,0 +1,32 @@
+import type {
+  CouncilSession,
+  CouncilStore,
+  CouncilVote,
+  NewCouncilVote,
+  OpenSessionResult,
+} from '../ports/council-store'
+
+/** Memory {@link CouncilStore}: state in this instance only; each write is one synchronous step. */
+export class MemoryCouncilStore implements CouncilStore {
+  throw(): never {
+    throw new Error('not implemented')
+  }
+
+  async open(): Promise<OpenSessionResult> {
+    return this.throw()
+  }
+
+  async recordVote(_guildId: string, _sessionId: string, _vote: NewCouncilVote): Promise<boolean> {
+    return this.throw()
+  }
+
+  async votes(): Promise<CouncilVote[]> {
+    return this.throw()
+  }
+
+  async escalate(): Promise<boolean> {
+    return this.throw()
+  }
+}
+
+export type { CouncilSession }

@@ -80,6 +80,22 @@ export const gatewayCall = modelRequest.omit({ model: true }).extend({
 /** One call through the gateway. */
 export type GatewayCall = z.input<typeof gatewayCall>
 
+/** One Council voice's model call: the fixed system text and the framed brief, for one session. */
+export interface CouncilCall {
+  sessionId: string
+  questId: string
+  hallId: string
+  system: string
+  brief: string
+}
+
+/** A Council voice's reply with what it used. `costMicros` is null for a provider that bills no dollars. */
+export interface CouncilReply {
+  text: string
+  usage: { inputTokens: number; outputTokens: number }
+  costMicros: number | null
+}
+
 /** Collaborators of {@link ModelGateway}; adapters come from the composition root. */
 export interface GatewayDeps {
   ledger: ModelLedger
@@ -461,6 +477,11 @@ export class ModelGateway {
       )
     }
     return response
+  }
+
+  /** One Council voice's call. */
+  async councilComplete(_guildId: string, _call: CouncilCall): Promise<CouncilReply> {
+    throw new GatewayError('invalid_request')
   }
 
   /**
