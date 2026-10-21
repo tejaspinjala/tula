@@ -1,6 +1,6 @@
 /** The part of a ResizeObserver this module needs. */
-interface SizeObserver {
-  observe: (target: never) => void
+interface SizeObserver<T> {
+  observe: (target: T) => void
   disconnect: () => void
 }
 
@@ -11,12 +11,12 @@ interface SizeObserver {
 export function watchSize<T>(
   target: T,
   onResize: () => void,
-  Observer: (new (callback: () => void) => SizeObserver) | undefined
+  Observer: (new (callback: () => void) => SizeObserver<T>) | undefined
 ): () => void {
   if (!Observer) {
     return () => {}
   }
   const observer = new Observer(onResize)
-  observer.observe(target as never)
+  observer.observe(target)
   return () => observer.disconnect()
 }
