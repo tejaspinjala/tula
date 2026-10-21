@@ -5,7 +5,7 @@ import type { MemoryModelProvider } from './adapters/memory-model-provider'
 import { costPerPost } from './cost-per-post'
 import type { Dispatcher } from './dispatch'
 import type { Gates } from './gates'
-import { defaultConfig } from './guild-config'
+import { defaultConfig, type GuildConfig } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import { GatewayError, type ModelGateway, runIdFor } from './model-gateway'
 import type { BugReportStore } from './ports/bug-report-store'
@@ -76,6 +76,8 @@ export interface E2eWorld {
   notes: Pick<NoteStore, 'list'>
   /** Bug Reports, read to see a report close when its Fix Quest is done. */
   bugReports: Pick<BugReportStore, 'get'>
+  /** Saves `edit` of the guild's config and, when it widens risk, confirms it (the Guild Master's passkey). */
+  configure(guildId: string, edit: (config: GuildConfig) => GuildConfig): Promise<void>
   /** A guild with one api-key provider priced at 3 and 15 per million tokens, and its Guild Master's member id. */
   newGuild(options?: GuildOptions): Promise<{ guildId: string; masterId: string }>
 }
@@ -314,6 +316,235 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       expect(await w.gates.lift(actor, 'guild')).toBe(true)
       w.clock.advance(60 * 60_000)
       await dispatchStarts(w, guildId, quest)
+    })
+
+    describe('private Halls', () => {
+      const unlockHealth = (w: E2eWorld, guild: string, eligibleProvider: boolean) =>
+        w.configure(guild, (c) => ({
+          ...c,
+          providers: c.providers.map((p) => ({ ...p, privateEligible: eligibleProvider })),
+          halls: c.halls.map((h) =>
+            h.id === 'health'
+              ? {
+                  ...h,
+                  locked: false,
+                  privateEligible: true,
+                  members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+                }
+              : h
+          ),
+        }))
+      const healthLog = (w: E2eWorld, guild: string) =>
+        post(w, guild, {
+          templateId: 'health-log',
+          hallId: 'health',
+          rank: 'journeyman',
+          dataClass: 'private',
+          ownerId: 'health-member-1',
+          title: 'Log my week',
+          doneCondition: 'A private health note is filed in the Health Archive',
+        })
+
+      test('unlock, hire, post, dispatch to the eligible provider, file a private note: done with no Seal', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        await unlockHealth(w, guildId, true)
+        const quest = await healthLog(w, guildId)
+        await dispatchStarts(w, guildId, quest)
+        const handle = lease.parse(JSON.parse(w.sandboxes.latest(quest.id).leaseHandle ?? 'null'))
+        const member = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Log',
+          output: () => 'Slept well',
+          afterArtifact: async () => {
+            const filed = await callTool((r) => w.mcp.handle(r), 'write_archive', {
+              lease: handle,
+              title: 'Week log',
+              body: 'Slept well',
+              claim: 'assumption',
+            })
+            expect(filed).toMatchObject({ isError: false, rpcError: null })
+          },
+        })
+        const run = await member.runLeased(handle)
+        expect(run.completion.isError).toBe(false)
+        expect(await stateOf(w, guildId, quest.id)).toBe('done')
+        const notes = await w.notes.list(guildId, {
+          limit: 10,
+          hall: 'health',
+          includePrivate: true,
+        })
+        expect(notes.notes.map((n) => n.dataClass)).toEqual(['private'])
+        expect(await w.sealStore.forQuest(guildId, quest.id)).toBeNull()
+      })
+
+      test('with no private-eligible provider the Quest waits, then dispatches once one is marked eligible', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        await unlockHealth(w, guildId, false)
+        const quest = await healthLog(w, guildId)
+        expect(await w.dispatcher.dispatch(guildId)).toMatchObject({ status: 'blocked' })
+        expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+        w.clock.advance(60 * 60 * 1000)
+        await w.configure(guildId, (c) => ({
+          ...c,
+          providers: c.providers.map((p) => ({ ...p, privateEligible: true })),
+        }))
+        await dispatchStarts(w, guildId, quest)
+      })
+
+      test('re-locking the Hall again and again never uses up the retry budget: the Quest is paused, not dead', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild()
+        await unlockHealth(w, guildId, true)
+        const quest = await healthLog(w, guildId)
+        const setLocked = (locked: boolean) =>
+          w.configure(guildId, (c) => ({
+            ...c,
+            halls: c.halls.map((h) => (h.id === 'health' ? { ...h, locked } : h)),
+          }))
+        for (let round = 0; round < 3; round += 1) {
+          await dispatchStarts(w, guildId, quest)
+          await setLocked(true)
+          await w.dispatcher.dispatch(guildId)
+          expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+          await setLocked(false)
+          w.clock.advance(60 * 60 * 1000)
+        }
+        await dispatchStarts(w, guildId, quest)
+      })
+
+      test('Milestone 4: a re-lock pauses the running Health log, an unlock resumes it, a work-Hall Member reads none of it and another guild sees nothing', async () => {
+        const w = await make()
+        const { guildId } = await w.newGuild({ scribes: true })
+        await unlockHealth(w, guildId, true)
+        const quest = await healthLog(w, guildId)
+        await dispatchStarts(w, guildId, quest)
+        const firstLease = lease.parse(
+          JSON.parse(w.sandboxes.latest(quest.id).leaseHandle ?? 'null')
+        )
+        const mcp = (name: string, args: object) =>
+          callTool((request) => w.mcp.handle(request), name, args)
+        const setLocked = (locked: boolean) =>
+          w.configure(guildId, (c) => ({
+            ...c,
+            halls: c.halls.map((h) => (h.id === 'health' ? { ...h, locked } : h)),
+          }))
+
+        // Re-lock: the live lease goes back to the queue with no attempt spent, and the Quest lives.
+        await setLocked(true)
+        await w.dispatcher.dispatch(guildId)
+        expect(await w.quests.get(guildId, quest.id)).toMatchObject({
+          state: 'queued',
+          leaseExpiresAt: null,
+        })
+        expect(await mcp('read_brief', { lease: firstLease })).toMatchObject({
+          status: 401,
+          rpcError: 'lease_expired',
+        })
+        expect(await w.dispatcher.dispatch(guildId)).not.toMatchObject({ status: 'started' })
+        expect(await stateOf(w, guildId, quest.id)).toBe('queued')
+
+        // Unlock: it resumes on a fresh lease and the Member files its private note.
+        await setLocked(false)
+        w.clock.advance(60 * 60 * 1000)
+        await dispatchStarts(w, guildId, quest)
+        const handle = lease.parse(JSON.parse(w.sandboxes.latest(quest.id).leaseHandle ?? 'null'))
+        expect(handle.token).not.toBe(firstLease.token)
+        const member = new ScriptedMember((r) => w.mcp.handle(r), {
+          goal: 'Log',
+          output: () => 'Slept badly, felt anxious',
+          afterArtifact: async () => {
+            const filed = await mcp('write_archive', {
+              lease: handle,
+              title: 'Week log',
+              body: 'Slept badly, felt anxious',
+              claim: 'assumption',
+            })
+            expect(filed.isError).toBe(false)
+          },
+        })
+        expect((await member.runLeased(handle)).completion.isError).toBe(false)
+        expect(await stateOf(w, guildId, quest.id)).toBe('done')
+        const filed = await w.notes.list(guildId, {
+          limit: 10,
+          hall: 'health',
+          includePrivate: true,
+        })
+        expect(filed.notes.map((n) => n.dataClass)).toEqual(['private'])
+        const noteId = filed.notes[0]?.id ?? ''
+
+        // A Scribes Member refused on every read path.
+        const scribe = await post(w, guildId, {
+          templateId: 'herald-brief',
+          hallId: 'scribes',
+          rank: 'journeyman',
+          ownerId: 'scribes-member-1',
+          title: 'Style guide',
+          doneCondition: 'The style guide is written',
+        })
+        await dispatchStarts(w, guildId, scribe)
+        const sl = lease.parse(JSON.parse(w.sandboxes.latest(scribe.id).leaseHandle ?? 'null'))
+        const attempts = [
+          await mcp('read_archive', { lease: sl, noteId }),
+          await mcp('read_archive', { lease: sl }),
+          await mcp('read_archive', { lease: sl, query: 'anxious' }),
+          await mcp('read_archive', { lease: sl, hall: 'health' }),
+          await mcp('request_dossier', { lease: sl, questId: quest.id }),
+          await mcp('read_brief', { lease: sl }),
+        ]
+        for (const out of attempts) {
+          expect(JSON.stringify(out)).not.toContain('anxious')
+          expect(JSON.stringify(out)).not.toContain('Week log')
+        }
+        expect(attempts[0]).toMatchObject({ isError: true, data: { error: 'not_found' } })
+        expect(attempts[4]).toMatchObject({ isError: true, data: { error: 'private_boundary' } })
+
+        // Another guild sees nothing of it.
+        const other = await w.newGuild()
+        expect(await w.quests.get(other.guildId, quest.id)).toBeNull()
+        expect(
+          (await w.notes.list(other.guildId, { limit: 10, includePrivate: true })).notes
+        ).toEqual([])
+      })
+    })
+
+    test('waiting for a private-eligible provider does not shrink the retry budget: the first transient failure afterwards retries', async () => {
+      const w = await make()
+      const { guildId } = await w.newGuild()
+      await w.configure(guildId, (c) => ({
+        ...c,
+        halls: c.halls.map((h) =>
+          h.id === 'health'
+            ? {
+                ...h,
+                locked: false,
+                privateEligible: true,
+                members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+              }
+            : h
+        ),
+      }))
+      const quest = await post(w, guildId, {
+        templateId: 'health-log',
+        hallId: 'health',
+        rank: 'journeyman',
+        dataClass: 'private',
+        ownerId: 'health-member-1',
+        title: 'Log my week',
+        doneCondition: 'A private health note is filed in the Health Archive',
+      })
+      for (let i = 0; i < 4; i += 1) {
+        expect(await w.dispatcher.dispatch(guildId)).toMatchObject({ status: 'blocked' })
+        w.clock.advance(60 * 60 * 1000)
+      }
+      await w.configure(guildId, (c) => ({
+        ...c,
+        providers: c.providers.map((p) => ({ ...p, privateEligible: true })),
+      }))
+      await dispatchStarts(w, guildId, quest)
+      const running = await w.quests.get(guildId, quest.id)
+      await w.quests.fail(guildId, quest.id, running?.attempts ?? 0, 'worker_crash')
+      expect(await stateOf(w, guildId, quest.id)).toBe('queued')
     })
 
     describe('subagents', () => {

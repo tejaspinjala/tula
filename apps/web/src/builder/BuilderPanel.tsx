@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Fetcher } from '../artifacts'
 import { loadGates } from '../gates'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
+import { type Deployment, loadProviderStatus } from '../providers'
 import { loadQuests } from '../quests'
 import { loadTripwires } from '../tripwires'
 import { WorkSection } from '../WorkSection'
@@ -86,6 +87,7 @@ export function BuilderPanel({
   const [pending, setPending] = useState<SaveOutcome | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [deployment, setDeployment] = useState<Deployment | null>(null)
 
   const reload = useCallback(async () => {
     const current = await loadCurrent(session, fetcher)
@@ -97,6 +99,9 @@ export function BuilderPanel({
 
   useEffect(() => {
     let live = true
+    loadProviderStatus(session, fetcher)
+      .then((status) => live && setDeployment(status))
+      .catch(() => live && setDeployment(null))
     reload().catch(() => live && setFailed('The guild config could not be loaded.'))
     Promise.all([
       loadTripwires(session, fetcher).catch(() => null),
@@ -241,6 +246,7 @@ export function BuilderPanel({
               selected={selected}
               onChange={edit}
               onSelect={setSelected}
+              deployment={deployment}
             />
           </div>
           <details open className="builder-outline">

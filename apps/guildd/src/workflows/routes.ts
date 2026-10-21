@@ -42,6 +42,7 @@ const RUN_STATUS: Record<RunError, 404 | 409 | 422> = {
   invalid_workflow: 422,
   unknown_template: 422,
   hall_locked: 422,
+  hall_not_private_eligible: 422,
   hall_paused: 422,
   hall_not_found: 422,
   unknown_owner: 422,

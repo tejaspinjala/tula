@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { GuildConfig } from './guild-config'
+import { cheapPrivateProfile } from './classifier-binding'
+import { type GuildConfig, isHallLocked } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import { ACTIVITY_WINDOW_MS, type ActivityLog } from './ports/activity-log'
 import type { Clock } from './ports/clock'
@@ -25,6 +26,8 @@ export type GatewayErrorCode =
   | 'token_expired'
   | 'token_revoked'
   | 'hall_paused'
+  /** The Hall is locked in the current config. */
+  | 'hall_locked'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
   /** The bar could not be read mid-call, so the call was aborted (fail closed); the reservation stays charged. */
@@ -39,6 +42,8 @@ export type GatewayErrorCode =
   | 'subscription_limit'
   /** Subscription providers are refused unless the host enables them (`SUBSCRIPTION_PROVIDER`). */
   | 'subscription_disabled'
+  /** The classifier's provider is not private-eligible, so it receives no text. */
+  | 'provider_not_private'
 
 /** Thrown by the gateway; the code is the whole message, so no secret can ride in it. */
 export class GatewayError extends Error {
@@ -59,7 +64,7 @@ export type OpenRunResult =
   /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
   | {
       status: 'refused'
-      reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
+      reason: 'hall_paused' | 'hall_locked' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
     }
 
 /** A queued run that the gateway admitted, with the token it now holds. */
@@ -128,6 +133,10 @@ const DEFAULT_BAR_POLL_MS = 250
 export const COUNCIL_CALL_TIMEOUT_MS = 60_000
 /** The most a Council voice may reply with: a vote and a few short reasons. */
 const COUNCIL_MAX_REPLY_TOKENS = 600
+/** A classifier call is aborted after this long. */
+export const CLASSIFIER_CALL_TIMEOUT_MS = 10_000
+/** The most a classifier may reply with: one small JSON object. */
+const CLASSIFIER_MAX_REPLY_TOKENS = 200
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PREFIX = 'ghr'
 const tokenShape = z.tuple([z.literal(TOKEN_PREFIX), z.uuid(), z.string().regex(/^[0-9a-f]{64}$/)])
@@ -235,6 +244,9 @@ export class ModelGateway {
     }
     if (await this.deps.tripwires.isPaused(guildId, input.hallId)) {
       return { status: 'refused', reason: 'hall_paused' }
+    }
+    if (await this.hallLocked(guildId, input.hallId)) {
+      return { status: 'refused', reason: 'hall_locked' }
     }
     const run = { ...input, runId: runIdFor(input.questId, input.attempt) }
     const existing = await this.deps.ledger.getRun(guildId, run.runId)
@@ -361,6 +373,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, run.hallId)) {
       throw new GatewayError('hall_paused')
     }
+    if (await this.hallLocked(guildId, run.hallId)) {
+      throw new GatewayError('hall_locked')
+    }
     const quest = await this.deps.quests.get(guildId, run.questId)
     if (!quest || quest.attempts !== run.attempt || !hasLiveLease(quest, this.deps.clock.now())) {
       throw new GatewayError('token_revoked')
@@ -378,10 +393,11 @@ export class ModelGateway {
    */
   private async serve(
     guildId: string,
-    run: { runId: string; profileId: string },
+    run: { runId: string; profileId: string; hallId?: string },
     data: z.output<typeof gatewayCall>,
     quest: Quest | null,
-    timeoutMs?: number
+    timeoutMs?: number,
+    opts: { requirePrivate?: boolean; signal?: AbortSignal } = {}
   ): Promise<{ response: ModelResponse; costMicros: number | null }> {
     const { config } = await this.deps.config.current(guildId)
     const { profile, provider } = resolveProfile(
@@ -389,6 +405,18 @@ export class ModelGateway {
       run.profileId,
       this.deps.subscriptionProvider !== undefined
     )
+    // Checked on the config this send uses, so a flag turned off since the caller's check wins.
+    // A private Quest, or any Quest in a private Hall, is private: effective class floors by Hall.
+    const hall = run.hallId ? config.halls.find((h) => h.id === run.hallId) : undefined
+    // A Hall gone from the config is unknown, so its class cannot be floored: fail closed.
+    if (run.hallId && !hall) {
+      throw new GatewayError('hall_locked')
+    }
+    const private_ =
+      opts.requirePrivate === true || quest?.dataClass === 'private' || hall?.kind === 'private'
+    if (private_ && !provider.privateEligible) {
+      throw new GatewayError('provider_not_private')
+    }
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
@@ -441,10 +469,11 @@ export class ModelGateway {
     // Fails closed: a bar check that errors aborts the call as `gates_unavailable`, since the bar
     // cannot be known. A tick is skipped while the previous check is still pending.
     const barred = new AbortController()
-    const signal =
-      timeoutMs === undefined
-        ? barred.signal
-        : AbortSignal.any([barred.signal, AbortSignal.timeout(timeoutMs)])
+    const signal = AbortSignal.any([
+      barred.signal,
+      ...(timeoutMs === undefined ? [] : [AbortSignal.timeout(timeoutMs)]),
+      ...(opts.signal ? [opts.signal] : []),
+    ])
     let abortCode: 'gates_barred' | 'gates_unavailable' = 'gates_barred'
     let checking = false
     const poll = setInterval(() => {
@@ -523,6 +552,9 @@ export class ModelGateway {
     if (await this.deps.tripwires.isPaused(guildId, call.hallId)) {
       throw new GatewayError('hall_paused')
     }
+    if (await this.hallLocked(guildId, call.hallId)) {
+      throw new GatewayError('hall_locked')
+    }
     const { config } = await this.deps.config.current(guildId)
     const profile = config.routingProfiles.find((p) => p.tier === 'mid')
     if (!profile) {
@@ -544,7 +576,7 @@ export class ModelGateway {
     })
     const { response, costMicros } = await this.serve(
       guildId,
-      { runId, profileId: profile.id },
+      { runId, profileId: profile.id, hallId: call.hallId },
       {
         system: call.system,
         messages: [{ role: 'user', content: call.brief }],
@@ -554,6 +586,59 @@ export class ModelGateway {
       COUNCIL_CALL_TIMEOUT_MS
     )
     return { text: response.text, usage: response.usage, costMicros }
+  }
+
+  /**
+   * One classifier call on a free-text goal: the `cheap` profile's provider must be
+   * private-eligible (ADR-0006, ADR-0012), else the call is refused as `provider_not_private`
+   * before anything reaches a provider. Metered under the run `classify:<decision key>`, filed
+   * under the given Hall, so it counts against the daily caps. Refused by Bar the Gates; aborted
+   * after {@link CLASSIFIER_CALL_TIMEOUT_MS}. Returns the model's text. Throws {@link GatewayError}.
+   */
+  async classifierComplete(
+    guildId: string,
+    call: { decisionKey: string; hallId: string; prompt: string; signal?: AbortSignal }
+  ): Promise<string> {
+    if (await this.deps.gates.isBarred(guildId)) {
+      throw new GatewayError('gates_barred')
+    }
+    const { config } = await this.deps.config.current(guildId)
+    const bound = cheapPrivateProfile(config)
+    if (!bound) {
+      throw new GatewayError(
+        config.routingProfiles.some((p) => p.tier === 'cheap')
+          ? 'provider_not_private'
+          : 'unknown_profile'
+      )
+    }
+    const { profile, provider } = bound
+    const runId = `classify:${call.decisionKey}`
+    const issue = this.issue(guildId)
+    await this.deps.ledger.openRun(guildId, {
+      runId,
+      questId: call.decisionKey,
+      attempt: 1,
+      hallId: call.hallId,
+      providerId: provider.id,
+      profileId: profile.id,
+      state: 'active',
+      tokenHash: issue.hash,
+      expiresAt: issue.expiresAt,
+    })
+    const { response } = await this.serve(
+      guildId,
+      { runId, profileId: profile.id },
+      {
+        messages: [{ role: 'user', content: call.prompt }],
+        maxTokens: CLASSIFIER_MAX_REPLY_TOKENS,
+        // A retried decision reuses the reservation key, so it is refused, never charged twice.
+        idempotencyKey: call.decisionKey,
+      },
+      null,
+      CLASSIFIER_CALL_TIMEOUT_MS,
+      { requirePrivate: true, ...(call.signal ? { signal: call.signal } : {}) }
+    )
+    return response.text
   }
 
   /**
@@ -615,6 +700,11 @@ export class ModelGateway {
     ) {
       throw new GatewayError(run.state === 'active' ? 'token_expired' : 'invalid_token')
     }
+  }
+
+  /** Whether the guild's current config has the Hall locked; every metered path checks it before the provider. */
+  private async hallLocked(guildId: string, hallId: string): Promise<boolean> {
+    return isHallLocked((await this.deps.config.current(guildId)).config, hallId)
   }
 
   private issue(guildId: string) {

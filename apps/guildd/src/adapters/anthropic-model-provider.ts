@@ -65,6 +65,7 @@ function codeForStatus(status: number): ProviderErrorCode {
  * reply is Zod-validated; failures carry a code only, never the key or the provider's text.
  */
 export class AnthropicModelProvider implements ModelProvider {
+  readonly vendor = 'Anthropic'
   private readonly fetcher: FetchLike
   private readonly baseUrl: string
   private readonly timeoutMs: number

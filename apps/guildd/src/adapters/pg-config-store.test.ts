@@ -39,6 +39,32 @@ describe('stored autonomous Seal Policy', () => {
   })
 })
 
+describe('stored duplicate provider ids', () => {
+  test('a row written before the refusal still reads, deduplicated', async () => {
+    const store = new PgConfigStore(db, new MemoryKeyProvider())
+    const guild = await foundTestGuild(db, { name: 'Dups', goal: 'g' })
+    await store.seed(guild)
+    await db.withGuild(guild, async (tx) => {
+      const doc = tx.json(
+        JSON.parse(
+          JSON.stringify({
+            ...defaultConfig(),
+            providers: [
+              { id: 'home', auth: 'api_key', privateEligible: false },
+              { id: 'home', auth: 'api_key', privateEligible: true },
+            ],
+          })
+        )
+      )
+      await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
+        values (${guild}, 2, 'applied', 'change', 'widening', 1, ${doc})`
+    })
+    expect((await store.current(guild)).config.providers).toEqual([
+      { id: 'home', auth: 'api_key', privateEligible: false },
+    ])
+  })
+})
+
 describe('config status guard', () => {
   async function guildWithPending() {
     const store = new PgConfigStore(db, new MemoryKeyProvider())
@@ -94,5 +120,34 @@ describe('config status guard', () => {
     } finally {
       await owner.end()
     }
+  })
+})
+
+describe('hall lock events', () => {
+  const withLock = (id: string, locked: boolean) => {
+    const base = defaultConfig()
+    return { ...base, halls: base.halls.map((h) => (h.id === id ? { ...h, locked } : h)) }
+  }
+  const hallEvents = (guild: string) =>
+    db.withGuild(guild, async (tx) =>
+      (
+        await tx`select type from events where guild_id = ${guild} and type like 'hall.%locked' order by seq`
+      ).map((r) => String(r.type))
+    )
+
+  test('confirming an unlock and applying a re-lock each write exactly one event', async () => {
+    const store = new PgConfigStore(db, new MemoryKeyProvider())
+    const guild = await foundTestGuild(db, { name: 'Locks', goal: 'g' })
+    await store.seed(guild)
+    const pending = await store.propose(guild, withLock('health', false))
+    expect(pending.status).toBe('pending')
+    expect(await hallEvents(guild)).toEqual([])
+    await store.confirm(guild, pending.version)
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked'])
+    const relock = await store.propose(guild, withLock('health', true))
+    expect(relock.status).toBe('applied')
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked', 'hall.locked'])
+    await store.propose(guild, withLock('health', true))
+    expect(await hallEvents(guild)).toEqual(['hall.unlocked', 'hall.locked'])
   })
 })

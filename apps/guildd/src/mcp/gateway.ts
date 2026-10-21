@@ -7,12 +7,12 @@ import type { GuildConfig } from '../guild-config'
 import {
   bugReportCap,
   campaignQuestCap,
+  claimLimits,
   dossierCap,
   hallAcceptsQuests,
-  hallCaps,
   inquiryCap,
+  isHallLocked,
   missiveCap,
-  questConcurrency,
   spawnChildrenCap,
   spawnDepthCap,
 } from '../guild-config'
@@ -528,6 +528,13 @@ export class McpGateway {
     if (!finished && (quest.attempts !== claims.a || !hasLiveLease(quest, this.deps.clock.now()))) {
       throw new Denied('lease_expired')
     }
+    // A locked Hall's lease opens nothing, whether or not the dispatcher has released it yet.
+    if (
+      !finished &&
+      isHallLocked((await this.deps.config.current(claims.g)).config, quest.hallId)
+    ) {
+      throw new Denied('hall_locked')
+    }
     return { guild: claims.g, quest, member: claims.m }
   }
 
@@ -590,12 +597,14 @@ export class McpGateway {
       return refuse('hall_paused')
     }
     const { config } = await this.deps.config.current(guild)
+    if (isHallLocked(config, quest.hallId)) {
+      return refuse('hall_locked')
+    }
     let claimed: Quest | null
     try {
       claimed = await this.deps.quests.claim(guild, {
         leaseMs: this.leaseMs,
-        maxActive: questConcurrency(config),
-        hallCaps: hallCaps(config),
+        ...claimLimits(config),
         questId: quest.id,
       })
     } catch (error) {
@@ -642,7 +651,10 @@ export class McpGateway {
 
   private async compile(caller: Caller, tools: readonly string[]): Promise<string> {
     const { guild, quest } = caller
-    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, { limit: 20 })
+    const pointers = await hallNotes(this.deps.notes, guild, quest.hallId, {
+      limit: 20,
+      includePrivate: await this.mayReadPrivate(caller),
+    })
     return compileBrief(
       {
         quest,
@@ -695,19 +707,41 @@ export class McpGateway {
       .join('; ')
   }
 
+  /**
+   * Whether the leased Quest may read private notes of its own Hall: only a private-class Quest or
+   * a Quest in a private Hall. A work-Hall Member on an ordinary Quest never does.
+   * Deliberately Hall-wide: the private Archive belongs to the Hall, so any private-class Quest
+   * of that Hall reads the Hall's private notes (private Quests run only in private-eligible
+   * Halls); no other Hall ever does, since reads are scoped to the Quest's own Hall.
+   */
+  private async mayReadPrivate(caller: Caller): Promise<boolean> {
+    if (caller.quest.dataClass === 'private') {
+      return true
+    }
+    const { config } = await this.deps.config.current(caller.guild)
+    return config.halls.find((h) => h.id === caller.quest.hallId)?.kind === 'private'
+  }
+
   private async readArchive(
     caller: Caller,
     a: z.infer<typeof readArchiveArgs>
   ): Promise<ToolReply> {
     const { guild, quest } = caller
     if (a.noteId !== undefined) {
-      const note = await hallNote(this.deps.notes, guild, quest.hallId, a.noteId)
+      const note = await hallNote(
+        this.deps.notes,
+        guild,
+        quest.hallId,
+        a.noteId,
+        await this.mayReadPrivate(caller)
+      )
       return note ? ok({ note }) : refuse('not_found')
     }
     const page = await hallNotes(this.deps.notes, guild, quest.hallId, {
       query: a.query,
       after: a.after,
       limit: a.limit,
+      includePrivate: await this.mayReadPrivate(caller),
     })
     return ok({ notes: page.notes, next: page.next })
   }
@@ -726,7 +760,9 @@ export class McpGateway {
           claim: a.claim,
           ...(a.evidence === undefined ? {} : { evidence: a.evidence }),
         },
-        caller.quest.hallId
+        caller.quest.hallId,
+        undefined,
+        caller.quest.dataClass === 'private' ? 'private' : 'internal'
       )
       return ok({ id: note.id, version: note.version })
     } catch (error) {
@@ -1270,7 +1306,8 @@ export class McpGateway {
         claim: 'assumption',
       },
       quest.hallId,
-      `inquiry-answer:${inquiry.id}`
+      `inquiry-answer:${inquiry.id}`,
+      quest.dataClass === 'private' ? 'private' : 'internal'
     )
     await this.deps.inquiries.attachNote(guild, inquiry.id, note.id)
     return {
@@ -1353,7 +1390,8 @@ export class McpGateway {
       guild,
       subject.id,
       { kind: 'member', questId: quest.id, hallId: quest.hallId, memberId: caller.member },
-      dossierCap(config)
+      dossierCap(config),
+      await this.mayReadPrivate(caller)
     )
     if (!made.ok) {
       return refuse(made.error)
@@ -1512,8 +1550,9 @@ export class McpGateway {
           })
         }
       }
+      const includePrivate = await this.mayReadPrivate(caller)
       for (const ref of h.evidence.filter((e) => e.kind === 'note')) {
-        if (!(await hallNote(this.deps.notes, guild, quest.hallId, ref.ref))) {
+        if (!(await hallNote(this.deps.notes, guild, quest.hallId, ref.ref, includePrivate))) {
           issues.push({
             path: 'evidence',
             message: `note ${ref.ref} is not in this Hall's Archive`,

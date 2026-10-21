@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
@@ -80,42 +80,46 @@ describe('routeClaimed', () => {
     expect((await s.quests.get(s.guild, quest.id))?.state).toBe('active')
   })
 
-  test.each<[BlockReason, Partial<NewQuest>]>([
-    ['hall_not_found', { hallId: 'nowhere' }],
-    ['private_provider_unavailable', { dataClass: 'private' }],
-  ])('a permanent block (%s) kills the Quest with that coded reason', async (reason, over) => {
+  test.each<[BlockReason, Partial<NewQuest>]>([['hall_not_found', { hallId: 'nowhere' }]])(
+    'a permanent block (%s) kills the Quest with that coded reason',
+    async (reason, over) => {
+      const s = setup()
+      const quest = await s.post(over)
+      const out = await routeClaimed(s.deps, s.guild, quest)
+      expect(out).toEqual({ status: 'blocked', reason, disposition: 'killed' })
+      expect(await s.quests.get(s.guild, quest.id)).toMatchObject({
+        state: 'dead',
+        lastError: reason,
+      })
+    }
+  )
+
+  test('private work with no private-eligible provider waits (queued, retried later), not dead', async () => {
     const s = setup()
-    const quest = await s.post(over)
+    const quest = await s.post({ dataClass: 'private' })
     const out = await routeClaimed(s.deps, s.guild, quest)
-    expect(out).toEqual({ status: 'blocked', reason, disposition: 'killed' })
-    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({
-      state: 'dead',
-      lastError: reason,
+    expect(out).toEqual({
+      status: 'blocked',
+      reason: 'private_provider_unavailable',
+      disposition: 'retry_scheduled',
     })
+    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({ state: 'queued' })
   })
 
-  test('a locked Hall kills the Quest and its dependents', async () => {
+  test('a locked Hall parks the Quest for a retry instead of killing it', async () => {
     const base = defaultConfig()
     const locked = configWith({
       halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
     })
     const s = setup(locked)
     const quest = await s.post()
-    const { quest: child } = await s.quests.post(s.guild, {
-      jobKey: 'child',
-      templateId: 'herald-brief',
-      hallId: 'heralds',
-      rank: 'journeyman',
-      dataClass: 'internal',
-      title: 'Child',
-      ownerId: 'heralds-member-2',
-      doneCondition: 'x',
-      roundLimit: 1,
-      blockedBy: [quest.id],
+    const out = await routeClaimed(s.deps, s.guild, quest)
+    expect(out).toEqual({
+      status: 'blocked',
+      reason: 'hall_locked',
+      disposition: 'retry_scheduled',
     })
-    await routeClaimed(s.deps, s.guild, quest)
-    expect((await s.quests.get(s.guild, quest.id))?.lastError).toBe('hall_locked')
-    expect((await s.quests.get(s.guild, child.id))?.lastError).toBe('blocker_dead')
+    expect(await s.quests.get(s.guild, quest.id)).toMatchObject({ state: 'queued' })
   })
 
   test('a transient block releases the claim with a jittered notBefore and spends no attempt', async () => {
@@ -140,6 +144,7 @@ describe('dispatch', () => {
     const sandboxes = new MemorySandboxRunner()
     const sealStore = new MemorySealStore(s.clock)
     let barred = false
+    const revokedHalls: string[] = []
     const unused = async (): Promise<never> => {
       throw new Error('not used')
     }
@@ -162,6 +167,10 @@ describe('dispatch', () => {
           expiresAt: START.toISOString(),
         }),
         revokeRun: async () => true,
+        revokeHallRuns: async (_g: string, hallId: string) => {
+          revokedHalls.push(hallId)
+          return 1
+        },
       },
       mcp: {
         lease: async (_g: string, q: { id: string }) => ({
@@ -191,6 +200,7 @@ describe('dispatch', () => {
     return {
       ...s,
       deps,
+      revokedHalls,
       started,
       queue,
       bar: () => {
@@ -215,6 +225,73 @@ describe('dispatch', () => {
     })
     expect(await w.started()).toEqual([first.id])
     expect((await w.quests.get(w.guild, first.id))?.state).toBe('active')
+  })
+
+  test('locking a Hall releases its lease and parks its Quests, and unlocking resumes them', async () => {
+    const w = world()
+    const base = defaultConfig()
+    let config = configWith()
+    const deps = { ...w.deps, config: { current: async () => ({ version: 1, config }) } }
+    const first = await w.queue()
+    const second = await w.queue()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: first.id })
+    config = configWith({
+      halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+    expect(await dispatch(deps, w.guild)).toEqual({ status: 'idle' })
+    expect(await w.started()).toEqual([])
+    expect(w.revokedHalls).toContain('heralds')
+    for (const q of [first, second]) {
+      expect(await w.quests.get(w.guild, q.id)).toMatchObject({
+        state: 'queued',
+        leaseExpiresAt: null,
+      })
+    }
+    config = configWith()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: first.id })
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: second.id })
+  })
+
+  test('a sandbox that will not die does not stop the lock: the run is revoked, the lease released, other Halls go on', async () => {
+    const w = world()
+    const inner = new MemorySandboxRunner()
+    const reports: string[] = []
+    const deps = {
+      ...w.deps,
+      sandboxes: {
+        start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        kill: async (): Promise<number> => {
+          throw new Error('docker down')
+        },
+      },
+      onError: (_e: unknown, ctx: { questId: string }) => {
+        reports.push(ctx.questId)
+      },
+    }
+    const private_ = await w.queue({ hallId: 'health', templateId: 'health-log' })
+    const held = await w.quests.claim(w.guild, { leaseMs: 60_000, maxActive: 5 })
+    expect(held?.id).toBe(private_.id)
+    const open = await w.queue()
+    const out = await dispatch(deps, w.guild)
+    expect(out).toMatchObject({ status: 'started', questId: open.id })
+    expect(w.revokedHalls).toContain('health')
+    expect(await w.quests.get(w.guild, private_.id)).toMatchObject({
+      state: 'queued',
+      leaseExpiresAt: null,
+    })
+    expect(reports).toEqual([private_.id])
+  })
+
+  test('a guild with no live run in a locked Hall does no kill, revoke or release', async () => {
+    const w = world()
+    const kill = spyOn(w.deps.sandboxes, 'kill')
+    const release = spyOn(w.quests, 'releaseLeases')
+    await w.queue()
+    await dispatch(w.deps, w.guild)
+    await dispatch(w.deps, w.guild)
+    expect(kill).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+    expect(w.revokedHalls).toEqual([])
   })
 
   test('dispatchAll skips a guild with no applied config and still starts the configured one', async () => {
@@ -421,6 +498,7 @@ describe('dispatch', () => {
           return out
         },
         revokeRun: (...args: Parameters<ModelGateway['revokeRun']>) => gateway.revokeRun(...args),
+        revokeHallRuns: async () => 0,
       },
     }
     const stuck = await w.queue()

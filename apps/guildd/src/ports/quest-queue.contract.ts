@@ -355,6 +355,71 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await events(g)).slice(-3)).toEqual(['quest.posted', 'quest.claimed', 'quest.dead'])
     })
 
+    test('barring the gates spends no attempt of the retry budget: after four bar-and-lift cycles one failure still retries', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      for (let i = 0; i < 4; i += 1) {
+        const claimed = await queue.claim(g, LEASE)
+        expect(claimed?.id).toBe(q.id)
+        await queue.releaseAllLeases('sandbox_unavailable')
+      }
+      const last = await queue.claim(g, LEASE)
+      expect(last?.id).toBe(q.id)
+      const failed = await queue.fail(g, q.id, last?.attempts ?? 0, 'sandbox_unavailable')
+      expect(failed.state).toBe('queued')
+      expect((await queue.deadLetters(g, { limit: 10 })).quests).toEqual([])
+    })
+
+    test('giving a claim back spends no attempt of the retry budget: after four releases one failure still retries', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      for (let i = 0; i < 4; i += 1) {
+        const claimed = await queue.claim(g, LEASE)
+        expect(claimed?.id).toBe(q.id)
+        await queue.releaseClaim(g, q.id, claimed?.attempts ?? 0, clock.now())
+      }
+      const last = await queue.claim(g, LEASE)
+      expect(last?.id).toBe(q.id)
+      const failed = await queue.fail(g, q.id, last?.attempts ?? 0, 'sandbox_unavailable')
+      expect(failed.state).toBe('queued')
+      expect((await queue.deadLetters(g, { limit: 10 })).quests).toEqual([])
+    })
+
+    test('refunded claims are counted as refunds (a wait, a bar, a park); a failure is not', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      const first = await queue.claim(g, LEASE)
+      await queue.releaseClaim(g, q.id, first?.attempts ?? 0, clock.now())
+      const second = await queue.claim(g, LEASE)
+      expect(second).toMatchObject({ attempts: 2, refunds: 1 })
+      await queue.releaseLeases(g, 'routing_blocked')
+      expect(await queue.get(g, q.id)).toMatchObject({ attempts: 2, refunds: 2 })
+      await queue.claim(g, LEASE)
+      const failed = await queue.fail(g, q.id, 3, 'timeout')
+      expect(failed).toMatchObject({ attempts: 3, refunds: 2 })
+    })
+
+    test('forgiving the repeats of a Hall refunds the attempts of its open Quests only', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const a = await queue.post(g, quest({ hallId: 'health' }))
+      const b = await queue.post(g, quest({ hallId: 'heralds' }))
+      for (let i = 0; i < 2; i += 1) {
+        clock.advance(10_000)
+        await queue.claim(g, { ...LEASE, questId: a.quest.id })
+        await queue.fail(g, a.quest.id, i + 1, 'timeout')
+        clock.advance(10_000)
+        await queue.claim(g, { ...LEASE, questId: b.quest.id })
+        await queue.fail(g, b.quest.id, i + 1, 'timeout')
+      }
+      expect(await queue.forgiveRepeats(g, 'health')).toBe(1)
+      expect(await queue.get(g, a.quest.id)).toMatchObject({ attempts: 2, refunds: 2 })
+      expect(await queue.get(g, b.quest.id)).toMatchObject({ attempts: 2, refunds: 0 })
+    })
+
     test('a Quest whose lease lapses past its attempts is dead-lettered, not leased again', async () => {
       const { queue, clock, events, newGuild } = await make()
       const g = await newGuild()
@@ -390,6 +455,31 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect((await queue.get(other, theirs.id))?.state).toBe('active')
       const again = await queue.claim(g, LEASE)
       expect(again).toMatchObject({ id: held.id, attempts: 2 })
+    })
+
+    test('releasing the leases of named Halls leaves other Halls active, and a Hall in skipHalls is not claimed until it is dropped', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const a = await queue.post(g, quest({ hallId: 'health' }))
+      const b = await queue.post(g, quest({ hallId: 'heralds' }))
+      await queue.post(g, quest({ hallId: 'health' }))
+      await queue.claim(g, LEASE)
+      await queue.claim(g, LEASE)
+      expect(await queue.releaseLeases(g, 'routing_blocked', ['health'])).toBe(1)
+      expect((await queue.get(g, a.quest.id))?.state).toBe('queued')
+      // A pause is not a crash: the claim it cost is refunded.
+      expect((await queue.get(g, a.quest.id))?.maxAttempts).toBe(a.quest.maxAttempts + 1)
+      expect((await queue.get(g, b.quest.id))?.state).toBe('active')
+      expect(await queue.claim(g, { ...LEASE, skipHalls: ['health'] })).toBeNull()
+      expect((await queue.claim(g, LEASE))?.hallId).toBe('health')
+    })
+
+    test('a targeted claim of a Quest in a skipped Hall returns nothing', async () => {
+      const { queue, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest({ hallId: 'health' }))
+      expect(await queue.claim(g, { ...LEASE, questId: q.id, skipHalls: ['health'] })).toBeNull()
+      expect((await queue.claim(g, { ...LEASE, questId: q.id }))?.id).toBe(q.id)
     })
 
     test("releasing all leases returns every guild's active Quests to queued at once, and repeating changes nothing more", async () => {

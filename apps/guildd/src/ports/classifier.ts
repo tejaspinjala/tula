@@ -29,5 +29,11 @@ export interface ClassifierHall {
  * unless the Guild Master set a class, so a claim never lowers a class. It never picks a provider. Implementations may throw; routing then uses the deterministic fallback.
  */
 export interface Classifier {
-  classify(input: { goal: string; halls: readonly ClassifierHall[] }): Promise<Classification>
+  classify(input: {
+    guildId: string
+    /** Idempotency key of the routing decision; names the metered classifier run. */
+    decisionKey: string
+    goal: string
+    halls: readonly ClassifierHall[]
+  }): Promise<Classification>
 }

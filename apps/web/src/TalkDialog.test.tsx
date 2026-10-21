@@ -14,6 +14,7 @@ const scene: SceneState = {
     {
       hallId: 'heralds',
       name: 'Heralds',
+      kind: 'work',
       locked: false,
       paused: false,
       memberIds: ['ana'],

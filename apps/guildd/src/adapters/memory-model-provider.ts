@@ -24,6 +24,13 @@ export interface SeenCall {
  * empty script answers `unavailable`. State lives in this instance only.
  */
 export class MemoryModelProvider implements ModelProvider {
+  /** The vendor this stand-in reports; `Anthropic` unless a test names another. */
+  readonly vendor: string
+
+  constructor(vendor = 'Anthropic') {
+    this.vendor = vendor
+  }
+
   private readonly queue: Scripted[] = []
   /** Calls that reached the backend, in order. */
   readonly seen: SeenCall[] = []

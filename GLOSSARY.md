@@ -168,6 +168,18 @@ _Avoid_: wallet, bank
 The guild's brain of linked notes, verified facts kept apart from quarantined assumptions / the agent that keeps it tidy.
 _Avoid_: wiki, knowledge base
 
+**Private Hall**:
+One of the three Halls every guild starts with (Health, Personal, Relationships). It is locked and has no Members until the Guild Master unlocks it from the Hall builder (a widening change, so a passkey confirm) and hires into it. Its Quests are private-class and file their notes to its own Archive; nothing in it reaches a work Hall (see Missive, Dossier, Inquiry). Locking it again pauses its Quests, never kills them.
+_Avoid_: secret Hall, hidden Hall
+
+**Private-eligible provider**:
+A model provider the Guild Master has marked, with a passkey, as one that may see private text (ADR-0012). It is the only provider a private Quest or the classifier may reach. Any kind may be chosen, including the host subscription; hosted mode still drops subscription providers.
+_Avoid_: trusted provider, safe provider
+
+**Private note**:
+An Archive note with data class `private`, filed by a private-class Quest. Only Quests in its Hall, or private-class Quests, read it; every other read path (Archive read, Dossier, Inquiry, Bug Report) refuses or omits it, and the Council never sees it.
+_Avoid_: secret note
+
 **Renown** / **Crowns**:
 Experience points / building currency, earned only from verified progress and never mixed with Treasury money.
 _Avoid_: coins, points
@@ -289,6 +301,9 @@ A Proposal was created (payload: proposal id, quest id, proposal hash) / its ver
 
 **hall.paused** / **hall.resumed**:
 A Tripwire paused a Hall (payload: pause id, hall id, tripwire) / the pause was lifted (payload: pause id, hall id).
+
+**hall.locked** / **hall.unlocked**:
+A config change locked a Hall again (applied at once, as it narrows) / unlocked it (when the Guild Master confirmed it); payload: hall id, config version. Locking releases the Hall's live leases and parks its Quests (queued, not claimed, never dead); unlocking resumes them.
 
 **steward.cap_reached**:
 The Steward's daily cap was reached (payload: day, reason).

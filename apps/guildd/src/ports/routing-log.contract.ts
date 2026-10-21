@@ -39,6 +39,19 @@ export function routingLogContract(name: string, make: () => Promise<RoutingLogF
       expect(second.next).toBeNull()
     })
 
+    test('forKeys returns only the named decisions of its own guild', async () => {
+      const { log, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      for (const k of ['a', 'b', 'c']) {
+        await log.record(g, entry(k))
+      }
+      await log.record(other, entry('a'))
+      const found = await log.forKeys(g, ['a', 'c', 'zzz'])
+      expect(found.map((e) => e.decisionKey).sort()).toEqual(['a', 'c'])
+      expect(await log.forKeys(g, [])).toEqual([])
+    })
+
     test('a blocked decision and a classifier claim round-trip', async () => {
       const { log, newGuild } = await make()
       const g = await newGuild()

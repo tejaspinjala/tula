@@ -11,6 +11,7 @@ import { MailboxPanel } from './MailboxPanel'
 import { MissivesPanel } from './MissivesPanel'
 import { PasskeyPanel } from './PasskeyPanel'
 import { ProposalPanel } from './ProposalPanel'
+import { ProvidersPanel } from './ProvidersPanel'
 import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
@@ -115,6 +116,7 @@ function PageBody({
       return (
         <>
           <AwayPanel session={session} />
+          <ProvidersPanel session={session} />
           <ThemeControls />
           <VaultPanel session={session} />
           <PasskeyPanel session={session} onSession={onSession} />

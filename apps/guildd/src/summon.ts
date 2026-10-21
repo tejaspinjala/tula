@@ -1,5 +1,5 @@
 import { type StartRunDeps, startRun } from './dispatch'
-import { questConcurrency } from './guild-config'
+import { claimLimits } from './guild-config'
 import type { McpGateway } from './mcp/gateway'
 import type { ModelGateway } from './model-gateway'
 import type { Clock } from './ports/clock'
@@ -133,7 +133,7 @@ export class Summon {
     try {
       claimed = await this.deps.quests.claim(guildId, {
         leaseMs: LEASE_MS,
-        maxActive: questConcurrency(config),
+        ...claimLimits(config),
         questId: posted.quest.id,
       })
     } catch (error) {

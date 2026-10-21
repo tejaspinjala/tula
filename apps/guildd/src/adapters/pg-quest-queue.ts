@@ -71,6 +71,7 @@ const questRow = z.object({
   wait_mode: z.enum(['all', 'any']),
   attempts: z.number(),
   max_attempts: z.number(),
+  refunds: z.number(),
   lease_expires_at: iso.nullable(),
   not_before: iso,
   last_error: z.string().nullable(),
@@ -124,6 +125,7 @@ export function toQuest(raw: unknown): Quest {
     waitMode: r.wait_mode,
     attempts: r.attempts,
     maxAttempts: r.max_attempts,
+    refunds: r.refunds,
     leaseExpiresAt: r.lease_expires_at,
     notBefore: r.not_before,
     lastError: r.last_error === null ? null : failReason(r.last_error),
@@ -200,7 +202,7 @@ export class PgQuestQueue implements QuestQueue {
         lease_expires_at = ${q.leaseExpiresAt === null ? null : new Date(q.leaseExpiresAt)},
         not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError},
         wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode},
-        max_attempts = ${q.maxAttempts}
+        max_attempts = ${q.maxAttempts}, refunds = ${q.refunds}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
   }
@@ -346,6 +348,7 @@ export class PgQuestQueue implements QuestQueue {
         where q.guild_id = ${guildId}
           and (q.state = 'queued' or (q.state = 'active' and q.lease_expires_at <= ${now}))
           and q.not_before <= ${now}
+          and q.hall_id <> all (${[...(options.skipHalls ?? [])]}::text[])
           and not exists (
             select 1 from hall_pauses hp
             where hp.guild_id = q.guild_id and hp.hall_id = q.hall_id)
@@ -409,13 +412,31 @@ export class PgQuestQueue implements QuestQueue {
     )
   }
 
-  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+  async forgiveRepeats(guildId: string, hallId: string): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      const rows = await tx`
+        update quests set refunds = attempts
+        where guild_id = ${guildId} and hall_id = ${hallId}
+          and state in ('queued', 'active') and refunds < attempts
+        returning quest_id`
+      return rows.length
+    })
+  }
+
+  async releaseLeases(
+    guildId: string,
+    reason: FailReason,
+    halls?: readonly string[]
+  ): Promise<number> {
     return this.db.withGuild(guildId, async (tx) => {
       await this.lock(tx, guildId)
       const rows = await tx`
         update quests set state = 'queued', lease_expires_at = null,
-          not_before = ${this.clock.now()}, last_error = ${reason}
+          not_before = ${this.clock.now()}, last_error = ${reason},
+          max_attempts = max_attempts + 1, refunds = refunds + 1
         where guild_id = ${guildId} and state = 'active'
+          and (${halls ?? null}::text[] is null or hall_id = any (${halls ?? null}::text[]))
         returning quest_id`
       return rows.length
     })

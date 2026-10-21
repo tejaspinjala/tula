@@ -99,11 +99,16 @@ export async function loadCurrent(
   return { version: body.version, config: parseConfig(body.config) }
 }
 
-/** Saves an edited config through `PUT /guilds/:id/config`; the server classifies the change. */
+/**
+ * Saves an edited config through `PUT /guilds/:id/config`; the server classifies the change. With
+ * `baseVersion` (the version the edit started from), the server refuses a save made stale by
+ * another change (`stale`) instead of overwriting it.
+ */
 export function saveConfig(
   session: Session,
   config: BuilderConfig,
-  fetcher: Fetcher
+  fetcher: Fetcher,
+  baseVersion?: number
 ): Promise<SaveOutcome> {
   return call(
     fetcher,
@@ -111,7 +116,7 @@ export function saveConfig(
     {
       method: 'PUT',
       headers: { ...auth(session), 'content-type': 'application/json' },
-      body: JSON.stringify({ config }),
+      body: JSON.stringify(baseVersion === undefined ? { config } : { config, baseVersion }),
     },
     outcomeBody
   )

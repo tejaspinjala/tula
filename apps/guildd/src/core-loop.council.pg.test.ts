@@ -14,7 +14,7 @@ afterAll(async () => {
 })
 
 /** A guild whose Seal Policy is `routine_alone` with one Quest held for a Seal and a passing Verdict. */
-async function world() {
+async function world(dataClass: 'public' | 'private' = 'public') {
   const a = harness.adapters
   const guild = await harness.foundGuild({ name: 'Council', goal: 'g' })
   await a.config.seed(guild)
@@ -30,7 +30,7 @@ async function world() {
     templateId: 'herald-announcement',
     hallId: 'heralds',
     rank: 'apprentice',
-    dataClass: 'public',
+    dataClass,
     title: 'Announce',
     ownerId: 'heralds-member-1',
     doneCondition: 'An announcement draft is ready for a Seal',
@@ -46,9 +46,10 @@ async function world() {
   })
   await a.presence.goAway(guild, null)
   const gateStore = new PgGateStore(a.db, a.keys)
+  const model = new ScriptedCouncilModel(() => voteReply('approve', 'fine'))
   const council = new CouncilEngine({
     store: a.councilStore,
-    model: new ScriptedCouncilModel(() => voteReply('approve', 'fine')),
+    model,
     clock: a.clock,
     gates: gateStore,
     config: a.config,
@@ -66,7 +67,7 @@ async function world() {
     council,
   }
   const types = async () => a.db.withGuild(guild, (tx) => eventsAfter(tx, 0, 500))
-  return { a, guild, held, deps, types, gateStore }
+  return { a, guild, held, deps, types, gateStore, model }
 }
 
 test('Council approval on Postgres: the Quest is done as council_approved and the chain never records a Guild Master Seal', async () => {
@@ -162,4 +163,14 @@ test('Bar the Gates during the vote on Postgres: exactly one council.halted, the
   expect(names.filter((n) => n === 'council.halted')).toHaveLength(1)
   await w.gateStore.lift({ guildId: w.guild, memberId: crypto.randomUUID() }, 'guild')
   expect((await requestQuestSeal(deps, w.guild, w.held)).outcome).toBe('council_approved')
+})
+
+test('a private Quest never reaches the Council: no voice is asked and no council event is written', async () => {
+  const w = await world('private')
+  const result = await requestQuestSeal(w.deps, w.guild, w.held)
+  expect(result.outcome).not.toBe('council_approved')
+  expect(w.model.calls).toHaveLength(0)
+  const names = (await w.types()).map((e) => e.type)
+  expect(names.filter((n) => n.startsWith('council.'))).toEqual([])
+  expect((await w.a.quests.get(w.guild, w.held.id))?.state).toBe('awaiting_seal')
 })

@@ -39,6 +39,7 @@ const document = {
     hall('health', 'Health', [], true),
   ],
   sealPolicy: 'always',
+  providers: [{ id: 'claude-host', auth: 'subscription', privateEligible: true }],
   caps: { dailyTokens: 5, dailySpendCents: 5, maxSpawnDepth: 2 },
 }
 const quest = (id: string, hallId: string, state: string) => ({
@@ -131,6 +132,9 @@ function world(
         next: null,
         links: [],
       })
+    }
+    if (url.endsWith('/providers/status')) {
+      return Response.json({ hosted: false, vendor: 'Anthropic' })
     }
     if (url.endsWith('/gates')) {
       return Response.json({ guild: true, global: false })
@@ -336,4 +340,46 @@ test('with nothing selected the guild caps are edited and saved under caps', asy
     maxSpawnDepth: 1,
     maxChildrenPerQuest: 5,
   })
+})
+
+test('unlocking a private Hall, marking it private-eligible and hiring a Member saves as a widening confirmed by passkey', async () => {
+  const w = world({ status: 202, body: { version: 2, status: 'pending', change: 'widening' } })
+  const host = await mount(w, true)
+  await click(host, 'Health')
+  for (const label of ['Locked (accepts no Quests)', 'Private routing eligible']) {
+    const box = [...host.querySelectorAll('label')].find((l) => l.textContent?.includes(label))
+    const input = box?.querySelector('input')
+    if (!input) {
+      throw new Error(`no checkbox "${label}"`)
+    }
+    await act(async () => {
+      input.click()
+    })
+  }
+  await click(host, 'Add Member')
+  await click(host, 'Save')
+  const health = w.puts[0]?.body.config.halls.find((h) => h.id === 'health')
+  expect(health).toMatchObject({ locked: false, privateEligible: true })
+  expect(health?.members).toHaveLength(1)
+  expect(host.textContent).toContain('Confirm with passkey')
+  await click(host, 'Confirm with passkey')
+  expect(w.proof()).toBe('proof-1')
+})
+
+test('unlocking a private Hall shows where its private text goes; a work Hall shows no such notice', async () => {
+  const host = await mount(world(), true)
+  await click(host, 'Health')
+  expect(host.textContent).not.toContain('Where private text goes')
+  const box = [...host.querySelectorAll('label')].find((l) =>
+    l.textContent?.includes('Locked (accepts no Quests)')
+  )
+  await act(async () => {
+    box?.querySelector('input')?.click()
+  })
+  expect(host.textContent).toContain('Where private text goes')
+  expect(host.textContent).toContain(
+    'Private Quests will be sent to Anthropic through your Claude subscription on this Mac.'
+  )
+  await click(host, 'Heralds Hall')
+  expect(host.textContent).not.toContain('Where private text goes')
 })

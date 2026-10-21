@@ -10,12 +10,14 @@ import {
   fetchStreamTicket,
   groupByState,
   inCampaign,
+  isPrivateQuest,
   loadQuests,
   postQuest,
   QUEST_TEMPLATES,
   questStreamUrl,
   readQuestFrame,
   roundText,
+  waitingReason,
 } from './quests'
 import { createBackoff, streamHandlers, streamNotice } from './stream-retry'
 import { EmptyState, PixelButton } from './ui/pixel'
@@ -163,8 +165,9 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
           <h3>{shown.title}</h3>
           <p>
             <Badge tone={questTone(shown.state)}>{COLUMN_NAMES[shown.state]}</Badge> in{' '}
-            {shown.hallId}
+            {shown.hallId} {isPrivateQuest(shown) && <Badge tone="private">Private</Badge>}
           </p>
+          {waitingReason(shown) && <p role="status">{waitingReason(shown)}</p>}
           <p>
             <strong>Done when</strong> {shown.doneCondition}
           </p>
@@ -261,6 +264,8 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
                 {board[state].map((quest) => (
                   <li key={quest.id} className="work-note">
                     <strong>{quest.title}</strong>
+                    {isPrivateQuest(quest) && <Badge tone="private">Private</Badge>}
+                    {waitingReason(quest) && <div>{waitingReason(quest)}</div>}
                     <div>
                       {quest.hallId} / {quest.ownerId}
                     </div>

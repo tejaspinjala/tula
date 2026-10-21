@@ -16,26 +16,34 @@ export async function hallNotes(
   notes: NoteStore,
   guildId: string,
   hallId: string,
-  options: { query?: string | undefined; after?: string | undefined; limit: number }
+  options: {
+    query?: string | undefined
+    after?: string | undefined
+    limit: number
+    /** The reader is in a private Hall or on a private-class Quest; otherwise private notes are omitted. */
+    includePrivate?: boolean
+  }
 ): Promise<{ notes: Note[]; next: string | null }> {
   assertHall(hallId)
   const page = {
     ...(options.after === undefined ? {} : { after: options.after }),
     limit: options.limit,
     hall: hallId,
+    includePrivate: options.includePrivate === true,
   }
   const query = options.query?.trim() ?? ''
   const found = query ? await notes.search(guildId, query, page) : await notes.list(guildId, page)
   return { notes: found.notes, next: found.next }
 }
 
-/** One note by id when it is filed under `hallId`, else null (the same answer as for an unknown id). */
+/** One note by id when it is filed under `hallId` (and, if private, `includePrivate` is set), else null (the same answer as for an unknown id). */
 export async function hallNote(
   notes: NoteStore,
   guildId: string,
   hallId: string,
-  id: string
+  id: string,
+  includePrivate = false
 ): Promise<Note | null> {
   assertHall(hallId)
-  return (await notes.get(guildId, id, hallId))?.note ?? null
+  return (await notes.get(guildId, id, hallId, { includePrivate }))?.note ?? null
 }

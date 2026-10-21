@@ -161,6 +161,13 @@ async function memoryWorld(): Promise<E2eWorld> {
     sandboxes,
     notes,
     bugReports,
+    configure: async (guildId, edit) => {
+      const { config: current } = await config.current(guildId)
+      const proposed = await config.propose(guildId, edit(current))
+      if (proposed.status === 'pending') {
+        await config.confirm(guildId, proposed.version)
+      }
+    },
     newGuild: async (options = {}) => {
       const guildId = crypto.randomUUID()
       guilds.push(guildId)

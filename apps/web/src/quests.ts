@@ -16,6 +16,17 @@ const questBody = z.object({
   attempts: z.number(),
   lastError: z.string().nullable(),
   campaignId: z.string().nullable().default(null),
+  dataClass: z.enum(['public', 'internal', 'private']).default('internal'),
+  blockReason: z
+    .enum([
+      'hall_not_found',
+      'hall_locked',
+      'private_provider_unavailable',
+      'budget_exhausted',
+      'no_provider_available',
+    ])
+    .nullable()
+    .default(null),
 })
 const linkBody = z.object({ parentId: z.string(), childId: z.string() })
 const pageBody = z.object({
@@ -43,7 +54,8 @@ export function inCampaign(quests: readonly BoardQuest[], campaignId: string | n
 
 /** The Member who claimed a Quest (its owner, once it has been leased at least once), or null while unclaimed. */
 export function claimerOf(quest: BoardQuest): string | null {
-  return quest.attempts > 0 ? quest.ownerId : null
+  // A queued Quest holds no lease (never claimed, or its claim was released), whatever its attempts.
+  return quest.attempts > 0 && quest.state !== 'queued' ? quest.ownerId : null
 }
 
 /** The Quest Board's columns, in lifecycle order. */
@@ -183,6 +195,14 @@ export const QUEST_TEMPLATES: readonly QuestTemplateChoice[] = [
     hallId: 'heralds',
     hallName: 'Heralds Hall',
   },
+  { id: 'health-log', name: 'Health log', hallId: 'health', hallName: 'Health' },
+  { id: 'personal-plan', name: 'Personal plan', hallId: 'personal', hallName: 'Personal' },
+  {
+    id: 'relationship-note',
+    name: 'Relationship note',
+    hallId: 'relationships',
+    hallName: 'Relationships',
+  },
 ]
 
 /** Posts a Quest from a template (`POST /guilds/:id/quests`); `jobKey` makes a retry harmless. */
@@ -202,4 +222,27 @@ export async function postQuest(
     throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
   }
   return { ...questBody.parse(data), parentId: null }
+}
+
+const WAITING_TEXT: Record<NonNullable<BoardQuest['blockReason']>, string> = {
+  hall_not_found: 'Waiting: Hall not found',
+  hall_locked: 'Waiting: Hall locked',
+  private_provider_unavailable: 'Waiting: no private-eligible provider',
+  budget_exhausted: 'Waiting: daily budget used up',
+  no_provider_available: 'Waiting: no provider available',
+}
+
+/** Why a queued Quest is waiting, from the routing log's latest block; null unless routing is holding it. */
+export function waitingReason(quest: BoardQuest): string | null {
+  if (quest.state !== 'queued' || quest.lastError !== 'routing_blocked') {
+    return null
+  }
+  return quest.blockReason === null
+    ? 'Waiting: routing is blocked'
+    : WAITING_TEXT[quest.blockReason]
+}
+
+/** Whether a Quest carries private text (its data class is private). */
+export function isPrivateQuest(quest: BoardQuest): boolean {
+  return quest.dataClass === 'private'
 }

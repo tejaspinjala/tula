@@ -1,3 +1,4 @@
+import { cheapPrivateProfile } from '../classifier-binding'
 import type { GuildConfig } from '../guild-config'
 import { type Classification, type Classifier, classification } from '../ports/classifier'
 
@@ -29,9 +30,7 @@ export class ModelClassifier implements Classifier {
     config: Pick<GuildConfig, 'providers' | 'routingProfiles'>,
     private readonly timeoutMs: number = CLASSIFIER_TIMEOUT_MS
   ) {
-    const profile = config.routingProfiles.find((r) => r.tier === 'cheap')
-    const provider = profile && config.providers.find((p) => p.id === profile.provider)
-    if (!provider?.privateEligible) {
+    if (!cheapPrivateProfile(config)) {
       throw new Error('classifier profile must be bound to a private-eligible provider')
     }
   }

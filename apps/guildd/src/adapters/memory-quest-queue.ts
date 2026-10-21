@@ -165,6 +165,7 @@ export class MemoryQuestQueue implements QuestQueue {
       waitMode: 'all',
       attempts: 0,
       maxAttempts: parsed.maxAttempts,
+      refunds: 0,
       leaseExpiresAt: null,
       notBefore: now,
       lastError: null,
@@ -229,17 +230,39 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
-  async releaseLeases(guildId: string, reason: FailReason): Promise<number> {
+  async forgiveRepeats(guildId: string, hallId: string): Promise<number> {
+    let changed = 0
+    for (const q of this.guild(guildId).byId.values()) {
+      if (
+        q.hallId === hallId &&
+        (q.state === 'queued' || q.state === 'active') &&
+        q.refunds < q.attempts
+      ) {
+        this.guild(guildId).byId.set(q.id, { ...q, refunds: q.attempts })
+        changed += 1
+      }
+    }
+    return changed
+  }
+
+  async releaseLeases(
+    guildId: string,
+    reason: FailReason,
+    halls?: readonly string[]
+  ): Promise<number> {
     const now = this.clock.now().toISOString()
     let released = 0
     for (const q of this.guild(guildId).byId.values()) {
-      if (q.state === 'active') {
+      if (q.state === 'active' && (halls === undefined || halls.includes(q.hallId))) {
         this.guild(guildId).byId.set(q.id, {
           ...q,
           state: 'queued',
           leaseExpiresAt: null,
           notBefore: now,
           lastError: reason,
+          // A pause is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
+          maxAttempts: q.maxAttempts + 1,
+          refunds: q.refunds + 1,
         })
         released += 1
       }

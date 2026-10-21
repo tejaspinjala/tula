@@ -16,6 +16,9 @@ export type AssignResult = { ok: true; questId: string } | { ok: false; message:
 const TEMPLATES: readonly AssignTemplate[] = [
   { id: 'herald-brief', name: 'Herald brief', hallId: 'heralds' },
   { id: 'herald-announcement', name: 'Herald announcement', hallId: 'heralds' },
+  { id: 'health-log', name: 'Health log', hallId: 'health' },
+  { id: 'personal-plan', name: 'Personal plan', hallId: 'personal' },
+  { id: 'relationship-note', name: 'Relationship note', hallId: 'relationships' },
 ]
 
 /** The templates the dialog offers for a Hall. */
@@ -25,6 +28,7 @@ export function templatesFor(hallId: string): AssignTemplate[] {
 
 const REFUSALS: Record<string, string> = {
   hall_locked: 'That Hall is locked.',
+  hall_not_private_eligible: 'That private Hall is not marked private-eligible.',
   hall_paused: 'That Hall is paused.',
   hall_not_found: 'That Hall does not exist.',
   unknown_template: 'That Quest template is not available.',

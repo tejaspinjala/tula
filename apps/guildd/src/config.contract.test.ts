@@ -172,6 +172,150 @@ describe('restoring a version that names a subscription provider', () => {
   })
 })
 
+describe('provider private eligibility over HTTP', () => {
+  const withProvider = (privateEligible: boolean) => ({
+    ...defaultConfig(),
+    providers: [{ id: 'home', auth: 'api_key' as const, privateEligible }],
+    routingProfiles: [],
+  })
+
+  test('turning it on is pending until a passkey confirm, and turning it off applies at once', async () => {
+    const who = await signedIn()
+    const put = (config: unknown) =>
+      send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    expect((await put(withProvider(false))).status).toBe(202)
+    const base = await who.proof()
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/2/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': base }
+    )
+    const on = await put(withProvider(true))
+    expect(on.status).toBe(202)
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(false)
+    const confirm = await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/3/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect(confirm.status).toBe(200)
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(true)
+    const off = await put(withProvider(false))
+    expect(off.status).toBe(200)
+    expect(outcome.parse(await off.json())).toMatchObject({
+      status: 'applied',
+      change: 'tightening',
+    })
+    expect((await who.current()).config.providers[0]?.privateEligible).toBe(false)
+  })
+
+  test("a second guild neither reads nor changes the first guild's providers", async () => {
+    const first = await signedIn()
+    const second = await signedIn()
+    await send(harness, 'PUT', `${first.base}/config`, { config: withProvider(false) }, first.auth)
+    await send(
+      harness,
+      'POST',
+      `${first.base}/config/versions/2/confirm`,
+      {},
+      { ...first.auth, 'x-reauth-proof': await first.proof() }
+    )
+    expect((await second.current()).config.providers).toEqual([])
+    const read = await send(harness, 'GET', `${first.base}/config`, undefined, second.auth)
+    expect(read.status).toBe(404)
+    const write = await send(
+      harness,
+      'PUT',
+      `${first.base}/config`,
+      { config: withProvider(true) },
+      second.auth
+    )
+    expect(write.status).toBe(404)
+    expect((await first.current()).version).toBe(2)
+  })
+})
+
+describe('config PUT with a base version', () => {
+  test('a change made after the caller read the config is refused as stale, not clobbered', async () => {
+    const who = await signedIn()
+    const put = (body: unknown) => send(harness, 'PUT', `${who.base}/config`, body, who.auth)
+    const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
+    expect((await put({ config: tighter })).status).toBe(200)
+    const stale = await put({ config: defaultConfig(), baseVersion: 1 })
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'stale' })
+    expect((await who.current()).config.caps.dailyTokens).toBe(10)
+    const fresh = await put({ config: tighter, baseVersion: 2 })
+    expect(fresh.status).toBe(200)
+  })
+})
+
+describe('provider status vendor', () => {
+  const otherHarness = createHarness({
+    devGuildHeader: false,
+    app: { modelProvider: new MemoryModelProvider('Other') },
+  })
+  afterAll(async () => (await otherHarness).close())
+
+  test('is the vendor of the bound provider, not a constant', async () => {
+    const h = await otherHarness
+    const who = await signedIn(h)
+    const res = await send(h, 'GET', `${who.base}/providers/status`, undefined, who.auth)
+    expect(await res.json()).toEqual({ hosted: true, vendor: 'Other' })
+  })
+
+  test('another guild session gets 404 and no session gets 401', async () => {
+    const first = await signedIn()
+    const second = await signedIn()
+    const cross = await send(
+      harness,
+      'GET',
+      `${first.base}/providers/status`,
+      undefined,
+      second.auth
+    )
+    expect(cross.status).toBe(404)
+    expect((await send(harness, 'GET', `${first.base}/providers/status`)).status).toBe(401)
+  })
+})
+
+describe('provider status', () => {
+  const statusBody = z.object({ hosted: z.boolean(), vendor: z.string() })
+
+  test('reports hosted when the host has not enabled subscription providers, and the vendor', async () => {
+    const who = await signedIn()
+    const res = await send(harness, 'GET', `${who.base}/providers/status`, undefined, who.auth)
+    expect(res.status).toBe(200)
+    expect(statusBody.parse(await res.json())).toEqual({ hosted: true, vendor: 'Anthropic' })
+    const sub = await signedIn(subscriptionHarness)
+    const res2 = await send(
+      subscriptionHarness,
+      'GET',
+      `${sub.base}/providers/status`,
+      undefined,
+      sub.auth
+    )
+    expect(statusBody.parse(await res2.json()).hosted).toBe(false)
+  })
+
+  test('is signed-in only and never reads another guild', async () => {
+    const who = await signedIn()
+    const anon = await send(harness, 'GET', `${who.base}/providers/status`)
+    expect(anon.status).toBe(401)
+    await expectGuildIsolation(devHarness, {
+      build: (caller, target) => [
+        `/guilds/${target}/providers/status`,
+        { headers: { 'x-guild-id': caller } },
+      ],
+      snapshot: async (guildId) => devHarness.adapters.config.history(guildId, { limit: 100 }),
+    })
+  })
+})
+
 describe('guild config over HTTP', () => {
   test('a founded guild has the Steward, Heralds Hall with Captain and Members, and three locked Halls', async () => {
     const who = await signedIn()

@@ -70,6 +70,93 @@ async function found(name: string) {
 const brief = (jobKey: string) => ({ templateId: 'herald-brief', jobKey, title: 'Brief' })
 
 describe('quest routes', () => {
+  const blockEntry = (decisionKey: string, outcome: 'blocked' | 'routed') => ({
+    decisionKey,
+    source: 'template' as const,
+    goalSha256: null,
+    hallId: 'heralds',
+    rank: 'journeyman' as const,
+    dataClass: 'private' as const,
+    classifierClaim: null,
+    outcome,
+    providerId: outcome === 'routed' ? 'cloud' : null,
+    profileId: outcome === 'routed' ? 'cloud-mid' : null,
+    reason: outcome === 'blocked' ? ('private_provider_unavailable' as const) : null,
+  })
+  const claim = async (g: string, id: string) => {
+    const claimed = await harness.adapters.quests.claim(g, {
+      leaseMs: 60_000,
+      maxActive: 1000,
+      questId: id,
+    })
+    if (!claimed) {
+      throw new Error('expected a claim')
+    }
+    return claimed
+  }
+  /** Claims the Quest and releases it back to the queue, as a transient routing block does. */
+  const blockOnce = async (g: string, id: string) => {
+    const claimed = await claim(g, id)
+    await harness.adapters.routingLog.record(g, blockEntry(`${id}:${claimed.attempts}`, 'blocked'))
+    await harness.adapters.quests.releaseClaim(g, id, claimed.attempts, new Date(0))
+  }
+  const blockReasons = async (g: string) =>
+    z
+      .object({
+        quests: z.array(z.object({ id: z.string(), blockReason: z.string().nullable() })),
+      })
+      .parse(await (await get(g, '?limit=10')).json()).quests
+
+  test('a waiting Quest lists the block reason of its current attempt; one that was never blocked lists none', async () => {
+    const g = await found('W')
+    const waiting = questBody.parse(await (await post(g, brief('w1'))).json())
+    const fresh = questBody.parse(await (await post(g, brief('w2'))).json())
+    await blockOnce(g, waiting.id)
+    const listed = await blockReasons(g)
+    expect(listed.find((q) => q.id === waiting.id)?.blockReason).toBe(
+      'private_provider_unavailable'
+    )
+    expect(listed.find((q) => q.id === fresh.id)?.blockReason).toBeNull()
+  })
+
+  test('a queued Quest in a locked Hall lists hall_locked as its block reason', async () => {
+    const g = await found('WL')
+    const { quest: waiting } = await harness.adapters.quests.post(g, {
+      ...quest('locked-1'),
+      hallId: 'health',
+    })
+    expect((await blockReasons(g)).find((q) => q.id === waiting.id)?.blockReason).toBe(
+      'hall_locked'
+    )
+  })
+
+  test('a Quest routed after a block and failed back to the queue lists no block reason', async () => {
+    const g = await found('W2')
+    const quest = questBody.parse(await (await post(g, brief('w1'))).json())
+    await blockOnce(g, quest.id)
+    const second = await claim(g, quest.id)
+    await harness.adapters.routingLog.record(
+      g,
+      blockEntry(`${quest.id}:${second.attempts}`, 'routed')
+    )
+    await harness.adapters.quests.fail(g, quest.id, second.attempts, 'boom')
+    const after = await harness.adapters.quests.get(g, quest.id)
+    expect(after?.state).toBe('queued')
+    expect((await blockReasons(g)).find((q) => q.id === quest.id)?.blockReason).toBeNull()
+  })
+
+  test('a block older than a page of later log entries still lists its reason', async () => {
+    const g = await found('W3')
+    const quest = questBody.parse(await (await post(g, brief('w1'))).json())
+    await blockOnce(g, quest.id)
+    for (let i = 0; i < 120; i += 1) {
+      await harness.adapters.routingLog.record(g, blockEntry(`other-${i}:1`, 'routed'))
+    }
+    expect((await blockReasons(g)).find((q) => q.id === quest.id)?.blockReason).toBe(
+      'private_provider_unavailable'
+    )
+  })
+
   test('posting from a template queues a Quest; a repeated job key is 200 with the same Quest', async () => {
     const g = await found('Q')
     const first = await post(g, brief('k1'))
@@ -95,6 +182,46 @@ describe('quest routes', () => {
     const g2 = await found('Q2')
     expect((await post(g2, { ...brief('k'), templateId: 'nope' })).status).toBe(422)
     expect((await post(g2, { jobKey: '' })).status).toBe(400)
+  })
+
+  test('a private template is 422 hall_locked in a locked Hall, 422 hall_not_private_eligible in an unlocked one, and queues once the Hall is eligible', async () => {
+    const g = await found('P')
+    const health = { templateId: 'health-log', jobKey: 'h1', title: 'Log' }
+    const locked = await post(g, health)
+    expect(locked.status).toBe(422)
+    expect(await locked.json()).toEqual({ error: 'hall_locked' })
+    const seed = defaultConfig()
+    const open = (privateEligible: boolean) =>
+      seed.halls.map((h) =>
+        h.id === 'health'
+          ? {
+              ...h,
+              locked: false,
+              privateEligible,
+              members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+            }
+          : h
+      )
+    const config = harness.adapters.config
+    const first = await config.propose(g, { ...seed, halls: open(false) })
+    if (first.status === 'pending') {
+      await config.confirm(g, first.version)
+    }
+    const unfit = await post(g, health)
+    expect(unfit.status).toBe(422)
+    expect(await unfit.json()).toEqual({ error: 'hall_not_private_eligible' })
+    const second = await config.propose(g, { ...seed, halls: open(true) })
+    if (second.status === 'pending') {
+      await config.confirm(g, second.version)
+    }
+    const posted = await post(g, health)
+    expect(posted.status).toBe(201)
+    const queued = questBody.parse(await posted.json())
+    expect(queued).toMatchObject({ hallId: 'health', ownerId: 'health-member-1' })
+    expect((await harness.adapters.quests.get(g, queued.id))?.dataClass).toBe('private')
+    // Another guild never sees the private Quest.
+    const other = await found('P2')
+    expect((await page(other, '')).quests).toEqual([])
   })
 
   test('lists are paginated and filter by state; dead letters are listed apart', async () => {

@@ -78,4 +78,21 @@ export class PgRoutingLog implements RoutingLog {
     const last = entries.at(-1)
     return { entries, next: rows.length > limit && last ? last.seq : null }
   }
+
+  async forKeys(guildId: string, decisionKeys: readonly string[]): Promise<LoggedRouting[]> {
+    const keys = decisionKeys.slice(0, MAX_ROUTING_PAGE)
+    if (keys.length === 0) {
+      return []
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select seq, decision_key, source, goal_sha256, hall_id, rank, data_class,
+               classifier_claim, outcome, provider_id, profile_id, reason
+        from routing_decisions
+        where guild_id = ${guildId} and decision_key in ${tx(keys)}
+        order by seq desc`
+    )
+    return rows.map((r) => toEntry(row.parse(r)))
+  }
 }

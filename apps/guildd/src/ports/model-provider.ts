@@ -88,6 +88,8 @@ export class ModelProviderError extends Error {
  * credential or put it in an error.
  */
 export interface ModelProvider {
+  /** The vendor this adapter's calls reach, shown to the Guild Master in the private-work disclosure. */
+  readonly vendor: string
   /**
    * Runs one call; rejects with {@link ModelProviderError}. When `signal` aborts, the call stops
    * and rejects with code `aborted`.

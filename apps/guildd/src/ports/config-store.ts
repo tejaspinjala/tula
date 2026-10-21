@@ -52,8 +52,15 @@ export interface ConfigStore {
   seed(guildId: string, tx?: TenantTx): Promise<void>
   /** The config in force: the highest applied version. Throws `not_found` for an unseeded guild. */
   current(guildId: string): Promise<{ version: number; config: GuildConfig }>
-  /** Records `config` as a new version; applied at once unless it widens risk. */
-  propose(guildId: string, config: GuildConfig): Promise<ProposeResult>
+  /**
+   * Records `config` as a new version; applied at once unless it widens risk. With `baseVersion`,
+   * refused as `stale` unless that is still the version in force (the caller edited a stale read).
+   */
+  propose(
+    guildId: string,
+    config: GuildConfig,
+    options?: { baseVersion?: number }
+  ): Promise<ProposeResult>
   /**
    * Applies a pending version. `not_pending` if it is already applied; `stale` if the config in
    * force is no longer the one it was proposed against; `not_found` if there is no such version.

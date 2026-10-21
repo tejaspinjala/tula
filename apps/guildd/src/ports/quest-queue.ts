@@ -111,6 +111,8 @@ export interface Quest {
   /** Deliveries so far; each claim, including a reclaim after a lease expired, is one. */
   attempts: number
   maxAttempts: number
+  /** Claims that were given back (a wait, a bar, a park), so the loop Tripwire never counts them. */
+  refunds: number
   /** When the current lease ends; null unless `active`. */
   leaseExpiresAt: string | null
   /** The Quest is not delivered before this instant (retry backoff). */
@@ -215,6 +217,8 @@ export interface ClaimOptions {
    * slot) and excludes the Captain's `team-plan` Quest, which it never blocks either.
    */
   hallCaps?: Readonly<Record<string, number>>
+  /** Halls whose Quests are not claimed (locked Halls): they wait, queued, and resume once the Hall is dropped from this list. */
+  skipHalls?: readonly string[]
 }
 
 /** What {@link QuestQueue.postBoard} needs: the Captain's delivery, the Quest and the Campaign cap. */
@@ -287,10 +291,11 @@ export interface QuestQueue {
   fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest>
   /**
    * Releases the lease of every active Quest of the guild without spending an attempt: each goes
-   * back to `queued`, deliverable at once, with `reason` as its last error. Atomic and idempotent;
+   * back to `queued`, deliverable at once, with `reason` as its last error. Each claim it gives back is
+   * refunded (`maxAttempts` rises by one), so a bar or a re-lock never shrinks the crash-retry budget. Atomic and idempotent;
    * returns how many it released. Used when the Gates are barred and the workers were killed.
    */
-  releaseLeases(guildId: string, reason: FailReason): Promise<number>
+  releaseLeases(guildId: string, reason: FailReason, halls?: readonly string[]): Promise<number>
   /**
    * {@link releaseLeases} for every guild at once, in one statement, so a global bar's cost does
    * not grow with the number of guilds. Idempotent; returns how many Quests it released.
@@ -299,10 +304,12 @@ export interface QuestQueue {
   /**
    * Gives a claimed Quest back to `queued`, deliverable from `notBefore`, with the coded reason
    * `routing_blocked`. Fenced by `attempt` (`stale_lease` otherwise); `invalid_state` unless the
-   * Quest is active. The delivery is not counted against `maxAttempts` by any failure path.
+   * Quest is active. The claim is refunded (`maxAttempts` rises by one, as when parking), so a wait never shrinks the crash-retry budget.
    * Idempotent: a repeat for the same delivery changes nothing.
    */
   releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /** Refunds every attempt of the Hall's open Quests, so a resume starts its loop count from zero; returns how many Quests changed. */
+  forgiveRepeats(guildId: string, hallId: string): Promise<number>
   /**
    * Dead-letters a claimed Quest with a coded reason (see {@link FAIL_REASONS}), cascading to its
    * dependents (`blocker_dead`). Fenced by `attempt`; idempotent for the same delivery.
@@ -530,6 +537,9 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
       state: 'queued',
       leaseExpiresAt: null,
       lastError: 'routing_blocked',
+      // A wait is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
+      maxAttempts: quest.maxAttempts + 1,
+      refunds: quest.refunds + 1,
       notBefore: notBefore.toISOString(),
     },
     event: 'quest.retry_scheduled',
@@ -557,6 +567,7 @@ export function parkTransition(
       waitMode: mode,
       // A wait is not a crash: the extra delivery it costs does not shrink the retry budget.
       maxAttempts: quest.maxAttempts + 1,
+      refunds: quest.refunds + 1,
       notBefore: now.toISOString(),
     },
     event: null,
@@ -711,6 +722,7 @@ export function pickClaimable(
   const byId = new Map(quests.map((q) => [q.id, q]))
   const eligible = (q: Quest): boolean =>
     !hallPaused(q.hallId) &&
+    !options.skipHalls?.includes(q.hallId) &&
     !hallFull(q) &&
     waitMet(q, byId) &&
     (q.state === 'queued' || (q.state === 'active' && !hasLiveLease(q, now))) &&
