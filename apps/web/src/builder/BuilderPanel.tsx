@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Fetcher } from '../artifacts'
 import { loadGates } from '../gates'
-import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
+import {
+  type PasskeyBrowser,
+  PasskeyRequestError,
+  type Session,
+  webAuthnBrowser,
+} from '../passkeys'
 import { type Deployment, loadProviderStatus } from '../providers'
 import { loadQuests } from '../quests'
 import { loadTripwires } from '../tripwires'
@@ -178,6 +183,8 @@ export function BuilderPanel({
       if (error instanceof SaveRejected) {
         setIssues(error.issues)
         setFailed('The server refused this config. See the marked nodes.')
+      } else if (error instanceof PasskeyRequestError && error.code === 'stale') {
+        setFailed('The config changed since you loaded it. Reload to continue.')
       } else {
         setFailed(`The change was refused (${error instanceof Error ? error.message : 'unknown'}).`)
       }
@@ -186,7 +193,7 @@ export function BuilderPanel({
   const save = () =>
     attempt(async () => {
       setIssues([])
-      await report(await saveConfig(session, draft, fetcher))
+      await report(await saveConfig(session, draft, fetcher, version))
     })
   const confirm = () =>
     attempt(async () => {

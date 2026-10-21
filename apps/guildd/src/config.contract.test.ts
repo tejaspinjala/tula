@@ -103,6 +103,11 @@ async function signedIn(h: typeof harness = harness) {
       )
       return proofBody.parse(await done.json()).proof
     },
+    /** PUTs `config` against the version in force now, as a client that just loaded it would. */
+    async put(config: unknown) {
+      const { version } = await this.current()
+      return send(h, 'PUT', `/guilds/${guildId}/config`, { config, baseVersion: version }, auth)
+    },
     async current() {
       return configBody.parse(
         await (await send(h, 'GET', `/guilds/${guildId}/config`, undefined, auth)).json()
@@ -120,13 +125,7 @@ describe('subscription providers in a saved config', () => {
 
   test('are refused as subscription_disabled while the host has not enabled them', async () => {
     const who = await signedIn()
-    const res = await send(
-      harness,
-      'PUT',
-      `${who.base}/config`,
-      { config: withSubscription() },
-      who.auth
-    )
+    const res = await who.put(withSubscription())
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'subscription_disabled' })
     expect((await who.current()).version).toBe(1)
@@ -134,13 +133,7 @@ describe('subscription providers in a saved config', () => {
 
   test('are accepted once the host enables them', async () => {
     const who = await signedIn(subscriptionHarness)
-    const res = await send(
-      subscriptionHarness,
-      'PUT',
-      `${who.base}/config`,
-      { config: withSubscription() },
-      who.auth
-    )
+    const res = await who.put(withSubscription())
     expect(res.status).toBeLessThan(300)
   })
 })
@@ -181,8 +174,7 @@ describe('provider private eligibility over HTTP', () => {
 
   test('turning it on is pending until a passkey confirm, and turning it off applies at once', async () => {
     const who = await signedIn()
-    const put = (config: unknown) =>
-      send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    const put = (config: unknown) => who.put(config)
     expect((await put(withProvider(false))).status).toBe(202)
     const base = await who.proof()
     await send(
@@ -216,7 +208,7 @@ describe('provider private eligibility over HTTP', () => {
   test("a second guild neither reads nor changes the first guild's providers", async () => {
     const first = await signedIn()
     const second = await signedIn()
-    await send(harness, 'PUT', `${first.base}/config`, { config: withProvider(false) }, first.auth)
+    await first.put(withProvider(false))
     await send(
       harness,
       'POST',
@@ -231,7 +223,7 @@ describe('provider private eligibility over HTTP', () => {
       harness,
       'PUT',
       `${first.base}/config`,
-      { config: withProvider(true) },
+      { config: withProvider(true), baseVersion: 2 },
       second.auth
     )
     expect(write.status).toBe(404)
@@ -244,7 +236,7 @@ describe('config PUT with a base version', () => {
     const who = await signedIn()
     const put = (body: unknown) => send(harness, 'PUT', `${who.base}/config`, body, who.auth)
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
-    expect((await put({ config: tighter })).status).toBe(200)
+    expect((await put({ config: tighter, baseVersion: 1 })).status).toBe(200)
     const stale = await put({ config: defaultConfig(), baseVersion: 1 })
     expect(stale.status).toBe(409)
     expect(await stale.json()).toEqual({ error: 'stale' })
@@ -387,7 +379,7 @@ describe('guild config over HTTP', () => {
       ...base,
       halls: [{ ...base.halls[0], members: [{ id: 'Bad Id', name: 'x', rank: 'apprentice' }] }],
     }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config: bad }, who.auth)
+    const res = await who.put(bad)
     expect(res.status).toBe(400)
     const body = z
       .object({
@@ -418,7 +410,7 @@ describe('guild config over HTTP', () => {
       ],
     ]
     for (const [config, path] of cases) {
-      const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+      const res = await who.put(config)
       expect(res.status).toBe(422)
       const body = z
         .object({ error: z.string(), unknownKeys: z.array(z.string()) })
@@ -434,7 +426,7 @@ describe('guild config over HTTP', () => {
     const who = await signedIn()
     const extras = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`bogus${i}`, 1]))
     const config = { ...defaultConfig(), ...extras }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    const res = await who.put(config)
     expect(res.status).toBe(422)
     const body = z
       .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
@@ -447,7 +439,7 @@ describe('guild config over HTTP', () => {
     const who = await signedIn()
     const long = 'k'.repeat(300)
     const config = { ...defaultConfig(), caps: { ...defaultConfig().caps, [long]: 1 } }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    const res = await who.put(config)
     expect(res.status).toBe(422)
     const body = z
       .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
@@ -455,7 +447,7 @@ describe('guild config over HTTP', () => {
     expect(body.unknownKeys).toEqual([`caps.${'k'.repeat(300)}`.slice(0, 63) + '…'])
     expect(body.truncated).toBe(true)
     const short = { ...defaultConfig(), bogus: 1 }
-    const ok = await send(harness, 'PUT', `${who.base}/config`, { config: short }, who.auth)
+    const ok = await who.put(short)
     expect(
       z.object({ unknownKeys: z.array(z.string()) }).parse(await ok.json()).unknownKeys
     ).toEqual(['bogus'])
@@ -466,7 +458,7 @@ describe('guild config over HTTP', () => {
     // "caps." plus 57 letters puts the 63-unit cut in the middle of the first emoji.
     const long = `${'a'.repeat(57)}${'\u{1F600}'.repeat(10)}`
     const config = { ...defaultConfig(), caps: { ...defaultConfig().caps, [long]: 1 } }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    const res = await who.put(config)
     expect(res.status).toBe(422)
     const body = z.object({ unknownKeys: z.array(z.string()) }).parse(await res.json())
     const echoed = body.unknownKeys[0] ?? ''
@@ -480,7 +472,7 @@ describe('guild config over HTTP', () => {
   test('tightening applies at once and the change is a chained event', async () => {
     const who = await signedIn()
     const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config: tighter }, who.auth)
+    const res = await who.put(tighter)
     expect(res.status).toBe(200)
     expect(outcome.parse(await res.json())).toEqual({
       version: 2,
@@ -497,7 +489,7 @@ describe('guild config over HTTP', () => {
   test('saving autonomous is refused with a 400 naming seal_policy_locked', async () => {
     const who = await signedIn()
     const config = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config }, who.auth)
+    const res = await who.put(config)
     expect(res.status).toBe(400)
     expect(JSON.stringify(await res.json())).toContain('seal_policy_locked')
   })
@@ -505,7 +497,7 @@ describe('guild config over HTTP', () => {
   test('a widening change is stored inactive until confirmed with a fresh re-authentication', async () => {
     const who = await signedIn()
     const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
-    const res = await send(harness, 'PUT', `${who.base}/config`, { config: looser }, who.auth)
+    const res = await who.put(looser)
     expect(res.status).toBe(202)
     expect(outcome.parse(await res.json()).status).toBe('pending')
     expect((await who.current()).config.sealPolicy).toBe('always')
@@ -537,7 +529,7 @@ describe('guild config over HTTP', () => {
       devHarness,
       'PUT',
       `${who.base}/config`,
-      { config: looser },
+      { config: looser, baseVersion: 1 },
       { 'x-guild-id': who.guildId }
     )
     expect(dev.status).toBe(401)
@@ -560,23 +552,17 @@ describe('guild config over HTTP', () => {
       throw new Error('health Hall is seeded')
     }
     const gone = { ...base, halls: base.halls.filter((h) => h.id !== 'health') }
-    const first = await send(harness, 'PUT', `${who.base}/config`, { config: gone }, who.auth)
+    const first = await who.put(gone)
     expect(first.status).toBe(202)
     const back = { ...base, halls: [...gone.halls, { ...health, locked: false }] }
-    const second = await send(harness, 'PUT', `${who.base}/config`, { config: back }, who.auth)
+    const second = await who.put(back)
     expect(second.status).toBe(202)
     expect((await who.current()).config).toEqual(base)
   })
 
   test('an earlier version can be restored, history is paginated, and a bad config is refused', async () => {
     const who = await signedIn()
-    await send(
-      harness,
-      'PUT',
-      `${who.base}/config`,
-      { config: { ...defaultConfig(), caps: { dailyTokens: 5, dailySpendCents: 5 } } },
-      who.auth
-    )
+    await who.put({ ...defaultConfig(), caps: { dailyTokens: 5, dailySpendCents: 5 } })
     const restored = await send(
       harness,
       'POST',
@@ -601,7 +587,7 @@ describe('guild config over HTTP', () => {
       harness,
       'PUT',
       `${who.base}/config`,
-      { config: { sealPolicy: 'never' } },
+      { config: { sealPolicy: 'never' }, baseVersion: 3 },
       who.auth
     )
     expect(bad.status).toBe(400)
