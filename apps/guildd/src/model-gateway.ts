@@ -25,6 +25,8 @@ export type GatewayErrorCode =
   | 'token_expired'
   | 'token_revoked'
   | 'hall_paused'
+  /** The Hall is locked in the current config. */
+  | 'hall_locked'
   /** Bar the Gates is up for this guild (or all guilds). */
   | 'gates_barred'
   /** The bar could not be read mid-call, so the call was aborted (fail closed); the reservation stays charged. */
@@ -59,7 +61,7 @@ export type OpenRunResult =
   /** No token is issued: the Hall is paused (Tripwire or Guild Master), or the run was revoked for good. */
   | {
       status: 'refused'
-      reason: 'hall_paused' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
+      reason: 'hall_paused' | 'hall_locked' | 'quest_not_found' | 'token_revoked' | 'gates_barred'
     }
 
 /** A queued run that the gateway admitted, with the token it now holds. */

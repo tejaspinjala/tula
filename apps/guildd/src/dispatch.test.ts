@@ -132,6 +132,7 @@ describe('dispatch', () => {
     const sandboxes = new MemorySandboxRunner()
     const sealStore = new MemorySealStore(s.clock)
     let barred = false
+    const revokedHalls: string[] = []
     const unused = async (): Promise<never> => {
       throw new Error('not used')
     }
@@ -154,6 +155,10 @@ describe('dispatch', () => {
           expiresAt: START.toISOString(),
         }),
         revokeRun: async () => true,
+        revokeHallRuns: async (_g: string, hallId: string) => {
+          revokedHalls.push(hallId)
+          return 1
+        },
       },
       mcp: {
         lease: async (_g: string, q: { id: string }) => ({
@@ -183,6 +188,7 @@ describe('dispatch', () => {
     return {
       ...s,
       deps,
+      revokedHalls,
       started,
       queue,
       bar: () => {
@@ -221,6 +227,8 @@ describe('dispatch', () => {
       halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
     })
     expect(await dispatch(deps, w.guild)).toEqual({ status: 'idle' })
+    expect(await w.started()).toEqual([])
+    expect(w.revokedHalls).toContain('heralds')
     for (const q of [first, second]) {
       expect(await w.quests.get(w.guild, q.id)).toMatchObject({
         state: 'queued',
