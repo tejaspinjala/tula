@@ -21,6 +21,7 @@ import type { GuildConfig } from '../guild-config'
 import { type Handoff, hashHandoff } from '../ports/handoff-store'
 import type { Quest } from '../ports/quest-queue'
 import { ProposalEngine } from '../proposals'
+import { gatewayExtras } from '../testing/gateway-extras'
 import { callTool } from '../testing/scripted-member'
 import { McpGateway } from './gateway'
 import { roleToolNames } from './tools'
@@ -54,6 +55,17 @@ async function setup() {
     store: dossierStore,
     clock,
   })
+  const tripwires = new MemoryTripwireStore(clock)
+  const { bugReports, bugReportStore } = gatewayExtras({
+    quests,
+    config,
+    handoffs,
+    objectStore,
+    proposals: proposalStore,
+    tripwires,
+    clock,
+  })
+  const bugExtras = { bugReports, bugReportStore }
   const gateway = new McpGateway({
     activity,
     quests,
@@ -67,10 +79,11 @@ async function setup() {
     proposals: new ProposalEngine({ store: proposalStore, config }),
     keys: new MemoryKeyProvider(),
     clock,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     gates,
     retireRun: async () => {},
     dossiers,
+    ...bugExtras,
   })
   const transport = (request: object) => gateway.handle(request)
   const reconfigure = async (edit: (c: GuildConfig) => GuildConfig): Promise<void> => {
@@ -92,6 +105,15 @@ async function setup() {
         privateEligible: false,
         captain: null,
         members: [{ id: 'scribes-member-1', name: 'Scribe', rank: 'journeyman' }],
+      },
+      {
+        id: 'vault',
+        name: 'Vault Hall',
+        kind: 'private',
+        locked: false,
+        privateEligible: false,
+        captain: null,
+        members: [{ id: 'vault-member-1', name: 'Keeper', rank: 'journeyman' }],
       },
     ],
   }))
@@ -124,14 +146,15 @@ async function setup() {
     opts: {
       stored?: boolean
       dataClass?: 'internal' | 'private'
+      hall?: { id: string; owner: string }
       goal?: string
       /** Where the Quest ends up: `done` (default), or still open after a Handoff. */
       end?: 'done' | 'requeued' | 'awaiting_seal'
     } = {}
   ) => {
     const quest = await post({
-      hallId: 'scribes',
-      ownerId: 'scribes-member-1',
+      hallId: opts.hall?.id ?? 'scribes',
+      ownerId: opts.hall?.owner ?? 'scribes-member-1',
       dataClass: opts.dataClass ?? 'internal',
       doneCondition: 'The brief ships',
     })
@@ -148,7 +171,7 @@ async function setup() {
       openItems: [],
       artifacts: [hash],
     }
-    await handoffs.record(guild, quest.id, 1, 'scribes-member-1', handoff)
+    await handoffs.record(guild, quest.id, 1, opts.hall?.owner ?? 'scribes-member-1', handoff)
     const end = opts.end ?? 'done'
     if (end === 'done') {
       await quests.complete(guild, quest.id, 1)
@@ -293,6 +316,37 @@ describe('request_dossier', () => {
       dossiers: [],
       next: null,
     })
+  })
+
+  const vault = { id: 'vault', owner: 'vault-member-1' }
+
+  test('a work-Hall Quest may not pull a Dossier of a finished Quest in a private Hall', async () => {
+    for (const dataClass of ['internal', 'private'] as const) {
+      const s = await setup()
+      const subject = await s.finished({ hall: vault, dataClass })
+      expect(await s.ask(await s.joined(), subject.quest.id)).toMatchObject({
+        isError: true,
+        data: { error: 'private_boundary' },
+      })
+      expect(await s.dossierStore.list(s.guild, { hallId: 'vault', limit: 10 })).toEqual({
+        dossiers: [],
+        next: null,
+      })
+    }
+  })
+
+  test('a private-class Quest may pull a Dossier of a private Hall Quest', async () => {
+    const s = await setup()
+    const subject = await s.finished({ hall: vault, dataClass: 'private' })
+    const out = await s.ask(await s.joined({ dataClass: 'private' }), subject.quest.id)
+    expect(out).toMatchObject({ status: 200, isError: false })
+  })
+
+  test('a Member in a private Hall may pull a Dossier of a work-Hall Quest', async () => {
+    const s = await setup()
+    const subject = await s.finished()
+    const l = await s.joined({ hallId: 'vault', ownerId: 'vault-member-1' })
+    expect(await s.ask(l, subject.quest.id)).toMatchObject({ status: 200, isError: false })
   })
 
   test('a Quest id that does not exist in this guild is refused unknown_quest', async () => {

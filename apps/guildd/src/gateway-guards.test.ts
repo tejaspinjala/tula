@@ -23,6 +23,7 @@ import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
 import { retireRun } from './retire-run'
+import { gatewayExtras } from './testing/gateway-extras'
 
 const KEY = 'sk-memory-key'
 
@@ -56,6 +57,9 @@ gatewayGuardsContract('memory', async () => {
     gates: gateStore,
   }
   const gateway = new ModelGateway(gatewayDeps)
+  const objectStore = new MemoryObjectStore()
+  const handoffs = new MemoryHandoffStore()
+  const proposalStore = new MemoryProposalStore(clock)
   const mcpDeps = {
     activity: new MemoryActivityLog(),
     quests,
@@ -63,10 +67,19 @@ gatewayGuardsContract('memory', async () => {
     notes: new MemoryNoteStore(),
     missives: new MemoryMissiveStore(),
     inquiries: new MemoryInquiryStore(quests),
-    objectStore: new MemoryObjectStore(),
-    handoffs: new MemoryHandoffStore(),
+    objectStore,
+    handoffs,
     toolsets: new MemoryToolsetStore(),
-    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
+    proposals: new ProposalEngine({ store: proposalStore, config }),
+    ...gatewayExtras({
+      quests,
+      config,
+      handoffs,
+      objectStore,
+      proposals: proposalStore,
+      tripwires,
+      clock,
+    }),
     keys,
     clock,
     tripwires,

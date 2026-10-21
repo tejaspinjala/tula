@@ -19,6 +19,7 @@ import { BugReportService } from '../bug-reports'
 import type { GuildConfig } from '../guild-config'
 import { ProposalEngine } from '../proposals'
 import { QUEST_TEMPLATES } from '../quests'
+import { gatewayExtras } from '../testing/gateway-extras'
 import { callTool } from '../testing/scripted-member'
 import { McpGateway } from './gateway'
 import { roleToolNames } from './tools'
@@ -36,6 +37,7 @@ async function setup() {
   const gates = new MemoryGateStore()
   const tripwires = new MemoryTripwireStore(clock)
   const objectStore = new MemoryObjectStore()
+  const proposalStore = new MemoryProposalStore(clock)
   const guild = crypto.randomUUID()
   await config.seed(guild)
   const gateway = new McpGateway({
@@ -47,7 +49,16 @@ async function setup() {
     objectStore,
     handoffs,
     toolsets: new MemoryToolsetStore(),
-    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
+    proposals: new ProposalEngine({ store: proposalStore, config }),
+    dossiers: gatewayExtras({
+      quests,
+      config,
+      handoffs,
+      objectStore,
+      proposals: proposalStore,
+      tripwires,
+      clock,
+    }).dossiers,
     keys: new MemoryKeyProvider(),
     clock,
     tripwires,

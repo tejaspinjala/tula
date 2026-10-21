@@ -25,6 +25,7 @@ import type { Quest } from '../ports/quest-queue'
 import type { SearchProvider } from '../ports/search-provider'
 import { ProposalEngine } from '../proposals'
 import { Research } from '../research'
+import { gatewayExtras } from '../testing/gateway-extras'
 import { callTool, ScriptedMember } from '../testing/scripted-member'
 import { Treasury } from '../treasury'
 import { McpGateway, type McpGatewayDeps } from './gateway'
@@ -45,6 +46,8 @@ async function setup(overrides: Partial<McpGatewayDeps> & { clock?: MemoryClock 
   const toolsets = new MemoryToolsetStore()
   const guild = crypto.randomUUID()
   await config.seed(guild)
+  const proposalStore = new MemoryProposalStore(clock)
+  const tripwires = new MemoryTripwireStore(clock)
   const deps: McpGatewayDeps = {
     activity: new MemoryActivityLog(),
     quests,
@@ -55,10 +58,19 @@ async function setup(overrides: Partial<McpGatewayDeps> & { clock?: MemoryClock 
     objectStore,
     handoffs,
     toolsets,
-    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
+    proposals: new ProposalEngine({ store: proposalStore, config }),
+    ...gatewayExtras({
+      quests,
+      config,
+      handoffs,
+      objectStore,
+      proposals: proposalStore,
+      tripwires,
+      clock,
+    }),
     keys,
     clock,
-    tripwires: new MemoryTripwireStore(clock),
+    tripwires,
     gates: new MemoryGateStore(),
     retireRun: async () => {},
     ...overrides,
