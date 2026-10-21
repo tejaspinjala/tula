@@ -111,11 +111,21 @@ export interface StartRunDeps {
   /** How long opening the run, leasing and starting the sandbox may take in all before the Quest is released (default 10s). */
   sandboxStartTimeoutMs?: number | undefined
   /** Told of a cleanup that failed after the Quest was given back; ids only, never content. */
-  onError?: ((error: unknown, context: StartRunContext) => void) | undefined
+  onError?: ((error: unknown, context: DispatchErrorContext) => void) | undefined
 }
 
-/** The ids a {@link StartRunDeps.onError} report carries. */
+/** What {@link StartRunDeps.onError} is told of: a worker-start cleanup, or a failed sandbox reap for a guild. */
+export type DispatchErrorContext = StartRunContext | SandboxReapContext
+
+/** A pass that could not list the guild's sandboxes to reap those of locked Halls; the guild id only. */
+export interface SandboxReapContext {
+  kind: 'sandbox_reap'
+  guildId: string
+}
+
+/** The ids a worker-start cleanup report carries. */
 export interface StartRunContext {
+  kind: 'start_cleanup'
   guildId: string
   questId: string
   sandboxId: string
@@ -200,7 +210,12 @@ export async function startRun(
   const release = (reason: string) =>
     deps.quests.fail(guildId, claimed.id, claimed.attempts, reason)
   const sandboxId = `gh-sbx-${crypto.randomUUID()}`
-  const context: StartRunContext = { guildId, questId: claimed.id, sandboxId }
+  const context: StartRunContext = {
+    kind: 'start_cleanup',
+    guildId,
+    questId: claimed.id,
+    sandboxId,
+  }
   const report = (error: unknown) => deps.onError?.(error, context)
   const cleanUp = async () => {
     try {
@@ -361,17 +376,22 @@ async function parkLockedHalls(
   if (halls.length === 0) {
     return
   }
-  const live: Quest[] = []
-  let after: string | undefined
-  do {
-    const page = await deps.quests.list(guildId, {
-      limit: MAX_QUEST_PAGE,
-      state: 'active',
-      ...(after === undefined ? {} : { after }),
-    })
-    live.push(...page.quests.filter((x) => halls.includes(x.hallId)))
-    after = page.next ?? undefined
-  } while (after !== undefined)
+  const inLockedHalls = async (state: 'active' | 'queued'): Promise<Quest[]> => {
+    const found: Quest[] = []
+    let after: string | undefined
+    do {
+      const page = await deps.quests.list(guildId, {
+        limit: MAX_QUEST_PAGE,
+        state,
+        ...(after === undefined ? {} : { after }),
+      })
+      found.push(...page.quests.filter((x) => halls.includes(x.hallId)))
+      after = page.next ?? undefined
+    } while (after !== undefined)
+    return found
+  }
+  const live = await inLockedHalls('active')
+  const queued = await inLockedHalls('queued')
   if (live.length > 0) {
     for (const hall of new Set(live.map((q) => q.hallId))) {
       await deps.gateway.revokeHallRuns(guildId, hall)
@@ -379,27 +399,28 @@ async function parkLockedHalls(
     await deps.quests.releaseLeases(guildId, 'routing_blocked', halls)
   }
   // A lock at the config change already queued the Quests and revoked their runs, so the sandboxes
-  // are found by the guild's sandbox list, whatever state their Quest is in.
+  // are found by the guild's sandbox list, whatever state their Quest is in. With no queued or
+  // active Quest in a locked Hall there is nothing to reap and the list (a `docker ps`) is skipped.
   const doomed = new Set(live.map((q) => q.id))
-  try {
-    for (const sandbox of await deps.sandboxes.list(guildId)) {
-      if (!doomed.has(sandbox.questId)) {
-        const quest = await deps.quests.get(guildId, sandbox.questId)
-        if (quest !== null && halls.includes(quest.hallId)) {
-          doomed.add(quest.id)
+  if (live.length > 0 || queued.length > 0) {
+    const inLocked = new Set([...live, ...queued].map((q) => q.id))
+    try {
+      for (const sandbox of await deps.sandboxes.list(guildId)) {
+        if (inLocked.has(sandbox.questId)) {
+          doomed.add(sandbox.questId)
         }
       }
+    } catch (error) {
+      // Best effort: claims in unlocked Halls go on, and the reap of queued Quests' sandboxes retries next pass.
+      deps.onError?.(error, { kind: 'sandbox_reap', guildId })
     }
-  } catch (error) {
-    // Best effort: claims in unlocked Halls go on, and the reap of queued Quests' sandboxes retries next pass.
-    deps.onError?.(error, { guildId, questId: '', sandboxId: '' })
   }
   for (const questId of doomed) {
     try {
       await deps.sandboxes.kill({ guildId, questId })
     } catch (error) {
       // A kill is by Quest, so there is no sandbox id to name.
-      deps.onError?.(error, { guildId, questId, sandboxId: '' })
+      deps.onError?.(error, { kind: 'start_cleanup', guildId, questId, sandboxId: '' })
     }
   }
 }

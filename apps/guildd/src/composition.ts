@@ -50,7 +50,7 @@ import { type AppDeps, createApp } from './app'
 import { BugReportService } from './bug-reports'
 import { CouncilEngine } from './council'
 import { createDb } from './db/client'
-import { Dispatcher } from './dispatch'
+import { type DispatchErrorContext, Dispatcher } from './dispatch'
 import { DossierService } from './dossiers'
 import {
   loadEnv,
@@ -78,13 +78,15 @@ import { Summon } from './summon'
 import { Treasury } from './treasury'
 import { WorkflowEngine } from './workflows/engine'
 
-/** Logs a worker-start cleanup that failed: ids and the error name only, never content. */
-function reportStartCleanup(
-  error: unknown,
-  context: { guildId: string; questId: string; sandboxId: string }
-): void {
+/** Logs a dispatch failure: a worker-start cleanup or a sandbox reap; ids and the error name only, never content. */
+function reportStartCleanup(error: unknown, context: DispatchErrorContext): void {
+  const event =
+    context.kind === 'sandbox_reap'
+      ? 'dispatch.sandbox_reap_failed'
+      : 'dispatch.start_cleanup_failed'
+  const { kind: _kind, ...ids } = context
   process.stderr.write(
-    `${JSON.stringify({ event: 'dispatch.start_cleanup_failed', ...context, error: error instanceof Error ? error.name : 'unknown' })}\n`
+    `${JSON.stringify({ event, ...ids, error: error instanceof Error ? error.name : 'unknown' })}\n`
   )
 }
 
