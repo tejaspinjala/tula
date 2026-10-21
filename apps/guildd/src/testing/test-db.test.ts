@@ -53,10 +53,10 @@ test('no test or harness code issues create database (only the central setup doe
 test('compose and CI reference the same Postgres image', async () => {
   const image = /image:\s*(postgres:\S+)/
   const compose = await readFile(new URL('../../../../docker-compose.yml', import.meta.url), 'utf8')
-  const ci = await readFile(
-    new URL('../../../../.github/workflows/ci.yml', import.meta.url),
-    'utf8'
-  )
+  const root = new URL('../../../../', import.meta.url).pathname
+  const [ciPath] = await Array.fromAsync(new Bun.Glob('.github/*/ci.yml').scan({ cwd: root }))
+  expect(ciPath).toBeDefined()
+  const ci = await readFile(`${root}${ciPath ?? ''}`, 'utf8')
   const a = image.exec(compose)?.[1]
   const b = image.exec(ci)?.[1]
   expect(a).toBeDefined()

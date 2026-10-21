@@ -20,7 +20,7 @@
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
 
-.workflow-canvas {
+.rite-canvas {
   height: 28rem;
 }
 
@@ -204,7 +204,7 @@
   }
 }
 
-/* Builder and workflow chrome: the paper plate, its titles and the primary and danger buttons. */
+/* Builder and rite chrome: the paper plate, its titles and the primary and danger buttons. */
 .card {
   background: var(--surface);
   border: calc(var(--px) * 2) solid var(--border);

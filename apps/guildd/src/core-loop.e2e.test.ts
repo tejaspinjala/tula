@@ -17,12 +17,12 @@ import { MemoryObjectStore } from './adapters/memory-object-store'
 import { MemoryPostCostReader } from './adapters/memory-post-cost-reader'
 import { MemoryProposalStore } from './adapters/memory-proposal-store'
 import { MemoryQuestQueue } from './adapters/memory-quest-queue'
+import { MemoryRiteStore } from './adapters/memory-rite-store'
 import { MemoryRoutingLog } from './adapters/memory-routing-log'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryToolsetStore } from './adapters/memory-toolset-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
-import { MemoryWorkflowStore } from './adapters/memory-workflow-store'
 import { BugReportService } from './bug-reports'
 import { coreLoopEndToEnd, type E2eWorld, hallsFor } from './core-loop.e2e'
 import { Dispatcher } from './dispatch'
@@ -33,9 +33,9 @@ import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
 import { retireRun } from './retire-run'
+import { RiteEngine } from './rites/engine'
 import { SealEngine } from './seals'
 import { RecordingSandboxRunner } from './testing/recording-sandbox'
-import { WorkflowEngine } from './workflows/engine'
 
 /** The memory adapters wired by hand, as the gateway and MCP suites wire them. */
 async function memoryWorld(): Promise<E2eWorld> {
@@ -142,8 +142,8 @@ async function memoryWorld(): Promise<E2eWorld> {
     sealStore,
     seals,
     proposals,
-    workflows: new WorkflowEngine({
-      store: new MemoryWorkflowStore(clock),
+    rites: new RiteEngine({
+      store: new MemoryRiteStore(clock),
       config,
       quests,
       tripwires,

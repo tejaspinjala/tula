@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { eventText } from './event-text'
 import type { ReplayEvent } from './replay'
+import { RITE_EVENT } from './rites/events'
 
 const ev = (type: string, payload: unknown): ReplayEvent => ({
   seq: 7,
@@ -29,7 +30,7 @@ const cases: Array<[ReplayEvent, string]> = [
   ],
   [ev('gates.barred', {}), 'The Gates were barred'],
   [ev('gates.lifted', {}), 'The Gates were lifted'],
-  [ev('workflow.run_started', {}), 'A workflow run started'],
+  [ev(RITE_EVENT.runStarted, {}), 'A Rite run started'],
   [
     ev('seal.approved', { sealId: 'a40f17b7-2938-4be5-a089-1b35ccd2c004' }),
     'Seal a40f17b7…c004 approved',

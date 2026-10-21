@@ -15,7 +15,7 @@ export const startTeamCampaignInput = z.strictObject({
   hall: z.string().min(1).max(64),
   campaignId: queueQuest.shape.campaignId.unwrap(),
   goal: z.string().trim().min(1).max(1500),
-  /** Quests that must be done before the Captain starts planning (a workflow node after other work). */
+  /** Quests that must be done before the Captain starts planning (a rite node after other work). */
   blockedBy: queueQuest.shape.blockedBy.optional(),
 })
 /** Input to {@link startTeamCampaign}. */

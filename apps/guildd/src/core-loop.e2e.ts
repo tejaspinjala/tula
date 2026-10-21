@@ -15,12 +15,12 @@ import type { PostCostReader } from './ports/post-cost-reader'
 import type { NewQuest, Quest, QuestQueue } from './ports/quest-queue'
 import { SEAL_RESERVATION_MS, type Seal, type SealStore } from './ports/seal-store'
 import type { ProposalEngine } from './proposals'
+import type { RiteEngine } from './rites/engine'
+import type { RiteGraph, RiteNode } from './rites/graph'
 import type { SealEngine } from './seals'
 import type { RecordingSandboxRunner } from './testing/recording-sandbox'
 import { callTool, ScriptedMember } from './testing/scripted-member'
 import type { ContentPolicy } from './verdict'
-import type { WorkflowEngine } from './workflows/engine'
-import type { WorkflowGraph, WorkflowNode } from './workflows/graph'
 
 /** What a guild needs from {@link E2eWorld.newGuild}. */
 export interface GuildOptions {
@@ -62,8 +62,8 @@ export interface E2eWorld {
   sealStore: SealStore
   seals: SealEngine
   proposals: ProposalEngine
-  /** The workflow engine over the same queue, Seals and Proposals. */
-  workflows: WorkflowEngine
+  /** The rite engine over the same queue, Seals and Proposals. */
+  rites: RiteEngine
   dispatcher: Pick<Dispatcher, 'dispatch'>
   gateway: ModelGateway
   mcp: McpGateway
@@ -972,9 +972,9 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       expect(await w.sandboxes.list(guildId)).toEqual([])
     })
 
-    test('a workflow run reaches done through the normal dispatcher, Verdict and Seal; a restart posts nothing twice', async () => {
+    test('a rite run reaches done through the normal dispatcher, Verdict and Seal; a restart posts nothing twice', async () => {
       const w = await make()
-      const engine = w.workflows
+      const engine = w.rites
       const { guildId, masterId } = await w.newGuild()
       await engine.seedTemplates(guildId)
       const run = await engine.run(guildId, 'learning-to-linkedin', { runKey: 'e2e' })
@@ -986,7 +986,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       const questId = run.quests[0]?.questId ?? ''
       const quest = await w.quests.get(guildId, questId)
       if (!quest) {
-        throw new Error('the workflow posted no Quest')
+        throw new Error('the rite posted no Quest')
       }
       expect(quest.campaignId).toBe(run.instance.id)
       expect((await w.quests.list(guildId, { limit: 10 })).quests).toHaveLength(1)
@@ -1021,8 +1021,8 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       ])
     })
 
-    describe('workflow fan-out nodes', () => {
-      const fanGraph = (node: WorkflowNode): WorkflowGraph => ({
+    describe('rite fan-out nodes', () => {
+      const fanGraph = (node: RiteNode): RiteGraph => ({
         nodes: [{ id: 'start', type: 'trigger.manual' }, node],
         edges: [{ from: 'start', to: node.id }],
       })
@@ -1045,20 +1045,20 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         maxUsd: 1,
       })
       /** Saves the graph, confirms it (a fan-out is widening) and runs it. */
-      const runGraph = async (w: E2eWorld, guild: string, graph: WorkflowGraph) => {
-        const saved = await w.workflows.save(guild, 'fanout', { name: 'Fan out', graph })
+      const runGraph = async (w: E2eWorld, guild: string, graph: RiteGraph) => {
+        const saved = await w.rites.save(guild, 'fanout', { name: 'Fan out', graph })
         if (saved.status === 'invalid') {
           throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
         }
-        await w.workflows.confirm(guild, 'fanout', saved.version.version)
-        const run = await w.workflows.run(guild, 'fanout', { runKey: 'e2e' })
+        await w.rites.confirm(guild, 'fanout', saved.version.version)
+        const run = await w.rites.run(guild, 'fanout', { runKey: 'e2e' })
         if (!run.ok) {
           throw new Error(`run refused: ${run.error}`)
         }
         return run
       }
       const nodeOf = async (w: E2eWorld, guild: string, instance: string, id: string) =>
-        (await w.workflows.state(guild, instance))?.nodes.find((n) => n.id === id)
+        (await w.rites.state(guild, instance))?.nodes.find((n) => n.id === id)
       const handleOf = (w: E2eWorld, questId: string) =>
         lease.parse(JSON.parse(w.sandboxes.latest(questId).leaseHandle ?? 'null'))
       const starts = async (w: E2eWorld, guild: string, questId: string) => {

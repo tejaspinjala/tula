@@ -75,6 +75,8 @@ import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
 import type { Research } from './research'
+import type { RiteEngine } from './rites/engine'
+import { mountRiteRoutes } from './rites/routes'
 import type { SealPushRelay } from './seal-push'
 import type { SealEngine } from './seals'
 import { bearerToken, checkSensitive, REAUTH_HEADER } from './sensitive'
@@ -90,8 +92,6 @@ import {
 import type { Summon } from './summon'
 import { startTeamCampaign, startTeamCampaignInput } from './team-campaign'
 import { isGuildMaster, type Treasury } from './treasury'
-import type { WorkflowEngine } from './workflows/engine'
-import { mountWorkflowRoutes } from './workflows/routes'
 import { readBufferedAmount } from './ws-support'
 
 /** Adapters the HTTP app depends on; supplied only by the composition root. */
@@ -126,8 +126,8 @@ export interface AppDeps {
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */
   proposals: ProposalEngine
-  /** Versioned Workflows and their instances; compiles agent nodes to governed Quests, with no authority of its own. */
-  workflows: WorkflowEngine
+  /** Versioned Rites and their instances; compiles agent nodes to governed Quests, with no authority of its own. */
+  rites: RiteEngine
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** The stateless MCP gateway Members call with a lease handle; authorises every call itself. */
@@ -607,15 +607,15 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/guild-master/presence', limited('presence-read'))
   app.post('/guilds/:id/guild-master/away', limited('presence-write'))
   app.post('/guilds/:id/guild-master/return', limited('presence-write'))
-  app.get('/guilds/:id/workflows', limited('workflow-read'))
-  app.get('/guilds/:id/workflows/:wid', limited('workflow-read'))
-  app.get('/guilds/:id/workflows/:wid/versions', limited('workflow-read'))
-  app.get('/guilds/:id/workflows/:wid/runs', limited('workflow-read'))
-  app.get('/guilds/:id/workflows/:wid/runs/:rid', limited('workflow-read'))
-  app.put('/guilds/:id/workflows/:wid', limited('workflow-write'))
-  app.post('/guilds/:id/workflows/:wid/validate', limited('workflow-write'))
-  app.post('/guilds/:id/workflows/:wid/versions/:version/confirm', limited('workflow-write'))
-  app.post('/guilds/:id/workflows/:wid/runs', limited('workflow-run'))
+  app.get('/guilds/:id/rites', limited('rite-read'))
+  app.get('/guilds/:id/rites/:wid', limited('rite-read'))
+  app.get('/guilds/:id/rites/:wid/versions', limited('rite-read'))
+  app.get('/guilds/:id/rites/:wid/runs', limited('rite-read'))
+  app.get('/guilds/:id/rites/:wid/runs/:rid', limited('rite-read'))
+  app.put('/guilds/:id/rites/:wid', limited('rite-write'))
+  app.post('/guilds/:id/rites/:wid/validate', limited('rite-write'))
+  app.post('/guilds/:id/rites/:wid/versions/:version/confirm', limited('rite-write'))
+  app.post('/guilds/:id/rites/:wid/runs', limited('rite-run'))
   app.get('/session', limited('session-check'))
   app.post('/session/logout', limited('session-check'))
   app.post('/session/reauth/begin', limited('reauth'))
@@ -2103,8 +2103,8 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
-  mountWorkflowRoutes(app, {
-    workflows: deps.workflows,
+  mountRiteRoutes(app, {
+    rites: deps.rites,
     identity: deps.identity,
     sessionGuildFor,
     guildMasterSessionFor,

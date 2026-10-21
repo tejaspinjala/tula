@@ -33,6 +33,7 @@ import { PgPushStore } from './adapters/pg-push-store'
 import { PgQuestQueue } from './adapters/pg-quest-queue'
 import { PgRateLimiter } from './adapters/pg-rate-limiter'
 import { PgResearchStore } from './adapters/pg-research-store'
+import { PgRiteStore } from './adapters/pg-rite-store'
 import { PgRoutingLog } from './adapters/pg-routing-log'
 import { PgSealStore } from './adapters/pg-seal-store'
 import { PgSecretStore } from './adapters/pg-secret-store'
@@ -41,7 +42,6 @@ import { PgSuggestionStore } from './adapters/pg-suggestion-store'
 import { PgToolsetStore } from './adapters/pg-toolset-store'
 import { PgTreasuryStore } from './adapters/pg-treasury-store'
 import { PgTripwireStore } from './adapters/pg-tripwire-store'
-import { PgWorkflowStore } from './adapters/pg-workflow-store'
 import { S3ObjectStore } from './adapters/s3-object-store'
 import { SystemClock } from './adapters/system-clock'
 import { WebPushNotifier } from './adapters/web-push-notifier'
@@ -71,12 +71,12 @@ import { ModelGateway } from './model-gateway'
 import { ProposalEngine } from './proposals'
 import { Research } from './research'
 import { retireRun } from './retire-run'
+import { RiteEngine } from './rites/engine'
 import { sandboxRunnerFor } from './sandbox-factory'
 import { createSealPushRelay } from './seal-push'
 import { SealEngine } from './seals'
 import { Summon } from './summon'
 import { Treasury } from './treasury'
-import { WorkflowEngine } from './workflows/engine'
 
 /** Logs a dispatch failure: a worker-start cleanup or a sandbox reap; ids and the error name only, never content. */
 function reportStartCleanup(error: unknown, context: DispatchErrorContext): void {
@@ -181,7 +181,7 @@ export async function compose(
   const proposals =
     overrides.proposals ??
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
-  const workflowStore = new PgWorkflowStore(db, keys, clock)
+  const riteStore = new PgRiteStore(db, keys, clock)
   const handoffs = new PgHandoffStore(db, keys)
   const dossierStore = overrides.dossierStore ?? new PgDossierStore(db, keys)
   const dossiers =
@@ -244,7 +244,7 @@ export async function compose(
       activity,
       toolsets: new PgToolsetStore(db),
       proposals,
-      workflows: workflowStore,
+      rites: riteStore,
       keys,
       clock,
       tripwires,
@@ -305,10 +305,10 @@ export async function compose(
     postCosts: new PgPostCostReader(db),
     secrets,
     proposals,
-    workflows:
-      overrides.workflows ??
-      new WorkflowEngine({
-        store: workflowStore,
+    rites:
+      overrides.rites ??
+      new RiteEngine({
+        store: riteStore,
         config,
         quests,
         tripwires,

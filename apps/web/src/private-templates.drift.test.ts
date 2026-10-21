@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { POSTABLE_TEMPLATES } from '../../guildd/src/quests'
 import { templatesFor } from './assign'
 import { QUEST_TEMPLATES as FORM_TEMPLATES } from './quests'
-import { QUEST_TEMPLATE_CHOICES } from './workflows/templates'
+import { QUEST_TEMPLATE_CHOICES } from './rites/templates'
 
 const privateOnServer = POSTABLE_TEMPLATES.filter((t) => t.dataClass === 'private')
 

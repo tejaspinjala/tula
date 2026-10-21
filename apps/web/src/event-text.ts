@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { shortenId } from './GuildId'
 import type { ReplayEvent } from './replay'
+import { RITE_EVENT } from './rites/events'
 import { formatCents } from './treasury'
 
 const fields = z.record(z.string(), z.unknown())
@@ -124,12 +125,12 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'The Gates were lifted'
     case 'quest.spawned':
       return 'A Sub-Quest was spawned'
-    case 'workflow.run_started':
-      return 'A workflow run started'
-    case 'workflow.version_saved':
-      return 'A workflow version was saved'
-    case 'workflow.version_confirmed':
-      return 'A workflow version was confirmed'
+    case RITE_EVENT.runStarted:
+      return 'A Rite run started'
+    case RITE_EVENT.versionSaved:
+      return 'A Rite version was saved'
+    case RITE_EVENT.versionConfirmed:
+      return 'A Rite version was confirmed'
     case 'guildmaster.away':
       return 'Guild Master went away'
     case 'guildmaster.returned':
