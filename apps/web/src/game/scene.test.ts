@@ -211,3 +211,29 @@ test('a cross-Hall Missive bubble names the sending Hall; one inside a Hall does
       ?.text
   ).toBe('Send the ledger.')
 })
+
+test('every configured Hall gets a room and its idle Members, an unlocked private Hall and a new work Hall included', () => {
+  const halls: SceneRoster['halls'] = [
+    { id: 'health', name: 'Health', kind: 'private', locked: false, captain: null, members: [] },
+    {
+      id: 'scribes',
+      name: 'Scribes Hall',
+      kind: 'work',
+      locked: false,
+      captain: null,
+      members: [{ id: 'sc1', name: 'Scribe', rank: 'member' }],
+    },
+  ]
+  const scene = deriveScene({
+    roster: { steward: { id: 's1', name: 'Steward' }, halls },
+    quests: [],
+    events: [],
+    upTo: null,
+  })
+  expect(scene.rooms.map((r) => [r.hallId, r.name, r.locked])).toEqual([
+    ['health', 'Health', false],
+    ['scribes', 'Scribes Hall', false],
+  ])
+  expect(scene.members.sc1).toMatchObject({ hallId: 'scribes', status: 'idle' })
+  expect(scene.rooms[1]?.memberIds).toEqual(['sc1'])
+})

@@ -406,7 +406,9 @@ export function GamePanel({
           <PixelButton onClick={() => dispatchTalk({ type: 'interact' })}>
             {talk.near.kind === 'sealDesk'
               ? 'Open the Seal desk (E)'
-              : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+              : talk.near.kind === 'mailbox'
+                ? 'Open the mailbox (E)'
+                : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
           </PixelButton>
         )}
       </p>

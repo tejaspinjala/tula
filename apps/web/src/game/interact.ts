@@ -1,7 +1,10 @@
 import type { Vec } from './walk'
 
-/** Something the Guild Master can talk to: a Member, or the Seal desk. */
-export type Target = { kind: 'member'; id: string } | { kind: 'sealDesk' }
+/** Something the Guild Master can talk to: a Member, the Seal desk, or a Hall's mailbox. */
+export type Target =
+  | { kind: 'member'; id: string }
+  | { kind: 'sealDesk' }
+  | { kind: 'mailbox'; hallId: string }
 
 /** What the interaction knows: who is in reach, what is open, and which form shows. */
 export interface TalkState {
@@ -35,6 +38,9 @@ export function sameTarget(a: Target | null, b: Target | null): boolean {
   }
   if (a.kind === 'member' && b.kind === 'member') {
     return a.id === b.id
+  }
+  if (a.kind === 'mailbox' && b.kind === 'mailbox') {
+    return a.hallId === b.hallId
   }
   return a.kind === b.kind
 }

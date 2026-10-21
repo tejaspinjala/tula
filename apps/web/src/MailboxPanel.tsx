@@ -142,7 +142,13 @@ export function MailboxPanel({ session }: { session: Session | null }) {
     loadRoster(session, fetch)
       .then((loaded) => {
         setRoster(loaded)
-        setHallId((current) => current || (loaded.halls.find((h) => !h.locked)?.id ?? ''))
+        const asked = new URLSearchParams(window.location.search).get('hall')
+        setHallId(
+          (current) =>
+            current ||
+            loaded.halls.find((h) => !h.locked && h.id === asked)?.id ||
+            (loaded.halls.find((h) => !h.locked)?.id ?? '')
+        )
       })
       .catch(() => setFailed(true))
   }, [session])
@@ -260,30 +266,11 @@ export function MailboxPanel({ session }: { session: Session | null }) {
   })
 
   const halls = roster?.halls.filter((h) => !h.locked) ?? []
+  const opened = rows.find((row) => row.id === openId) ?? null
   return (
     <WorkSection id="mailbox" title="Mailbox">
       {!session && <p>Sign in with a passkey to open the Mailbox.</p>}
       {failed && <p role="alert">The mailbox could not be read.</p>}
-      {session && halls.length > 0 && (
-        <div className="mt-4">
-          <label htmlFor="mailbox-hall">Hall</label>{' '}
-          <select
-            id="mailbox-hall"
-            name="mailbox-hall"
-            value={hallId}
-            onChange={(e) => {
-              setHallId(e.target.value)
-              setOpenId(null)
-            }}
-          >
-            {halls.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
       {session && (
         <div role="tablist" aria-label="Mailbox" className="mt-4 flex flex-wrap gap-2">
           {TABS.map((t) => (
@@ -298,51 +285,81 @@ export function MailboxPanel({ session }: { session: Session | null }) {
           ))}
         </div>
       )}
-      {session && tab === 'bugs' && (
-        <div className="mt-4">
-          <label htmlFor="mailbox-status">Status</label>{' '}
-          <select
-            id="mailbox-status"
-            name="mailbox-status"
-            value={status}
-            onChange={(e) => {
-              const picked = e.target.value
-              setStatus(
-                picked === 'open' || picked === 'duplicate' || picked === 'fixed' ? picked : ''
-              )
-            }}
-          >
-            <option value="">All</option>
-            <option value="open">Open</option>
-            <option value="duplicate">Duplicate</option>
-            <option value="fixed">Fixed</option>
-          </select>
+      {session && (halls.length > 0 || tab === 'bugs') && (
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          {halls.length > 0 && (
+            <label htmlFor="mailbox-hall" className="flex items-center gap-2">
+              Hall
+              <select
+                id="mailbox-hall"
+                name="mailbox-hall"
+                value={hallId}
+                onChange={(e) => {
+                  setHallId(e.target.value)
+                  setOpenId(null)
+                }}
+              >
+                {halls.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {tab === 'bugs' && (
+            <label htmlFor="mailbox-status" className="flex items-center gap-2">
+              Status
+              <select
+                id="mailbox-status"
+                name="mailbox-status"
+                value={status}
+                onChange={(e) => {
+                  const picked = e.target.value
+                  setStatus(
+                    picked === 'open' || picked === 'duplicate' || picked === 'fixed' ? picked : ''
+                  )
+                }}
+              >
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="duplicate">Duplicate</option>
+                <option value="fixed">Fixed</option>
+              </select>
+            </label>
+          )}
         </div>
       )}
       {session && rows.length === 0 && !failed && (
         <p className="muted mt-4">Nothing in this part of the mailbox yet.</p>
       )}
-      {rows.length > 0 && (
-        <ul aria-label={TABS.find((t) => t.id === tab)?.label} className="mt-4 flex flex-col gap-2">
-          {rows.map((row) => (
-            <li key={row.id} data-testid="mail-row">
-              <Badge tone={row.chip.tone}>{row.chip.text}</Badge> {row.title}{' '}
-              <PixelButton
-                aria-expanded={openId === row.id}
-                onClick={() => setOpenId(openId === row.id ? null : row.id)}
-              >
-                {openId === row.id ? 'Close' : 'Open'}
-              </PixelButton>
-              {openId === row.id && (
-                <div data-testid="mail-detail" className="mt-2">
-                  {row.detail}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+      {opened !== null ? (
+        <section aria-label="Mail" data-testid="mail-detail" className="work-note mt-4">
+          <h3>
+            <Badge tone={opened.chip.tone}>{opened.chip.text}</Badge> {opened.title}
+          </h3>
+          {opened.detail}
+          <PixelButton className="mt-2" onClick={() => setOpenId(null)}>
+            Back to the list
+          </PixelButton>
+        </section>
+      ) : (
+        rows.length > 0 && (
+          <ul
+            aria-label={TABS.find((t) => t.id === tab)?.label}
+            className="mt-4 flex flex-col gap-2"
+          >
+            {rows.map((row) => (
+              <li key={row.id} data-testid="mail-row" className="flex flex-wrap items-center gap-2">
+                <Badge tone={row.chip.tone}>{row.chip.text}</Badge>
+                <span className="flex-1">{row.title}</span>
+                <PixelButton onClick={() => setOpenId(row.id)}>Open</PixelButton>
+              </li>
+            ))}
+          </ul>
+        )
       )}
-      {next !== null && (
+      {next !== null && opened === null && (
         <PixelButton className="mt-4" onClick={older}>
           Load older
         </PixelButton>

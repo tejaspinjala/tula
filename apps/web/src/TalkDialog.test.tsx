@@ -242,6 +242,17 @@ test('the Seal desk dialog lists waiting Seals and Review Seal opens the Seal in
   await run.unmount()
 })
 
+test('a Hall mailbox dialog names the Hall and Open Mailbox opens the Mailbox on that Hall', async () => {
+  const run = await show({ kind: 'mailbox', hallId: 'heralds' })
+  const dialog = run.host.querySelector('dialog')
+  expect(dialog?.open).toBe(true)
+  expect(dialog?.textContent).toContain('Heralds')
+  expect(await violations(run.host)).toEqual([])
+  await click(run.host, 'Open Mailbox')
+  expect(run.paths).toEqual(['/mailbox?hall=heralds'])
+  await run.unmount()
+})
+
 const exchange = {
   missives: [
     {

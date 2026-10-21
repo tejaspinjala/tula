@@ -91,6 +91,15 @@
   box-shadow: none;
 }
 
+/* A selected tab or pressed toggle sits down and keeps an ink inset, so it never relies on colour. */
+.px-btn[aria-selected="true"],
+.px-btn[aria-pressed="true"] {
+  background: var(--px-wood-100);
+  color: var(--px-on-hover);
+  transform: translateY(calc(var(--px) * 2));
+  box-shadow: inset 0 calc(var(--px) * 2) 0 var(--px-wood-500);
+}
+
 .px-btn:disabled {
   position: relative;
   cursor: not-allowed;
