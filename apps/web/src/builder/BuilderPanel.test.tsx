@@ -57,6 +57,7 @@ const quest = (id: string, hallId: string, state: string) => ({
 
 interface Put {
   body: {
+    baseVersion?: number
     config: {
       halls: {
         id: string
@@ -78,15 +79,16 @@ function world(
   const urls: string[] = []
   const puts: Put[] = []
   let proofHeader: string | null = null
+  const state = { version: 1, put }
   const fetcher = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     urls.push(`${method} ${url}`)
     if (url === cfg && method === 'PUT') {
       puts.push({ body: JSON.parse(String(init?.body)) })
-      return Response.json(put.body, { status: put.status })
+      return Response.json(state.put.body, { status: state.put.status })
     }
     if (url === cfg) {
-      return Response.json({ version: 1, config: document })
+      return Response.json({ version: state.version, config: document })
     }
     if (url.startsWith(`${cfg}/versions?`)) {
       return Response.json({
@@ -142,7 +144,7 @@ function world(
     return Response.json({}, { status: 404 })
   }
   const browser = { create: async () => ({}), get: async () => ({ signed: 'abc' }) }
-  return { urls, puts, fetcher, browser, proof: () => proofHeader }
+  return { urls, puts, state, fetcher, browser, proof: () => proofHeader }
 }
 
 async function mount(w: ReturnType<typeof world>, desktop: boolean) {
@@ -382,4 +384,37 @@ test('unlocking a private Hall shows where its private text goes; a work Hall sh
   )
   await click(host, 'Heralds Hall')
   expect(host.textContent).not.toContain('Where private text goes')
+})
+
+test('the Builder save sends the config version it loaded', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.baseVersion).toBe(1)
+})
+
+test('a save made stale by a concurrent change says the config changed and to reload', async () => {
+  const w = world({ status: 409, body: { error: 'stale' } })
+  const host = await mount(w, true)
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(host.textContent).toContain('The config changed since you loaded it.')
+})
+
+test('after a stale refusal, Reload fetches the latest version and the next Save succeeds against it', async () => {
+  const w = world({ status: 409, body: { error: 'stale' } })
+  const host = await mount(w, true)
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(host.textContent).toContain('your unsaved edits will be dropped')
+  expect(host.textContent).toContain('Unsaved changes')
+  w.state.version = 2
+  w.state.put = { status: 200, body: { version: 3, status: 'applied', change: 'neutral' } }
+  await click(host, 'Reload')
+  expect(host.textContent).not.toContain('Unsaved changes')
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(w.puts.at(-1)?.body.baseVersion).toBe(2)
+  expect(host.textContent).toContain('Saved as version 3')
 })
