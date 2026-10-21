@@ -434,6 +434,38 @@ describe('Inquiries through the MCP gateway', () => {
     ).toMatchObject({ isError: false, data: { status: 'open' } })
   })
 
+  test('a private Hall Inquiry is read only from a private Hall or a private-class Quest', async () => {
+    const s = await setup()
+    const privateAsker = await s.joined('heralds', 'heralds-captain', { dataClass: 'private' })
+    const out = await s.ask(privateAsker.lease, 'vault', 'secret question')
+    const { inquiryId, answerQuestId } = askedBody.parse(out.data)
+    const answerer = await s.claimAnswerQuest(answerQuestId)
+    await callTool(s.transport, 'answer_inquiry', {
+      lease: answerer.lease,
+      inquiryId,
+      answer: 'secret answer',
+    })
+    expect(
+      await callTool(s.transport, 'read_inquiry', { lease: privateAsker.lease, inquiryId })
+    ).toMatchObject({ isError: false, data: { status: 'answered' } })
+    const publicB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'public' })
+    expect(
+      await callTool(s.transport, 'read_inquiry', { lease: publicB.lease, inquiryId })
+    ).toMatchObject({ isError: true, data: { error: 'not_found' } })
+    const internalB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'internal' })
+    expect(
+      await callTool(s.transport, 'read_inquiry', { lease: internalB.lease, inquiryId })
+    ).toMatchObject({ isError: true, data: { error: 'not_found' } })
+    const privateB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'private' })
+    expect(
+      await callTool(s.transport, 'read_inquiry', { lease: privateB.lease, inquiryId })
+    ).toMatchObject({ isError: false, data: { status: 'answered' } })
+    const vaultMember = await s.joined('vault', 'vault-captain')
+    expect(
+      await callTool(s.transport, 'read_inquiry', { lease: vaultMember.lease, inquiryId })
+    ).toMatchObject({ isError: false, data: { status: 'answered' } })
+  })
+
   test('an apprentice is not offered ask_hall; Bar the Gates refuses all three tools', async () => {
     const s = await setup()
     const apprentice = await s.joined('heralds', 'heralds-member-1', { rank: 'apprentice' })
