@@ -12,6 +12,7 @@ import {
 import { shortenId } from './GuildId'
 import type { Session } from './passkeys'
 import { loadPresence } from './presence'
+import { formatCents } from './treasury'
 import { Frame, PixelButton } from './ui/pixel'
 
 /** Props of {@link AwayScroll}. */
@@ -193,6 +194,9 @@ export function AwayScroll({ session, onOpenCouncil }: AwayScrollProps) {
                 />
               ))}
             </ul>
+          )}
+          {page !== null && page.spendTotalCents > 0 && (
+            <p>Treasury spend in all: {formatCents(page.spendTotalCents)}</p>
           )}
           {page?.next != null && (
             <PixelButton className="mt-4" onClick={more}>

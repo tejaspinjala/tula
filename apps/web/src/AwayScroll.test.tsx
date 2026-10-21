@@ -44,7 +44,12 @@ beforeAll(() => {
     async (url: string | URL | Request) => {
       const path = String(url)
       if (path.includes('/away-digest')) {
-        return Response.json({ window: window_, entries: window_ ? entries : [], next: null })
+        return Response.json({
+          window: window_,
+          entries: window_ ? entries : [],
+          next: null,
+          spendTotalCents: 320,
+        })
       }
       return Response.json(
         away ? { away: true, since: SINCE, until: null } : { away: false, since: null, until: null }
@@ -84,6 +89,7 @@ test('opens once on load for a window that ended unseen, listing what happened',
   expect(first.host.textContent).toContain('While you were away')
   expect(first.host.textContent).toContain('blocked')
   expect(first.host.querySelectorAll('li')).toHaveLength(2)
+  expect(first.host.textContent).toContain('Treasury spend in all: $3.20')
   await first.unmount()
   const again = await mount()
   expect(again.dialog()?.open ?? false).toBe(false)

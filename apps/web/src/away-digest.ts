@@ -24,6 +24,7 @@ const pageBody = z.object({
     .nullable(),
   entries: z.array(entryBody),
   next: z.number().nullable(),
+  spendTotalCents: z.number(),
 })
 
 /** One line of the scroll. */
@@ -103,6 +104,8 @@ export function digestLine(entry: DigestEntry): string {
       return 'The Council approved a routine Proposal in place of a Seal.'
     case 'escalated':
       return `The Council sent a Proposal to your Seal desk${entry.reason ? `: ${entry.reason}` : ''}.`
+    case 'council_halted':
+      return 'Bar the Gates stopped a Council session; the Quest stays Awaiting Seal.'
     case 'seal_waiting':
       return 'A Seal is still waiting for you.'
     case 'quest_done':

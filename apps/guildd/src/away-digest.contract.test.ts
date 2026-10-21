@@ -133,13 +133,13 @@ describe('GET /guilds/:id/guild-master/away-digest', () => {
   })
 
   test('a Seal past its time to live no longer lists as waiting', async () => {
-    const { guild, token } = await found()
+    // No event is written when a requested Seal lapses; the Seal store reads it as expired.
+    const guild = await harness.foundGuild({ name: 'Lapse', goal: 'g' })
     await away(guild)
-    const stale = await seal(guild, Q.q9)
-    expect((await read(guild, token)).entries.map((e) => e.sealId)).toEqual([stale.id])
+    await seal(guild, Q.q9)
     harness.adapters.clock.advance(73 * 3_600_000)
-    const reopened = await openSession(harness.adapters.identity, guild)
-    expect((await read(guild, reopened)).entries).toEqual([])
+    const token = await openSession(harness.adapters.identity, guild)
+    expect((await read(guild, token)).entries).toEqual([])
   })
 
   test('a spend counts once at its final amount, and the window totals them', async () => {

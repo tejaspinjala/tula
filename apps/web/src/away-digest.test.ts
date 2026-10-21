@@ -41,6 +41,7 @@ test('loadAwayDigest reads a page with the session token and a cursor', async ()
       window: { since: '2026-03-01T08:00:00.000Z', until: null, open: true },
       entries: [entry],
       next: 9,
+      spendTotalCents: 320,
     })
   }
   const page = await loadAwayDigest(session, fetcher, { after: 4, limit: 20 })
@@ -49,6 +50,7 @@ test('loadAwayDigest reads a page with the session token and a cursor', async ()
   ])
   expect(page.entries[0]?.questId).toBe('q1')
   expect(page.next).toBe(9)
+  expect(page.spendTotalCents).toBe(320)
 })
 
 test('loadAwayDigest refuses a malformed body and surfaces a refusal', async () => {
@@ -102,6 +104,7 @@ test('digestLine says each kind in words, with the reason and the amount', () =>
   expect(digestLine({ ...entry, kind: 'council_approved' })).toContain('Council approved')
   expect(digestLine({ ...entry, kind: 'escalated', reason: 'blocked' })).toContain('blocked')
   expect(digestLine({ ...entry, kind: 'seal_waiting', sealId: 's1' })).toContain('waiting')
+  expect(digestLine({ ...entry, kind: 'council_halted' })).toContain('Bar the Gates')
   expect(digestLine(entry)).toContain('done')
   expect(digestLine({ ...entry, kind: 'spend', amountCents: 250, status: 'approved' })).toContain(
     '$2.50'

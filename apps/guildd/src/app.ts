@@ -1754,7 +1754,12 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'invalid_page' }, 400)
     }
     return c.json(
-      await deps.db.withGuild(who.guild, (tx) => awayDigest(tx, page.data, deps.clock.now()))
+      await deps.db.withGuild(who.guild, (tx) =>
+        awayDigest(tx, page.data, deps.clock.now(), async (sealId) => {
+          const seal = await deps.sealStore.get(who.guild, sealId)
+          return seal?.status === 'requested'
+        })
+      )
     )
   })
 

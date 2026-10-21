@@ -5,7 +5,13 @@ import type { TenantTx } from './db/client'
 export const MAX_DIGEST_PAGE = 100
 
 /** What happened while the Guild Master was away. */
-export type DigestKind = 'council_approved' | 'escalated' | 'seal_waiting' | 'quest_done' | 'spend'
+export type DigestKind =
+  | 'council_approved'
+  | 'escalated'
+  | 'council_halted'
+  | 'seal_waiting'
+  | 'quest_done'
+  | 'spend'
 
 /** One line of the "While you were away" scroll. Ids and small facts only. */
 export interface DigestEntry {
@@ -37,6 +43,8 @@ export interface DigestPage {
   window: DigestWindow | null
   entries: DigestEntry[]
   next: number | null
+  /** Cents the window's spends came to: each spend once, at its final amount, if reserved or settled. */
+  spendTotalCents: number
 }
 
 const awayPayload = z.object({
@@ -55,6 +63,7 @@ const entryPayload = z.object({
 const KINDS: Record<string, DigestKind> = {
   'council.approved': 'council_approved',
   'council.escalated': 'escalated',
+  'council.halted': 'council_halted',
   'seal.requested': 'seal_waiting',
   'quest.done': 'quest_done',
   'treasury.spend': 'spend',
@@ -82,13 +91,14 @@ function instant(value: string | null | undefined): number | null {
 export async function awayDigest(
   tx: TenantTx,
   page: { after: number; limit: number },
-  now: Date
+  now: Date,
+  sealWaiting: (sealId: string) => Promise<boolean>
 ): Promise<DigestPage> {
   const [latest] = await tx`
     select seq, payload, occurred_at from events
     where type = 'guildmaster.away' order by seq desc limit 1`
   if (!latest) {
-    return { window: null, entries: [], next: null }
+    return { window: null, entries: [], next: null, spendTotalCents: 0 }
   }
   const away = awayPayload.parse(latest.payload)
   const awaySeq = Number(latest.seq)
@@ -116,12 +126,31 @@ export async function awayDigest(
     where e.seq > ${Math.max(startSeq, page.after)} and e.seq < ${endSeq}
       and e.occurred_at <= ${endIso}
       and e.type in ${tx(Object.keys(KINDS))}
+      and not (e.type = 'quest.done' and exists (
+        select 1 from events a
+        where a.type = 'council.approved' and a.seq > ${startSeq} and a.seq < ${endSeq}
+          and a.payload->>'questId' = e.payload->>'questId'))
+      and not (e.type = 'treasury.spend' and exists (
+        select 1 from events n
+        where n.type = 'treasury.spend' and n.seq > e.seq and n.seq < ${endSeq}
+          and n.occurred_at <= ${endIso}
+          and n.payload->>'spendId' = e.payload->>'spendId'))
       and not (e.type = 'seal.requested' and exists (
         select 1 from events r
         where r.seq > e.seq and r.type in ${tx([...SEAL_ENDS])}
           and r.payload->>'sealId' = e.payload->>'sealId'))
     order by e.seq limit ${page.limit + 1}`
-  const entries = rows.slice(0, page.limit).flatMap((row): DigestEntry[] => {
+  const [spent] = await tx`
+    select coalesce(sum((e.payload->>'amountCents')::bigint), 0) as cents from events e
+    where e.type = 'treasury.spend' and e.seq > ${startSeq} and e.seq < ${endSeq}
+      and e.occurred_at <= ${endIso}
+      and e.payload->>'status' in ('reserved', 'settled')
+      and not exists (
+        select 1 from events n
+        where n.type = 'treasury.spend' and n.seq > e.seq and n.seq < ${endSeq}
+          and n.occurred_at <= ${endIso}
+          and n.payload->>'spendId' = e.payload->>'spendId')`
+  const mapped = rows.slice(0, page.limit).flatMap((row): DigestEntry[] => {
     const kind = KINDS[String(row.type)]
     const p = entryPayload.safeParse(row.payload)
     if (!kind || !p.success) {
@@ -141,9 +170,17 @@ export async function awayDigest(
       },
     ]
   })
+  // A Seal that lapsed or was decided without an event no longer waits: the Seal store has the last word.
+  const live = await Promise.all(
+    mapped.map(
+      async (e) => e.kind !== 'seal_waiting' || (e.sealId !== null && (await sealWaiting(e.sealId)))
+    )
+  )
+  const entries = mapped.filter((_, i) => live[i])
   return {
     window: { since, until: open ? null : endIso, open },
     entries,
+    spendTotalCents: Number(spent?.cents ?? 0),
     next: rows.length > page.limit ? Number(rows[page.limit - 1]?.seq) || null : null,
   }
 }
