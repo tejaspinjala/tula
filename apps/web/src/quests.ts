@@ -223,7 +223,25 @@ export async function postQuest(
   return { ...questBody.parse(data), parentId: null }
 }
 
-/** Why a queued Quest is waiting; null unless routing is holding it. */
-export function waitingReason(_quest: BoardQuest): string | null {
-  return null
+const WAITING_TEXT: Record<NonNullable<BoardQuest['blockReason']>, string> = {
+  hall_not_found: 'Waiting: Hall not found',
+  hall_locked: 'Waiting: Hall locked',
+  private_provider_unavailable: 'Waiting: no private-eligible provider',
+  budget_exhausted: 'Waiting: daily budget used up',
+  no_provider_available: 'Waiting: no provider available',
+}
+
+/** Why a queued Quest is waiting, from the routing log's latest block; null unless routing is holding it. */
+export function waitingReason(quest: BoardQuest): string | null {
+  if (quest.state !== 'queued' || quest.lastError !== 'routing_blocked') {
+    return null
+  }
+  return quest.blockReason === null
+    ? 'Waiting: routing is blocked'
+    : WAITING_TEXT[quest.blockReason]
+}
+
+/** Whether a Quest carries private text (its data class is private). */
+export function isPrivateQuest(quest: BoardQuest): boolean {
+  return quest.dataClass === 'private'
 }

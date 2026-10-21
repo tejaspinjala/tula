@@ -1,5 +1,5 @@
 /** A status tone; each one pairs a colour with an icon and words, so colour never carries meaning alone. */
-export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral'
+export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral' | 'private'
 
 const ICONS: Record<Tone, string> = {
   ok: '✓',
@@ -7,6 +7,7 @@ const ICONS: Record<Tone, string> = {
   danger: '✕',
   info: '●',
   neutral: '○',
+  private: '◆',
 }
 
 /** The Seal states the inbox shows, as a tone. */

@@ -1096,6 +1096,51 @@ export class HallScene extends Phaser.Scene {
             .setDepth(10)
         )
       }
+      if (tag && tag.warmth > 0) {
+        // A lived-in private room: warm lamplight over the floor, a worn rug and a small lamp.
+        add(
+          this.add
+            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0xf2c14e, tag.warmth)
+            .setOrigin(0, 0)
+            .setDepth(9)
+        )
+        add(
+          this.add
+            .rectangle(
+              (room.x + room.w / 2) * s,
+              (room.y + room.h - 3) * s,
+              Math.max(2, room.w - 4) * s,
+              2 * s,
+              0x8e4a8a,
+              0.35
+            )
+            .setStrokeStyle(1, 0x5a3a22)
+            .setDepth(2)
+        )
+        add(
+          this.add
+            .rectangle((room.x + 1) * s + 8, (room.y + 2) * s + 8, 6, 8, 0xf2c14e, 1)
+            .setStrokeStyle(1, 0x5a3a22)
+            .setDepth(4)
+        )
+      }
+      if (tag?.privateMark) {
+        // The privacy mark: a small padlock at the room's top right corner.
+        const mx = (room.x + room.w) * s - 14
+        const my = room.y * s + 4
+        add(
+          this.add
+            .rectangle(mx + 4, my + 2, 6, 5, 0x2b1d14, 0)
+            .setStrokeStyle(2, 0x2b1d14)
+            .setDepth(12)
+        )
+        add(
+          this.add
+            .rectangle(mx + 4, my + 8, 10, 7, 0xf2c14e, 1)
+            .setStrokeStyle(1, 0x2b1d14)
+            .setDepth(12)
+        )
+      }
       if (tag) {
         add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))
       }

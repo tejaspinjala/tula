@@ -44,6 +44,8 @@
   --info-fg: var(--px-sky-700);
   --neutral-bg: var(--px-paper);
   --neutral-fg: var(--px-text);
+  --private-bg: var(--px-paper-200);
+  --private-fg: var(--px-berry-500);
 }
 
 /* Anything scrolled into view (a focused control, a tapped link) clears the sticky header and the phone tab bar. */
@@ -506,6 +508,11 @@ thead th {
 .badge-info {
   background: var(--info-bg);
   color: var(--info-fg);
+}
+
+.badge-private {
+  background: var(--private-bg);
+  color: var(--private-fg);
 }
 
 .badge-neutral {

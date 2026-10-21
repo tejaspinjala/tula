@@ -229,8 +229,8 @@ export function roomTags(
       text: text.slice(0, 22),
       veil: hall.locked ? 0.6 : hall.paused ? 0.35 : 0,
       closed: hall.locked,
-      privateMark: false,
-      warmth: 0,
+      privateMark: hall.kind === 'private' && !hall.locked,
+      warmth: hall.kind === 'private' && !hall.locked ? 0.18 : 0,
     }
   })
 }
