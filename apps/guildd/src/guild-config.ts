@@ -347,6 +347,17 @@ export const guildConfig = z
     contentPolicy: contentPolicy.optional(),
   })
   .superRefine((config, ctx) => {
+    const seen = new Set<string>()
+    config.providers.forEach((p, i) => {
+      if (seen.has(p.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['providers', i, 'id'],
+          message: 'duplicate_provider: each provider id may appear once',
+        })
+      }
+      seen.add(p.id)
+    })
     if (config.sealPolicy === 'autonomous') {
       ctx.addIssue({
         code: 'custom',
@@ -407,6 +418,25 @@ export function parseStoredConfig(
   if (typeof raw === 'object' && raw !== null && Reflect.get(raw, 'sealPolicy') === 'autonomous') {
     warn('stored guild config has sealPolicy autonomous, read as always')
     return parseStoredConfig({ ...raw, sealPolicy: 'always' }, warn)
+  }
+  // Duplicate provider ids are refused on write but may sit in older rows: keep the first of
+  // each id rather than bricking the guild's config.
+  const providers = typeof raw === 'object' && raw !== null ? Reflect.get(raw, 'providers') : null
+  if (typeof raw === 'object' && raw !== null && Array.isArray(providers)) {
+    const seen = new Set<unknown>()
+    const kept = providers.filter((p) => {
+      const id: unknown = typeof p === 'object' && p !== null ? Reflect.get(p, 'id') : undefined
+      if (typeof id !== 'string') {
+        return true
+      }
+      const fresh = !seen.has(id)
+      seen.add(id)
+      return fresh
+    })
+    if (kept.length !== providers.length) {
+      warn('stored guild config has duplicate provider ids, later duplicates ignored')
+      return parseStoredConfig({ ...raw, providers: kept }, warn)
+    }
   }
   const strict = guildConfig.safeParse(raw)
   if (strict.success) {
@@ -509,6 +539,28 @@ function subsetOf<T extends { id: string }>(prev: readonly T[], next: readonly T
   return next.every((n) => {
     const p = before.get(n.id)
     return p !== undefined && same(p, n)
+  })
+}
+
+type Provider = GuildConfig['providers'][number]
+
+/**
+ * Every provider of `next` is in `prev` unchanged, or differs only by private eligibility going
+ * off (ADR-0012: turning it off narrows where private text may go, so it applies at once).
+ */
+function providersNoWider(prev: readonly Provider[], next: readonly Provider[]): boolean {
+  const unique = (list: readonly Provider[]) => new Set(list.map((p) => p.id)).size === list.length
+  if (!unique(prev) || !unique(next)) {
+    return false
+  }
+  const before = new Map(prev.map((p) => [p.id, p]))
+  return next.every((n) => {
+    const p = before.get(n.id)
+    return (
+      p !== undefined &&
+      (!n.privateEligible || p.privateEligible) &&
+      same({ ...p, privateEligible: false }, { ...n, privateEligible: false })
+    )
   })
 }
 
@@ -626,7 +678,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
       'maxCouncilApprovalsPerDay',
       'maxCouncilSessionsPerDay',
     ]) &&
-    subsetOf(prev.providers, next.providers) &&
+    providersNoWider(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
     learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&

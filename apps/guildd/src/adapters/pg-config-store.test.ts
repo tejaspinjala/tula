@@ -39,6 +39,32 @@ describe('stored autonomous Seal Policy', () => {
   })
 })
 
+describe('stored duplicate provider ids', () => {
+  test('a row written before the refusal still reads, deduplicated', async () => {
+    const store = new PgConfigStore(db, new MemoryKeyProvider())
+    const guild = await foundTestGuild(db, { name: 'Dups', goal: 'g' })
+    await store.seed(guild)
+    await db.withGuild(guild, async (tx) => {
+      const doc = tx.json(
+        JSON.parse(
+          JSON.stringify({
+            ...defaultConfig(),
+            providers: [
+              { id: 'home', auth: 'api_key', privateEligible: false },
+              { id: 'home', auth: 'api_key', privateEligible: true },
+            ],
+          })
+        )
+      )
+      await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
+        values (${guild}, 2, 'applied', 'change', 'widening', 1, ${doc})`
+    })
+    expect((await store.current(guild)).config.providers).toEqual([
+      { id: 'home', auth: 'api_key', privateEligible: false },
+    ])
+  })
+})
+
 describe('config status guard', () => {
   async function guildWithPending() {
     const store = new PgConfigStore(db, new MemoryKeyProvider())

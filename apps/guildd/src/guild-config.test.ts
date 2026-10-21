@@ -98,6 +98,31 @@ describe('seeded guild config', () => {
   })
 })
 
+describe('provider ids', () => {
+  test('a config naming the same provider id twice is refused', () => {
+    const dup = {
+      ...defaultConfig(),
+      providers: [
+        { id: 'home', auth: 'api_key' as const, privateEligible: false },
+        { id: 'home', auth: 'subscription' as const, privateEligible: true },
+      ],
+    }
+    expect(guildConfig.safeParse(dup).success).toBe(false)
+  })
+  test('a stored config with duplicate provider ids is never judged no wider', () => {
+    const a = { id: 'home', auth: 'api_key' as const }
+    const stored = {
+      ...defaultConfig(),
+      providers: [
+        { ...a, privateEligible: false },
+        { ...a, privateEligible: true },
+      ],
+    }
+    const next = { ...defaultConfig(), providers: [{ ...a, privateEligible: true }] }
+    expect(classifyChange(stored, next)).toBe('widening')
+  })
+})
+
 describe('classifyChange', () => {
   const base = defaultConfig()
   test('identical is neutral', () => {
@@ -255,11 +280,20 @@ describe('classifyChange', () => {
     expect(classifyChange(withCap(5), withCap(undefined))).toBe('tightening')
     expect(classifyChange(withCap(4), withCap(undefined))).toBe('tightening')
   })
-  test('flipping a provider privateEligible either way is widening', () => {
+  test('turning a provider privateEligible on is widening and turning it off is tightening', () => {
     const off = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: false }]
     const on = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: true }]
     expect(classifyChange({ ...base, providers: off }, { ...base, providers: on })).toBe('widening')
-    expect(classifyChange({ ...base, providers: on }, { ...base, providers: off })).toBe('widening')
+    expect(classifyChange({ ...base, providers: on }, { ...base, providers: off })).toBe(
+      'tightening'
+    )
+  })
+  test('turning private eligibility off while changing the auth path stays widening', () => {
+    const on = [{ id: 'anthropic', auth: 'api_key' as const, privateEligible: true }]
+    const edited = [{ id: 'anthropic', auth: 'subscription' as const, privateEligible: false }]
+    expect(classifyChange({ ...base, providers: on }, { ...base, providers: edited })).toBe(
+      'widening'
+    )
   })
   test('private eligibility on, unlocking and a new provider are widening', () => {
     const halls = base.halls.map((h) => (h.id === 'health' ? { ...h, privateEligible: true } : h))
@@ -593,6 +627,25 @@ describe('strict on write, tolerant on read', () => {
           i.code === 'unrecognized_keys' ? i.keys.map((k) => [...i.path, k].join('.')) : []
         )
     expect(keys.sort()).toEqual(['caps.legacyCap', 'extra'])
+  })
+
+  test('a stored config with duplicate provider ids keeps the first of each and warns', () => {
+    const warnings: string[] = []
+    const stored = {
+      ...defaultConfig(),
+      providers: [
+        { id: 'home', auth: 'api_key', privateEligible: false },
+        { id: 'home', auth: 'subscription', privateEligible: true },
+        { id: 'other', auth: 'api_key', privateEligible: false },
+      ],
+    }
+    const out = parseStoredConfig(stored, (w) => warnings.push(w))
+    expect(out.providers).toEqual([
+      { id: 'home', auth: 'api_key', privateEligible: false },
+      { id: 'other', auth: 'api_key', privateEligible: false },
+    ])
+    expect(warnings.join(' ')).toContain('duplicate provider')
+    expect(guildConfig.safeParse(stored).success).toBe(false)
   })
 
   test('a stored config with unknown keys still parses, drops them and warns with their paths', () => {

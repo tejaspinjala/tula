@@ -7,3 +7,5 @@ We rejected having every hierarchy layer run as an LLM agent per Quest, which is
 Amendment: free text is private by default, and a model's data-class claim is advisory only (logged, never routed on) unless the Guild Master sets the class explicitly. The classifier model itself may only be bound to a private-eligible provider.
 
 Amended by ADR-0011.
+
+Amended by ADR-0012.

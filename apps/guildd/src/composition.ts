@@ -128,6 +128,7 @@ export async function compose(
   const vapid = loadVapidEnv()
   // Subscription providers run the host's own `claude` CLI; off unless the host opts in (ADR-0008).
   const subscriptionEnv = loadSubscriptionEnv()
+  const apiModelProvider = overrides.modelProvider ?? new AnthropicModelProvider()
   const subscriptionProvider =
     overrides.subscriptionProvider ??
     (subscriptionEnv.enabled
@@ -167,7 +168,7 @@ export async function compose(
       ledger: modelLedger,
       secrets,
       config,
-      provider: overrides.modelProvider ?? new AnthropicModelProvider(),
+      provider: apiModelProvider,
       ...(subscriptionProvider ? { subscriptionProvider } : {}),
       clock,
       quests,
@@ -268,6 +269,10 @@ export async function compose(
     ...overrides,
     ...(research ? { research } : {}),
     subscriptionEnabled: subscriptionProvider !== undefined,
+    providerVendors: [
+      apiModelProvider.vendor,
+      ...(subscriptionProvider ? [subscriptionProvider.vendor] : []),
+    ],
     guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
     presence,
     councilStore,
