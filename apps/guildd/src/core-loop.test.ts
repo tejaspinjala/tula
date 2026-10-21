@@ -132,7 +132,7 @@ describe('requestQuestSeal', () => {
     return { ...s, deps, draft }
   }
 
-  test('under every Seal Policy the Seal step still requests a Seal (the Council comes later)', async () => {
+  test('with no Council wired, every Seal Policy still requests a Seal and reads the policy', async () => {
     for (const sealPolicy of ['always', 'routine_alone'] as const) {
       const g = await gate()
       await g.draft('Hello guild')

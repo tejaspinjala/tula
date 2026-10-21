@@ -15,6 +15,7 @@ import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgBugReportStore } from './adapters/pg-bug-report-store'
 import { PgConfigStore } from './adapters/pg-config-store'
+import { PgCouncilStore } from './adapters/pg-council-store'
 import { PgDossierStore } from './adapters/pg-dossier-store'
 import { PgGateStore } from './adapters/pg-gate-store'
 import { PgGuildMasterLookStore } from './adapters/pg-guild-master-look-store'
@@ -46,6 +47,7 @@ import { WebPushNotifier } from './adapters/web-push-notifier'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { BugReportService } from './bug-reports'
+import { CouncilEngine } from './council'
 import { createDb } from './db/client'
 import { Dispatcher } from './dispatch'
 import { DossierService } from './dossiers'
@@ -250,12 +252,18 @@ export async function compose(
   // classifier stands in until a ModelClassifier is bound to the guild's `cheap` profile.
   const classifier = overrides.classifier ?? new MemoryClassifier()
   const routingLog = overrides.routingLog ?? new PgRoutingLog(db)
+  const presence = overrides.presence ?? new PgPresenceStore(db, keys, clock)
+  const councilStore = overrides.councilStore ?? new PgCouncilStore(db, keys)
+  const council =
+    overrides.council ?? new CouncilEngine({ store: councilStore, model: gateway, clock })
   const adapters: AppDeps = {
     ...overrides,
     ...(research ? { research } : {}),
     subscriptionEnabled: subscriptionProvider !== undefined,
     guildMasterLooks: overrides.guildMasterLooks ?? new PgGuildMasterLookStore(db),
-    presence: overrides.presence ?? new PgPresenceStore(db, keys, clock),
+    presence,
+    councilStore,
+    council,
     pushStore,
     pushNotifier,
     pushRelay:
@@ -329,6 +337,8 @@ export async function compose(
         quests,
         sealStore,
         awaiting: new PgAwaitingSealReader(db, clock),
+        presence,
+        council,
         proposals,
         seals,
         routing: { classifier, log: routingLog, keys },

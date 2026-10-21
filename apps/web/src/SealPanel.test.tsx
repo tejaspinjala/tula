@@ -98,6 +98,23 @@ test('evidence splits into a lead and a list of checks', () => {
   expect(parseEvidence('just a sentence')).toEqual({ lead: null, items: ['just a sentence'] })
 })
 
+test('the Council of Elders votes list as evidence items after the Verdict', () => {
+  expect(
+    parseEvidence(
+      'Verdict passed: length (ok); Council of Elders did not approve (block); architect approve - fits; skeptic block - too bold; ops abstain (failed)'
+    )
+  ).toEqual({
+    lead: 'Verdict passed',
+    items: [
+      'length (ok)',
+      'Council of Elders did not approve (block)',
+      'architect approve - fits',
+      'skeptic block - too bold',
+      'ops abstain (failed)',
+    ],
+  })
+})
+
 test('a consumed Seal reads posted', () => {
   expect(sealStatusLabel('consumed')).toBe('posted')
   expect(sealStatusLabel('requested')).toBe('requested')

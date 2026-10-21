@@ -11,6 +11,7 @@ import {
 } from './audit-chain'
 import type { BugReportService } from './bug-reports'
 import { costPerPost } from './cost-per-post'
+import type { CouncilEngine } from './council'
 import { type Db, FoundingClosedError } from './db/client'
 import type { Dispatcher } from './dispatch'
 import type { DossierService } from './dossiers'
@@ -33,6 +34,7 @@ import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
 import { ConfigError, type ConfigStore, MAX_CONFIG_PAGE } from './ports/config-store'
+import type { CouncilStore } from './ports/council-store'
 import { type DossierStore, MAX_DOSSIER_PAGE } from './ports/dossier-store'
 import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
@@ -169,6 +171,10 @@ export interface AppDeps {
   guildMasterLooks: GuildMasterLookStore
   /** The Guild Master's presence (away mode); the Council reads it through `isAway`. */
   presence: PresenceStore
+  /** The Council of Elders' sessions and votes. */
+  councilStore: CouncilStore
+  /** The Council of Elders: convened by the Seal step on routine Proposals while the Guild Master is away. */
+  council: CouncilEngine
   /** Sends a web push to one device; the memory adapter in development without VAPID keys. */
   pushNotifier: PushNotifier
   /** Pushes the Guild Master's devices when a Seal is requested; started by `main`. */

@@ -128,6 +128,12 @@ export function eventText(event: ReplayEvent, names: Record<string, string> = {}
       return 'Guild Master went away'
     case 'guildmaster.returned':
       return 'Guild Master returned'
+    case 'council.convened':
+      return 'The Council of Elders convened'
+    case 'council.voted':
+      return 'A voice of the Council of Elders voted'
+    case 'council.escalated':
+      return 'The Council of Elders sent a Proposal to the Guild Master'
     default:
       return `Event ${event.type}, number ${event.seq}`
   }
