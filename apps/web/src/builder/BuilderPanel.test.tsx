@@ -57,6 +57,7 @@ const quest = (id: string, hallId: string, state: string) => ({
 
 interface Put {
   body: {
+    baseVersion?: number
     config: {
       halls: {
         id: string
@@ -382,4 +383,20 @@ test('unlocking a private Hall shows where its private text goes; a work Hall sh
   )
   await click(host, 'Heralds Hall')
   expect(host.textContent).not.toContain('Where private text goes')
+})
+
+test('the Builder save sends the config version it loaded', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.baseVersion).toBe(1)
+})
+
+test('a save made stale by a concurrent change says the config changed and to reload', async () => {
+  const w = world({ status: 409, body: { error: 'stale' } })
+  const host = await mount(w, true)
+  await click(host, 'Add Review')
+  await click(host, 'Save')
+  expect(host.textContent).toContain('The config changed since you loaded it. Reload to continue.')
 })

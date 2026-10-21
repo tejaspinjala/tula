@@ -252,6 +252,22 @@ describe('config PUT with a base version', () => {
     const fresh = await put({ config: tighter, baseVersion: 2 })
     expect(fresh.status).toBe(200)
   })
+
+  test('a save without a base version is refused as invalid, naming baseVersion', async () => {
+    const who = await signedIn()
+    const res = await send(
+      harness,
+      'PUT',
+      `${who.base}/config`,
+      { config: defaultConfig() },
+      who.auth
+    )
+    expect(res.status).toBe(400)
+    const body = z
+      .object({ issues: z.array(z.object({ path: z.array(z.unknown()) })) })
+      .parse(await res.json())
+    expect(body.issues.map((i) => i.path)).toContainEqual(['baseVersion'])
+  })
 })
 
 describe('provider status vendor', () => {
