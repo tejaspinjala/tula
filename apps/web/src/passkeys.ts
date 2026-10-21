@@ -486,47 +486,56 @@ export function isDesktopShell(userAgent: string): boolean {
   return /\bGuildhallDesktop\b/.test(userAgent)
 }
 
-/** True when the page was opened by the desktop shell to sign in (`?desktop=1`). */
+/** The state the desktop shell put in the sign-in page address (`?state=`), or null when absent or malformed. */
+export function desktopStateFromSearch(search: string): string | null {
+  void search
+  return null
+}
+
+/** True when the page was opened by the desktop shell to sign in (`?desktop=1&state=...`). */
 export function desktopRequested(search: string): boolean {
   return new URLSearchParams(search).get('desktop') === '1'
 }
 
-/** The desktop code a deep link delivered in the fragment (`#desktop-code=<code>`), or null. */
-export function desktopCodeFromHash(hash: string): string | null {
+/** The desktop code and state a deep link delivered in the fragment, or null. */
+export function desktopCodeFromHash(hash: string): { code: string; state: string } | null {
   const found = /^#desktop-code=(.+)$/.exec(hash)?.[1]
-  return found && ENROL_TOKEN.test(found) ? found : null
+  return found && ENROL_TOKEN.test(found) ? { code: found, state: '' } : null
 }
 
-/**
- * Reads the desktop code from the address bar's fragment and removes the fragment at once, so the
- * code is not left in the address bar or history. Null when absent.
- */
-export function takeDesktopCode(place: EnrolPlace): string | null {
-  const code = desktopCodeFromHash(place.location.hash)
-  if (code) {
+/** Reads the desktop code and state from the address bar and clears the fragment. Null when absent. */
+export function takeDesktopCode(place: EnrolPlace): { code: string; state: string } | null {
+  const found = desktopCodeFromHash(place.location.hash)
+  if (found) {
     place.history.replaceState(null, '', `${place.location.pathname}${place.location.search}`)
   }
-  return code
+  return found
 }
 
-/** The url that hands a hand-off `code` to the desktop app through the OS. */
-export function desktopReturnUrl(code: string): string {
+/** The url that hands a hand-off `code` and the shell's `state` to the desktop app through the OS. */
+export function desktopReturnUrl(code: string, state: string): string {
+  void state
   return `guildhall://signed-in#code=${code}`
 }
 
 const handoffBody = z.object({ code: z.string() })
 
 /** Mints a hand-off code for the signed-in browser session (the cookie rides along). */
-export async function beginDesktopHandoff(fetcher: Fetcher): Promise<string> {
+export async function beginDesktopHandoff(fetcher: Fetcher, state: string): Promise<string> {
+  void state
   return (await send(fetcher, '/auth/desktop/begin', {}, handoffBody)).code
 }
 
 /** Exchanges a desktop hand-off code for a cookie session, over TLS in the body, never a URL. */
-export async function exchangeDesktopCode(code: string, fetcher: Fetcher): Promise<Session> {
+export async function exchangeDesktopCode(
+  code: string,
+  state: string,
+  fetcher: Fetcher
+): Promise<Session> {
   return send(
     fetcher,
     '/auth/desktop/exchange',
-    { code },
+    { code, state: '' },
     sessionBody,
     undefined,
     undefined,

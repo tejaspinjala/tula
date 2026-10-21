@@ -6,7 +6,9 @@ const guild = '11111111-1111-4111-8111-111111111111'
 const realFetch = globalThis.fetch
 
 // A normal browser opened by the desktop shell: ?desktop=1, with a live passkey session.
-GlobalRegistrator.register({ url: 'http://localhost/?desktop=1' })
+GlobalRegistrator.register({
+  url: 'http://localhost/?desktop=1&state=c3RhdGUtc3RhdGUtc3RhdGUtc3RhdGU',
+})
 const { createRoot } = await import('react-dom/client')
 const { App } = await import('./App')
 

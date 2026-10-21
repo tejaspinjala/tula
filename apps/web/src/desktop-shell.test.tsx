@@ -4,11 +4,13 @@ import { act } from 'react'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const code = `${guild}.c2VjcmV0LXNlY3JldC1zZWNyZXQ`
+const state = 'c3RhdGUtc3RhdGUtc3RhdGUtc3RhdGU'
+const fragment = `#desktop-code=${code}&desktop-state=${state}`
 const realFetch = globalThis.fetch
 
 // The desktop shell loads the page with its user-agent suffix and, after the deep link, the code.
 GlobalRegistrator.register({
-  url: `http://localhost/#desktop-code=${code}`,
+  url: `http://localhost/${fragment}`,
   settings: { navigator: { userAgent: 'Mozilla/5.0 AppleWebKit/605.1.15 GuildhallDesktop/0.1' } },
 })
 const { createRoot } = await import('react-dom/client')
@@ -80,7 +82,9 @@ test('the code the deep link delivered is cleared from the address bar, then exc
   const host = await mount()
   expect(window.location.hash).toBe('')
   const exchanges = requests.filter((r) => r.url === '/api/auth/desktop/exchange')
-  expect(exchanges).toEqual([{ url: '/api/auth/desktop/exchange', body: { code }, mode: 'cookie' }])
+  expect(exchanges).toEqual([
+    { url: '/api/auth/desktop/exchange', body: { code, state }, mode: 'cookie' },
+  ])
   expect(requests.some((r) => r.url === `/api/guilds/${guild}`)).toBe(true)
   expect(host.textContent).not.toContain('Sign in with your browser')
 })
@@ -88,7 +92,7 @@ test('the code the deep link delivered is cleared from the address bar, then exc
 test('a code that no longer works leaves the title offering only the browser, with a line saying so', async () => {
   cookieLive = false
   exchangeStatus = 400
-  window.location.hash = `#desktop-code=${code}`
+  window.location.hash = fragment
   const host = await mount()
   const options = [...host.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim())
   expect(options).toEqual(['Sign in with your browser'])
@@ -102,7 +106,7 @@ test('a code delivered while the page is already open (the shell only changes th
   const host = await mount()
   expect(requests.some((r) => r.url === '/api/auth/desktop/exchange')).toBe(false)
   await act(async () => {
-    window.location.hash = `#desktop-code=${code}`
+    window.location.hash = fragment
     window.dispatchEvent(new HashChangeEvent('hashchange'))
     await new Promise((resolve) => setTimeout(resolve, 30))
   })

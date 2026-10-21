@@ -12,9 +12,12 @@ const FAILED = 'The Hall could not hand you back to the app. Try again.'
  */
 export function DesktopReturn({
   fetcher,
+  state,
   navigate,
 }: {
   fetcher: Fetcher
+  /** The state the shell put in the address; it rides through the hand-back so only that shell accepts it. */
+  state: string
   /** Hands the url to the OS (assigns it to the window location). */
   navigate: (url: string) => void
 }) {
@@ -26,7 +29,7 @@ export function DesktopReturn({
     setBusy(true)
     setError('')
     try {
-      navigate(desktopReturnUrl(await beginDesktopHandoff(fetcher)))
+      navigate(desktopReturnUrl(await beginDesktopHandoff(fetcher, state), state))
       setOpened(true)
     } catch {
       setError(FAILED)

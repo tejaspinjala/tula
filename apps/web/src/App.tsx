@@ -3,6 +3,7 @@ import { DesktopReturn } from './DesktopReturn'
 import {
   desktopCodeFromHash,
   desktopRequested,
+  desktopStateFromSearch,
   enrolTokenFromHash,
   exchangeDesktopCode,
   type FoundingState,
@@ -56,21 +57,21 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   const [notice, setNotice] = useState('')
   const spent = useRef(new Set<string>())
   useEffect(() => {
-    function exchange(code: string) {
+    function exchange({ code, state }: { code: string; state: string }) {
       if (spent.current.has(code)) {
         return
       }
       spent.current.add(code)
       setExchanging(true)
-      exchangeDesktopCode(code, fetch)
+      exchangeDesktopCode(code, state, fetch)
         .then((opened) => setSession((current) => current ?? opened))
         .catch(() => setNotice(DESKTOP_CODE_LOST))
         .finally(() => setExchanging(false))
     }
     function arrived() {
-      const code = takeDesktopCode(window)
-      if (code) {
-        exchange(code)
+      const arrival = takeDesktopCode(window)
+      if (arrival) {
+        exchange(arrival)
       }
     }
     if (desktopCode) {
@@ -128,14 +129,19 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
     return <p role="status">Checking your session...</p>
   }
 
-  if (session && !desktopShell && desktopRequested(window.location.search)) {
+  const shellState = desktopStateFromSearch(window.location.search)
+  if (session && !desktopShell && shellState && desktopRequested(window.location.search)) {
     return (
       <TitleScene>
         <header>
           <h1 className="title-wordmark">Guildhall</h1>
         </header>
         <main id="main" tabIndex={-1}>
-          <DesktopReturn fetcher={fetch} navigate={(url) => window.location.assign(url)} />
+          <DesktopReturn
+            fetcher={fetch}
+            state={shellState}
+            navigate={(url) => window.location.assign(url)}
+          />
         </main>
       </TitleScene>
     )

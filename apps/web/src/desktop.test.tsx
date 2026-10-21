@@ -7,6 +7,7 @@ import {
   desktopCodeFromHash,
   desktopRequested,
   desktopReturnUrl,
+  desktopStateFromSearch,
   exchangeDesktopCode,
   isDesktopShell,
   type PasskeyBrowser,
@@ -18,6 +19,7 @@ import {
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const code = `${guild}.c2VjcmV0LXNlY3JldC1zZWNyZXQ`
+const state = 'c3RhdGUtc3RhdGUtc3RhdGUtc3RhdGU'
 
 GlobalRegistrator.register()
 const { createRoot } = await import('react-dom/client')
@@ -39,42 +41,47 @@ test('the shell is recognised by the user-agent suffix it sets, and nothing else
   expect(isDesktopShell('')).toBe(false)
 })
 
-test('?desktop=1 asks for the hand-back to the app, any other query does not', () => {
-  expect(desktopRequested('?desktop=1')).toBe(true)
-  expect(desktopRequested('?a=b&desktop=1')).toBe(true)
-  expect(desktopRequested('?desktop=2')).toBe(false)
+test('?desktop=1 with the shell state asks for the hand-back to the app, nothing else does', () => {
+  expect(desktopRequested(`?desktop=1&state=${state}`)).toBe(true)
+  expect(desktopRequested(`?state=${state}&a=b&desktop=1`)).toBe(true)
+  expect(desktopRequested('?desktop=1')).toBe(false)
+  expect(desktopRequested('?desktop=1&state=short')).toBe(false)
+  expect(desktopRequested(`?desktop=2&state=${state}`)).toBe(false)
   expect(desktopRequested('')).toBe(false)
+  expect(desktopStateFromSearch(`?desktop=1&state=${state}`)).toBe(state)
 })
 
-test('the desktop code is read from the fragment only, and taking it clears the address bar', () => {
-  expect(desktopCodeFromHash(`#desktop-code=${code}`)).toBe(code)
-  expect(desktopCodeFromHash('#desktop-code=')).toBeNull()
-  expect(desktopCodeFromHash('#desktop-code=junk')).toBeNull()
-  expect(desktopCodeFromHash(`?desktop-code=${code}`)).toBeNull()
+test('the desktop code and state are read from the fragment only, and taking them clears the address bar', () => {
+  const hash = `#desktop-code=${code}&desktop-state=${state}`
+  expect(desktopCodeFromHash(hash)).toEqual({ code, state })
+  expect(desktopCodeFromHash(`#desktop-code=${code}`)).toBeNull()
+  expect(desktopCodeFromHash('#desktop-code=&desktop-state=')).toBeNull()
+  expect(desktopCodeFromHash(`#desktop-code=junk&desktop-state=${state}`)).toBeNull()
+  expect(desktopCodeFromHash(`?desktop-code=${code}&desktop-state=${state}`)).toBeNull()
   const calls: string[] = []
   const place = {
-    location: { hash: `#desktop-code=${code}`, pathname: '/', search: '' },
+    location: { hash, pathname: '/', search: '' },
     history: { replaceState: (_s: unknown, _t: string, url: string) => calls.push(url) },
   }
-  expect(takeDesktopCode(place)).toBe(code)
+  expect(takeDesktopCode(place)).toEqual({ code, state })
   expect(calls).toEqual(['/'])
   expect(
     takeDesktopCode({ ...place, location: { hash: '', pathname: '/', search: '' } })
   ).toBeNull()
 })
 
-test('the hand-off url puts the code in the fragment of the guildhall scheme', () => {
-  expect(desktopReturnUrl(code)).toBe(`guildhall://signed-in#code=${code}`)
+test('the hand-off url puts the code and state in the fragment of the guildhall scheme', () => {
+  expect(desktopReturnUrl(code, state)).toBe(`guildhall://signed-in#code=${code}&state=${state}`)
 })
 
 test('beginning a hand-off posts to guildd with the cookie session and returns the code', async () => {
-  const seen: Array<{ url: string; method: string | undefined }> = []
+  const seen: Array<{ url: string; method: string | undefined; body: unknown }> = []
   const fetcher = async (url: string, init?: RequestInit) => {
-    seen.push({ url, method: init?.method })
+    seen.push({ url, method: init?.method, body: JSON.parse(String(init?.body)) })
     return Response.json({ code, expiresAt: '2026-01-01T00:01:00.000Z' }, { status: 201 })
   }
-  expect(await beginDesktopHandoff(fetcher)).toBe(code)
-  expect(seen).toEqual([{ url: '/api/auth/desktop/begin', method: 'POST' }])
+  expect(await beginDesktopHandoff(fetcher, state)).toBe(code)
+  expect(seen).toEqual([{ url: '/api/auth/desktop/begin', method: 'POST', body: { state } }])
 })
 
 test('exchanging a code posts it in the body and asks for a cookie session', async () => {
@@ -87,8 +94,10 @@ test('exchanging a code posts it in the body and asks for a cookie session', asy
     })
     return Response.json({ guildId: guild }, { status: 201 })
   }
-  expect(await exchangeDesktopCode(code, fetcher)).toEqual({ token: '', guildId: guild })
-  expect(seen).toEqual([{ url: '/api/auth/desktop/exchange', body: { code }, mode: 'cookie' }])
+  expect(await exchangeDesktopCode(code, state, fetcher)).toEqual({ token: '', guildId: guild })
+  expect(seen).toEqual([
+    { url: '/api/auth/desktop/exchange', body: { code, state }, mode: 'cookie' },
+  ])
 })
 
 const stuck = (seen: { signal?: AbortSignal | undefined }): PasskeyBrowser => ({
@@ -184,7 +193,9 @@ test('inside the desktop shell the title offers only to sign in with the browser
 test('the return step mints a code on click and hands the guildhall url to the OS', async () => {
   const navigated: string[] = []
   const fetcher = async () => Response.json({ code, expiresAt: 'x' }, { status: 201 })
-  const host = await mount(<DesktopReturn fetcher={fetcher} navigate={(u) => navigated.push(u)} />)
+  const host = await mount(
+    <DesktopReturn fetcher={fetcher} state={state} navigate={(u) => navigated.push(u)} />
+  )
   const button = [...host.querySelectorAll('button')].find((b) =>
     b.textContent?.includes('Return to the Guildhall app')
   )
@@ -193,13 +204,15 @@ test('the return step mints a code on click and hands the guildhall url to the O
   await act(async () => {
     button?.click()
   })
-  expect(navigated).toEqual([`guildhall://signed-in#code=${code}`])
+  expect(navigated).toEqual([`guildhall://signed-in#code=${code}&state=${state}`])
 })
 
 test('a refused hand-off shows a pixel line and never navigates', async () => {
   const navigated: string[] = []
   const fetcher = async () => Response.json({ error: 'unauthenticated' }, { status: 401 })
-  const host = await mount(<DesktopReturn fetcher={fetcher} navigate={(u) => navigated.push(u)} />)
+  const host = await mount(
+    <DesktopReturn fetcher={fetcher} state={state} navigate={(u) => navigated.push(u)} />
+  )
   await act(async () => {
     host.querySelector('button')?.click()
   })
