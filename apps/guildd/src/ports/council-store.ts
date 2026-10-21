@@ -1,5 +1,8 @@
 /** The Council of Elders' five voices, in the order they speak. Data, never roster Members. */
 export const COUNCIL_VOICES = ['architect', 'skeptic', 'security', 'ops', 'user'] as const
+/** The most sessions one list page returns. */
+export const MAX_COUNCIL_PAGE = 50
+
 /** One voice of the Council. */
 export type CouncilVoice = (typeof COUNCIL_VOICES)[number]
 
