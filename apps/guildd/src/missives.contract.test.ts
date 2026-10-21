@@ -14,7 +14,14 @@ afterAll(async () => {
 
 const pageBody = z.object({
   missives: z.array(
-    z.object({ id: z.string(), from: z.string(), to: z.string(), text: z.string() })
+    z.object({
+      id: z.string(),
+      from: z.string(),
+      to: z.string(),
+      text: z.string(),
+      hallId: z.string(),
+      toHall: z.string().nullable(),
+    })
   ),
   next: z.number().nullable(),
 })
@@ -63,6 +70,29 @@ describe('Hall missives route', () => {
     )
     expect(second.missives.map((m) => m.text)).toEqual(['m1'])
     expect(second.next).toBeNull()
+  })
+
+  test('a cross-Hall Missive is in the ledger of both Halls with both Hall ids', async () => {
+    const g = await found()
+    await harness.adapters.missives.send(g, {
+      hallId: 'health',
+      toHall: 'heralds',
+      questId: crypto.randomUUID(),
+      attempt: 1,
+      from: 'health-m',
+      to: WHOLE_HALL,
+      text: 'across',
+      maxPerQuest: 100,
+      at: new Date(),
+    })
+    for (const hall of ['heralds', 'health']) {
+      const page = pageBody.parse(
+        await (await harness.request(base(g, hall), { headers: headers(g) })).json()
+      )
+      expect(page.missives.map((m) => [m.text, m.hallId, m.toHall])).toEqual([
+        ['across', 'health', 'heralds'],
+      ])
+    }
   })
 
   test('the text comes back as the sender wrote it, unframed', async () => {
