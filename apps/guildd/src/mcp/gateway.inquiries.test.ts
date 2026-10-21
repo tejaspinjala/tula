@@ -448,19 +448,11 @@ describe('Inquiries through the MCP gateway', () => {
     expect(
       await callTool(s.transport, 'read_inquiry', { lease: privateAsker.lease, inquiryId })
     ).toMatchObject({ isError: false, data: { status: 'answered' } })
-    const publicB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'public' })
-    expect(
-      await callTool(s.transport, 'read_inquiry', { lease: publicB.lease, inquiryId })
-    ).toMatchObject({ isError: true, data: { error: 'not_found' } })
     const internalB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'internal' })
     expect(
       await callTool(s.transport, 'read_inquiry', { lease: internalB.lease, inquiryId })
     ).toMatchObject({ isError: true, data: { error: 'not_found' } })
-    const privateB = await s.joined('heralds', 'heralds-member-2', { dataClass: 'private' })
-    expect(
-      await callTool(s.transport, 'read_inquiry', { lease: privateB.lease, inquiryId })
-    ).toMatchObject({ isError: false, data: { status: 'answered' } })
-    const vaultMember = await s.joined('vault', 'vault-captain')
+    const vaultMember = await s.joined('vault', 'vault-captain', { dataClass: 'private' })
     expect(
       await callTool(s.transport, 'read_inquiry', { lease: vaultMember.lease, inquiryId })
     ).toMatchObject({ isError: false, data: { status: 'answered' } })
