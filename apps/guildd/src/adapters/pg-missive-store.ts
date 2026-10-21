@@ -17,6 +17,7 @@ const row = z.object({
   missive_id: z.string(),
   seq: z.coerce.number(),
   hall_id: z.string(),
+  to_hall: z.string().nullable(),
   quest_id: z.string(),
   sender: z.string(),
   addressee: z.string(),
@@ -30,7 +31,7 @@ function toMissive(r: unknown): Missive {
     seq: m.seq,
     id: m.missive_id,
     hallId: m.hall_id,
-    toHall: null,
+    toHall: m.to_hall,
     questId: m.quest_id,
     from: m.sender,
     to: m.addressee,
@@ -53,7 +54,14 @@ export class PgMissiveStore implements MissiveStore {
   async send(guildId: string, input: NewMissive): Promise<SendResult> {
     const dedupe = hashBytes(
       new TextEncoder().encode(
-        JSON.stringify([input.questId, input.attempt, input.from, input.to, input.text])
+        JSON.stringify([
+          input.questId,
+          input.attempt,
+          input.from,
+          input.to,
+          input.toHall ?? null,
+          input.text,
+        ])
       )
     )
     return this.db.withGuild(guildId, async (tx) => {
@@ -70,8 +78,8 @@ export class PgMissiveStore implements MissiveStore {
         return { ok: false, error: 'missive_cap' }
       }
       const [created] = await tx`
-        insert into missives (guild_id, hall_id, quest_id, sender, addressee, body, sent_at, dedupe_key)
-        values (${guildId}, ${input.hallId}, ${input.questId}, ${input.from}, ${input.to},
+        insert into missives (guild_id, hall_id, to_hall, quest_id, sender, addressee, body, sent_at, dedupe_key)
+        values (${guildId}, ${input.hallId}, ${input.toHall ?? null}, ${input.questId}, ${input.from}, ${input.to},
           ${input.text}, ${input.at}, ${dedupe})
         returning *`
       const missive = toMissive(created)
@@ -80,6 +88,7 @@ export class PgMissiveStore implements MissiveStore {
         from: input.from,
         to: input.to,
         hall: input.hallId,
+        ...(input.toHall === undefined ? {} : { toHall: input.toHall }),
       })
       return { ok: true, missive, created: true }
     })
@@ -90,9 +99,10 @@ export class PgMissiveStore implements MissiveStore {
       guildId,
       (tx) => tx`
         select * from missives
-        where guild_id = ${guildId} and hall_id = ${query.hallId}
+        where guild_id = ${guildId} and (hall_id = ${query.hallId} or to_hall = ${query.hallId})
           and (${query.member ?? null}::text is null or sender = ${query.member ?? null}
-            or addressee = ${query.member ?? null} or addressee = ${WHOLE_HALL})
+            or ((to_hall is null or to_hall = ${query.hallId})
+              and (addressee = ${query.member ?? null} or addressee = ${WHOLE_HALL})))
           and (${query.since ?? null}::timestamptz is null or sent_at > ${query.since ?? null})
           and (${query.after ?? null}::bigint is null or seq < ${query.after ?? null})
         order by seq desc
