@@ -1,0 +1,15 @@
+# The Council of Elders may approve routine Proposals in place of a Seal, only under routine_alone and only while the Guild Master is away
+
+ADR-0006 said Seal-bound content uses the Guild Master's Seal as judge and deferred the Council of Elders until away mode exists. Away mode now exists (Milestone 3, #146), and without a second judge routine work piles up in Awaiting Seal for as long as the Guild Master is gone. This amends ADR-0006: for a **routine Proposal**, and only then, the Council of Elders may approve in place of a Seal.
+
+**When.** All of these, decided by code: the Seal Policy is `routine_alone`; the Guild Master is away (presence state, never a config edit); the Proposal is routine; the guild is under its Council session cap. Under `always` nothing changes: every Seal stays in the Guild Master's hands, away or not. `autonomous` stays locked: config validation refuses it with `seal_policy_locked` until a later ADR defines it.
+
+**Routine is code.** A Proposal is routine only when its Quest template carries a code-only routine-eligible flag (the Herald announcement is the first; internal templates and Fix Quests are not), its data class is not private, a passing Verdict is bound to the exact Proposal hash, and the guild has Council approvals left today under `maxCouncilApprovalsPerDay` (default 5, 0 means never). Nothing a model says can make a Proposal routine. Private-class Proposals never reach the Council, so private content never reaches a model run it should not.
+
+**Votes are judgment, the tally is code.** Five voices (architect, skeptic, security, ops, user) each judge in a fresh run over the nonce-framed Proposal and return a structured vote of approve, block or abstain with reasons. This is ADR-0006's "issuing a Verdict" and the only model judgment involved. A pure function tallies: only five approvals approve. Any block, abstention, failed or malformed run, or exceeded cap escalates to the Guild Master's Seal with the votes attached as evidence. An error never approves.
+
+**Records tell the truth.** A Council approval is recorded as the Council's decision with its session, never as the Guild Master's Seal, so the audit chain never claims the Guild Master approved what they did not see. A session is held once per (guild, Proposal hash). Council runs are metered against the Treasury and daily caps like any other run, and Bar the Gates halts a session and leaves the Quest in Awaiting Seal.
+
+**Widening.** Raising the Seal Policy, `maxCouncilApprovalsPerDay` or `maxCouncilSessionsPerDay` is a widening change and needs a Seal. Away mode itself needs a passkey session but no Seal: it narrows nothing, and the Council can only act inside caps the Guild Master has already sealed.
+
+We rejected a majority rule or weighted voices (a single worried elder should be enough to bring the decision back), letting the model nominate which Proposals are routine (it would talk its own work past the Seal), and approving while the Guild Master is present (the Seal flow is already at hand).

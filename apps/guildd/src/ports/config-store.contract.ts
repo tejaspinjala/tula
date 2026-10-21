@@ -29,6 +29,15 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       ])
     })
 
+    test('propose refuses autonomous with seal_policy_locked and stores nothing', async () => {
+      const { store, guild } = await seeded()
+      const locked = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+      const error = await store.propose(guild, locked).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(ConfigError)
+      expect(error instanceof ConfigError ? error.code : null).toBe('seal_policy_locked')
+      expect((await store.history(guild, { limit: 10 })).versions).toHaveLength(1)
+    })
+
     test('a tightening change applies immediately as a new version', async () => {
       const { store, guild } = await seeded()
       const tighter = { ...defaultConfig(), caps: { dailyTokens: 10, dailySpendCents: 10 } }
@@ -42,7 +51,7 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
 
     test('a widening change is stored pending and leaves the config in force alone until confirmed', async () => {
       const { store, guild } = await seeded()
-      const looser = { ...defaultConfig(), sealPolicy: 'autonomous' as const }
+      const looser = { ...defaultConfig(), sealPolicy: 'routine_alone' as const }
       expect(await store.propose(guild, looser)).toEqual({
         version: 2,
         status: 'pending',

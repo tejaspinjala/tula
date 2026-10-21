@@ -38,6 +38,9 @@ export class MemoryConfigStore implements ConfigStore {
   }
 
   async propose(guildId: string, config: GuildConfig): Promise<ProposeResult> {
+    if (config.sealPolicy === 'autonomous') {
+      throw new ConfigError('seal_policy_locked', 0)
+    }
     return this.write(guildId, config, 'change')
   }
 

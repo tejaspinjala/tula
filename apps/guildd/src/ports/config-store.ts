@@ -5,7 +5,7 @@ import type { ChangeKind, GuildConfig } from '../guild-config'
 export const MAX_CONFIG_PAGE = 100
 
 /** Why a config operation was refused. */
-export type ConfigErrorCode = 'not_found' | 'not_pending' | 'stale'
+export type ConfigErrorCode = 'not_found' | 'not_pending' | 'stale' | 'seal_policy_locked'
 
 /** Thrown by {@link ConfigStore.confirm} and {@link ConfigStore.restore}. */
 export class ConfigError extends Error {

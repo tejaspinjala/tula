@@ -18,12 +18,33 @@ configStoreContract('postgres', async () => ({
   newGuild: () => foundTestGuild(db, { name: 'Config', goal: 'g' }),
 }))
 
+describe('stored autonomous Seal Policy', () => {
+  test('rows written before the lock still read, as always (applied and pending)', async () => {
+    const store = new PgConfigStore(db, new MemoryKeyProvider())
+    const guild = await foundTestGuild(db, { name: 'Legacy', goal: 'g' })
+    await store.seed(guild)
+    await db.withGuild(guild, async (tx) => {
+      const doc = tx.json(
+        JSON.parse(JSON.stringify({ ...defaultConfig(), sealPolicy: 'autonomous' }))
+      )
+      await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
+        values (${guild}, 2, 'applied', 'change', 'widening', 1, ${doc})`
+      await tx`insert into guild_config_versions (guild_id, version, status, kind, change, base_version, config)
+        values (${guild}, 3, 'pending', 'change', 'widening', 2, ${doc})`
+    })
+    expect((await store.current(guild)).config.sealPolicy).toBe('always')
+    expect((await store.get(guild, 3))?.config.sealPolicy).toBe('always')
+    const history = await store.history(guild, { limit: 10 })
+    expect(history.versions.map((v) => v.version)).toEqual([3, 2, 1])
+  })
+})
+
 describe('config status guard', () => {
   async function guildWithPending() {
     const store = new PgConfigStore(db, new MemoryKeyProvider())
     const guild = await foundTestGuild(db, { name: 'Guard', goal: 'g' })
     await store.seed(guild)
-    await store.propose(guild, { ...defaultConfig(), sealPolicy: 'autonomous' })
+    await store.propose(guild, { ...defaultConfig(), sealPolicy: 'routine_alone' })
     return guild
   }
   const attempt = (guild: string, run: (tx: TenantTx) => Promise<unknown>) =>

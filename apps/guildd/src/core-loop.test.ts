@@ -9,6 +9,7 @@ import { MemoryQuestQueue } from './adapters/memory-quest-queue'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { reconcileSeals, requestPendingSeals, requestQuestSeal } from './core-loop'
+import { defaultConfig } from './guild-config'
 import { SEAL_TTL_MS } from './ports/seal-store'
 import { ProposalEngine } from './proposals'
 import { SealEngine } from './seals'
@@ -125,6 +126,23 @@ describe('requestQuestSeal', () => {
       })
     return { ...s, deps, draft }
   }
+
+  test('under every Seal Policy the Seal step still requests a Seal (the Council comes later)', async () => {
+    for (const sealPolicy of ['always', 'routine_alone'] as const) {
+      const g = await gate()
+      await g.draft('Hello guild')
+      const reads: string[] = []
+      const config = {
+        current: async (guildId: string) => {
+          reads.push(guildId)
+          return { version: 1, config: { ...defaultConfig(), sealPolicy } }
+        },
+      }
+      const result = await requestQuestSeal({ ...g.deps, config }, g.guild, g.quest)
+      expect(result.outcome).toBe('requested')
+      expect(reads).toEqual([g.guild])
+    }
+  })
 
   test('a passing Verdict requests a Seal bound to the Proposal hash and the Quest round', async () => {
     const g = await gate()
