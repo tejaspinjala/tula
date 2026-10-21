@@ -221,6 +221,18 @@ test('the database refuses a Council approval that names a Guild Master, and a s
   ).rejects.toThrow()
 })
 
+test('the database refuses a Council approval that names a session which does not exist', async () => {
+  const { guild, seal } = await setup()
+  await expect(
+    db.withGuild(
+      guild,
+      (tx) => tx`
+        update seals set status = 'council_approved', decided_at = now(),
+          council_session_id = gen_random_uuid() where seal_id = ${seal.id}`
+    )
+  ).rejects.toThrow()
+})
+
 test('a Council approval appends seal.council_approved naming the session and no decider', async () => {
   const { guild, store, seal, hash } = await setup()
   const sessionId = crypto.randomUUID()

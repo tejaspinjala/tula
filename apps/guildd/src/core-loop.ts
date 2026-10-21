@@ -4,6 +4,7 @@ import { GatewayError } from './model-gateway'
 import type { AwaitingSealReader } from './ports/awaiting-seal-reader'
 import type { Clock } from './ports/clock'
 import type { ConfigStore } from './ports/config-store'
+import type { GateStore } from './ports/gate-store'
 import { isAway, type PresenceStore } from './ports/presence-store'
 import type { Verdict } from './ports/proposal-store'
 import type { Quest, QuestQueue } from './ports/quest-queue'
@@ -115,6 +116,8 @@ export interface SealRequestDeps {
   council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining' | 'approvedSession'>
   /** The instant "away" is judged at. Absent: the Council never convenes. */
   clock?: Pick<Clock, 'now'>
+  /** Bar the Gates, re-read right before a Council settlement. Absent: the Council never settles. */
+  gates?: Pick<GateStore, 'isBarred'>
 }
 
 /** What consulting the Council came to: nothing, not yet, evidence for a Seal, or an approval. */

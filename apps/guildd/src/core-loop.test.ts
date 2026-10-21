@@ -212,6 +212,7 @@ describe('requestQuestSeal', () => {
         config,
         presence,
         clock: g.clock,
+        gates,
         council: new CouncilEngine({ store, model, clock: g.clock, gates, config, presence }),
       }
       return { ...g, deps, model, store, presence, proposal, gates, policy, config, hook }
@@ -354,6 +355,105 @@ describe('requestQuestSeal', () => {
       })
       expect(await c.store.approvalsToday(c.guild, '2030-01-01', 'x')).toBe(1)
       expect(c.model.calls).toHaveLength(5)
+    })
+
+    describe('the Council settles only while the world still allows it (re-read right before councilApprove)', () => {
+      /** The approval is recorded, its settlement fails once, then `act` changes the world. */
+      async function crashedAfterApproval(
+        act: (c: Awaited<ReturnType<typeof council>>) => Promise<void> | void
+      ) {
+        const c = await council({ unanimous: true })
+        await c.presence.goAway(c.guild, null)
+        let failOnce = true
+        const sealStore = {
+          forQuest: (g: string, q: string) => c.seals.forQuest(g, q),
+          list: (g: string, page: Parameters<typeof c.seals.list>[1]) => c.seals.list(g, page),
+          expireDue: (g: string) => c.seals.expireDue(g),
+          councilApprove: async (
+            g: string,
+            id: string,
+            d: { sessionId: string; expectedHash: string }
+          ) => {
+            if (failOnce) {
+              failOnce = false
+              throw new Error('crashed between the approval and the settlement')
+            }
+            return c.seals.councilApprove(g, id, d)
+          },
+        }
+        const deps = { ...c.deps, sealStore }
+        const spy = spyOn(process.stderr, 'write').mockImplementation(() => true)
+        try {
+          await requestPendingSeals(deps, c.guild)
+          await act(c)
+        } finally {
+          spy.mockRestore()
+        }
+        return { c, deps }
+      }
+
+      test('Bar the Gates after the approval: the heal leaves the Seal requested, the Quest awaiting_seal and records no council.halted', async () => {
+        const { c, deps } = await crashedAfterApproval(async (w) => {
+          await w.gates.bar({ guildId: w.guild, memberId: 'gm' }, 'guild')
+        })
+        const halt = spyOn(c.store, 'halt')
+        await requestPendingSeals(deps, c.guild)
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+        expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+        expect(halt).not.toHaveBeenCalled()
+      })
+
+      test('a gate read that throws fails closed: the Seal stays requested for the Guild Master', async () => {
+        const { c, deps } = await crashedAfterApproval(() => {})
+        const failing = {
+          ...deps,
+          gates: {
+            isBarred: async (): Promise<boolean> => {
+              throw new Error('gate store down')
+            },
+          },
+        }
+        const spy = spyOn(process.stderr, 'write').mockImplementation(() => true)
+        try {
+          await requestPendingSeals(failing, c.guild)
+        } finally {
+          spy.mockRestore()
+        }
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+        expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+      })
+
+      test('main path: Gates barred between the approval and councilApprove leaves the Seal requested', async () => {
+        const c = await council({ unanimous: true })
+        await c.presence.goAway(c.guild, null)
+        // Reads as barred exactly once the approval row exists, i.e. in the window after approve.
+        const gates = {
+          isBarred: async (): Promise<boolean> =>
+            (await c.store.approvalsToday(c.guild, '2030-01-01', 'x')) > 0,
+        }
+        const result = await requestQuestSeal({ ...c.deps, gates }, c.guild, c.quest)
+        expect(result.outcome).toBe('requested')
+        expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+        expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+      })
+    })
+
+    test('many waiting Seals without approvals cost no per-Seal approvalFor lookups', async () => {
+      const c = await council()
+      await c.presence.goAway(c.guild, null)
+      for (let i = 0; i < 5; i += 1) {
+        await c.seals.request(c.guild, {
+          questId: crypto.randomUUID(),
+          requestedBy: 'heralds-member-1',
+          kind: 'post',
+          text: `Text ${i}`,
+          evidence: 'e',
+          round: 1,
+        })
+      }
+      const lookup = spyOn(c.store, 'approvalFor')
+      await requestPendingSeals(c.deps, c.guild)
+      expect(lookup).not.toHaveBeenCalled()
     })
 
     describe('a recorded approval is final for the cap, not for the Seal', () => {
