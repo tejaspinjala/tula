@@ -44,6 +44,7 @@ import { WebAuthnIdentityProvider } from './adapters/webauthn-identity-provider'
 import { type AppDeps, createApp } from './app'
 import { createDb } from './db/client'
 import { Dispatcher } from './dispatch'
+import { DossierService } from './dossiers'
 import {
   loadEnv,
   loadPlatformOperators,
@@ -59,7 +60,6 @@ import { isLearningRepoAllowed } from './guild-config'
 import { LearningEngine } from './learning-engine'
 import { McpGateway } from './mcp/gateway'
 import { ModelGateway } from './model-gateway'
-import { DossierService } from './dossiers'
 import { ProposalEngine } from './proposals'
 import { Research } from './research'
 import { retireRun } from './retire-run'
