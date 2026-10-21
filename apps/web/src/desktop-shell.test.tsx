@@ -18,6 +18,9 @@ const { App } = await import('./App')
 
 let cookieLive = false
 let exchangeStatus = 201
+let holdExchange = false
+let hold: ((res: Response) => void) | null = null
+let heldSignal: AbortSignal | null | undefined = null
 const requests: { url: string; body: unknown; mode: string | null }[] = []
 
 beforeAll(() => {
@@ -36,6 +39,12 @@ beforeAll(() => {
           : Response.json({ error: 'unauthenticated' }, { status: 401 })
       }
       if (url === '/api/auth/desktop/exchange') {
+        if (holdExchange) {
+          heldSignal = init?.signal
+          return new Promise<Response>((resolve) => {
+            hold = resolve
+          })
+        }
         if (exchangeStatus !== 201) {
           return Response.json({ error: 'invalid_challenge' }, { status: exchangeStatus })
         }
@@ -114,4 +123,28 @@ test('a code delivered while the page is already open (the shell only changes th
   expect(requests.filter((r) => r.url === '/api/auth/desktop/exchange')).toHaveLength(1)
   expect(requests.some((r) => r.url === `/api/guilds/${guild}`)).toBe(true)
   expect(host.textContent).not.toContain('Sign in with your browser')
+})
+
+test('a page closed mid-exchange aborts the pending exchange and stays quiet when it settles', async () => {
+  cookieLive = false
+  exchangeStatus = 201
+  holdExchange = true
+  window.location.hash = fragment
+  const errors: unknown[] = []
+  const onError = (e: ErrorEvent) => errors.push(e)
+  window.addEventListener('error', onError)
+  try {
+    await mount()
+    expect(hold).not.toBeNull()
+    await act(async () => current?.unmount())
+    current = null
+    expect(heldSignal?.aborted).toBe(true)
+    hold?.(Response.json({ guildId: guild }, { status: 201 }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(errors).toEqual([])
+  } finally {
+    holdExchange = false
+    hold = null
+    window.removeEventListener('error', onError)
+  }
 })
