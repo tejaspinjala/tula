@@ -629,6 +629,25 @@ describe('strict on write, tolerant on read', () => {
     expect(keys.sort()).toEqual(['caps.legacyCap', 'extra'])
   })
 
+  test('a stored config with duplicate provider ids keeps the first of each and warns', () => {
+    const warnings: string[] = []
+    const stored = {
+      ...defaultConfig(),
+      providers: [
+        { id: 'home', auth: 'api_key', privateEligible: false },
+        { id: 'home', auth: 'subscription', privateEligible: true },
+        { id: 'other', auth: 'api_key', privateEligible: false },
+      ],
+    }
+    const out = parseStoredConfig(stored, (w) => warnings.push(w))
+    expect(out.providers).toEqual([
+      { id: 'home', auth: 'api_key', privateEligible: false },
+      { id: 'other', auth: 'api_key', privateEligible: false },
+    ])
+    expect(warnings.join(' ')).toContain('duplicate provider')
+    expect(guildConfig.safeParse(stored).success).toBe(false)
+  })
+
   test('a stored config with unknown keys still parses, drops them and warns with their paths', () => {
     const warnings: string[] = []
     const out = parseStoredConfig(stray, (w) => warnings.push(w))

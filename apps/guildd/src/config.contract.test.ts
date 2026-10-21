@@ -254,6 +254,35 @@ describe('config PUT with a base version', () => {
   })
 })
 
+describe('provider status vendor', () => {
+  const otherHarness = createHarness({
+    devGuildHeader: false,
+    app: { modelProvider: new MemoryModelProvider('Other') },
+  })
+  afterAll(async () => (await otherHarness).close())
+
+  test('is the vendor of the bound provider, not a constant', async () => {
+    const h = await otherHarness
+    const who = await signedIn(h)
+    const res = await send(h, 'GET', `${who.base}/providers/status`, undefined, who.auth)
+    expect(await res.json()).toEqual({ hosted: true, vendor: 'Other' })
+  })
+
+  test('another guild session gets 404 and no session gets 401', async () => {
+    const first = await signedIn()
+    const second = await signedIn()
+    const cross = await send(
+      harness,
+      'GET',
+      `${first.base}/providers/status`,
+      undefined,
+      second.auth
+    )
+    expect(cross.status).toBe(404)
+    expect((await send(harness, 'GET', `${first.base}/providers/status`)).status).toBe(401)
+  })
+})
+
 describe('provider status', () => {
   const statusBody = z.object({ hosted: z.boolean(), vendor: z.string() })
 

@@ -563,6 +563,7 @@ describe('estimates and settle failures', () => {
 
 /** A provider that never answers on its own and rejects `aborted` when the gateway aborts it. */
 class SlowProvider implements ModelProvider {
+  readonly vendor = 'Anthropic'
   aborts = 0
   complete(
     _credential: unknown,

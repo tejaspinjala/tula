@@ -82,6 +82,7 @@ function framed(
  * reported in tokens only; the dollar cost the CLI prints is ignored.
  */
 export class ClaudeCliModelProvider implements ModelProvider {
+  readonly vendor = 'Anthropic'
   private readonly bin: string
   private readonly env: Record<string, string>
   private readonly timeoutMs: number
