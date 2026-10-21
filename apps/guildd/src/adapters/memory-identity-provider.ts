@@ -5,6 +5,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDesktopCode,
   StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
@@ -144,20 +145,30 @@ export class MemoryIdentityStore implements IdentityStore {
     return true
   }
 
-  async issueDesktopCode(guildId: string, codeHash: string, expiresAt: Date, event: IdentityEvent) {
-    this.desktopCodes.set(guildId, { codeHash, expiresAt })
+  async issueDesktopCode(
+    guildId: string,
+    code: StoredDesktopCode,
+    _now: Date,
+    event: IdentityEvent
+  ) {
+    this.desktopCodes.set(guildId, { codeHash: code.codeHash, expiresAt: code.expiresAt })
     this.record(guildId, event)
   }
 
-  // No await between the checks and the writes, so this is atomic within the process.
-  async spendDesktopCode(guildId: string, codeHash: string, now: Date, event: IdentityEvent) {
+  async spendDesktopCode(
+    guildId: string,
+    codeHash: string,
+    _stateHash: string,
+    now: Date,
+    event: IdentityEvent
+  ) {
     const held = this.desktopCodes.get(guildId)
     if (held === undefined || held.codeHash !== codeHash || held.expiresAt <= now) {
-      return false
+      return null
     }
     this.desktopCodes.delete(guildId)
     this.record(guildId, event)
-    return true
+    return new Date(now.getTime() + 12 * 60 * 60 * 1000)
   }
 
   async clearReauth(guildId: string, sessionId: string, hash: string) {

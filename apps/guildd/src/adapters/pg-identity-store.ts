@@ -9,6 +9,7 @@ import type {
   IdentityStore,
   StoredChallenge,
   StoredCredential,
+  StoredDesktopCode,
   StoredDiscoverableChallenge,
   StoredMember,
   StoredSession,
@@ -209,13 +210,13 @@ export class PgIdentityStore implements IdentityStore {
 
   async issueDesktopCode(
     guildId: string,
-    codeHash: string,
-    expiresAt: Date,
+    code: StoredDesktopCode,
+    _now: Date,
     event: IdentityEvent
   ): Promise<void> {
     await this.db.withGuild(guildId, async (tx) => {
       await tx`insert into identity_desktop_codes (guild_id, code_hash, expires_at)
-        values (${guildId}, ${codeHash}, ${expiresAt})
+        values (${guildId}, ${code.codeHash}, ${code.expiresAt})
         on conflict (guild_id) do update set code_hash = excluded.code_hash, expires_at = excluded.expires_at`
       await this.append(tx, event)
     })
@@ -224,18 +225,18 @@ export class PgIdentityStore implements IdentityStore {
   async spendDesktopCode(
     guildId: string,
     codeHash: string,
+    _stateHash: string,
     now: Date,
     event: IdentityEvent
-  ): Promise<boolean> {
+  ): Promise<Date | null> {
     return this.db.withGuild(guildId, async (tx) => {
-      // The delete takes the row lock, so two exchanges of one code cannot both spend it.
       const spent = await tx`delete from identity_desktop_codes
-        where guild_id = ${guildId} and code_hash = ${codeHash} and expires_at > ${now} returning 1`
+        where guild_id = ${guildId} and code_hash = ${codeHash} and expires_at > ${now} returning expires_at`
       if (spent.length === 0) {
-        return false
+        return null
       }
       await this.append(tx, event)
-      return true
+      return new Date(now.getTime() + 12 * 60 * 60 * 1000)
     })
   }
 

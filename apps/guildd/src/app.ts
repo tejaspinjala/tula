@@ -224,7 +224,12 @@ const verifyQuery = z.object({
 const checkpointBeginBody = z.object({
   limit: z.number().int().min(1).max(MAX_VERIFY_ENTRIES).optional(),
 })
-const desktopExchangeBody = z.object({ code: z.string().min(1).max(200) })
+const desktopBeginBody = z.object({ state: z.string().min(22).max(200) })
+// A missing state is not a malformed request: it fails like a wrong one.
+const desktopExchangeBody = z.object({
+  code: z.string().min(1).max(200),
+  state: z.string().max(200).default(''),
+})
 
 const checkpointFinishBody = assertFinishBody.extend({
   seq: z.number().int().min(1),
@@ -696,7 +701,11 @@ export function createApp(deps: AppDeps): Hono {
     if (!token) {
       return c.json({ error: 'unauthenticated' }, 401)
     }
-    return c.json(await deps.identity.beginDesktopHandoff(token), 201)
+    const body = desktopBeginBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    return c.json(await deps.identity.beginDesktopHandoff(token, body.data.state), 201)
   })
 
   // Every failure is one refusal: a wrong, expired, spent or other-guild code all answer 400
@@ -709,7 +718,11 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) {
       return c.json({ error: 'invalid_request' }, 400)
     }
-    return sessionResponse(c, await deps.identity.exchangeDesktopCode(body.data.code), 201)
+    return sessionResponse(
+      c,
+      await deps.identity.exchangeDesktopCode(body.data.code, body.data.state),
+      201
+    )
   })
 
   // Unknown guilds get decoy options from the provider, so this answers the same for every id.

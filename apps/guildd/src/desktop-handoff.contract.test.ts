@@ -62,12 +62,19 @@ async function signedInGuild(via = harness) {
   return { guildId: guild.id, token: session.token }
 }
 
-function begin(token: string | null, via = harness) {
-  return post('/auth/desktop/begin', {}, token ? { authorization: `Bearer ${token}` } : {}, via)
+const STATE = 's'.repeat(22)
+
+function begin(token: string | null, via = harness, state: string | null = STATE) {
+  return post(
+    '/auth/desktop/begin',
+    state === null ? {} : { state },
+    token ? { authorization: `Bearer ${token}` } : {},
+    via
+  )
 }
 
-function exchange(code: string, headers = {}, via = harness) {
-  return post('/auth/desktop/exchange', { code }, headers, via)
+function exchange(code: string, headers = {}, via = harness, state: string | null = STATE) {
+  return post('/auth/desktop/exchange', state === null ? { code } : { code, state }, headers, via)
 }
 
 describe('handing a browser sign-in to the desktop shell over HTTP', () => {
@@ -95,6 +102,19 @@ describe('handing a browser sign-in to the desktop shell over HTTP', () => {
     expect(res.status).toBe(201)
     expect(res.headers.get('set-cookie') ?? '').toContain('HttpOnly')
     expect(JSON.stringify(await res.json())).not.toContain('token')
+  })
+
+  test('a missing or wrong state is refused like a wrong code, and a begin without a state is a 400', async () => {
+    const { token } = await signedInGuild()
+    const { code } = handoff.parse(await (await begin(token)).json())
+    const wrong = await exchange(code, {}, harness, 'x'.repeat(22))
+    const missing = await exchange(code, {}, harness, null)
+    expect(wrong.status).toBe(400)
+    expect(errorBody.parse(await wrong.json()).error).toBe('invalid_challenge')
+    expect(missing.status).toBe(400)
+    expect(errorBody.parse(await missing.json()).error).toBe('invalid_challenge')
+    expect((await begin(token, harness, null)).status).toBe(400)
+    expect((await exchange(code)).status).toBe(201)
   })
 
   test('minting without a session is refused', async () => {

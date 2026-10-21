@@ -31,6 +31,15 @@ export interface StoredChallenge {
   expiresAt: Date
 }
 
+/** A desktop hand-off code as stored: only hashes of the code and of the shell's state. */
+export interface StoredDesktopCode {
+  codeHash: string
+  stateHash: string
+  expiresAt: Date
+  /** When the session that minted the code expires; a session the code opens never outlives it. */
+  sessionExpiresAt: Date
+}
+
 /** A usernameless sign-in challenge: single-use and held before any guild is known. */
 export interface StoredDiscoverableChallenge {
   id: string
@@ -118,23 +127,29 @@ export interface IdentityStore {
     now: Date,
     events: IdentityEvent[]
   ): Promise<boolean>
-  /** Stores or replaces the guild's desktop hand-off code hash, appending `event` in the same transaction. */
+  /**
+   * Stores a desktop hand-off code, first deleting the guild's codes that expired at `now` and then
+   * evicting the oldest beyond `MAX_OUTSTANDING_DESKTOP_CODES`, appending `event` in the same transaction.
+   */
   issueDesktopCode(
     guildId: string,
-    codeHash: string,
-    expiresAt: Date,
+    code: StoredDesktopCode,
+    now: Date,
     event: IdentityEvent
   ): Promise<void>
   /**
-   * Atomically spends the unexpired desktop code `codeHash` and appends `event`, in one transaction.
-   * @returns false (changing nothing, appending nothing) when the code is absent, spent or expired.
+   * Atomically spends the unexpired desktop code `codeHash` whose state hash is `stateHash` and
+   * appends `event`, in one transaction.
+   * @returns the expiry of the session that minted the code, or null (changing nothing, appending
+   * nothing) when the code is absent, spent, expired or bound to another state.
    */
   spendDesktopCode(
     guildId: string,
     codeHash: string,
+    stateHash: string,
     now: Date,
     event: IdentityEvent
-  ): Promise<boolean>
+  ): Promise<Date | null>
   /**
    * The one guild holding the credential id, or null when none (or, never expected, several) does.
    * Crosses tenants on purpose, through the security-definer `guild_for_credential` (migration 0057).

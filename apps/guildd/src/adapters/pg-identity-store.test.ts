@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test'
 import postgres from 'postgres'
 import { createDb } from '../db/client'
-import { MAX_OUTSTANDING_CHALLENGES } from '../ports/identity'
+import { MAX_OUTSTANDING_CHALLENGES, MAX_OUTSTANDING_DESKTOP_CODES } from '../ports/identity'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
 import type { StoredChallenge } from './identity-store'
@@ -119,12 +119,50 @@ test('setReauth for an unknown session appends no event', async () => {
   expect(await count(guildId, 'events')).toBe(before)
 })
 
+function desktopCode(hash: string, ttlMs = 60_000, sessionMs = 3_600_000) {
+  return {
+    codeHash: hash,
+    stateHash: `state-${hash}`,
+    expiresAt: new Date(T0.getTime() + ttlMs),
+    sessionExpiresAt: new Date(T0.getTime() + sessionMs),
+  }
+}
+
 test("one guild cannot spend another guild's desktop code, even with its hash", async () => {
   const a = await foundTestGuild(db, { name: 'CodeA', goal: 'g' })
   const b = await foundTestGuild(db, { name: 'CodeB', goal: 'g' })
-  await store.issueDesktopCode(a, 'hash-a', new Date(T0.getTime() + 60_000), note)
-  expect(await store.spendDesktopCode(b, 'hash-a', T0, note)).toBe(false)
+  await store.issueDesktopCode(a, desktopCode('hash-a'), T0, note)
+  expect(await store.spendDesktopCode(b, 'hash-a', 'state-hash-a', T0, note)).toBeNull()
   expect(await count(a, 'identity_desktop_codes')).toBe(1)
-  expect(await store.spendDesktopCode(a, 'hash-a', T0, note)).toBe(true)
+  expect(await store.spendDesktopCode(a, 'hash-a', 'state-hash-a', T0, note)).toEqual(
+    new Date(T0.getTime() + 3_600_000)
+  )
   expect(await count(a, 'identity_desktop_codes')).toBe(0)
+})
+
+test('a desktop code needs its own state hash to be spent', async () => {
+  const a = await foundTestGuild(db, { name: 'CodeState', goal: 'g' })
+  await store.issueDesktopCode(a, desktopCode('hash-s'), T0, note)
+  expect(await store.spendDesktopCode(a, 'hash-s', 'other', T0, note)).toBeNull()
+  expect(await count(a, 'identity_desktop_codes')).toBe(1)
+})
+
+test("issuing a desktop code deletes the guild's expired ones and keeps the live ones", async () => {
+  const a = await foundTestGuild(db, { name: 'CodeSweep', goal: 'g' })
+  await store.issueDesktopCode(a, desktopCode('old', 1000), T0, note)
+  await store.issueDesktopCode(a, desktopCode('live'), T0, note)
+  expect(await count(a, 'identity_desktop_codes')).toBe(2)
+  await store.issueDesktopCode(a, desktopCode('new'), new Date(T0.getTime() + 5000), note)
+  expect(await count(a, 'identity_desktop_codes')).toBe(2)
+  expect(await store.spendDesktopCode(a, 'live', 'state-live', T0, note)).not.toBeNull()
+})
+
+test('outstanding desktop codes per guild are capped, evicting the oldest', async () => {
+  const a = await foundTestGuild(db, { name: 'CodeCap', goal: 'g' })
+  for (let i = 0; i <= MAX_OUTSTANDING_DESKTOP_CODES; i++) {
+    await store.issueDesktopCode(a, desktopCode(`c${i}`, 10_000 + i), T0, note)
+  }
+  expect(await count(a, 'identity_desktop_codes')).toBe(MAX_OUTSTANDING_DESKTOP_CODES)
+  expect(await store.spendDesktopCode(a, 'c0', 'state-c0', T0, note)).toBeNull()
+  expect(await store.spendDesktopCode(a, 'c1', 'state-c1', T0, note)).not.toBeNull()
 })
