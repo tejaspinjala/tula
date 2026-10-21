@@ -45,6 +45,7 @@ const scene: SceneState = {
   apprentices: [],
   campaigns: [],
   gateClosed: false,
+  couriers: [],
   coinsCents: 0,
   appliedSeq: 5,
 }

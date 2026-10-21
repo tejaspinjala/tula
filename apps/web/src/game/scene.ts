@@ -65,6 +65,15 @@ export interface SceneApprentice {
   seq: number
 }
 
+/** A courier's one trip between two Halls, raised by the event at `seq`. */
+export interface SceneCourier {
+  seq: number
+  fromHall: string
+  toHall: string
+  /** The Member the trip is for (who gets the "From" bubble on arrival), or null. */
+  toMemberId: string | null
+}
+
 /** Everything the game draws, derived from the event log; the game decides nothing. */
 export interface SceneState {
   rooms: SceneRoom[]
@@ -77,6 +86,8 @@ export interface SceneState {
   /** Team Campaigns with Quests still on the boards. */
   campaigns: string[]
   gateClosed: boolean
+  /** Couriers that crossed between Halls (the latest few), each walking once. */
+  couriers: SceneCourier[]
   /** Treasury spend so far, in cents. */
   coinsCents: number
   appliedSeq: number
@@ -364,6 +375,7 @@ export function deriveScene(input: SceneInput): SceneState {
     apprentices,
     campaigns: [...campaigns],
     gateClosed,
+    couriers: [],
     coinsCents,
     appliedSeq: replay.appliedSeq,
   }
