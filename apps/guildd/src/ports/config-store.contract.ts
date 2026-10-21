@@ -74,7 +74,10 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       const proposed = await store.propose(guild, {
         ...config,
         halls,
-        caps: { dailyTokens: config.caps.dailyTokens * 2, dailySpendCents: config.caps.dailySpendCents * 2 },
+        caps: {
+          dailyTokens: config.caps.dailyTokens * 2,
+          dailySpendCents: config.caps.dailySpendCents * 2,
+        },
       })
       expect(proposed.status).toBe('pending')
       expect((await quest.read()).state).toBe('active')
