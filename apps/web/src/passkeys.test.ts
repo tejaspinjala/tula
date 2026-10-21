@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { WEBAUTHN_CEREMONY_TIMEOUT_MS } from '../../guildd/src/webauthn-timeout'
 import {
   CEREMONY_TIMEOUT_MS,
   fetchGuild,
@@ -190,7 +191,6 @@ test('a browser that rejects at once with NotAllowedError offered no passkey; a 
   await expect(slow.get(options)).rejects.toMatchObject({ name: 'NotAllowedError' })
 })
 
-test('the client bound is strictly shorter than the 60 s timeout guildd puts in its WebAuthn options', () => {
-  const serverTimeoutMs = 60_000
-  expect(CEREMONY_TIMEOUT_MS).toBeLessThan(serverTimeoutMs)
+test('the client bound is strictly shorter than the timeout guildd puts in its WebAuthn options', () => {
+  expect(CEREMONY_TIMEOUT_MS).toBeLessThan(WEBAUTHN_CEREMONY_TIMEOUT_MS)
 })

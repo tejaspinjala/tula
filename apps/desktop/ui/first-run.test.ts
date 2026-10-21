@@ -76,3 +76,31 @@ describe('desktop first-run error line', () => {
     )
   })
 })
+
+describe('desktop first-run scene (#131)', () => {
+  const css = read('first-run.css')
+  const rule = (selector: string): string => {
+    const start = css.indexOf(`${selector} {`)
+    expect(start).toBeGreaterThanOrEqual(0)
+    return css.slice(start, css.indexOf('}', start))
+  }
+
+  test('the hill and ground do not use the grass-700 that the dark override brightens', () => {
+    expect(rule('.hill')).not.toContain('--px-grass-700')
+    expect(rule('.ground')).not.toContain('--px-grass-700')
+  })
+
+  test('night swaps the sky: stars and moon only at night, a sun and clouds by day, five stepped bands', () => {
+    expect(css).toContain('--scene-night-show: block')
+    expect(css).toContain('--scene-day-show: none')
+    expect(read('index.html')).toContain('band-5')
+    expect(read('index.html')).toContain('class="sun"')
+    expect(rule('.star')).toContain('--scene-night-show')
+    expect(rule('.moon')).toContain('--scene-night-show')
+    expect(rule('.sun')).toContain('--scene-day-show')
+  })
+
+  test('a short window keeps the Hall above the dialogue box', () => {
+    expect(css).toMatch(/@media \(max-height: \d+rem\)/)
+  })
+})

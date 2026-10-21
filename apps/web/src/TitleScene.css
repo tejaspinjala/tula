@@ -22,27 +22,40 @@
 }
 
 .title-band-1 {
-  top: 0;
-  height: 30%;
-  background: var(--px-wood-900);
+  top: 0%;
+  height: 14%;
+  background: var(--scene-sky-1);
 }
 
 .title-band-2 {
-  top: 30%;
-  height: 22%;
-  background: var(--px-berry-500);
+  top: 14%;
+  height: 14%;
+  background: var(--scene-sky-2);
 }
 
 .title-band-3 {
-  top: 52%;
-  height: 18%;
-  background: var(--px-wood-300);
+  top: 28%;
+  height: 14%;
+  background: var(--scene-sky-3);
+}
+
+.title-band-4 {
+  top: 42%;
+  height: 14%;
+  background: var(--scene-sky-4);
+}
+
+.title-band-5 {
+  top: 56%;
+  height: 14%;
+  background: var(--scene-sky-5);
 }
 
 .title-star {
   position: absolute;
   width: calc(var(--px) * 2);
   height: calc(var(--px) * 2);
+  display: var(--scene-night-show);
   background: var(--px-gold-500);
   animation: title-twinkle 2.4s steps(2) infinite;
 }
@@ -83,6 +96,7 @@
 }
 
 .title-moon {
+  display: var(--scene-night-show);
   position: absolute;
   top: 8%;
   right: 12%;
@@ -113,13 +127,66 @@
   );
 }
 
+/* By day: a stepped sun and two block clouds, no stars. */
+.title-sun {
+  display: var(--scene-day-show);
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: calc(var(--px) * 14);
+  height: calc(var(--px) * 14);
+  background: var(--px-gold-500);
+  clip-path: polygon(
+    30% 0,
+    70% 0,
+    70% 15%,
+    85% 15%,
+    85% 30%,
+    100% 30%,
+    100% 70%,
+    85% 70%,
+    85% 85%,
+    70% 85%,
+    70% 100%,
+    30% 100%,
+    30% 85%,
+    15% 85%,
+    15% 70%,
+    0 70%,
+    0 30%,
+    15% 30%,
+    15% 15%,
+    30% 15%
+  );
+}
+
+.title-cloud {
+  display: var(--scene-day-show);
+  position: absolute;
+  width: calc(var(--px) * 16);
+  height: calc(var(--px) * 4);
+  background: var(--scene-cloud);
+  box-shadow:
+    calc(var(--px) * 4) calc(var(--px) * -4) 0 var(--scene-cloud),
+    calc(var(--px) * 8) calc(var(--px) * -4) 0 var(--scene-cloud),
+    calc(var(--px) * 4) calc(var(--px) * 4) 0 var(--scene-cloud);
+}
+.title-cloud-1 {
+  top: 14%;
+  left: 12%;
+}
+.title-cloud-2 {
+  top: 24%;
+  left: 58%;
+}
+
 .title-hill {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 38%;
   height: 12%;
-  background: var(--px-grass-700);
+  background: var(--scene-hill);
 }
 
 .title-ground {
@@ -128,8 +195,8 @@
   right: 0;
   bottom: 0;
   height: 38%;
-  background: var(--px-grass-500);
-  border-top: calc(var(--px) * 2) solid var(--px-grass-700);
+  background: var(--scene-ground);
+  border-top: calc(var(--px) * 2) solid var(--scene-edge);
 }
 
 .title-hall {
@@ -311,5 +378,17 @@
 @media (prefers-reduced-motion: reduce) {
   .scene-fade {
     display: none;
+  }
+}
+
+/* A short window (800x600): the town rises so the dialogue box sits on the grass, not over the Hall. */
+@media (max-height: 40rem) {
+  .title-hill,
+  .title-hall,
+  .title-cottage {
+    bottom: 48%;
+  }
+  .title-ground {
+    height: 48%;
   }
 }
