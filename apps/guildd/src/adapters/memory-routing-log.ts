@@ -28,4 +28,9 @@ export class MemoryRoutingLog implements RoutingLog {
     const last = entries.at(-1)
     return { entries, next: matching.length > limit && last ? last.seq : null }
   }
+
+  async forKeys(guildId: string, decisionKeys: readonly string[]): Promise<LoggedRouting[]> {
+    const wanted = new Set(decisionKeys.slice(0, MAX_ROUTING_PAGE))
+    return (this.guilds.get(guildId) ?? []).filter((r) => wanted.has(r.decisionKey))
+  }
 }

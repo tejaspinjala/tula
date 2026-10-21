@@ -79,8 +79,8 @@ describe('quest routes', () => {
     dataClass: 'private' as const,
     classifierClaim: null,
     outcome,
-    providerId: null,
-    profileId: null,
+    providerId: outcome === 'routed' ? 'cloud' : null,
+    profileId: outcome === 'routed' ? 'cloud-mid' : null,
     reason: outcome === 'blocked' ? ('private_provider_unavailable' as const) : null,
   })
   const claim = async (g: string, id: string) => {

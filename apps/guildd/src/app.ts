@@ -55,7 +55,7 @@ import type { PushNotifier } from './ports/push-notifier'
 import type { PushStore } from './ports/push-store'
 import { MAX_QUEST_PAGE, type QuestQueue, questState } from './ports/quest-queue'
 import type { RateLimiter } from './ports/rate-limiter'
-import { type BlockReason, MAX_ROUTING_PAGE, type RoutingLog } from './ports/routing-log'
+import type { BlockReason, RoutingLog } from './ports/routing-log'
 import type { SandboxRunner } from './ports/sandbox-runner'
 import type { SealStore } from './ports/seal-store'
 import { actionHash, MAX_SEAL_PAGE, SEAL_STATUSES, type SealRefusal } from './ports/seal-store'
@@ -1434,20 +1434,22 @@ export function createApp(deps: AppDeps): Hono {
       who.guild,
       listed.quests.map((q) => q.id)
     )
-    // Why a waiting Quest waits: the latest routing block of its own decision keys (`<id>:<n>`).
+    // Why a waiting Quest waits: the block logged for its current attempt (`<id>:<attempts>`), so
+    // a decision of an earlier attempt never shows. One bounded, guild-scoped lookup per page.
+    const waiting = listed.quests.filter((q) => q.state === 'queued')
+    const logged = await deps.routingLog.forKeys(
+      who.guild,
+      waiting.map((q) => `${q.id}:${q.attempts}`)
+    )
     const blocked = new Map<string, BlockReason>()
-    if (listed.quests.some((q) => q.state === 'queued')) {
-      const log = await deps.routingLog.list(who.guild, { limit: MAX_ROUTING_PAGE })
-      for (const entry of log.entries) {
-        const id = entry.decisionKey.split(':')[0] ?? ''
-        if (entry.outcome === 'blocked' && entry.reason !== null && !blocked.has(id)) {
-          blocked.set(id, entry.reason)
-        }
+    for (const entry of logged) {
+      if (entry.outcome === 'blocked' && entry.reason !== null) {
+        blocked.set(entry.decisionKey, entry.reason)
       }
     }
     const quests = listed.quests.map((q) => ({
       ...q,
-      blockReason: q.state === 'queued' ? (blocked.get(q.id) ?? null) : null,
+      blockReason: q.state === 'queued' ? (blocked.get(`${q.id}:${q.attempts}`) ?? null) : null,
     }))
     return c.json({ ...listed, quests, links })
   }
