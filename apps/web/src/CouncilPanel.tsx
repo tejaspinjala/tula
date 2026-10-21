@@ -8,6 +8,7 @@ import {
   loadCouncilSessions,
   proposalPrefix,
 } from './council'
+import { shortenId } from './GuildId'
 import { councilCount, useLiveEvents } from './live-events'
 import type { Session } from './passkeys'
 import { PixelButton } from './ui/pixel'
@@ -129,8 +130,8 @@ export function CouncilPanel({ session }: { session: Session | null }) {
                 <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>
                   {councilStatusLabel(row.status)}
                 </Badge>
-                <span className="flex-1">
-                  Proposal {proposalPrefix(row.proposalHash)} · Quest {row.questId} ·{' '}
+                <span className="min-w-0 flex-1 basis-40">
+                  Proposal {proposalPrefix(row.proposalHash)} · Quest {shortenId(row.questId)} ·{' '}
                   {councilCostText(row.costMicros)}
                 </span>
                 <PixelButton onClick={() => setOpenId(row.id)}>Open</PixelButton>

@@ -1016,7 +1016,7 @@ export class HallScene extends Phaser.Scene {
     g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, s - 5) // table
     g.fillStyle(0x3b2410, 1)
     g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, 1) // table edge
-    this.label(c.x * s, (c.y - 0.6) * s, 'COUNCIL')
+    this.label(c.x * s, (c.y - 1.05) * s, 'COUNCIL')
     const robes = [0x6c8ebf, 0xb8453a, 0x4f8a5b, 0xc9a227, 0x8a5fb0]
     this.elders = elderSeats(this.layout).map((seat, index) => {
       const look = lookFor(`council-elder-${index}`)
@@ -1036,7 +1036,7 @@ export class HallScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
     chamber.on('pointerdown', () => this.options.onOpenCouncil?.())
     this.conferMark = this.add
-      .bitmapText((c.x + 1.5) * s, (c.y - 1) * s, FONT, '...', 16)
+      .bitmapText((c.x + c.w + 0.2) * s, (c.y - 0.4) * s, FONT, '...', 16)
       .setTint(0xffffff)
       .setDepth(20)
       .setVisible(false)
