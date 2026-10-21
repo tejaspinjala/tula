@@ -408,7 +408,9 @@ export function GamePanel({
               ? 'Open the Seal desk (E)'
               : talk.near.kind === 'mailbox'
                 ? 'Open the mailbox (E)'
-                : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
+                : talk.near.kind === 'council'
+                  ? 'Visit the Council (E)'
+                  : `Inspect ${scene?.members[talk.near.id]?.name ?? 'the Member'} (E)`}
           </PixelButton>
         )}
       </p>

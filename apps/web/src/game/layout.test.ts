@@ -208,3 +208,23 @@ test('a Guild Master left off the shrunk map lands at the entrance; one still on
   const on = { x: (room?.x ?? 0) + 5.5, y: (room?.y ?? 0) + 5.5 }
   expect(landing(on, small.walkable, entrance)).toEqual(on)
 })
+
+test('the Council chamber stands in the corridor: five tiles wide, blocked, clear of the desks and doorways', () => {
+  const c = layout.council
+  expect(c.w).toBe(5)
+  for (let x = c.x; x < c.x + c.w; x++) {
+    expect(layout.walkable(x, c.y + 1)).toBe(false)
+  }
+  const apart = (r: TileRect) =>
+    c.x + c.w <= r.x || r.x + r.w <= c.x || c.y + c.h <= r.y || r.y + r.h <= c.y
+  for (const r of [
+    layout.stewardDesk,
+    layout.sealDesk,
+    layout.coins,
+    layout.gate,
+    ...layout.doorways,
+  ]) {
+    expect(apart(r)).toBe(true)
+  }
+  expect(hallLayout(12).council).toEqual(c)
+})

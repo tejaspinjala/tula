@@ -4,6 +4,7 @@ import { ArtifactViewer } from './ArtifactViewer'
 import { AwayPanel } from './AwayPanel'
 import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
+import { CouncilPanel } from './CouncilPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { MailboxPanel } from './MailboxPanel'
@@ -101,6 +102,8 @@ function PageBody({
       return <MissivesPanel session={session} onTalk={onTalkTo} />
     case 'mailbox':
       return <MailboxPanel session={session} />
+    case 'council':
+      return <CouncilPanel session={session} />
     case 'gates':
       return (
         <>

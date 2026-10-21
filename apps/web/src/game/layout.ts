@@ -26,6 +26,8 @@ export interface HallLayout {
   sealDesk: TileRect
   gate: TileRect
   coins: TileRect
+  /** The Council chamber: a blocked dais in the corridor where the five elders stand. */
+  council: TileRect
   /** The Tiled JSON this layout reads, for the renderer. */
   source: unknown
   /** True when a tile is inside the map and not blocked by the collision layer. */
@@ -102,6 +104,7 @@ export function hallLayout(roomCount = 6): HallLayout {
     sealDesk: one('seal-desk'),
     gate: one('gate'),
     coins: one('coins'),
+    council: one('council'),
     source,
     walkable: (x, y) =>
       Number.isInteger(x) &&
