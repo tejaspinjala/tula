@@ -20,7 +20,12 @@ import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
-import { councilCount, LiveEvents } from './live-events'
+import {
+  COUNCIL_REFETCH_DEBOUNCE_MS,
+  councilCount,
+  LiveEvents,
+  useSettledCount,
+} from './live-events'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -302,7 +307,7 @@ export function GamePanel({
   // The elders confer while a Council session is open: look at the newest sessions whenever a
   // `council.*` event arrives (a read failing leaves them idle; the panel shows the error).
   const [councilOpen, setCouncilOpen] = useState(false)
-  const councilEvents = councilCount(events)
+  const councilEvents = useSettledCount(councilCount(events), COUNCIL_REFETCH_DEBOUNCE_MS)
   useEffect(() => {
     let live = true
     loadCouncilSessions(session, fetch, { limit: 5 })

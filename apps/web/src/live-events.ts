@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReplayEvent } from './replay'
 
 /**
@@ -20,6 +20,23 @@ export function missiveCount(events: readonly ReplayEvent[]): number {
 /** How many `council.*` events a stream holds (the Council panel and chamber refetch when this grows). */
 export function councilCount(events: readonly ReplayEvent[]): number {
   return events.filter((e) => e.type.startsWith('council.')).length
+}
+
+/** How long a burst of `council.*` events must stay quiet before the ledger is read again. */
+export const COUNCIL_REFETCH_DEBOUNCE_MS = 300
+
+/**
+ * A count that follows `count` only once it has held still for `ms`, so a burst of events (a
+ * session writes seven in a row) triggers one refetch instead of one each. The first value is
+ * taken at once.
+ */
+export function useSettledCount(count: number, ms: number): number {
+  const [settled, setSettled] = useState(count)
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(count), ms)
+    return () => clearTimeout(timer)
+  }, [count, ms])
+  return settled
 }
 
 /** How many mailbox events (`inquiry.*`, `dossier.*`, `bug_report.*`) a stream holds (the Mailbox refetches when this grows). */

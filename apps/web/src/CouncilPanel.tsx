@@ -10,7 +10,12 @@ import {
   questName,
 } from './council'
 import { shortenId } from './GuildId'
-import { councilCount, useLiveEvents } from './live-events'
+import {
+  COUNCIL_REFETCH_DEBOUNCE_MS,
+  councilCount,
+  useLiveEvents,
+  useSettledCount,
+} from './live-events'
 import type { Session } from './passkeys'
 import { PixelButton } from './ui/pixel'
 import { WorkSection } from './WorkSection'
@@ -77,7 +82,7 @@ export function CouncilPanel({ session }: { session: Session | null }) {
     new URLSearchParams(window.location.search).get('session')
   )
   const [failed, setFailed] = useState(false)
-  const changed = councilCount(useLiveEvents())
+  const changed = useSettledCount(councilCount(useLiveEvents()), COUNCIL_REFETCH_DEBOUNCE_MS)
 
   useEffect(() => {
     if (!session || changed < 0) {
