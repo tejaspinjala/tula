@@ -99,6 +99,14 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 
 fn main() {
     tauri::Builder::default()
+        // First, as its docs require: on Windows and Linux a deep link starts a second process,
+        // which this hands to the running one (the deep-link feature turns argv into the URL event)
+        // and exits, so the link reaches the window that is waiting for it.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = main_window(app) {
+                let _ = window.set_focus();
+            }
+        }))
         .manage(handoff::PendingSignIn::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
