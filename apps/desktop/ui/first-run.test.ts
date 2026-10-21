@@ -38,3 +38,41 @@ describe('desktop first-run page', () => {
     expect(css).not.toContain('border-radius')
   })
 })
+
+describe('desktop first-run error line', () => {
+  type Submit = (event: { preventDefault(): void }) => Promise<void>
+
+  /** Runs first-run.js against a fake page and IPC bridge; resolves to the alert text. */
+  async function run(invoke: (() => Promise<void>) | undefined): Promise<string> {
+    const error = { textContent: '' }
+    let submit: Submit = async () => {}
+    const nodes: Record<string, unknown> = {
+      address: { value: 'x', focus: () => {} },
+      error,
+      form: {
+        addEventListener: (_type: string, handler: Submit) => {
+          submit = handler
+        },
+      },
+    }
+    Object.assign(globalThis, {
+      document: { getElementById: (id: string) => nodes[id] },
+      window: { __TAURI_INTERNALS__: invoke ? { invoke } : undefined },
+    })
+    new Function(read('first-run.js'))()
+    await submit({ preventDefault: () => {} })
+    return error.textContent
+  }
+
+  test('shows the Rust validation message when set_server_url rejects with a string', async () => {
+    const text = await run(() => Promise.reject('That address is not a Guildhall.'))
+    expect(text).toBe('That address is not a Guildhall.')
+  })
+
+  test('shows an in-world line, never a raw JS error', async () => {
+    const text = await run(undefined)
+    expect(text).toBe(
+      'The Guildhall could not be reached from here. Check the address and try again.'
+    )
+  })
+})
