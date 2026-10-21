@@ -408,6 +408,25 @@ export function parseStoredConfig(
     warn('stored guild config has sealPolicy autonomous, read as always')
     return parseStoredConfig({ ...raw, sealPolicy: 'always' }, warn)
   }
+  // Duplicate provider ids are refused on write but may sit in older rows: keep the first of
+  // each id rather than bricking the guild's config.
+  const providers = typeof raw === 'object' && raw !== null ? Reflect.get(raw, 'providers') : null
+  if (typeof raw === 'object' && raw !== null && Array.isArray(providers)) {
+    const seen = new Set<unknown>()
+    const kept = providers.filter((p) => {
+      const id: unknown = typeof p === 'object' && p !== null ? Reflect.get(p, 'id') : undefined
+      if (typeof id !== 'string') {
+        return true
+      }
+      const fresh = !seen.has(id)
+      seen.add(id)
+      return fresh
+    })
+    if (kept.length !== providers.length) {
+      warn('stored guild config has duplicate provider ids, later duplicates ignored')
+      return parseStoredConfig({ ...raw, providers: kept }, warn)
+    }
+  }
   const strict = guildConfig.safeParse(raw)
   if (strict.success) {
     return strict.data

@@ -148,6 +148,8 @@ export interface AppDeps {
   subscriptionProvider?: ModelProvider
   /** Whether the host enabled `subscription` providers; a config naming one is refused otherwise. */
   subscriptionEnabled?: boolean
+  /** The vendor each bound model provider adapter declares; the private-work disclosure names it. */
+  providerVendors?: readonly string[]
   /** Member ids (env `PLATFORM_OPERATORS`) who may bar or lift every guild; read per request. */
   platformOperators: readonly string[]
   /** Bar the Gates: the kill switch for one guild or all, and the sandboxes it stops. */
@@ -414,8 +416,6 @@ function gatewayStatus(code: GatewayError['code']): 400 | 401 | 409 | 429 | 502 
   }
 }
 const summonBody = z.object({ profileId: z.string().min(1).max(64) })
-/** The vendor behind every model provider adapter (the Anthropic adapters, ADR-0008); shown in the private-work disclosure. */
-const PROVIDER_VENDOR = 'Anthropic'
 const putConfigBody = z.object({
   config: guildConfig,
   /** The config version the caller read; the save is refused as `stale` if it is no longer in force. */
@@ -2020,7 +2020,13 @@ export function createApp(deps: AppDeps): Hono {
     if ('res' in who) {
       return who.res
     }
-    return c.json({ hosted: !deps.subscriptionEnabled, vendor: PROVIDER_VENDOR })
+    // Report a vendor only when every bound adapter agrees; never guess between several.
+    const vendors = [...new Set(deps.providerVendors ?? [])]
+    const [vendor] = vendors
+    if (vendors.length !== 1 || vendor === undefined) {
+      return c.json({ error: 'provider_vendor_unclear' }, 500)
+    }
+    return c.json({ hosted: !deps.subscriptionEnabled, vendor })
   })
 
   app.post('/guilds/:id/config/versions/:version/restore', async (c) => {
