@@ -48,6 +48,19 @@
   --px-on-warn: var(--px-ink);
   --px-text: var(--px-ink);
   --px-text-muted: var(--px-wood-700);
+
+  /* The title scene: a five-step sky, the hill and ground, and which sky objects show. */
+  --scene-sky-1: #6fb0e0;
+  --scene-sky-2: #8ec5e8;
+  --scene-sky-3: #a9d4ee;
+  --scene-sky-4: #c4e2f2;
+  --scene-sky-5: #e0f0e8;
+  --scene-hill: #2f5d34;
+  --scene-ground: #4f8a3c;
+  --scene-edge: #2f5d34;
+  --scene-cloud: #f8f8f4;
+  --scene-night-show: none;
+  --scene-day-show: block;
 }
 
 /* A very wide screen gets a 3px logical pixel. */
@@ -77,6 +90,16 @@
   --px-on-warn: #2b1d14;
   --px-line: var(--px-wood-300);
   --px-dialog-frame: #8fa3c8;
+  --scene-sky-1: #0f0d24;
+  --scene-sky-2: #17133a;
+  --scene-sky-3: #231a4d;
+  --scene-sky-4: #34255c;
+  --scene-sky-5: #4b3068;
+  --scene-hill: #1d3a2a;
+  --scene-ground: #2b5230;
+  --scene-edge: #16291f;
+  --scene-night-show: block;
+  --scene-day-show: none;
 }
 
 :root[data-theme="day"] {

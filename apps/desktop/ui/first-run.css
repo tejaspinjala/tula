@@ -42,6 +42,17 @@
   --px-focus: var(--px-gold-500);
   --px-on-wood: #f6e7c1;
   --px-on-gold: #2b1d14;
+  --scene-sky-1: #6fb0e0;
+  --scene-sky-2: #8ec5e8;
+  --scene-sky-3: #a9d4ee;
+  --scene-sky-4: #c4e2f2;
+  --scene-sky-5: #e0f0e8;
+  --scene-hill: #2f5d34;
+  --scene-ground: #4f8a3c;
+  --scene-edge: #2f5d34;
+  --scene-cloud: #f8f8f4;
+  --scene-night-show: none;
+  --scene-day-show: block;
 }
 
 @media (min-width: 100rem) {
@@ -57,8 +68,17 @@
     --px-dialog-text: #e8e4d8;
     --px-dialog-shadow: #0e1018;
     --px-dialog-frame: #8fa3c8;
-    --px-grass-700: #9fd06a;
     --px-danger-700: #e86a4f;
+    --scene-sky-1: #0f0d24;
+    --scene-sky-2: #17133a;
+    --scene-sky-3: #231a4d;
+    --scene-sky-4: #34255c;
+    --scene-sky-5: #4b3068;
+    --scene-hill: #1d3a2a;
+    --scene-ground: #2b5230;
+    --scene-edge: #16291f;
+    --scene-night-show: block;
+    --scene-day-show: none;
   }
 }
 
@@ -89,22 +109,33 @@ body {
   right: 0;
 }
 .band-1 {
-  top: 0;
-  height: 30%;
-  background: var(--px-wood-900);
+  top: 0%;
+  height: 14%;
+  background: var(--scene-sky-1);
 }
 .band-2 {
-  top: 30%;
-  height: 22%;
-  background: var(--px-berry-500);
+  top: 14%;
+  height: 14%;
+  background: var(--scene-sky-2);
 }
 .band-3 {
-  top: 52%;
-  height: 18%;
-  background: var(--px-wood-300);
+  top: 28%;
+  height: 14%;
+  background: var(--scene-sky-3);
+}
+.band-4 {
+  top: 42%;
+  height: 14%;
+  background: var(--scene-sky-4);
+}
+.band-5 {
+  top: 56%;
+  height: 14%;
+  background: var(--scene-sky-5);
 }
 
 .star {
+  display: var(--scene-night-show);
   position: absolute;
   width: calc(var(--px) * 2);
   height: calc(var(--px) * 2);
@@ -132,6 +163,7 @@ body {
 }
 
 .moon {
+  display: var(--scene-night-show);
   position: absolute;
   top: 8%;
   right: 12%;
@@ -162,13 +194,66 @@ body {
   );
 }
 
+/* By day: a stepped sun and two block clouds, no stars. */
+.sun {
+  display: var(--scene-day-show);
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: calc(var(--px) * 14);
+  height: calc(var(--px) * 14);
+  background: var(--px-gold-500);
+  clip-path: polygon(
+    30% 0,
+    70% 0,
+    70% 15%,
+    85% 15%,
+    85% 30%,
+    100% 30%,
+    100% 70%,
+    85% 70%,
+    85% 85%,
+    70% 85%,
+    70% 100%,
+    30% 100%,
+    30% 85%,
+    15% 85%,
+    15% 70%,
+    0 70%,
+    0 30%,
+    15% 30%,
+    15% 15%,
+    30% 15%
+  );
+}
+
+.cloud {
+  display: var(--scene-day-show);
+  position: absolute;
+  width: calc(var(--px) * 16);
+  height: calc(var(--px) * 4);
+  background: var(--scene-cloud);
+  box-shadow:
+    calc(var(--px) * 4) calc(var(--px) * -4) 0 var(--scene-cloud),
+    calc(var(--px) * 8) calc(var(--px) * -4) 0 var(--scene-cloud),
+    calc(var(--px) * 4) calc(var(--px) * 4) 0 var(--scene-cloud);
+}
+.cloud-1 {
+  top: 14%;
+  left: 12%;
+}
+.cloud-2 {
+  top: 24%;
+  left: 58%;
+}
+
 .hill {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 38%;
   height: 12%;
-  background: var(--px-grass-700);
+  background: var(--scene-hill);
 }
 
 .hall {
@@ -189,8 +274,8 @@ body {
   right: 0;
   bottom: 0;
   height: 38%;
-  background: var(--px-grass-500);
-  border-top: calc(var(--px) * 2) solid var(--px-grass-700);
+  background: var(--scene-ground);
+  border-top: calc(var(--px) * 2) solid var(--scene-edge);
 }
 
 .content {
@@ -329,5 +414,16 @@ input:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .star {
     animation: none;
+  }
+}
+
+/* A short window (800x600): the town rises so the dialogue box sits on the grass, not over the Hall. */
+@media (max-height: 40rem) {
+  .hill,
+  .hall {
+    bottom: 48%;
+  }
+  .ground {
+    height: 48%;
   }
 }
