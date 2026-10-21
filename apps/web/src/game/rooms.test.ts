@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { roomTags } from './layout'
+import { roomProps, roomTags } from './layout'
 
 const hall = (name: string, locked = false, paused = false, kind: 'work' | 'private' = 'work') => ({
   name,
@@ -47,4 +47,21 @@ test('an unlocked private Hall is a calm lived-in room with a privacy mark; a lo
   expect(tags[1]).toMatchObject({ closed: true, privateMark: false, warmth: 0 })
   expect(tags[1]?.veil).toBeGreaterThan(0)
   expect(tags[2]).toMatchObject({ privateMark: false, warmth: 0 })
+})
+
+test('each private room gets its own deterministic cozy props, all inside the room', () => {
+  const room = { x: 2, y: 3, w: 24, h: 15 }
+  const kinds = (id: string) => roomProps(id, room).map((p) => p.kind)
+  expect(roomProps('health', room)).toEqual(roomProps('health', room))
+  expect(kinds('health')).toEqual(['plant', 'shelf', 'cushion'])
+  expect(kinds('personal')).toEqual(['shelf', 'plant', 'lamp'])
+  expect(kinds('relationships')).toEqual(['cushion', 'cushion', 'plant'])
+  for (const id of ['health', 'personal', 'relationships']) {
+    for (const p of roomProps(id, room)) {
+      expect(p.x).toBeGreaterThanOrEqual(room.x)
+      expect(p.x).toBeLessThan(room.x + room.w)
+      expect(p.y).toBeGreaterThanOrEqual(room.y)
+      expect(p.y).toBeLessThan(room.y + room.h)
+    }
+  }
 })

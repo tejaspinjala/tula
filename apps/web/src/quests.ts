@@ -54,7 +54,8 @@ export function inCampaign(quests: readonly BoardQuest[], campaignId: string | n
 
 /** The Member who claimed a Quest (its owner, once it has been leased at least once), or null while unclaimed. */
 export function claimerOf(quest: BoardQuest): string | null {
-  return quest.attempts > 0 ? quest.ownerId : null
+  // A queued Quest holds no lease (never claimed, or its claim was released), whatever its attempts.
+  return quest.attempts > 0 && quest.state !== 'queued' ? quest.ownerId : null
 }
 
 /** The Quest Board's columns, in lifecycle order. */

@@ -300,3 +300,40 @@ export function bubbleCentreX(
   }
   return Math.min(Math.max(x, view.x + half), view.x + view.width - half)
 }
+
+/** A cozy prop in a private room, at a tile. */
+export interface RoomProp {
+  kind: 'plant' | 'shelf' | 'cushion' | 'lamp'
+  x: number
+  y: number
+}
+
+/** The props of an unlocked private room: a fixed set per Hall, so nothing moves between renders. */
+export function roomProps(
+  hallId: string,
+  room: { x: number; y: number; w: number; h: number }
+): RoomProp[] {
+  const right = room.x + room.w - 2
+  const bottom = room.y + room.h - 2
+  const at = (kind: RoomProp['kind'], x: number, y: number): RoomProp => ({ kind, x, y })
+  switch (hallId) {
+    case 'personal':
+      return [
+        at('shelf', room.x + 5, room.y + 1),
+        at('plant', room.x + 1, bottom),
+        at('lamp', right, room.y + 3),
+      ]
+    case 'relationships':
+      return [
+        at('cushion', room.x + 4, bottom - 2),
+        at('cushion', room.x + 6, bottom - 2),
+        at('plant', right, bottom),
+      ]
+    default:
+      return [
+        at('plant', right, bottom),
+        at('shelf', room.x + 5, room.y + 1),
+        at('cushion', room.x + 4, bottom - 2),
+      ]
+  }
+}
