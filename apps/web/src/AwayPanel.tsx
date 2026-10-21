@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { requestAwayScroll } from './away-digest'
 import { PasskeyRequestError, type Session } from './passkeys'
 import { describeAway, goAway, loadPresence, type Presence, returnHome } from './presence'
 import { PixelButton } from './ui/pixel'
@@ -60,6 +61,7 @@ export function AwayPanel({ session }: { session: Session }) {
         {presence?.away && (
           <PixelButton onClick={() => run(() => returnHome(session, fetch))}>I'm back</PixelButton>
         )}
+        <PixelButton onClick={requestAwayScroll}>Read "While you were away"</PixelButton>
       </div>
       {message && <p role="alert">{message}</p>}
     </WorkSection>

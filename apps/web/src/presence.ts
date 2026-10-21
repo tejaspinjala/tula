@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
+import { announceReturn } from './away-digest'
 import { PasskeyRequestError, type Session } from './passkeys'
 
 const presenceBody = z.object({
@@ -47,9 +48,12 @@ export function goAway(
   return call(session, fetcher, '/away', { method: 'POST', body: { until } })
 }
 
-/** Returns the Guild Master: one tap, no Seal. */
-export function returnHome(session: Session, fetcher: Fetcher): Promise<Presence> {
-  return call(session, fetcher, '/return', { method: 'POST' })
+/** Returns the Guild Master: one tap, no Seal. Opens the "While you were away" scroll. */
+export async function returnHome(session: Session, fetcher: Fetcher): Promise<Presence> {
+  const presence = await call(session, fetcher, '/return', { method: 'POST' })
+  // Tell the app, so the "While you were away" scroll opens wherever the tap came from.
+  announceReturn()
+  return presence
 }
 
 /** One plain sentence about presence, for the Bag and for screen readers. */

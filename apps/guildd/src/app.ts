@@ -9,6 +9,7 @@ import {
   verifyChain,
   verifyFrom,
 } from './audit-chain'
+import { awayDigest, MAX_DIGEST_PAGE } from './away-digest'
 import type { BugReportService } from './bug-reports'
 import { costPerPost } from './cost-per-post'
 import type { CouncilEngine } from './council'
@@ -285,6 +286,10 @@ const missivePage = z.object({
     .transform(Number)
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_MISSIVE_PAGE).default(50),
+})
+const digestPage = z.object({
+  after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  limit: z.coerce.number().int().min(1).max(MAX_DIGEST_PAGE).default(50),
 })
 const councilPage = z.object({
   after: z.uuid().optional(),
@@ -566,6 +571,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
   app.get('/guilds/:id/council/sessions', limited('dossier-read'))
+  app.get('/guilds/:id/guild-master/away-digest', limited('dossier-read'))
   app.post('/guilds/:id/dossiers', limited('dossier-write'))
   app.get('/guilds/:id/halls/:hallId/bug-reports', limited('bug-report-read'))
   app.get('/guilds/:id/bug-reports/:reportId', limited('bug-report-read'))
@@ -1731,6 +1737,30 @@ export function createApp(deps: AppDeps): Hono {
       return who.res
     }
     return c.json(presenceView(await deps.presence.get(who.guild)))
+  })
+
+  // "While you were away": a paginated read of the latest away window (Council approvals,
+  // escalations, Seals still waiting, Quests done, Treasury spend), oldest first. Read-only.
+  app.get('/guilds/:id/guild-master/away-digest', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const page = digestPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+    })
+    if (!page.success) {
+      return c.json({ error: 'invalid_page' }, 400)
+    }
+    return c.json(
+      await deps.db.withGuild(who.guild, (tx) =>
+        awayDigest(tx, page.data, deps.clock.now(), async (sealId) => {
+          const seal = await deps.sealStore.get(who.guild, sealId)
+          return seal?.status === 'requested'
+        })
+      )
+    )
   })
 
   app.post('/guilds/:id/guild-master/away', async (c) => {

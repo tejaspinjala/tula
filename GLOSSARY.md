@@ -126,6 +126,10 @@ _Avoid_: permissions, autonomy settings
 A structured review result bound to a content hash.
 _Avoid_: review result
 
+**While you were away**:
+The scroll that opens once when the Guild Master returns, listing the latest away window: Council approvals (a Quest the Council settled shows once), escalations with their reason, halted sessions, Seals still waiting, Quests done and the window's Treasury spend (each spend once, at its final amount). It can be read again from the Bag. Each Council line opens its votes in the Council panel.
+_Avoid_: digest, summary
+
 **Council of Elders**:
 The review and decision council (architect, skeptic, security, ops, user voices). While the Guild Master is away under Seal Policy `routine_alone`, it may approve a routine Proposal in place of a Seal, but only when all five voices approve; the tally is code, only the votes are judgment (ADR-0011).
 _Avoid_: committee
