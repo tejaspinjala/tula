@@ -486,21 +486,28 @@ export function isDesktopShell(userAgent: string): boolean {
   return /\bGuildhallDesktop\b/.test(userAgent)
 }
 
+/** The shell's state: random base64url, at least 128 bits. */
+const SHELL_STATE = /^[A-Za-z0-9_-]{22,128}$/
+
 /** The state the desktop shell put in the sign-in page address (`?state=`), or null when absent or malformed. */
 export function desktopStateFromSearch(search: string): string | null {
-  void search
-  return null
+  const state = new URLSearchParams(search).get('state')
+  return state !== null && SHELL_STATE.test(state) ? state : null
 }
 
 /** True when the page was opened by the desktop shell to sign in (`?desktop=1&state=...`). */
 export function desktopRequested(search: string): boolean {
-  return new URLSearchParams(search).get('desktop') === '1'
+  return (
+    new URLSearchParams(search).get('desktop') === '1' && desktopStateFromSearch(search) !== null
+  )
 }
 
 /** The desktop code and state a deep link delivered in the fragment, or null. */
 export function desktopCodeFromHash(hash: string): { code: string; state: string } | null {
-  const found = /^#desktop-code=(.+)$/.exec(hash)?.[1]
-  return found && ENROL_TOKEN.test(found) ? { code: found, state: '' } : null
+  const found = /^#desktop-code=([^&]+)&desktop-state=([^&]+)$/.exec(hash)
+  const code = found?.[1]
+  const state = found?.[2]
+  return code && state && ENROL_TOKEN.test(code) && SHELL_STATE.test(state) ? { code, state } : null
 }
 
 /** Reads the desktop code and state from the address bar and clears the fragment. Null when absent. */
@@ -514,16 +521,14 @@ export function takeDesktopCode(place: EnrolPlace): { code: string; state: strin
 
 /** The url that hands a hand-off `code` and the shell's `state` to the desktop app through the OS. */
 export function desktopReturnUrl(code: string, state: string): string {
-  void state
-  return `guildhall://signed-in#code=${code}`
+  return `guildhall://signed-in#code=${code}&state=${state}`
 }
 
 const handoffBody = z.object({ code: z.string() })
 
 /** Mints a hand-off code for the signed-in browser session (the cookie rides along). */
 export async function beginDesktopHandoff(fetcher: Fetcher, state: string): Promise<string> {
-  void state
-  return (await send(fetcher, '/auth/desktop/begin', {}, handoffBody)).code
+  return (await send(fetcher, '/auth/desktop/begin', { state }, handoffBody)).code
 }
 
 /** Exchanges a desktop hand-off code for a cookie session, over TLS in the body, never a URL. */
@@ -535,7 +540,7 @@ export async function exchangeDesktopCode(
   return send(
     fetcher,
     '/auth/desktop/exchange',
-    { code, state: '' },
+    { code, state },
     sessionBody,
     undefined,
     undefined,
