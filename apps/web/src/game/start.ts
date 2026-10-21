@@ -4,7 +4,7 @@ import { type Phase, phaseAt } from './daylight'
 import { type HallOptions, HallScene } from './HallScene'
 import type { LookChoice } from './look'
 import type { SceneState } from './scene'
-import { watchSize } from './watch'
+import { refitScale, watchSize } from './watch'
 import { PLACE_NAMES, type PlaceName } from './world'
 
 /** What the page holds of a running game: draw a state, zoom, pause, tear down. */
@@ -80,7 +80,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
   // The frame also moves when the HUD changes height (--hud-inset), which no window resize reports.
   const stopWatching = watchSize(
     parent,
-    () => game.scale.refresh(),
+    () => refitScale(game.scale),
     typeof ResizeObserver === 'function' ? ResizeObserver : undefined
   )
   return {

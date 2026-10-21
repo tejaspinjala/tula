@@ -53,6 +53,16 @@ export function openZoomWhole(
   return Math.min(4, Math.max(1, fill))
 }
 
+/** The zoom after a resize: the one a fresh load of that frame opens at. */
+export function zoomAfterResize(
+  frameW: number,
+  frameH: number,
+  worldW: number,
+  worldH: number
+): number {
+  return openZoomWhole(frameW, frameH, worldW, worldH)
+}
+
 /** One pose of the walk cycle: which of four frames, and the pixel offsets that make it. */
 export interface Pose {
   frame: 0 | 1 | 2 | 3
