@@ -31,6 +31,11 @@ test('a refused post says why in words and posts nothing more', async () => {
   const refuse = (status: number, error: string) => async () => Response.json({ error }, { status })
   const locked = await assignQuest(session, refuse(422, 'hall_locked'), input)
   expect(locked).toEqual({ ok: false, message: 'That Hall is locked.' })
+  const ineligible = await assignQuest(session, refuse(422, 'hall_not_private_eligible'), input)
+  expect(ineligible).toEqual({
+    ok: false,
+    message: 'That private Hall is not marked private-eligible.',
+  })
   const paused = await assignQuest(session, refuse(422, 'hall_paused'), input)
   expect(paused).toEqual({ ok: false, message: 'That Hall is paused.' })
   const limited = await assignQuest(session, refuse(429, 'rate_limited'), input)
@@ -48,4 +53,11 @@ test('a refused post says why in words and posts nothing more', async () => {
 test('only the Heralds Hall has Quest templates today', () => {
   expect(templatesFor('heralds').map((t) => t.id)).toEqual(['herald-brief', 'herald-announcement'])
   expect(templatesFor('research')).toEqual([])
+})
+
+test('the private templates are offered for their own Halls only', () => {
+  expect(templatesFor('health').map((t) => t.id)).toEqual(['health-log'])
+  expect(templatesFor('personal').map((t) => t.id)).toEqual(['personal-plan'])
+  expect(templatesFor('relationships').map((t) => t.id)).toEqual(['relationship-note'])
+  expect(templatesFor('heralds').map((t) => t.id)).not.toContain('health-log')
 })

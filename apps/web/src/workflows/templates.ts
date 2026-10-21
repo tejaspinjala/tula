@@ -19,4 +19,12 @@ export const QUEST_TEMPLATE_CHOICES: readonly TemplateChoice[] = [
     requiresSeal: true,
   },
   { id: 'team-plan', name: 'Team plan', hallId: 'heralds', requiresSeal: false },
+  { id: 'health-log', name: 'Health log', hallId: 'health', requiresSeal: false },
+  { id: 'personal-plan', name: 'Personal plan', hallId: 'personal', requiresSeal: false },
+  {
+    id: 'relationship-note',
+    name: 'Relationship note',
+    hallId: 'relationships',
+    requiresSeal: false,
+  },
 ]

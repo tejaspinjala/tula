@@ -337,3 +337,27 @@ test('with nothing selected the guild caps are edited and saved under caps', asy
     maxChildrenPerQuest: 5,
   })
 })
+
+test('unlocking a private Hall, marking it private-eligible and hiring a Member saves as a widening confirmed by passkey', async () => {
+  const w = world({ status: 202, body: { version: 2, status: 'pending', change: 'widening' } })
+  const host = await mount(w, true)
+  await click(host, 'Health')
+  for (const label of ['Locked (accepts no Quests)', 'Private routing eligible']) {
+    const box = [...host.querySelectorAll('label')].find((l) => l.textContent?.includes(label))
+    const input = box?.querySelector('input')
+    if (!input) {
+      throw new Error(`no checkbox "${label}"`)
+    }
+    await act(async () => {
+      input.click()
+    })
+  }
+  await click(host, 'Add Member')
+  await click(host, 'Save')
+  const health = w.puts[0]?.body.config.halls.find((h) => h.id === 'health')
+  expect(health).toMatchObject({ locked: false, privateEligible: true })
+  expect(health?.members).toHaveLength(1)
+  expect(host.textContent).toContain('Confirm with passkey')
+  await click(host, 'Confirm with passkey')
+  expect(w.proof()).toBe('proof-1')
+})
