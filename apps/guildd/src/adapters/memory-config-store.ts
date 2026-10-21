@@ -7,12 +7,25 @@ import {
   type ConfigVersionSummary,
   type ProposeResult,
 } from '../ports/config-store'
+import type { ModelLedger } from '../ports/model-ledger'
+import type { QuestQueue } from '../ports/quest-queue'
 
 /** Memory adapter for {@link ConfigStore}: same rules, state in this instance only. */
 export class MemoryConfigStore implements ConfigStore {
   private readonly guilds = new Map<string, ConfigVersion[]>()
 
-  constructor(private readonly clock: Clock) {}
+  /**
+   * `parking` are the stores a newly locked Hall is parked in, in the same call that puts the lock
+   * in force (the Postgres adapter does it in one transaction); without them no Quests are parked or runs revoked here (the next dispatch pass still parks and kills
+   * a locked Hall's live work).
+   */
+  constructor(
+    private readonly clock: Clock,
+    private readonly parking: {
+      quests?: QuestQueue
+      ledger?: Pick<ModelLedger, 'revokeHallRuns'>
+    } = {}
+  ) {}
 
   // Every method does its check and write with no await between them, so same-tick calls
   // cannot interleave.
@@ -45,7 +58,7 @@ export class MemoryConfigStore implements ConfigStore {
     if (config.sealPolicy === 'autonomous') {
       throw new ConfigError('seal_policy_locked', 0)
     }
-    return this.write(guildId, config, 'change', options?.baseVersion)
+    return await this.write(guildId, config, 'change', options?.baseVersion)
   }
 
   async confirm(guildId: string, version: number): Promise<void> {
@@ -60,7 +73,9 @@ export class MemoryConfigStore implements ConfigStore {
     if (this.inForce(guildId).version !== target.baseVersion) {
       throw new ConfigError('stale', version)
     }
+    const before = this.inForce(guildId).config
     target.status = 'applied'
+    await this.parkNewlyLocked(guildId, before, target.config)
   }
 
   async restore(guildId: string, version: number): Promise<ProposeResult> {
@@ -101,12 +116,12 @@ export class MemoryConfigStore implements ConfigStore {
     return { version: top.version, config: structuredClone(top.config) }
   }
 
-  private write(
+  private async write(
     guildId: string,
     config: GuildConfig,
     kind: 'change' | 'restore',
     baseVersion?: number
-  ): ProposeResult {
+  ): Promise<ProposeResult> {
     const base = this.inForce(guildId)
     if (baseVersion !== undefined && baseVersion !== base.version) {
       throw new ConfigError('stale', baseVersion)
@@ -124,6 +139,23 @@ export class MemoryConfigStore implements ConfigStore {
       createdAt: this.clock.now().toISOString(),
       config: structuredClone(config),
     })
+    if (status === 'applied') {
+      await this.parkNewlyLocked(guildId, base.config, config)
+    }
     return { version, status, change }
+  }
+
+  private async parkNewlyLocked(
+    guildId: string,
+    before: GuildConfig,
+    after: GuildConfig
+  ): Promise<void> {
+    for (const hall of after.halls) {
+      const was = before.halls.find((h) => h.id === hall.id)
+      if (was && !was.locked && hall.locked) {
+        await this.parking.ledger?.revokeHallRuns(guildId, hall.id)
+        await this.parking.quests?.releaseLeases(guildId, 'routing_blocked', [hall.id])
+      }
+    }
   }
 }

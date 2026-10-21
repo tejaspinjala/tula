@@ -31,10 +31,10 @@ import {
   type QuestQueue,
   questEventPayload,
   questRank,
+  questRetryDelayMs,
   questState,
   releaseClaimTransition,
   renewTransition,
-  retryDelayMs,
   type SealOutcome,
   type SealSettleOptions,
   type SpawnRequest,
@@ -408,7 +408,7 @@ export class PgQuestQueue implements QuestQueue {
 
   async fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest> {
     return this.mutate(guildId, id, (q) =>
-      failTransition(q, attempt, error, this.clock.now(), retryDelayMs(q.attempts, this.random()))
+      failTransition(q, attempt, error, this.clock.now(), questRetryDelayMs(q, this.random()))
     )
   }
 

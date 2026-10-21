@@ -419,7 +419,7 @@ const summonBody = z.object({ profileId: z.string().min(1).max(64) })
 const putConfigBody = z.object({
   config: guildConfig,
   /** The config version the caller read; the save is refused as `stale` if it is no longer in force. */
-  baseVersion: z.number().int().min(1).optional(),
+  baseVersion: z.number().int().min(1),
 })
 /** The most unknown config key names one 422 refusal echoes back. */
 const MAX_UNKNOWN_KEYS_LISTED = 20
@@ -2027,8 +2027,11 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(
         {
           error: 'invalid_config',
-          // Paths are relative to the config document, not the request body that wraps it.
-          issues: body.error.issues.map((i) => ({ path: i.path.slice(1), message: i.message })),
+          // Paths under `config` are relative to the config document, not the request body that wraps it.
+          issues: body.error.issues.map((i) => ({
+            path: i.path[0] === 'config' ? i.path.slice(1) : i.path,
+            message: i.message,
+          })),
         },
         400
       )
@@ -2037,11 +2040,9 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: 'subscription_disabled' }, 409)
     }
     try {
-      const result = await deps.config.propose(
-        who.guild,
-        body.data.config,
-        body.data.baseVersion === undefined ? undefined : { baseVersion: body.data.baseVersion }
-      )
+      const result = await deps.config.propose(who.guild, body.data.config, {
+        baseVersion: body.data.baseVersion,
+      })
       return c.json(result, result.status === 'pending' ? 202 : 200)
     } catch (error) {
       return configFailure(c, error)

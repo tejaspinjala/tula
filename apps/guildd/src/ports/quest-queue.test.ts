@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test'
-import { type Quest, QuestError, retryDelayMs, submitTransition } from './quest-queue'
+import {
+  type Quest,
+  QuestError,
+  questRetryDelayMs,
+  retryDelayMs,
+  submitTransition,
+} from './quest-queue'
 
 const active: Quest = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -39,4 +45,12 @@ test('retry delay is exponential, capped, and jittered between half and full', (
   expect(retryDelayMs(1, 1)).toBe(1000)
   expect(retryDelayMs(3, 0.5)).toBe(3000)
   expect(retryDelayMs(30, 1)).toBe(300_000)
+})
+
+test('refunded waits do not lengthen the backoff: it grows with real attempts only', () => {
+  const waited = { ...active, attempts: 7, refunds: 6 }
+  expect(questRetryDelayMs(waited, 0.5)).toBe(
+    questRetryDelayMs({ ...active, attempts: 1, refunds: 0 }, 0.5)
+  )
+  expect(questRetryDelayMs({ ...active, attempts: 4, refunds: 1 }, 0)).toBe(retryDelayMs(3, 0))
 })

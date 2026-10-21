@@ -62,7 +62,8 @@ async function send<T>(
   token?: string,
   proof?: string,
   foundingToken?: string,
-  extra: Record<string, string> = {}
+  extra: Record<string, string> = {},
+  signal?: AbortSignal
 ): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json', ...extra }
   if (token) {
@@ -74,7 +75,12 @@ async function send<T>(
   if (foundingToken) {
     headers['x-founding-token'] = foundingToken
   }
-  const res = await fetcher(`/api${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+  const res = await fetcher(`/api${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: signal ?? null,
+  })
   const data: unknown = await res.json().catch(() => null)
   if (!res.ok) {
     const code = z.object({ error: z.string() }).safeParse(data)
@@ -536,7 +542,8 @@ export async function beginDesktopHandoff(fetcher: Fetcher, state: string): Prom
 export async function exchangeDesktopCode(
   code: string,
   state: string,
-  fetcher: Fetcher
+  fetcher: Fetcher,
+  signal?: AbortSignal
 ): Promise<Session> {
   return send(
     fetcher,
@@ -546,6 +553,7 @@ export async function exchangeDesktopCode(
     undefined,
     undefined,
     undefined,
-    COOKIE_MODE
+    COOKIE_MODE,
+    signal
   )
 }

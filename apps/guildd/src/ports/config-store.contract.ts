@@ -7,6 +7,20 @@ export interface ConfigStoreFixture {
   store: ConfigStore
   /** Founds a guild WITHOUT seeding config; the test seeds it. */
   newGuild: () => Promise<string>
+  /** Posts a Quest in `hallId` and claims it, so it is `active` under a lease; returns a reader of its current state. */
+  activeQuest: (
+    guildId: string,
+    hallId: string
+  ) => Promise<{
+    read: () => Promise<{
+      state: string
+      leaseExpiresAt: string | null
+      attempts: number
+      refunds: number
+    }>
+  }>
+  /** Opens an active model run in `hallId`, wired to the same ledger the store revokes in; returns a reader of its state. */
+  liveRun: (guildId: string, hallId: string) => Promise<{ read: () => Promise<string> }>
 }
 
 /** The ConfigStore contract, run against every adapter. `make` returns a fresh store. */
@@ -47,6 +61,47 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
         change: 'tightening',
       })
       expect((await store.current(guild)).config.caps.dailyTokens).toBe(10)
+    })
+
+    test('a change that locks a Hall releases its leases at once, with no dispatch pass', async () => {
+      const { store, guild, make } = await seeded()
+      const quest = await make.activeQuest(guild, 'heralds')
+      const other = await make.activeQuest(guild, 'other-hall')
+      const run = await make.liveRun(guild, 'heralds')
+      const otherRun = await make.liveRun(guild, 'other-hall')
+      const before = await quest.read()
+      expect(before.state).toBe('active')
+      const config = (await store.current(guild)).config
+      const halls = config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
+      await store.propose(guild, { ...config, halls })
+      const after = await quest.read()
+      expect(after).toMatchObject({ state: 'queued', leaseExpiresAt: null })
+      // The claim is refunded: one more refund, so the charged attempts (attempts - refunds) drop by the claim it cost.
+      expect(after.attempts).toBe(before.attempts)
+      expect(after.refunds).toBe(before.refunds + 1)
+      expect(after.attempts - after.refunds).toBe(before.attempts - before.refunds - 1)
+      expect((await other.read()).state).toBe('active')
+      expect(await run.read()).toBe('revoked')
+      expect(await otherRun.read()).toBe('active')
+    })
+
+    test('a widening change that also locks a Hall releases its leases on confirm, not before', async () => {
+      const { store, guild, make } = await seeded()
+      const quest = await make.activeQuest(guild, 'heralds')
+      const config = (await store.current(guild)).config
+      const halls = config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
+      const proposed = await store.propose(guild, {
+        ...config,
+        halls,
+        caps: {
+          dailyTokens: config.caps.dailyTokens * 2,
+          dailySpendCents: config.caps.dailySpendCents * 2,
+        },
+      })
+      expect(proposed.status).toBe('pending')
+      expect((await quest.read()).state).toBe('active')
+      await store.confirm(guild, proposed.version)
+      expect(await quest.read()).toMatchObject({ state: 'queued', leaseExpiresAt: null })
     })
 
     test('a widening change is stored pending and leaves the config in force alone until confirmed', async () => {

@@ -57,16 +57,17 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
   const [notice, setNotice] = useState('')
   const spent = useRef(new Set<string>())
   useEffect(() => {
+    const pending = new AbortController()
     function exchange({ code, state }: { code: string; state: string }) {
       if (spent.current.has(code)) {
         return
       }
       spent.current.add(code)
       setExchanging(true)
-      exchangeDesktopCode(code, state, fetch)
-        .then((opened) => setSession((current) => current ?? opened))
-        .catch(() => setNotice(DESKTOP_CODE_LOST))
-        .finally(() => setExchanging(false))
+      exchangeDesktopCode(code, state, fetch, pending.signal)
+        .then((opened) => !pending.signal.aborted && setSession((current) => current ?? opened))
+        .catch(() => !pending.signal.aborted && setNotice(DESKTOP_CODE_LOST))
+        .finally(() => !pending.signal.aborted && setExchanging(false))
     }
     function arrived() {
       const arrival = takeDesktopCode(window)
@@ -79,7 +80,10 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
       exchange(desktopCode)
     }
     window.addEventListener('hashchange', arrived)
-    return () => window.removeEventListener('hashchange', arrived)
+    return () => {
+      pending.abort()
+      window.removeEventListener('hashchange', arrived)
+    }
   }, [desktopCode])
 
   const [founding, setFounding] = useState<FoundingState>('closed')

@@ -69,11 +69,12 @@ test('a canvas edit becomes the PUT body: the whole edited document, unchanged k
     [`PUT ${cfg}`]: { body: { version: 4, status: 'applied', change: 'neutral' } },
   })
   const edited = moveMember(parseConfig(document), 'm1', { hallId: 'b' })
-  const outcome = await saveConfig(session, edited, fetcher)
+  const outcome = await saveConfig(session, edited, fetcher, 1)
   expect(outcome).toEqual({ version: 4, status: 'applied', change: 'neutral' })
   expect(seen[0]?.method).toBe('PUT')
   expect(seen[0]?.headers.get('authorization')).toBe('Bearer t1')
   expect(seen[0]?.body).toEqual({
+    baseVersion: 1,
     config: {
       ...document,
       halls: [
@@ -88,7 +89,7 @@ test('a pending widening is reported with the server classification and needs no
   const { seen, fetcher } = fakes({
     [`PUT ${cfg}`]: { status: 202, body: { version: 5, status: 'pending', change: 'widening' } },
   })
-  const outcome = await saveConfig(session, parseConfig(document), fetcher)
+  const outcome = await saveConfig(session, parseConfig(document), fetcher, 1)
   expect(outcome).toEqual({ version: 5, status: 'pending', change: 'widening' })
   expect(seen.map((s) => s.url)).toEqual([cfg])
 })
@@ -118,7 +119,9 @@ test('a rejected config carries the issue paths so a node can show them', async 
       },
     },
   })
-  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  const error = await saveConfig(session, parseConfig(document), fetcher, 1).catch(
+    (e: unknown) => e
+  )
   expect(error).toBeInstanceOf(SaveRejected)
   expect(error instanceof SaveRejected && error.issues).toEqual([
     { path: ['halls', 0, 'name'], message: 'too short' },
@@ -127,7 +130,9 @@ test('a rejected config carries the issue paths so a node can show them', async 
 
 test('another refusal throws a request error with the server code', async () => {
   const { fetcher } = fakes({ [`PUT ${cfg}`]: { status: 409, body: { error: 'stale' } } })
-  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  const error = await saveConfig(session, parseConfig(document), fetcher, 1).catch(
+    (e: unknown) => e
+  )
   expect(error).toBeInstanceOf(PasskeyRequestError)
 })
 
@@ -149,7 +154,9 @@ test('an unknown-key refusal names the offending keys in its message', async () 
       body: { error: 'unknown_config_key', unknownKeys: ['caps.bogus', 'extra'] },
     },
   })
-  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  const error = await saveConfig(session, parseConfig(document), fetcher, 1).catch(
+    (e: unknown) => e
+  )
   expect(error instanceof Error && error.message).toContain('caps.bogus')
   expect(error instanceof Error && error.message).toContain('extra')
 })
@@ -161,7 +168,9 @@ test('a truncated unknown-key refusal still names the keys and says more were cu
       body: { error: 'unknown_config_key', unknownKeys: ['caps.bogus'], truncated: true },
     },
   })
-  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  const error = await saveConfig(session, parseConfig(document), fetcher, 1).catch(
+    (e: unknown) => e
+  )
   expect(error instanceof Error && error.message).toContain('caps.bogus')
   expect(error instanceof Error && error.message).toContain('and more')
 })
@@ -174,6 +183,8 @@ test('an unknown-key refusal with a shortened key reads cleanly', async () => {
       body: { error: 'unknown_config_key', unknownKeys: [shortened], truncated: true },
     },
   })
-  const error = await saveConfig(session, parseConfig(document), fetcher).catch((e: unknown) => e)
+  const error = await saveConfig(session, parseConfig(document), fetcher, 1).catch(
+    (e: unknown) => e
+  )
   expect(error instanceof Error && error.message).toBe(`unknown config key: ${shortened} and more`)
 })

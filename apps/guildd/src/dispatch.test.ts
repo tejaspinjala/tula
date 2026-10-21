@@ -13,7 +13,7 @@ import { MemorySandboxRunner } from './adapters/memory-sandbox-runner'
 import { MemorySealStore } from './adapters/memory-seal-store'
 import { MemorySecretStore } from './adapters/memory-secret-store'
 import { MemoryTripwireStore } from './adapters/memory-tripwire-store'
-import { dispatch, dispatchAll, routeClaimed } from './dispatch'
+import { type DispatchErrorContext, dispatch, dispatchAll, routeClaimed } from './dispatch'
 import { defaultConfig, type GuildConfig } from './guild-config'
 import { GatewayError, ModelGateway, runIdFor } from './model-gateway'
 import { ConfigError } from './ports/config-store'
@@ -252,6 +252,82 @@ describe('dispatch', () => {
     expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: second.id })
   })
 
+  test('a Hall locked at the config change (Quest already queued, lease gone) still has its sandbox killed on the next pass', async () => {
+    const w = world()
+    const base = defaultConfig()
+    let config = configWith()
+    const deps = { ...w.deps, config: { current: async () => ({ version: 1, config }) } }
+    const quest = await w.queue()
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: quest.id })
+    expect(await w.started()).toEqual([quest.id])
+    // What the config store does in the lock transaction.
+    await w.quests.releaseLeases(w.guild, 'routing_blocked', ['heralds'])
+    config = configWith({
+      halls: base.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+    })
+    await dispatch(deps, w.guild)
+    expect(await w.started()).toEqual([])
+  })
+
+  test('a sandbox list that throws is reported and does not stop claims in unlocked Halls', async () => {
+    const w = world()
+    const base = defaultConfig()
+    const inner = new MemorySandboxRunner()
+    const reports: string[] = []
+    const contexts: unknown[] = []
+    const locked = configWith({
+      halls: base.halls.map((h) => (h.id === 'health' ? { ...h, locked: true } : h)),
+    })
+    const deps = {
+      ...w.deps,
+      config: { current: async () => ({ version: 1, config: locked }) },
+      sandboxes: {
+        start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        kill: (...args: Parameters<MemorySandboxRunner['kill']>) => inner.kill(...args),
+        list: async (): Promise<never> => {
+          throw new Error('docker down')
+        },
+      },
+      onError: (e: unknown, ctx: unknown) => {
+        reports.push(e instanceof Error ? e.message : 'other')
+        contexts.push(ctx)
+      },
+    }
+    const open = await w.queue()
+    await w.queue({ hallId: 'health', templateId: 'health-log' })
+    expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: open.id })
+    expect(reports).toEqual(['docker down'])
+    expect(contexts).toEqual([{ kind: 'sandbox_reap', guildId: w.guild }])
+  })
+
+  test('a pass whose locked Halls hold no queued or active Quest never lists sandboxes', async () => {
+    const w = world()
+    const list = spyOn(w.deps.sandboxes, 'list')
+    await w.queue()
+    await dispatch(w.deps, w.guild)
+    await dispatch(w.deps, w.guild)
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  test('sandboxes of Quests in unlocked Halls are not looked up one by one', async () => {
+    const w = world()
+    const base = defaultConfig()
+    const locked = configWith({
+      halls: base.halls.map((h) => (h.id === 'health' ? { ...h, locked: true } : h)),
+    })
+    const deps = { ...w.deps, config: { current: async () => ({ version: 1, config: locked }) } }
+    const parked = await w.queue({ hallId: 'health', templateId: 'health-log' })
+    const open = await w.queue()
+    await w.deps.sandboxes.start(w.guild, { questId: open.id })
+    await w.deps.sandboxes.start(w.guild, { questId: parked.id })
+    const get = spyOn(w.quests, 'get')
+    await dispatch(deps, w.guild)
+    expect(get).not.toHaveBeenCalledWith(w.guild, open.id)
+    const left = (await w.deps.sandboxes.list(w.guild)).map((s) => s.questId)
+    expect(left).toContain(open.id)
+    expect(left).not.toContain(parked.id)
+  })
+
   test('a sandbox that will not die does not stop the lock: the run is revoked, the lease released, other Halls go on', async () => {
     const w = world()
     const inner = new MemorySandboxRunner()
@@ -260,12 +336,13 @@ describe('dispatch', () => {
       ...w.deps,
       sandboxes: {
         start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        list: (guildId: string) => inner.list(guildId),
         kill: async (): Promise<number> => {
           throw new Error('docker down')
         },
       },
-      onError: (_e: unknown, ctx: { questId: string }) => {
-        reports.push(ctx.questId)
+      onError: (_e: unknown, ctx: DispatchErrorContext) => {
+        reports.push(ctx.kind === 'start_cleanup' ? ctx.questId : '')
       },
     }
     const private_ = await w.queue({ hallId: 'health', templateId: 'health-log' })
@@ -529,8 +606,10 @@ describe('dispatch', () => {
       ...w.deps,
       sandboxes: hang.runner,
       sandboxStartTimeoutMs: 20,
-      onError: (_e: unknown, ctx: { guildId: string; questId: string; sandboxId: string }) => {
-        reports.push(ctx)
+      onError: (_e: unknown, ctx: DispatchErrorContext) => {
+        if (ctx.kind === 'start_cleanup') {
+          reports.push(ctx)
+        }
       },
     }
     const stuck = await w.queue()
