@@ -56,6 +56,17 @@ export const QUEST_TEMPLATES: readonly QuestTemplate[] = [
     requiresSeal: false,
     roundLimit: 2,
   },
+  {
+    id: 'inquiry-answer',
+    name: 'Inquiry answer',
+    // Only a default: an Inquiry posts this template onto the Hall it was asked of.
+    hallId: 'heralds',
+    rank: 'journeyman',
+    dataClass: 'internal',
+    doneCondition: 'The Inquiry is answered once with answer_inquiry',
+    requiresSeal: false,
+    roundLimit: 2,
+  },
 ]
 
 /** What the Guild Master supplies when posting a Quest from a template. */

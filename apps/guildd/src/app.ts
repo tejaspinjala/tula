@@ -29,6 +29,7 @@ import type { GitHubEnvoy } from './ports/github-envoy'
 import type { GuildMasterLookStore } from './ports/guild-master-look-store'
 import { IdentityError, type IdentityProvider, type IdentitySession } from './ports/identity'
 import type { KeyProvider } from './ports/key-provider'
+import { type InquiryStore, MAX_INQUIRY_PAGE } from './ports/inquiry-store'
 import { MAX_MISSIVE_PAGE, type MissiveStore } from './ports/missive-store'
 import type { ModelLedger } from './ports/model-ledger'
 import { isUsageDate, MAX_USAGE_PAGE, usageGroup } from './ports/model-ledger'
@@ -98,6 +99,8 @@ export interface AppDeps {
   notes: NoteStore
   /** Missives between the Members of a Hall, read by the Guild Master in the ledger. */
   missives: MissiveStore
+  /** Inquiries between Halls, listed and read by the Guild Master. */
+  inquiries: InquiryStore
   /** Seals: the engine Quests call to request a Seal; the Guild Master decides in the Seal inbox. */
   seals: SealEngine
   /** Proposals: drafted content bound to its hash, with the deterministic Verdict bound to the same hash. */

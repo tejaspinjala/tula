@@ -14,6 +14,7 @@ import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import type { GateStore } from '../ports/gate-store'
 import { type HandoffStore, handoff, hashHandoff } from '../ports/handoff-store'
+import type { InquiryStore } from '../ports/inquiry-store'
 import type { KeyProvider } from '../ports/key-provider'
 import { type MissiveStore, WHOLE_HALL } from '../ports/missive-store'
 import { NoteError, type NoteStore } from '../ports/note-store'
@@ -68,6 +69,10 @@ export interface McpGatewayDeps {
   notes: NoteStore
   /** Missives between the Members of a Hall (`send_missive`, `read_missives`). */
   missives: MissiveStore
+  /** Inquiries between Halls (`ask_hall`, `answer_inquiry`, `read_inquiry`). */
+  inquiries: InquiryStore
+  /** How long an Inquiry waits for its answer; defaults to seven days (the host's `INQUIRY_EXPIRY_DAYS`). */
+  inquiryExpiryMs?: number
   objectStore: ObjectStore
   handoffs: HandoffStore
   /** Governed web research for `research`; absent when no provider is configured (the tool is then unavailable). */

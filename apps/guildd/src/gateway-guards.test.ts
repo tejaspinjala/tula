@@ -4,6 +4,7 @@ import { MemoryConfigStore } from './adapters/memory-config-store'
 import { MemoryGateStore } from './adapters/memory-gate-store'
 import { MemoryHandoffStore } from './adapters/memory-handoff-store'
 import { MemoryKeyProvider } from './adapters/memory-key-provider'
+import { MemoryInquiryStore } from './adapters/memory-inquiry-store'
 import { MemoryMissiveStore } from './adapters/memory-missive-store'
 import { MemoryModelLedger } from './adapters/memory-model-ledger'
 import { MemoryModelProvider } from './adapters/memory-model-provider'
@@ -61,6 +62,7 @@ gatewayGuardsContract('memory', async () => {
     config,
     notes: new MemoryNoteStore(),
     missives: new MemoryMissiveStore(),
+    inquiries: new MemoryInquiryStore(quests),
     objectStore: new MemoryObjectStore(),
     handoffs: new MemoryHandoffStore(),
     toolsets: new MemoryToolsetStore(),

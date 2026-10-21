@@ -31,6 +31,7 @@ export class PgActivityLog implements ActivityLog {
         memberId: input.memberId,
         hallId: input.hallId,
         activity: input.activity,
+        ...(input.peerHallId === undefined ? {} : { peerHallId: input.peerHallId }),
       })
       return { emitted: true }
     })
