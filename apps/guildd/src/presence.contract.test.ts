@@ -68,6 +68,16 @@ describe('away mode routes', () => {
     expect((await harness.adapters.presence.get(guild)).away).toBe(false)
   })
 
+  test('a return time more than 30 days ahead is refused; just inside is accepted; open-ended stays allowed', async () => {
+    const { guild, token } = await found('Cap')
+    const day = 86_400_000
+    const at = (ms: number) => new Date(harness.adapters.clock.now().getTime() + ms).toISOString()
+    expect((await goAway(guild, token, { until: at(30 * day + 1000) })).status).toBe(400)
+    expect((await harness.adapters.presence.get(guild)).away).toBe(false)
+    expect((await goAway(guild, token, { until: at(30 * day - 1000) })).status).toBe(200)
+    expect((await goAway(guild, token, {})).status).toBe(200)
+  })
+
   test('all routes need a session', async () => {
     const { guild } = await found('Anon')
     for (const token of [null, 'forged']) {
