@@ -27,9 +27,9 @@ import {
   type QuestPaging,
   type QuestQueue,
   questEventPayload,
+  questRetryDelayMs,
   releaseClaimTransition,
   renewTransition,
-  retryDelayMs,
   type SealOutcome,
   type SealSettleOptions,
   type SpawnRequest,
@@ -226,7 +226,7 @@ export class MemoryQuestQueue implements QuestQueue {
 
   async fail(guildId: string, id: string, attempt: number, error: string): Promise<Quest> {
     const quest = this.mustFind(guildId, id)
-    const delay = retryDelayMs(quest.attempts, this.random())
+    const delay = questRetryDelayMs(quest, this.random())
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 

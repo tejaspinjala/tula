@@ -368,6 +368,17 @@ export function retryDelayMs(attempt: number, random: number): number {
   return Math.floor(ceiling / 2 + random * (ceiling / 2))
 }
 
+/**
+ * The retry delay for a Quest: backoff grows with real attempts (`attempts - refunds`), so refunded waits
+ * (bars, parks, locked Halls) never lengthen it, while a Quest that genuinely fails still backs off.
+ */
+export function questRetryDelayMs(
+  quest: Pick<Quest, 'attempts' | 'refunds'>,
+  random: number
+): number {
+  return retryDelayMs(Math.max(1, quest.attempts - quest.refunds), random)
+}
+
 /** Whether the Quest holds a lease that has not lapsed at `now`. */
 export function hasLiveLease(quest: Quest, now: Date): boolean {
   return (
