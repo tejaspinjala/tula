@@ -16,7 +16,8 @@ export class MemoryConfigStore implements ConfigStore {
 
   /**
    * `parking` are the stores a newly locked Hall is parked in, in the same call that puts the lock
-   * in force (the Postgres adapter does it in one transaction); without them nothing is parked.
+   * in force (the Postgres adapter does it in one transaction); without them no Quests are parked or runs revoked here (the next dispatch pass still parks and kills
+   * a locked Hall's live work).
    */
   constructor(
     private readonly clock: Clock,

@@ -277,6 +277,7 @@ describe('dispatch', () => {
       ...w.deps,
       sandboxes: {
         start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        list: (guildId: string) => inner.list(guildId),
         kill: async (): Promise<number> => {
           throw new Error('docker down')
         },

@@ -8,6 +8,7 @@ import { testDbUrl } from '../testing/test-db'
 import { MemoryClock } from './memory-clock'
 import { MemoryKeyProvider } from './memory-key-provider'
 import { PgConfigStore } from './pg-config-store'
+import { PgModelLedger } from './pg-model-ledger'
 import { PgQuestQueue } from './pg-quest-queue'
 
 const db = createDb(testDbUrl('app'))
@@ -18,6 +19,7 @@ afterAll(async () => {
 configStoreContract('postgres', async () => {
   const keys = new MemoryKeyProvider()
   const quests = new PgQuestQueue(db, keys, new MemoryClock(new Date()), () => 0.5)
+  const ledger = new PgModelLedger(db, keys)
   return {
     store: new PgConfigStore(db, keys),
     newGuild: () => foundTestGuild(db, { name: 'Config', goal: 'g' }),
@@ -37,9 +39,29 @@ configStoreContract('postgres', async () => {
       return {
         read: async () => {
           const q = await quests.get(guildId, quest.id)
-          return { state: q?.state ?? 'missing', leaseExpiresAt: q?.leaseExpiresAt ?? null }
+          return {
+            state: q?.state ?? 'missing',
+            leaseExpiresAt: q?.leaseExpiresAt ?? null,
+            attempts: q?.attempts ?? 0,
+            refunds: q?.refunds ?? 0,
+          }
         },
       }
+    },
+    liveRun: async (guildId, hallId) => {
+      const runId = crypto.randomUUID()
+      await ledger.openRun(guildId, {
+        runId,
+        questId: crypto.randomUUID(),
+        attempt: 1,
+        hallId,
+        providerId: 'home',
+        profileId: 'p',
+        state: 'active',
+        tokenHash: runId,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      })
+      return { read: async () => (await ledger.getRun(guildId, runId))?.state ?? 'missing' }
     },
   }
 })

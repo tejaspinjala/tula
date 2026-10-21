@@ -11,7 +11,16 @@ export interface ConfigStoreFixture {
   activeQuest: (
     guildId: string,
     hallId: string
-  ) => Promise<{ read: () => Promise<{ state: string; leaseExpiresAt: string | null }> }>
+  ) => Promise<{
+    read: () => Promise<{
+      state: string
+      leaseExpiresAt: string | null
+      attempts: number
+      refunds: number
+    }>
+  }>
+  /** Opens an active model run in `hallId`, wired to the same ledger the store revokes in; returns a reader of its state. */
+  liveRun: (guildId: string, hallId: string) => Promise<{ read: () => Promise<string> }>
 }
 
 /** The ConfigStore contract, run against every adapter. `make` returns a fresh store. */
@@ -58,12 +67,22 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       const { store, guild, make } = await seeded()
       const quest = await make.activeQuest(guild, 'heralds')
       const other = await make.activeQuest(guild, 'other-hall')
-      expect((await quest.read()).state).toBe('active')
+      const run = await make.liveRun(guild, 'heralds')
+      const otherRun = await make.liveRun(guild, 'other-hall')
+      const before = await quest.read()
+      expect(before.state).toBe('active')
       const config = (await store.current(guild)).config
       const halls = config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h))
       await store.propose(guild, { ...config, halls })
-      expect(await quest.read()).toEqual({ state: 'queued', leaseExpiresAt: null })
+      const after = await quest.read()
+      expect(after).toMatchObject({ state: 'queued', leaseExpiresAt: null })
+      // The claim is refunded: one more refund, so the charged attempts (attempts - refunds) drop by the claim it cost.
+      expect(after.attempts).toBe(before.attempts)
+      expect(after.refunds).toBe(before.refunds + 1)
+      expect(after.attempts - after.refunds).toBe(before.attempts - before.refunds - 1)
       expect((await other.read()).state).toBe('active')
+      expect(await run.read()).toBe('revoked')
+      expect(await otherRun.read()).toBe('active')
     })
 
     test('a widening change that also locks a Hall releases its leases on confirm, not before', async () => {
@@ -82,7 +101,7 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       expect(proposed.status).toBe('pending')
       expect((await quest.read()).state).toBe('active')
       await store.confirm(guild, proposed.version)
-      expect(await quest.read()).toEqual({ state: 'queued', leaseExpiresAt: null })
+      expect(await quest.read()).toMatchObject({ state: 'queued', leaseExpiresAt: null })
     })
 
     test('a widening change is stored pending and leaves the config in force alone until confirmed', async () => {

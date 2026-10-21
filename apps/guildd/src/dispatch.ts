@@ -309,6 +309,7 @@ export type DispatchDeps = RoutingDeps &
   HallWatchDeps & {
     quests: QuestQueue
     gateway: Pick<ModelGateway, 'revokeHallRuns'>
+    sandboxes: Pick<SandboxRunner, 'start' | 'kill' | 'list'>
     config: Pick<ConfigStore, 'current'>
   }
 
@@ -371,19 +372,30 @@ async function parkLockedHalls(
     live.push(...page.quests.filter((x) => halls.includes(x.hallId)))
     after = page.next ?? undefined
   } while (after !== undefined)
-  if (live.length === 0) {
-    return
+  if (live.length > 0) {
+    for (const hall of new Set(live.map((q) => q.hallId))) {
+      await deps.gateway.revokeHallRuns(guildId, hall)
+    }
+    await deps.quests.releaseLeases(guildId, 'routing_blocked', halls)
   }
-  for (const hall of new Set(live.map((q) => q.hallId))) {
-    await deps.gateway.revokeHallRuns(guildId, hall)
+  // A lock at the config change already queued the Quests and revoked their runs, so the sandboxes
+  // are found by the guild's sandbox list, whatever state their Quest is in.
+  const doomed = new Set(live.map((q) => q.id))
+  for (const sandbox of await deps.sandboxes.list(guildId)) {
+    if (!doomed.has(sandbox.questId)) {
+      const quest = await deps.quests.get(guildId, sandbox.questId)
+      if (quest === null || !halls.includes(quest.hallId)) {
+        continue
+      }
+      doomed.add(quest.id)
+    }
   }
-  await deps.quests.releaseLeases(guildId, 'routing_blocked', halls)
-  for (const q of live) {
+  for (const questId of doomed) {
     try {
-      await deps.sandboxes.kill({ guildId, questId: q.id })
+      await deps.sandboxes.kill({ guildId, questId })
     } catch (error) {
       // A kill is by Quest, so there is no sandbox id to name.
-      deps.onError?.(error, { guildId, questId: q.id, sandboxId: '' })
+      deps.onError?.(error, { guildId, questId, sandboxId: '' })
     }
   }
 }
