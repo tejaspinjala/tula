@@ -27,6 +27,8 @@ const quest = (id: string, state: BoardQuest['state']): BoardQuest => ({
   lastError: null,
   campaignId: null,
   parentId: null,
+  dataClass: 'internal',
+  blockReason: null,
 })
 
 test('the quest list follows page cursors and sends the session token', async () => {
@@ -149,4 +151,29 @@ test('a Quest shows its claimer once it has been claimed, and none while it wait
   expect(
     claimerOf(inC('c', 'x', { attempts: 2, state: 'done', ownerId: 'heralds-member-2' }))
   ).toBe('heralds-member-2')
+})
+
+test('a queued Quest blocked by routing says why it waits, in plain words', async () => {
+  const { waitingReason } = await import('./quests')
+  const base = {
+    id: 'q',
+    title: 't',
+    hallId: 'health',
+    ownerId: 'm',
+    state: 'queued' as const,
+    doneCondition: 'd',
+    round: 0,
+    roundLimit: 2,
+    attempts: 0,
+    lastError: 'routing_blocked' as string | null,
+    campaignId: null,
+    parentId: null,
+    dataClass: 'private' as const,
+    blockReason: 'private_provider_unavailable' as const,
+  }
+  expect(waitingReason(base)).toBe('Waiting: no private-eligible provider')
+  expect(waitingReason({ ...base, blockReason: 'hall_locked' })).toBe('Waiting: Hall locked')
+  expect(waitingReason({ ...base, blockReason: null })).toBe('Waiting: routing is blocked')
+  expect(waitingReason({ ...base, lastError: null })).toBeNull()
+  expect(waitingReason({ ...base, state: 'active' })).toBeNull()
 })

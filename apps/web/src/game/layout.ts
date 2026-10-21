@@ -204,17 +204,21 @@ export interface RoomTag {
   text: string
   veil: number
   closed: boolean
+  /** True for an unlocked private room: it wears a small privacy mark. */
+  privateMark: boolean
+  /** How much warm light a lived-in room gets, 0 to 1. */
+  warmth: number
 }
 
 /** The label, veil and door of each of `slots` room slots, from the Halls in roster order. */
 export function roomTags(
-  halls: readonly { name: string; locked: boolean; paused: boolean }[],
+  halls: readonly { name: string; locked: boolean; paused: boolean; kind: 'work' | 'private' }[],
   slots: number
 ): RoomTag[] {
   return Array.from({ length: Math.max(slots, halls.length) }, (_slot, index): RoomTag => {
     const hall = halls[index]
     if (!hall) {
-      return { text: 'Locked room', veil: 0.45, closed: true }
+      return { text: 'Locked room', veil: 0.45, closed: true, privateMark: false, warmth: 0 }
     }
     const text = hall.locked
       ? `${hall.name} (locked)`
@@ -225,6 +229,8 @@ export function roomTags(
       text: text.slice(0, 22),
       veil: hall.locked ? 0.6 : hall.paused ? 0.35 : 0,
       closed: hall.locked,
+      privateMark: false,
+      warmth: 0,
     }
   })
 }

@@ -16,6 +16,17 @@ const questBody = z.object({
   attempts: z.number(),
   lastError: z.string().nullable(),
   campaignId: z.string().nullable().default(null),
+  dataClass: z.enum(['public', 'internal', 'private']).default('internal'),
+  blockReason: z
+    .enum([
+      'hall_not_found',
+      'hall_locked',
+      'private_provider_unavailable',
+      'budget_exhausted',
+      'no_provider_available',
+    ])
+    .nullable()
+    .default(null),
 })
 const linkBody = z.object({ parentId: z.string(), childId: z.string() })
 const pageBody = z.object({
@@ -210,4 +221,9 @@ export async function postQuest(
     throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
   }
   return { ...questBody.parse(data), parentId: null }
+}
+
+/** Why a queued Quest is waiting; null unless routing is holding it. */
+export function waitingReason(_quest: BoardQuest): string | null {
+  return null
 }

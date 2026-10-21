@@ -1,7 +1,12 @@
 import { expect, test } from 'bun:test'
 import { roomTags } from './layout'
 
-const hall = (name: string, locked = false, paused = false) => ({ name, locked, paused })
+const hall = (name: string, locked = false, paused = false, kind: 'work' | 'private' = 'work') => ({
+  name,
+  locked,
+  paused,
+  kind,
+})
 
 test('every Hall past the six map slots still gets a labelled room tag', () => {
   const halls = Array.from({ length: 9 }, (_x, i) => hall(`Hall ${i}`))
@@ -26,4 +31,20 @@ test('locked and paused Halls say so; unused slots are a calm labelled locked ro
 test('long names are cut to fit the room label', () => {
   const tags = roomTags([hall('A very long Hall name that overflows')], 1)
   expect(tags[0]?.text.length).toBeLessThanOrEqual(22)
+})
+
+test('an unlocked private Hall is a calm lived-in room with a privacy mark; a locked one keeps its veil and has none; a work Hall has none', () => {
+  const tags = roomTags(
+    [
+      hall('Health', false, false, 'private'),
+      hall('Personal', true, false, 'private'),
+      hall('Works'),
+    ],
+    3
+  )
+  expect(tags[0]).toMatchObject({ text: 'Health', closed: false, veil: 0, privateMark: true })
+  expect(tags[0]?.warmth).toBeGreaterThan(0)
+  expect(tags[1]).toMatchObject({ closed: true, privateMark: false, warmth: 0 })
+  expect(tags[1]?.veil).toBeGreaterThan(0)
+  expect(tags[2]).toMatchObject({ privateMark: false, warmth: 0 })
 })
