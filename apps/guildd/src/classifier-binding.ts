@@ -13,11 +13,28 @@ export type ClassifierBinding =
 export function bindClassifier(
   config: Pick<GuildConfig, 'providers' | 'routingProfiles'>
 ): ClassifierBinding {
-  // The first `cheap` profile, the same one the gateway and ModelClassifier resolve.
-  const profile = config.routingProfiles.find((r) => r.tier === 'cheap')
-  const provider = profile && config.providers.find((p) => p.id === profile.provider)
-  if (profile && provider?.privateEligible) {
-    return { kind: 'model', providerId: provider.id, profileId: profile.id }
+  const bound = cheapPrivateProfile(config)
+  return bound
+    ? { kind: 'model', providerId: bound.provider.id, profileId: bound.profile.id }
+    : { kind: 'standin' }
+}
+
+/**
+ * The one rule for which profile serves the classifier: the first `cheap` profile whose provider
+ * is private-eligible, or null. The binding, the model classifier and the gateway all use it.
+ */
+export function cheapPrivateProfile(config: Pick<GuildConfig, 'providers' | 'routingProfiles'>): {
+  profile: GuildConfig['routingProfiles'][number]
+  provider: GuildConfig['providers'][number]
+} | null {
+  for (const profile of config.routingProfiles) {
+    if (profile.tier !== 'cheap') {
+      continue
+    }
+    const provider = config.providers.find((p) => p.id === profile.provider)
+    if (provider?.privateEligible) {
+      return { profile, provider }
+    }
   }
-  return { kind: 'standin' }
+  return null
 }

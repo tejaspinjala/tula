@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { cheapPrivateProfile } from './classifier-binding'
 import { type GuildConfig, isHallLocked } from './guild-config'
 import { costMicros, MICROS_PER_CENT } from './model-cost'
 import { ACTIVITY_WINDOW_MS, type ActivityLog } from './ports/activity-log'
@@ -395,7 +396,8 @@ export class ModelGateway {
     run: { runId: string; profileId: string },
     data: z.output<typeof gatewayCall>,
     quest: Quest | null,
-    timeoutMs?: number
+    timeoutMs?: number,
+    opts: { requirePrivate?: boolean; signal?: AbortSignal } = {}
   ): Promise<{ response: ModelResponse; costMicros: number | null }> {
     const { config } = await this.deps.config.current(guildId)
     const { profile, provider } = resolveProfile(
@@ -403,6 +405,10 @@ export class ModelGateway {
       run.profileId,
       this.deps.subscriptionProvider !== undefined
     )
+    // Checked on the config this send uses, so a flag turned off since the caller's check wins.
+    if (opts.requirePrivate && !provider.privateEligible) {
+      throw new GatewayError('provider_not_private')
+    }
     if (!profile.model) {
       throw new GatewayError('model_unconfigured')
     }
@@ -455,10 +461,11 @@ export class ModelGateway {
     // Fails closed: a bar check that errors aborts the call as `gates_unavailable`, since the bar
     // cannot be known. A tick is skipped while the previous check is still pending.
     const barred = new AbortController()
-    const signal =
-      timeoutMs === undefined
-        ? barred.signal
-        : AbortSignal.any([barred.signal, AbortSignal.timeout(timeoutMs)])
+    const signal = AbortSignal.any([
+      barred.signal,
+      ...(timeoutMs === undefined ? [] : [AbortSignal.timeout(timeoutMs)]),
+      ...(opts.signal ? [opts.signal] : []),
+    ])
     let abortCode: 'gates_barred' | 'gates_unavailable' = 'gates_barred'
     let checking = false
     const poll = setInterval(() => {
@@ -588,14 +595,15 @@ export class ModelGateway {
       throw new GatewayError('gates_barred')
     }
     const { config } = await this.deps.config.current(guildId)
-    const profile = config.routingProfiles.find((p) => p.tier === 'cheap')
-    const provider = profile && config.providers.find((p) => p.id === profile.provider)
-    if (!profile || !provider) {
-      throw new GatewayError('unknown_profile')
+    const bound = cheapPrivateProfile(config)
+    if (!bound) {
+      throw new GatewayError(
+        config.routingProfiles.some((p) => p.tier === 'cheap')
+          ? 'provider_not_private'
+          : 'unknown_profile'
+      )
     }
-    if (!provider.privateEligible) {
-      throw new GatewayError('provider_not_private')
-    }
+    const { profile, provider } = bound
     const runId = `classify:${call.decisionKey}`
     const issue = this.issue(guildId)
     await this.deps.ledger.openRun(guildId, {
@@ -615,9 +623,12 @@ export class ModelGateway {
       {
         messages: [{ role: 'user', content: call.prompt }],
         maxTokens: CLASSIFIER_MAX_REPLY_TOKENS,
+        // A retried decision reuses the reservation key, so it is refused, never charged twice.
+        idempotencyKey: call.decisionKey,
       },
       null,
-      CLASSIFIER_CALL_TIMEOUT_MS
+      CLASSIFIER_CALL_TIMEOUT_MS,
+      { requirePrivate: true, ...(call.signal ? { signal: call.signal } : {}) }
     )
     return response.text
   }

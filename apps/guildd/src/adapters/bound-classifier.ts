@@ -33,20 +33,23 @@ export class BoundClassifier implements Classifier {
     if (bindClassifier(config).kind === 'standin') {
       return this.deps.standin.classify(input)
     }
-    const hallId = input.halls[0]?.id
+    // Spend is filed under the first open work Hall, never a private one.
+    const hallId = (input.halls.find((h) => h.kind === 'work') ?? input.halls[0])?.id
     if (!hallId) {
       throw new Error('no Halls to classify into')
     }
     const model = new ModelClassifier(
       {
-        complete: (prompt) =>
+        complete: (prompt, signal) =>
           this.deps.gateway.classifierComplete(input.guildId, {
             decisionKey: input.decisionKey,
             hallId,
             prompt,
+            signal,
           }),
       },
-      config
+      config,
+      this.deps.timeoutMs
     )
     return model.classify(input)
   }
