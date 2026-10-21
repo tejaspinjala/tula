@@ -50,6 +50,8 @@ async function world() {
     model: new ScriptedCouncilModel(() => voteReply('approve', 'fine')),
     clock: a.clock,
     gates: gateStore,
+    config: a.config,
+    presence: a.presence,
   })
   const deps = {
     quests: a.quests,
@@ -94,11 +96,37 @@ test('Council approval on Postgres: the Quest is done as council_approved and th
 test('Bar the Gates on Postgres: a barred guild never approves, council.halted is recorded and the Quest stays Awaiting Seal', async () => {
   const w = await world()
   await w.gateStore.bar({ guildId: w.guild, memberId: crypto.randomUUID() }, 'guild')
-  const result = await requestQuestSeal(w.deps, w.guild, w.held)
-  expect(result.outcome).toBe('council_pending')
+  for (let pass = 0; pass < 3; pass += 1) {
+    expect((await requestQuestSeal(w.deps, w.guild, w.held)).outcome).toBe('council_pending')
+  }
   expect((await w.a.quests.get(w.guild, w.held.id))?.state).toBe('awaiting_seal')
   expect(await w.a.sealStore.forQuest(w.guild, w.held.id)).toBeNull()
   const names = (await w.types()).map((e) => e.type)
-  expect(names).toContain('council.halted')
+  expect(names.filter((n) => n === 'council.halted')).toHaveLength(1)
   expect(names).not.toContain('council.approved')
+})
+
+test('the Guild Master returning during the vote on Postgres: no council.approved, no approval row, a normal Seal', async () => {
+  const w = await world()
+  await w.a.presence.returnHome(w.guild)
+  const away = await w.a.presence.goAway(w.guild, null)
+  expect(away.away).toBe(true)
+  const council = new CouncilEngine({
+    store: w.a.councilStore,
+    model: new ScriptedCouncilModel(async (call) => {
+      if (call.system.includes('user voice')) {
+        await w.a.presence.returnHome(w.guild)
+      }
+      return voteReply('approve', 'fine')
+    }),
+    clock: w.a.clock,
+    gates: w.gateStore,
+    config: w.a.config,
+    presence: w.a.presence,
+  })
+  const result = await requestQuestSeal({ ...w.deps, council }, w.guild, w.held)
+  expect(result.outcome).toBe('requested')
+  expect((await w.a.sealStore.forQuest(w.guild, w.held.id))?.status).toBe('requested')
+  expect((await w.types()).map((e) => e.type)).not.toContain('council.approved')
+  expect(await w.a.councilStore.approvalsToday(w.guild, '2026-01-01', 'x')).toBe(0)
 })

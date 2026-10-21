@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CouncilCall, CouncilReply } from './model-gateway'
 import { GatewayError } from './model-gateway'
 import type { Clock } from './ports/clock'
+import type { ConfigStore } from './ports/config-store'
 import {
   type AbstainCode,
   COUNCIL_VOICES,
@@ -12,6 +13,7 @@ import {
   type NewCouncilVote,
 } from './ports/council-store'
 import type { GateStore } from './ports/gate-store'
+import { isAway, type PresenceStore } from './ports/presence-store'
 
 /** The model call the Council makes; the model gateway implements it, a test scripts it. */
 export interface CouncilModel {
@@ -162,7 +164,22 @@ export interface CouncilDeps {
   clock: Pick<Clock, 'now'>
   /** Bar the Gates, read immediately before an approval. */
   gates: Pick<GateStore, 'isBarred'>
+  /** Read again immediately before an approval: the Seal Policy must still be `routine_alone`. */
+  config: Pick<ConfigStore, 'current'>
+  /** Read again immediately before an approval: the Guild Master must still be away. */
+  presence: Pick<PresenceStore, 'get'>
 }
+
+/** What {@link CouncilEngine.approve} did. */
+export type ApproveOutcome =
+  | 'approved'
+  /** Bar the Gates holds (or could not be read): nothing approved, `council.halted` recorded once. */
+  | 'halted'
+  /** The Seal Policy is no longer `routine_alone` or the Guild Master is no longer away. */
+  | 'not_allowed'
+  | 'cap_reached'
+  /** The session is closed (escalated) or unknown: nothing to approve on. */
+  | 'not_found'
 
 /**
  * The Council of Elders. `convene` opens the session before any voice runs, runs each voice that
@@ -268,8 +285,20 @@ export class CouncilEngine {
     return cap - (await this.deps.store.approvalsToday(guildId, day, questId))
   }
 
+  /** The session that approved `questId` on the Proposal `proposalHash`, or null. */
+  async approvedSession(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    return this.deps.store.approvalFor(guildId, questId, proposalHash)
+  }
+
   /**
-   * Gives the Quest its Council approval, after re-checking Bar the Gates right now. A barred
+   * Gives the Quest its Council approval, after re-checking Bar the Gates right now, then the
+   * Seal Policy (still `routine_alone`) and presence (Guild Master still away), both read fresh:
+   * a Guild Master who returned during the vote, or a policy changed to `always`, is
+   * `not_allowed` and the Proposal takes the normal Seal. A barred
    * guild (or a bar check that cannot be read) never approves: the session is left unsettled to
    * resume, `council.halted` is appended and the result is `halted`. Otherwise the approval is
    * consumed atomically against `cap` for this Quest alone; when the cap is spent the result is
@@ -279,8 +308,8 @@ export class CouncilEngine {
   async approve(
     guildId: string,
     input: { session: CouncilSession; questId: string; cap: number }
-  ): Promise<'approved' | 'halted' | 'cap_reached'> {
-    const { store, gates, clock } = this.deps
+  ): Promise<ApproveOutcome> {
+    const { store, gates, clock, config, presence } = this.deps
     const { session, questId } = input
     let barred: boolean
     try {
@@ -292,15 +321,19 @@ export class CouncilEngine {
       await store.halt(guildId, session.id, questId)
       return 'halted'
     }
+    const { config: current } = await config.current(guildId)
+    if (
+      current.sealPolicy !== 'routine_alone' ||
+      !isAway(await presence.get(guildId), clock.now())
+    ) {
+      return 'not_allowed'
+    }
     const day = clock.now().toISOString().slice(0, 10)
     const result = await store.approve(guildId, session.id, { questId, day, cap: input.cap })
-    if (result === 'approved') {
-      return 'approved'
-    }
     if (result === 'cap_reached') {
       await store.escalate(guildId, session.id, 'approval_cap')
     }
-    return 'cap_reached'
+    return result
   }
 
   private async runVoice(

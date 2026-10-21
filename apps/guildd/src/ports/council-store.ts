@@ -132,6 +132,15 @@ export interface CouncilStore {
     sessionId: string,
     input: { questId: string; day: string; cap: number }
   ): Promise<ApproveResult>
-  /** Appends `council.halted` (Bar the Gates stopped the session; the Quest stays Awaiting Seal). */
-  halt(guildId: string, sessionId: string, questId: string): Promise<void>
+  /**
+   * Appends `council.halted` (Bar the Gates stopped the session; the Quest stays Awaiting Seal),
+   * once per (session, Quest): true the first time, false for every repeat (nothing appended), so
+   * passes that keep finding the guild barred never grow the audit chain.
+   */
+  halt(guildId: string, sessionId: string, questId: string): Promise<boolean>
+  /**
+   * The id of the session that gave `questId` an approval on the Proposal with `proposalHash`, or
+   * null when it has none. Lets a crashed settlement find and finish its own approval.
+   */
+  approvalFor(guildId: string, questId: string, proposalHash: string): Promise<string | null>
 }

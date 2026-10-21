@@ -256,7 +256,14 @@ export async function compose(
   const councilStore = overrides.councilStore ?? new PgCouncilStore(db, keys)
   const council =
     overrides.council ??
-    new CouncilEngine({ store: councilStore, model: gateway, clock, gates: gateStore })
+    new CouncilEngine({
+      store: councilStore,
+      model: gateway,
+      clock,
+      gates: gateStore,
+      config,
+      presence,
+    })
   const adapters: AppDeps = {
     ...overrides,
     ...(research ? { research } : {}),

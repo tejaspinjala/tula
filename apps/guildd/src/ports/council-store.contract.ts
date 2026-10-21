@@ -288,6 +288,18 @@ export function councilStoreContract(name: string, make: () => Promise<CouncilSt
         expect(await store.escalate(g, id, 'block')).toBe(false)
       })
 
+      test("halt records once per (session, Quest) and approvalFor finds the Quest's own approval", async () => {
+        const { store, g, id } = await twoQuests()
+        expect(await store.halt(g, id, 'q1')).toBe(true)
+        expect(await store.halt(g, id, 'q1')).toBe(false)
+        expect(await store.halt(g, id, 'q2')).toBe(true)
+        expect(await store.approvalFor(g, 'q1', HASH)).toBeNull()
+        await store.approve(g, id, { questId: 'q1', day: DAY, cap: 5 })
+        expect(await store.approvalFor(g, 'q1', HASH)).toBe(id)
+        expect(await store.approvalFor(g, 'q2', HASH)).toBeNull()
+        expect(await store.approvalFor(g, 'q1', OTHER_HASH)).toBeNull()
+      })
+
       test('an escalated session cannot be approved, and another guild cannot approve or halt', async () => {
         const { store, g, id } = await twoQuests()
         const other = await make()

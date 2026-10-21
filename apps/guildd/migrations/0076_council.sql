@@ -97,6 +97,25 @@ create policy council_sessions_tenant on council_sessions
   using (guild_id = nullif(current_setting('app.guild_id', true), '')::uuid)
   with check (guild_id = nullif(current_setting('app.guild_id', true), '')::uuid);
 
+-- One row per (session, Quest) halted by Bar the Gates, so the audit chain records the halt once
+-- however many passes find the guild still barred.
+create table council_halts (
+  guild_id uuid not null,
+  session_id uuid not null,
+  quest_id text not null check (length(quest_id) between 1 and 200),
+  created_at timestamptz not null default now(),
+  primary key (guild_id, session_id, quest_id),
+  foreign key (guild_id, session_id) references council_sessions (guild_id, session_id)
+);
+alter table council_halts enable row level security;
+alter table council_halts force row level security;
+create policy council_halts_tenant on council_halts
+  using (guild_id = nullif(current_setting('app.guild_id', true), '')::uuid)
+  with check (guild_id = nullif(current_setting('app.guild_id', true), '')::uuid);
+create trigger council_halts_no_change before update or delete on council_halts
+  for each row execute function council_votes_immutable();
+grant select, insert on council_halts to guildhall_app;
+
 alter table council_approvals enable row level security;
 alter table council_approvals force row level security;
 create policy council_approvals_tenant on council_approvals

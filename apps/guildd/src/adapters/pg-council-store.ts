@@ -263,13 +263,33 @@ export class PgCouncilStore implements CouncilStore {
     })
   }
 
-  async halt(guildId: string, sessionId: string, questId: string): Promise<void> {
-    await this.db.withGuild(guildId, async (tx) => {
-      const [session] = await tx`
-        select 1 as one from council_sessions where session_id = ${sessionId}`
-      if (session) {
-        await appendEvent(tx, this.keys, 'council.halted', { sessionId, questId })
+  async halt(guildId: string, sessionId: string, questId: string): Promise<boolean> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const inserted = await tx`
+        insert into council_halts (guild_id, session_id, quest_id)
+        select ${guildId}, session_id, ${questId} from council_sessions
+        where session_id = ${sessionId}
+        on conflict do nothing
+        returning session_id`
+      if (inserted.length === 0) {
+        return false
       }
+      await appendEvent(tx, this.keys, 'council.halted', { sessionId, questId })
+      return true
+    })
+  }
+
+  async approvalFor(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [row] = await tx`
+        select a.session_id from council_approvals a
+        join council_sessions s on s.guild_id = a.guild_id and s.session_id = a.session_id
+        where a.quest_id = ${questId} and s.proposal_hash = ${proposalHash}`
+      return row ? String(row.session_id) : null
     })
   }
 

@@ -24,6 +24,7 @@ export class MemoryCouncilStore implements CouncilStore {
     questId: string
     day: string
   }> = []
+  private readonly halts = new Set<string>()
   private readonly voteRows = new Map<string, CouncilVote>()
 
   async open(
@@ -195,7 +196,26 @@ export class MemoryCouncilStore implements CouncilStore {
     return 'approved'
   }
 
-  async halt(_guildId: string, _sessionId: string, _questId: string): Promise<void> {
+  async halt(guildId: string, sessionId: string, questId: string): Promise<boolean> {
+    if (!this.find(guildId, sessionId)) {
+      return false
+    }
+    const key = `${sessionId}:${questId}`
+    if (this.halts.has(key)) {
+      return false
+    }
     // The memory adapter keeps no event log; the Postgres adapter appends `council.halted`.
+    this.halts.add(key)
+    return true
+  }
+
+  async approvalFor(
+    guildId: string,
+    questId: string,
+    proposalHash: string
+  ): Promise<string | null> {
+    const session = this.sessions.get(`${guildId}:${proposalHash}`)
+    const given = this.approvals.some((a) => a.sessionId === session?.id && a.questId === questId)
+    return session && given ? session.id : null
   }
 }

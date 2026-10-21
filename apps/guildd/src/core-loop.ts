@@ -112,7 +112,7 @@ export interface SealRequestDeps {
   /** Whether the Guild Master is away (read at request time, never cached). Absent: never away. */
   presence?: Pick<PresenceStore, 'get'>
   /** The Council of Elders. Absent: it never convenes. */
-  council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining'>
+  council?: Pick<CouncilEngine, 'convene' | 'approve' | 'approvalsRemaining' | 'approvedSession'>
   /** The instant "away" is judged at. Absent: the Council never convenes. */
   clock?: Pick<Clock, 'now'>
 }
@@ -197,8 +197,15 @@ async function consultCouncil(
   if (settled === 'halted') {
     return { kind: 'pending' }
   }
-  if (settled === 'cap_reached') {
-    return { kind: 'evidence', evidence: councilEvidence(result.votes, 'approval_cap') }
+  if (settled !== 'approved') {
+    // The cap was spent, the Guild Master is back, the policy changed or the session closed: the
+    // Proposal takes the normal Seal, with the votes as evidence.
+    const why = {
+      cap_reached: 'approval_cap',
+      not_allowed: 'not_allowed',
+      not_found: 'session_closed',
+    } as const
+    return { kind: 'evidence', evidence: councilEvidence(result.votes, why[settled]) }
   }
   return {
     kind: 'approved',
@@ -269,7 +276,7 @@ export async function requestQuestSeal(
     // safe: the approval row, the Seal request and both settlements are each idempotent.
     const approved = await deps.sealStore.councilApprove(guildId, seal.id, {
       sessionId: consult.sessionId,
-      expectedHash: seal.actionHash,
+      expectedHash: proposal.hash,
     })
     if (approved.ok) {
       return {
@@ -285,10 +292,52 @@ export async function requestQuestSeal(
   return { outcome: 'requested', seal }
 }
 
+/**
+ * Finishes a Council approval a crash (or a refused settlement) left half done: a `requested` Seal
+ * whose Quest already holds a Council approval on exactly the sealed hash is settled as
+ * `council_approved` and its Quest finished. The approval was already counted, so nothing more is
+ * consumed. Each step is idempotent; a Quest that fails is logged (ids only) and skipped.
+ */
+async function healCouncilApprovals(deps: PendingSealDeps, guildId: string): Promise<void> {
+  const { council } = deps
+  if (!council) {
+    return
+  }
+  let after: string | undefined
+  do {
+    const page = await deps.sealStore.list(guildId, {
+      limit: 100,
+      status: 'requested',
+      ...(after === undefined ? {} : { after }),
+    })
+    for (const seal of page.seals) {
+      try {
+        const sessionId = await council.approvedSession(guildId, seal.questId, seal.actionHash)
+        if (sessionId === null) {
+          continue
+        }
+        const approved = await deps.sealStore.councilApprove(guildId, seal.id, {
+          sessionId,
+          expectedHash: seal.actionHash,
+        })
+        if (approved.ok) {
+          await deps.quests.settleSeal(guildId, seal.questId, 'posted', {
+            round: seal.round,
+            reason: 'council_approved',
+          })
+        }
+      } catch (error) {
+        logPassFailure('heal', guildId, seal.questId, error)
+      }
+    }
+    after = page.next ?? undefined
+  } while (after !== undefined)
+}
+
 /** Collaborators of {@link requestPendingSeals}. */
 export interface PendingSealDeps extends SealRequestDeps {
   quests: Pick<QuestQueue, 'settleSeal'>
-  sealStore: Pick<SealStore, 'forQuest' | 'councilApprove' | 'expireDue'>
+  sealStore: Pick<SealStore, 'forQuest' | 'councilApprove' | 'expireDue' | 'list'>
   awaiting: AwaitingSealReader
 }
 
@@ -304,6 +353,7 @@ export async function requestPendingSeals(
   guildId: string
 ): Promise<{ requested: number }> {
   let requested = 0
+  await healCouncilApprovals(deps, guildId)
   if (!(await deps.awaiting.hasWork(guildId))) {
     return { requested }
   }

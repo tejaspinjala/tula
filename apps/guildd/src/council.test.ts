@@ -13,6 +13,7 @@ import {
 } from './council'
 import { COUNCIL_CALL_TIMEOUT_MS, GatewayError } from './model-gateway'
 import { COUNCIL_VOICES, type CouncilVote } from './ports/council-store'
+import { councilGuards } from './testing/council-guards'
 import { reply, ScriptedCouncilModel, voteReply } from './testing/scripted-council-model'
 
 const GUILD = crypto.randomUUID()
@@ -22,10 +23,18 @@ const proposal = { hash: 'd'.repeat(64), content: 'Hello guild' }
 function setup(script: ConstructorParameters<typeof ScriptedCouncilModel>[0]) {
   const store = new MemoryCouncilStore()
   const gates = new MemoryGateStore()
+  const guards = councilGuards()
   const model = new ScriptedCouncilModel(script)
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
-  const engine = new CouncilEngine({ store, model, clock, gates })
-  return { store, model, engine, clock, gates }
+  const engine = new CouncilEngine({
+    store,
+    model,
+    clock,
+    gates,
+    config: guards.config,
+    presence: guards.presence,
+  })
+  return { store, model, engine, clock, gates, guards }
 }
 
 function fakeVote(voice: CouncilVote['voice'], vote: CouncilVote['vote']): CouncilVote {
@@ -227,13 +236,25 @@ describe('CouncilEngine.convene', () => {
       }
       return voteReply('approve')
     })
-    const first = new CouncilEngine({ store, model: crashing, clock, gates: new MemoryGateStore() })
+    const first = new CouncilEngine({
+      store,
+      model: crashing,
+      clock,
+      gates: new MemoryGateStore(),
+      ...councilGuards(),
+    })
     await expect(
       first.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     ).rejects.toThrow()
     expect(seenSessionBeforeVoice).toBe(true)
     const resumed = new ScriptedCouncilModel(() => voteReply('approve'))
-    const second = new CouncilEngine({ store, model: resumed, clock, gates: new MemoryGateStore() })
+    const second = new CouncilEngine({
+      store,
+      model: resumed,
+      clock,
+      gates: new MemoryGateStore(),
+      ...councilGuards(),
+    })
     const result = await second.convene(GUILD, { quest, proposal, sessionCap: 5, approvalCap: 0 })
     expect(result.status).toBe('escalated')
     // Two voices finished before the bar; only the other three run on resume.
@@ -445,6 +466,40 @@ describe('CouncilEngine approval', () => {
     await gates.lift({ guildId: GUILD, memberId: 'gm' }, 'guild')
     expect(await engine.approve(GUILD, { session: unanimous.session, questId: 'q1', cap: 5 })).toBe(
       'approved'
+    )
+  })
+
+  test('the Guild Master back, or the Seal Policy no longer routine_alone, just before approving is not_allowed', async () => {
+    const { engine, store, guards } = setup(() => voteReply('approve'))
+    const unanimous = await ask(engine)
+    if (unanimous.status !== 'unanimous') {
+      throw new Error('expected unanimous')
+    }
+    const approve = () =>
+      engine.approve(GUILD, { session: unanimous.session, questId: 'q1', cap: 5 })
+    guards.state.away = false
+    expect(await approve()).toBe('not_allowed')
+    guards.state.away = true
+    guards.state.policy = 'always'
+    expect(await approve()).toBe('not_allowed')
+    expect(await store.approvalsToday(GUILD, '2030-01-01', 'other')).toBe(0)
+    guards.state.policy = 'routine_alone'
+    expect(await approve()).toBe('approved')
+  })
+
+  test('approving on an escalated session is not_found, not a cap result', async () => {
+    const { engine } = setup(() => voteReply('block'))
+    const closed = await engine.convene(GUILD, {
+      quest,
+      proposal,
+      sessionCap: 5,
+      approvalCap: 5,
+    })
+    if (closed.status !== 'escalated') {
+      throw new Error('expected escalation')
+    }
+    expect(await engine.approve(GUILD, { session: closed.session, questId: 'q1', cap: 5 })).toBe(
+      'not_found'
     )
   })
 

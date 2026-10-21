@@ -176,21 +176,25 @@ describe('requestQuestSeal', () => {
     ) {
       const g = await gate()
       const proposal = await g.draft('Hello guild')
-      const model = new ScriptedCouncilModel((call) =>
-        voteReply(
+      /** Runs inside a voice's call, to change the world mid-vote. */
+      const hook: { onVoice?: (system: string) => Promise<void> } = {}
+      const model = new ScriptedCouncilModel(async (call) => {
+        await hook.onVoice?.(call.system)
+        return voteReply(
           call.system.includes('skeptic') && over.unanimous !== true ? 'block' : 'approve',
           `${call.questId} reason`
         )
-      )
+      })
       const store = new MemoryCouncilStore()
       const gates = new MemoryGateStore()
+      const policy = { value: over.sealPolicy ?? ('routine_alone' as const) }
       const presence = new MemoryPresenceStore(g.clock)
       const config = {
         current: async () => ({
           version: 1,
           config: {
             ...defaultConfig(),
-            sealPolicy: over.sealPolicy ?? ('routine_alone' as const),
+            sealPolicy: policy.value,
             caps: {
               ...defaultConfig().caps,
               ...(over.sessionCap === undefined
@@ -208,9 +212,9 @@ describe('requestQuestSeal', () => {
         config,
         presence,
         clock: g.clock,
-        council: new CouncilEngine({ store, model, clock: g.clock, gates }),
+        council: new CouncilEngine({ store, model, clock: g.clock, gates, config, presence }),
       }
-      return { ...g, deps, model, store, presence, proposal, gates }
+      return { ...g, deps, model, store, presence, proposal, gates, policy, config, hook }
     }
 
     test('a routine Proposal while away convenes one session with five votes and the Seal carries them as evidence', async () => {
@@ -284,6 +288,110 @@ describe('requestQuestSeal', () => {
       expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('done')
     })
 
+    test('the Guild Master returning during the vote means no approval: the normal Seal is requested', async () => {
+      const c = await council({ unanimous: true })
+      await c.presence.goAway(c.guild, null)
+      c.hook.onVoice = async (system) => {
+        if (system.includes('user voice')) {
+          await c.presence.returnHome(c.guild)
+        }
+      }
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('requested')
+      expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+      expect((await c.quests.get(c.guild, c.quest.id))?.state).toBe('awaiting_seal')
+      expect(await c.store.approvalsToday(c.guild, '2030-01-01', 'x')).toBe(0)
+    })
+
+    test('the Seal Policy changing to always during the vote means no approval: the normal Seal is requested', async () => {
+      const c = await council({ unanimous: true })
+      await c.presence.goAway(c.guild, null)
+      c.hook.onVoice = async (system) => {
+        if (system.includes('user voice')) {
+          c.policy.value = 'always'
+        }
+      }
+      const result = await requestQuestSeal(c.deps, c.guild, c.quest)
+      expect(result.outcome).toBe('requested')
+      expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+      expect(await c.store.approvalsToday(c.guild, '2030-01-01', 'x')).toBe(0)
+    })
+
+    test('a failure between the approval and the Seal settlement heals on the next pass, without a second approval', async () => {
+      const c = await council({ unanimous: true })
+      await c.presence.goAway(c.guild, null)
+      let failOnce = true
+      const sealStore = {
+        forQuest: (g: string, q: string) => c.seals.forQuest(g, q),
+        list: (g: string, page: Parameters<typeof c.seals.list>[1]) => c.seals.list(g, page),
+        expireDue: (g: string) => c.seals.expireDue(g),
+        councilApprove: async (
+          g: string,
+          id: string,
+          d: { sessionId: string; expectedHash: string }
+        ) => {
+          if (failOnce) {
+            failOnce = false
+            throw new Error('crashed between the approval and the settlement')
+          }
+          return c.seals.councilApprove(g, id, d)
+        },
+      }
+      const deps = { ...c.deps, sealStore }
+      const spy = spyOn(process.stderr, 'write').mockImplementation(() => true)
+      try {
+        await requestPendingSeals(deps, c.guild)
+      } finally {
+        spy.mockRestore()
+      }
+      expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('requested')
+      expect(await c.store.approvalsToday(c.guild, '2030-01-01', 'x')).toBe(1)
+      await requestPendingSeals(deps, c.guild)
+      expect((await c.seals.forQuest(c.guild, c.quest.id))?.status).toBe('council_approved')
+      expect(await c.quests.get(c.guild, c.quest.id)).toMatchObject({
+        state: 'done',
+        lastError: 'council_approved',
+      })
+      expect(await c.store.approvalsToday(c.guild, '2030-01-01', 'x')).toBe(1)
+      expect(c.model.calls).toHaveLength(5)
+    })
+
+    test('the Seal is settled against the hash the session voted on', async () => {
+      const c = await council({ unanimous: true })
+      await c.presence.goAway(c.guild, null)
+      const seen: string[] = []
+      const sealStore = {
+        forQuest: (g: string, q: string) => c.seals.forQuest(g, q),
+        councilApprove: async (
+          g: string,
+          id: string,
+          d: { sessionId: string; expectedHash: string }
+        ) => {
+          seen.push(d.expectedHash)
+          return c.seals.councilApprove(g, id, d)
+        },
+      }
+      await requestQuestSeal({ ...c.deps, sealStore }, c.guild, c.quest)
+      expect(seen).toEqual([c.proposal.hash])
+    })
+
+    test('while the Gates stay barred, passes record council.halted once per Quest, not once per pass', async () => {
+      const c = await council({ unanimous: true })
+      await c.presence.goAway(c.guild, null)
+      await c.gates.bar({ guildId: c.guild, memberId: 'gm' }, 'guild')
+      const halt = spyOn(c.store, 'halt')
+      for (let i = 0; i < 5; i += 1) {
+        expect((await requestQuestSeal(c.deps, c.guild, c.quest)).outcome).toBe('council_pending')
+      }
+      expect(await Promise.all(halt.mock.results.map((r) => r.value))).toEqual([
+        true,
+        false,
+        false,
+        false,
+        false,
+      ])
+    })
+
     test('an approvals cap of 0 never convenes the Council', async () => {
       const c = await council({ unanimous: true, approvalCap: 0 })
       await c.presence.goAway(c.guild, null)
@@ -334,6 +442,8 @@ describe('requestQuestSeal', () => {
         }),
         clock: c.clock,
         gates: new MemoryGateStore(),
+        config: c.config,
+        presence: c.presence,
       })
       const deps = { ...c.deps, council: failing }
       const lines: string[] = []
@@ -369,6 +479,8 @@ describe('requestQuestSeal', () => {
         }),
         clock: c.clock,
         gates: new MemoryGateStore(),
+        config: c.config,
+        presence: c.presence,
       })
       for (let i = 0; i < 5; i += 1) {
         await expect(
