@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { loadCurrent } from './builder/api'
 import { type PasskeyBrowser, PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import {
+  type Deployment,
   describePrivateDestination,
+  loadProviderStatus,
   type ProviderRow,
   providersOf,
   setProviderPrivate,
@@ -13,7 +15,7 @@ import { WorkSection } from './WorkSection'
 /**
  * Settings > Providers: each provider's private-eligible state and where Private Quests would go
  * through it. Turning it on asks for the passkey again (a widening change); turning it off applies
- * at once. This build is self-hosted, so the disclosure is for a Mac that runs the Guildhall.
+ * at once. The disclosure comes from the server: whether subscriptions run here and which vendor is called.
  */
 export function ProvidersPanel({
   session,
@@ -23,12 +25,16 @@ export function ProvidersPanel({
   browser?: PasskeyBrowser
 }) {
   const [rows, setRows] = useState<ProviderRow[] | null>(null)
+  const [where, setWhere] = useState<Deployment | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
   const refresh = useCallback(() => {
-    loadCurrent(session, fetch)
-      .then((current) => setRows(providersOf(current.config)))
+    Promise.all([loadCurrent(session, fetch), loadProviderStatus(session, fetch)])
+      .then(([current, status]) => {
+        setRows(providersOf(current.config))
+        setWhere(status)
+      })
       .catch(() => setMessage('Your providers could not be loaded.'))
   }, [session])
 
@@ -52,9 +58,9 @@ export function ProvidersPanel({
 
   return (
     <WorkSection id="providers" title="Providers">
-      {rows === null && !message && <p role="status">Loading.</p>}
+      {(rows === null || where === null) && !message && <p role="status">Loading.</p>}
       {rows?.length === 0 && <p>No provider is configured yet.</p>}
-      {rows && rows.length > 0 && (
+      {rows && where && rows.length > 0 && (
         <ul className="provider-list">
           {rows.map((row) => (
             <li key={row.id} className="work-note provider-row">
@@ -64,7 +70,7 @@ export function ProvidersPanel({
                   {row.privateEligible ? '✓ Private-eligible' : '○ Not private-eligible'}
                 </span>
               </p>
-              <p>{describePrivateDestination(row, { hosted: false })}</p>
+              <p>{describePrivateDestination(row, where)}</p>
               <div className="work-actions">
                 <PixelButton
                   disabled={busy}

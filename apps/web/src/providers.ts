@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Fetcher } from './artifacts'
 import { confirmVersion, loadCurrent, saveConfig } from './builder/api'
 import type { BuilderConfig } from './builder/model'
-import type { PasskeyBrowser, Session } from './passkeys'
+import { type PasskeyBrowser, PasskeyRequestError, type Session } from './passkeys'
 
 /** A provider as the Guild Master's Settings shows it. */
 export interface ProviderRow {
@@ -14,27 +14,38 @@ export interface ProviderRow {
 /** Where a provider runs: on this Mac (self-host) or on a hosted Guildhall (subscriptions never run there). */
 export interface Deployment {
   hosted: boolean
+  /** The vendor behind every provider call, as the server reports it. */
+  vendor: string
+}
+
+const statusBody = z.object({ hosted: z.boolean(), vendor: z.string().min(1) })
+
+/** Reads where private text would go (`GET /guilds/:id/providers/status`). */
+export async function loadProviderStatus(session: Session, fetcher: Fetcher): Promise<Deployment> {
+  const res = await fetcher(`/api/guilds/${session.guildId}/providers/status`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new PasskeyRequestError(res.status, 'providers_status_unavailable')
+  }
+  return statusBody.parse(data)
 }
 
 /**
  * The honest sentence on where Private Quests go through this provider, built only from provider
- * data and the deployment (never from model output).
+ * data and what the server reports (never from the provider id or model output). "Will be sent"
+ * only once the Guild Master has attested the provider; before that it is what would happen.
  */
 export function describePrivateDestination(provider: ProviderRow, where: Deployment): string {
+  const verb = provider.privateEligible ? 'will be' : 'would be'
   if (provider.auth === 'subscription') {
     if (where.hosted) {
       return 'A subscription provider is not available on a hosted Guildhall: no Private Quest will go through it.'
     }
-    return `Private Quests will be sent to ${vendorOf(provider.id)} through your Claude subscription on this Mac.`
+    return `Private Quests ${verb} sent to ${where.vendor} through your Claude subscription on this Mac.`
   }
-  return `Private Quests will be sent to ${vendorOf(provider.id)}'s API with your API key.`
-}
-
-/** Vendors the Guildhall knows by provider id; any other id is shown as written. */
-const VENDORS: Readonly<Record<string, string>> = { anthropic: 'Anthropic' }
-
-function vendorOf(id: string): string {
-  return VENDORS[id] ?? id
+  return `Private Quests ${verb} sent to ${where.vendor}'s API with your API key.`
 }
 
 const providerRows = z.array(
@@ -71,8 +82,8 @@ export async function setProviderPrivate(
   fetcher: Fetcher,
   browser: PasskeyBrowser
 ): Promise<'applied' | 'confirmed'> {
-  const { config } = await loadCurrent(session, fetcher)
-  const saved = await saveConfig(session, withPrivateEligible(config, id, on), fetcher)
+  const { version, config } = await loadCurrent(session, fetcher)
+  const saved = await saveConfig(session, withPrivateEligible(config, id, on), fetcher, version)
   if (saved.status === 'applied') {
     return 'applied'
   }
