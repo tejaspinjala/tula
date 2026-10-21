@@ -16,3 +16,13 @@ export function useLiveEvents(): readonly ReplayEvent[] {
 export function missiveCount(events: readonly ReplayEvent[]): number {
   return events.filter((e) => e.type === 'missive.sent').length
 }
+
+/** How many mailbox events (`inquiry.*`, `dossier.*`, `bug_report.*`) a stream holds (the Mailbox refetches when this grows). */
+export function mailboxCount(events: readonly ReplayEvent[]): number {
+  return events.filter(
+    (e) =>
+      e.type.startsWith('inquiry.') ||
+      e.type.startsWith('dossier.') ||
+      e.type.startsWith('bug_report.')
+  ).length
+}
