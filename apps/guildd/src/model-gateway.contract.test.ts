@@ -155,6 +155,67 @@ describe('gateway routes', () => {
     expect(provider.seen.length).toBe(seen)
   })
 
+  test('a work-class Quest in a private Hall is refused once its provider is no longer private-eligible', async () => {
+    const { g } = await found('G2h')
+    const apply = async (privateEligible: boolean) => {
+      const base = defaultConfig()
+      const next = guildConfig.parse({
+        ...base,
+        halls: base.halls.map((h) =>
+          h.id === 'health' ? { ...h, locked: false, privateEligible: true } : h
+        ),
+        providers: [{ id: 'cloud', auth: 'api_key', privateEligible }],
+        routingProfiles: [
+          {
+            id: 'cloud-mid',
+            provider: 'cloud',
+            tier: 'mid',
+            model: 'configured-model',
+            price: { inputMicrosPerMTok: 3_000_000, outputMicrosPerMTok: 15_000_000 },
+          },
+        ],
+      })
+      const proposed = await harness.adapters.config.propose(g, next)
+      if (proposed.status === 'pending') {
+        await harness.adapters.config.confirm(g, proposed.version)
+      }
+    }
+    await apply(true)
+    const { quest } = await harness.adapters.quests.post(g, {
+      jobKey: `${g}:health`,
+      templateId: 'herald-brief',
+      hallId: 'health',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'health',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'done',
+      roundLimit: 2,
+    })
+    const claimed = await harness.adapters.quests.claim(g, {
+      leaseMs: 24 * 3_600_000,
+      maxActive: 1000,
+      questId: quest.id,
+    })
+    if (!claimed) {
+      throw new Error('expected a lease')
+    }
+    const out = await harness.adapters.gateway.openRun(g, {
+      questId: quest.id,
+      attempt: claimed.attempts,
+      hallId: 'health',
+      profileId: 'cloud-mid',
+    })
+    if (out.status !== 'started') {
+      throw new Error(`expected started, got ${out.status}`)
+    }
+    await apply(false)
+    const seen = provider.seen.length
+    const res = await call(out.token)
+    expect(errorBody.parse(await res.json()).error).toBe('provider_not_private')
+    expect(provider.seen.length).toBe(seen)
+  })
+
   test('a call into a paused Hall is 409 hall_paused', async () => {
     const { g } = await found('G2b')
     const token = await start(g, 'r1')
