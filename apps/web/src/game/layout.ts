@@ -220,6 +220,25 @@ export function roomTags(
   })
 }
 
+/** What a change of roster size means for the drawn hall map. */
+export function refitHall(
+  _drawnSlots: number,
+  _slots: number,
+  _viewMap: string,
+  _followed: string | null
+): { redraw: boolean; reframe: boolean } {
+  return { redraw: false, reframe: false }
+}
+
+/** Where the Guild Master stands after the map changed: the same spot if still walkable, else the entrance. */
+export function landing(
+  at: { x: number; y: number },
+  _walkable: (x: number, y: number) => boolean,
+  _entrance: { x: number; y: number }
+): { x: number; y: number } {
+  return at
+}
+
 /** The zoom that fills a frame with the hall (to two places), never below a quarter. */
 export function fitZoom(frameW: number, frameH: number, worldW: number, worldH: number): number {
   const fill = Math.min(frameW / worldW, frameH / worldH)

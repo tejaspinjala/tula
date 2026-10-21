@@ -685,7 +685,7 @@ ul.evidence-list {
   margin-top: var(--space-4);
 }
 
-@media (min-width: 64rem) {
+@media (min-width: 48rem) {
   .post-quest {
     grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   }

@@ -170,15 +170,30 @@ test('guildd shows as an alert only while it is down', async () => {
   await down.unmount()
 })
 
-test('the HUD tells the world how much room it takes, so the map is framed below it and never under it', async () => {
+test('the HUD tells the world how much room it takes from the document top, whatever the scroll', async () => {
   const proto = HTMLElement.prototype
-  const real = proto.getBoundingClientRect
-  proto.getBoundingClientRect = function bottomAt120() {
-    return new DOMRect(0, 0, 100, 120)
+  const top = Object.getOwnPropertyDescriptor(proto, 'offsetTop')
+  const height = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
+  const scrolled = Object.getOwnPropertyDescriptor(window, 'scrollY')
+  Object.defineProperty(proto, 'offsetTop', { configurable: true, get: () => 12 })
+  Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => 108 })
+  Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 300 })
+  try {
+    const m = await mount(hud())
+    expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('120px')
+    await m.unmount()
+    expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('')
+  } finally {
+    for (const [target, key, saved] of [
+      [proto, 'offsetTop', top],
+      [proto, 'offsetHeight', height],
+      [window, 'scrollY', scrolled],
+    ] as const) {
+      if (saved) {
+        Object.defineProperty(target, key, saved)
+      } else {
+        Reflect.deleteProperty(target, key)
+      }
+    }
   }
-  const m = await mount(hud())
-  expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('120px')
-  await m.unmount()
-  expect(document.documentElement.style.getPropertyValue('--hud-inset')).toBe('')
-  proto.getBoundingClientRect = real
 })
