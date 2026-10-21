@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { MemoryActivityLog } from './adapters/memory-activity-log'
 import { MemoryAwaitingSealReader } from './adapters/memory-awaiting-seal-reader'
 import { MemoryClassifier } from './adapters/memory-classifier'
@@ -238,6 +238,48 @@ describe('dispatch', () => {
     config = configWith()
     expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: first.id })
     expect(await dispatch(deps, w.guild)).toMatchObject({ status: 'started', questId: second.id })
+  })
+
+  test('a sandbox that will not die does not stop the lock: the run is revoked, the lease released, other Halls go on', async () => {
+    const w = world()
+    const inner = new MemorySandboxRunner()
+    const reports: string[] = []
+    const deps = {
+      ...w.deps,
+      sandboxes: {
+        start: (...args: Parameters<MemorySandboxRunner['start']>) => inner.start(...args),
+        kill: async (): Promise<number> => {
+          throw new Error('docker down')
+        },
+      },
+      onError: (_e: unknown, ctx: { questId: string }) => {
+        reports.push(ctx.questId)
+      },
+    }
+    const private_ = await w.queue({ hallId: 'health', templateId: 'health-log' })
+    const held = await w.quests.claim(w.guild, { leaseMs: 60_000, maxActive: 5 })
+    expect(held?.id).toBe(private_.id)
+    const open = await w.queue()
+    const out = await dispatch(deps, w.guild)
+    expect(out).toMatchObject({ status: 'started', questId: open.id })
+    expect(w.revokedHalls).toContain('health')
+    expect(await w.quests.get(w.guild, private_.id)).toMatchObject({
+      state: 'queued',
+      leaseExpiresAt: null,
+    })
+    expect(reports).toEqual([private_.id])
+  })
+
+  test('a guild with no live run in a locked Hall does no kill, revoke or release', async () => {
+    const w = world()
+    const kill = spyOn(w.deps.sandboxes, 'kill')
+    const release = spyOn(w.quests, 'releaseLeases')
+    await w.queue()
+    await dispatch(w.deps, w.guild)
+    await dispatch(w.deps, w.guild)
+    expect(kill).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+    expect(w.revokedHalls).toEqual([])
   })
 
   test('dispatchAll skips a guild with no applied config and still starts the configured one', async () => {
