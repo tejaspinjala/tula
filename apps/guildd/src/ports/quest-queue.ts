@@ -689,7 +689,7 @@ export const TEAM_PLAN_TEMPLATE = 'team-plan'
 
 /**
  * True when `campaignId` is a team Campaign (it has a board Quest) and none of its Quests is still
- * in flight: the Campaign has finished. Campaigns with no board Quest (workflow runs) never finish
+ * in flight: the Campaign has finished. Campaigns with no board Quest (rite runs) never finish
  * in this sense, because their Quests are posted one by one.
  */
 export function campaignFinished(quests: readonly Quest[], campaignId: string): boolean {

@@ -126,7 +126,7 @@ export const FIX_QUEST_TEMPLATE: QuestTemplate = {
   roundLimit: 2,
 }
 
-/** The templates a Guild Master, a Member or a workflow may post from: every one that is not internal. */
+/** The templates a Guild Master, a Member or a rite may post from: every one that is not internal. */
 export const POSTABLE_TEMPLATES: readonly QuestTemplate[] = QUEST_TEMPLATES.filter(
   (t) => t.internal !== true
 )

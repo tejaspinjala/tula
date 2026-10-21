@@ -46,14 +46,6 @@ _Avoid_: subtask, child task
 A project: a set of related Quests under one Captain.
 _Avoid_: project
 
-**Workflow**:
-A saved, versioned graph of steps (trigger, agent, verify, approval, post) that compiles to governed Quests. It has no authority of its own: every Quest it posts goes through the normal dispatcher, Verdict, Seal, caps and Bar the Gates.
-_Avoid_: pipeline, automation
-
-**Workflow instance**:
-One run of a pinned Workflow version. Its Quests share one Campaign, the instance id.
-_Avoid_: job
-
 **Quest Board**:
 The kanban of a Hall's Quests, and its shared task list: a Captain posts Quests onto it under a Campaign (`post_to_board`), and the Hall's Members claim them in parallel, up to the Hall's `maxConcurrentMembers`. A Campaign holds at most `maxQuestsPerCampaign` board Quests (board Quests only; Sub-Quests are bounded by the spawn caps). The Hall cap counts live-leased active Quests only, so a parked parent or a Quest awaiting a Seal holds no slot, and the Captain's own plan Quest is outside it, so a cap of one still runs one Member.
 _Avoid_: backlog
@@ -101,8 +93,12 @@ The exact content or commit, identified by its hash, that a Quest wants to send 
 _Avoid_: draft, change
 
 **Rite**:
-A versioned workflow graph.
-_Avoid_: workflow, pipeline
+A saved, versioned graph of steps (trigger, agent, verify, approval, post) that compiles to governed Quests. It has no authority of its own: every Quest it posts goes through the normal dispatcher, Verdict, Seal, caps and Bar the Gates.
+_Avoid_: workflow, pipeline, automation
+
+**Rite run**:
+One run of a pinned Rite version. Its Quests share one Campaign, the run id.
+_Avoid_: job, workflow instance
 
 **Envoy**:
 A connection to an outside account (API, browser or manual).
@@ -240,18 +236,18 @@ A config version was proposed (payload: version, status `pending` or `applied`, 
 **config.version_confirmed**:
 A pending config version was confirmed and took force (payload: version).
 
-## Workflow events
+## Rite events
 
-Event types the Workflow store appends to the chained event log (ids and small facts only, never the graph):
+Event types the Rite store appends to the chained event log (ids and small facts only, never the graph). The `workflow.` type names are stored as first written and are the only place the old word survives (ADR-0013):
 
 **workflow.version_saved**:
-A Workflow version was saved (payload: workflow id, version, status `pending` or `active`, kind `internal` or `widening`). A widening version stays `pending` until confirmed.
+A Rite version was saved (payload: Rite id, version, status `pending` or `active`, kind `internal` or `widening`). A widening version stays `pending` until confirmed.
 
 **workflow.version_confirmed**:
-A pending Workflow version was confirmed and may run (payload: workflow id, version).
+A pending Rite version was confirmed and may run (payload: Rite id, version).
 
 **workflow.run_started**:
-A Workflow instance was created (payload: instance id, workflow id, version).
+A Rite run was created (payload: run id, Rite id, version).
 
 ## Gates, work and vault events
 
@@ -264,7 +260,7 @@ The Gates were barred / lifted (payload: bar id, scope `guild` or `global`, and 
 A Member's Quest was leased (payload: quest id, hall id, attempt, member id, and `hall`, the Hall again under the name the Quest Board shows; ids and a number only).
 
 **campaign.started** / **campaign.finished**:
-A team Campaign (one with a board Quest) got its first board Quest / the last in-flight Quest of a team Campaign settled, done or dead (payload: campaign id only). Campaigns with no board Quest, such as workflow instances, never emit them.
+A team Campaign (one with a board Quest) got its first board Quest / the last in-flight Quest of a team Campaign settled, done or dead (payload: campaign id only). Campaigns with no board Quest, such as Rite runs, never emit them.
 
 **missive.sent**:
 A Member sent a Missive (payload: missive id, sender member id, addressee member id or `hall`, and hall id; ids only, never any of the text, which the Hall missives route serves).

@@ -1,0 +1,93 @@
+import { expect, test } from 'bun:test'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { MemoryClock } from '../adapters/memory-clock'
+import { MemoryConfigStore } from '../adapters/memory-config-store'
+import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
+import { MemoryProposalStore } from '../adapters/memory-proposal-store'
+import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
+import { MemoryRiteStore } from '../adapters/memory-rite-store'
+import { MemorySealStore } from '../adapters/memory-seal-store'
+import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
+import { ProposalEngine } from '../proposals'
+import { RiteEngine } from './engine'
+import { mountRiteRoutes } from './routes'
+import { LEARNING_TO_LINKEDIN } from './templates'
+
+/** Mounts the routes over an identity stub whose session has the given role and a valid proof. */
+async function setup(role: string) {
+  const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
+  const config = new MemoryConfigStore(clock)
+  const guild = crypto.randomUUID()
+  await config.seed(guild)
+  const tripwires = new MemoryTripwireStore(clock)
+  const engine = new RiteEngine({
+    store: new MemoryRiteStore(clock),
+    config,
+    quests: new MemoryQuestQueue(clock, () => 0.5),
+    tripwires,
+    proposals: new ProposalEngine({ store: new MemoryProposalStore(clock), config }),
+    seals: new MemorySealStore(clock),
+    handoffs: new MemoryHandoffStore(),
+  })
+  const principal = { guildId: guild, memberId: 'm', role }
+  const identity = {
+    resolveSession: async () => principal,
+    consumeReauth: async (_token: string, proof: string) => proof === 'good',
+  }
+  const app = new Hono()
+  const guard = async () => ({ guild })
+  mountRiteRoutes(app, {
+    rites: engine,
+    identity,
+    sessionGuildFor: guard,
+    guildMasterSessionFor: guard,
+  })
+  return { app, engine, guild, tripwires }
+}
+
+test('confirming a pending version needs the Guild Master and a proof', async () => {
+  for (const [role, proof, status] of [
+    ['member', 'good', 403],
+    ['guild_master', 'bad', 403],
+    ['guild_master', 'good', 200],
+  ] as const) {
+    const { app, engine, guild } = await setup(role)
+    await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+    const res = await app.request(`/guilds/${guild}/rites/wf/versions/1/confirm`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer t', 'x-reauth-proof': proof },
+    })
+    expect(res.status).toBe(status)
+    expect((await engine.get(guild, 'wf', 1))?.version.status).toBe(
+      status === 200 ? 'active' : 'pending'
+    )
+  }
+})
+
+test('a run that fails part-way returns its runKey, so a retry resumes the same run', async () => {
+  const { app, engine, guild, tripwires } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  const confirmed = await app.request(`/guilds/${guild}/rites/wf/versions/1/confirm`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
+  })
+  expect(confirmed.status).toBe(200)
+  await tripwires.pause(guild, { hallId: 'heralds', tripwire: 'manual', observed: 1, threshold: 1 })
+  const run = () =>
+    app.request(`/guilds/${guild}/rites/wf/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+  const failed = await run()
+  expect(failed.status).toBe(422)
+  const body = z.object({ error: z.string(), runKey: z.string().min(1) }).parse(await failed.json())
+  expect(body.error).toBe('hall_paused')
+  const retry = await app.request(`/guilds/${guild}/rites/wf/runs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ runKey: body.runKey }),
+  })
+  expect(z.object({ runKey: z.string() }).parse(await retry.json()).runKey).toBe(body.runKey)
+})

@@ -39,9 +39,9 @@ export type RateRoute =
   | 'presence-read'
   | 'presence-write'
   | 'session-check'
-  | 'workflow-read'
-  | 'workflow-write'
-  | 'workflow-run'
+  | 'rite-read'
+  | 'rite-write'
+  | 'rite-run'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -133,10 +133,10 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'presence-write': writeLimits(20, 60),
   // Session checks and sign-outs are cheap reads, but unauthenticated callers can hammer them.
   'session-check': { client: { limit: 120, windowMs: MINUTE } },
-  // Workflow reads page stored graphs; saves validate a graph; a run posts Quests: tightest.
-  'workflow-read': writeLimits(60, 240),
-  'workflow-write': writeLimits(20, 60),
-  'workflow-run': writeLimits(10, 30),
+  // Rite reads page stored graphs; saves validate a graph; a run posts Quests: tightest.
+  'rite-read': writeLimits(60, 240),
+  'rite-write': writeLimits(20, 60),
+  'rite-run': writeLimits(10, 30),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
@@ -275,7 +275,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'presence-read': 'session',
   'presence-write': 'session',
   'session-check': 'unauthenticated',
-  'workflow-read': 'session',
-  'workflow-write': 'session',
-  'workflow-run': 'session',
+  'rite-read': 'session',
+  'rite-write': 'session',
+  'rite-run': 'session',
 }

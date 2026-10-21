@@ -35,10 +35,10 @@ import {
   type QuestQueue,
   waitMet,
 } from '../ports/quest-queue'
+import type { RiteStore } from '../ports/rite-store'
 import { hashProposal } from '../ports/seal-store'
 import { type ToolsetStore, toolsetScope } from '../ports/toolset-store'
 import type { TripwireStore } from '../ports/tripwire-store'
-import type { WorkflowStore } from '../ports/workflow-store'
 import type { ProposalEngine } from '../proposals'
 import { chooseHallOwner, POSTABLE_TEMPLATES, QUEST_TEMPLATES } from '../quests'
 import type { Research } from '../research'
@@ -107,8 +107,8 @@ export interface McpGatewayDeps {
   /** Files a Proposal (and its deterministic Verdict) for `submit_proposal`. */
   proposals: ProposalEngine
   keys: KeyProvider
-  /** Reads a workflow Quest's node, so its brief template reaches the Brief; absent, none does. */
-  workflows?: Pick<WorkflowStore, 'getInstance' | 'getVersion'>
+  /** Reads a rite Quest's node, so its brief template reaches the Brief; absent, none does. */
+  rites?: Pick<RiteStore, 'getInstance' | 'getVersion'>
   clock: Clock
   /** Bar the Gates: read first on every tool list and call; a barred guild is denied before any work. */
   gates: Pick<GateStore, 'isBarred'>
@@ -668,17 +668,17 @@ export class McpGateway {
     ).text
   }
 
-  /** The brief template of the workflow node a Quest was posted for, or undefined for any other Quest. */
+  /** The brief template of the rite node a Quest was posted for, or undefined for any other Quest. */
   private async instructionsFor(guild: string, quest: Quest): Promise<string | undefined> {
-    const { workflows } = this.deps
-    if (!workflows || quest.campaignId === null) {
+    const { rites } = this.deps
+    if (!rites || quest.campaignId === null) {
       return undefined
     }
-    const instance = await workflows.getInstance(guild, quest.campaignId)
+    const instance = await rites.getInstance(guild, quest.campaignId)
     if (!instance) {
       return undefined
     }
-    const version = await workflows.getVersion(guild, instance.workflowId, instance.version)
+    const version = await rites.getVersion(guild, instance.riteId, instance.version)
     const prefix = `${instance.id}:`
     if (!version || !quest.jobKey.startsWith(prefix)) {
       return undefined

@@ -14,11 +14,11 @@ import { MemoryPageFetcher } from '../adapters/memory-page-fetcher'
 import { MemoryProposalStore } from '../adapters/memory-proposal-store'
 import { MemoryQuestQueue } from '../adapters/memory-quest-queue'
 import { MemoryResearchStore } from '../adapters/memory-research-store'
+import { MemoryRiteStore } from '../adapters/memory-rite-store'
 import { MemorySearchProvider } from '../adapters/memory-search-provider'
 import { MemoryToolsetStore } from '../adapters/memory-toolset-store'
 import { MemoryTreasuryStore } from '../adapters/memory-treasury-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
-import { MemoryWorkflowStore } from '../adapters/memory-workflow-store'
 import type { GuildConfig } from '../guild-config'
 import { type PageFetcher, PageRefused } from '../ports/page-fetcher'
 import type { Quest } from '../ports/quest-queue'
@@ -1705,11 +1705,11 @@ describe('the Brief teaches the Member what to write', () => {
   const briefOf = async (s: Awaited<ReturnType<typeof setup>>, l: z.infer<typeof lease>) =>
     z.string().parse((await callTool(s.transport, 'read_brief', { lease: l })).data.brief)
 
-  test('a workflow Quest carries its node’s brief template', async () => {
+  test('a rite Quest carries its node’s brief template', async () => {
     const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
-    const workflows = new MemoryWorkflowStore(clock)
-    const s = await setup({ workflows, clock })
-    await workflows.saveVersion(s.guild, 'wf', {
+    const rites = new MemoryRiteStore(clock)
+    const s = await setup({ rites, clock })
+    await rites.saveVersion(s.guild, 'wf', {
       name: 'Launch',
       classification: 'internal',
       status: 'active',
@@ -1728,8 +1728,8 @@ describe('the Brief teaches the Member what to write', () => {
         edges: [],
       },
     })
-    const { instance } = await workflows.createInstance(s.guild, {
-      workflowId: 'wf',
+    const { instance } = await rites.createInstance(s.guild, {
+      riteId: 'wf',
       version: 1,
       runKey: 'r1',
     })
