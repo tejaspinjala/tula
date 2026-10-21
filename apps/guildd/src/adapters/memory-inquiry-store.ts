@@ -10,26 +10,129 @@ import type {
 } from '../ports/inquiry-store'
 import type { QuestQueue } from '../ports/quest-queue'
 
-/** Memory adapter for {@link InquiryStore}: state in this instance only. */
-export class MemoryInquiryStore implements InquiryStore {
-  constructor(readonly quests: QuestQueue) {}
+interface Stored {
+  inquiry: Inquiry
+  /** Quest and attempt-scoped identity of the ask, for idempotency. */
+  key: string
+  expiresAtMs: number
+}
 
-  async ask(_guildId: string, _input: NewInquiry): Promise<AskResult> {
-    throw new Error('not implemented')
+/**
+ * Memory adapter for {@link InquiryStore}: state in this instance only. Asks run one after another
+ * (the answer Quest is posted between the check and the write), so the cap and the idempotency
+ * check hold for same-tick callers; the other writes check and write with no await between.
+ */
+export class MemoryInquiryStore implements InquiryStore {
+  private readonly guilds = new Map<string, Stored[]>()
+  private nextSeq = 1
+  private asks: Promise<unknown> = Promise.resolve()
+
+  constructor(private readonly quests: QuestQueue) {}
+
+  private inquiries(guildId: string): Stored[] {
+    let all = this.guilds.get(guildId)
+    if (!all) {
+      all = []
+      this.guilds.set(guildId, all)
+    }
+    return all
   }
-  async answer(_guildId: string, _input: NewAnswer): Promise<AnswerResult> {
-    throw new Error('not implemented')
+
+  ask(guildId: string, input: NewInquiry): Promise<AskResult> {
+    const run = this.asks.then(() => this.askNow(guildId, input))
+    this.asks = run.catch(() => undefined)
+    return run
   }
-  async attachNote(_guildId: string, _inquiryId: string, _noteId: string): Promise<void> {
-    throw new Error('not implemented')
+
+  private async askNow(guildId: string, input: NewInquiry): Promise<AskResult> {
+    const all = this.inquiries(guildId)
+    const key = JSON.stringify([input.askQuestId, input.attempt, input.toHall, input.question])
+    const prior = all.find((s) => s.key === key)
+    if (prior) {
+      const answerQuest = await this.quests.get(guildId, prior.inquiry.answerQuestId)
+      if (answerQuest) {
+        return { ok: true, inquiry: prior.inquiry, answerQuest, created: false }
+      }
+    }
+    if (all.filter((s) => s.inquiry.askQuestId === input.askQuestId).length >= input.maxPerQuest) {
+      return { ok: false, error: 'inquiry_cap' }
+    }
+    const { quest } = await this.quests.post(guildId, input.answerQuest)
+    const inquiry: Inquiry = {
+      seq: this.nextSeq++,
+      id: input.id,
+      fromHall: input.fromHall,
+      toHall: input.toHall,
+      askQuestId: input.askQuestId,
+      answerQuestId: quest.id,
+      asker: input.asker,
+      question: input.question,
+      status: 'open',
+      answer: null,
+      answeredBy: null,
+      noteId: null,
+      askedAt: input.at.toISOString(),
+      expiresAt: input.expiresAt.toISOString(),
+      answeredAt: null,
+    }
+    all.push({ inquiry, key, expiresAtMs: input.expiresAt.getTime() })
+    return { ok: true, inquiry, answerQuest: quest, created: true }
   }
-  async get(_guildId: string, _inquiryId: string): Promise<Inquiry | null> {
-    throw new Error('not implemented')
+
+  async answer(guildId: string, input: NewAnswer): Promise<AnswerResult> {
+    const stored = this.inquiries(guildId).find((s) => s.inquiry.id === input.inquiryId)
+    if (!stored || stored.inquiry.answerQuestId !== input.answerQuestId) {
+      return { ok: false, error: 'not_found' }
+    }
+    if (stored.inquiry.status === 'answered') {
+      return { ok: false, error: 'inquiry_answered' }
+    }
+    if (stored.inquiry.status === 'expired' || stored.expiresAtMs <= input.at.getTime()) {
+      return { ok: false, error: 'inquiry_expired' }
+    }
+    stored.inquiry = {
+      ...stored.inquiry,
+      status: 'answered',
+      answer: input.answer,
+      answeredBy: input.by,
+      answeredAt: input.at.toISOString(),
+    }
+    return { ok: true, inquiry: stored.inquiry }
   }
-  async list(_guildId: string, _query: InquiryQuery): Promise<InquiryPage> {
-    throw new Error('not implemented')
+
+  async attachNote(guildId: string, inquiryId: string, noteId: string): Promise<void> {
+    const stored = this.inquiries(guildId).find((s) => s.inquiry.id === inquiryId)
+    if (stored) {
+      stored.inquiry = { ...stored.inquiry, noteId }
+    }
   }
-  async expireOverdue(_guildId: string, _at: Date): Promise<number> {
-    throw new Error('not implemented')
+
+  async get(guildId: string, inquiryId: string): Promise<Inquiry | null> {
+    return this.inquiries(guildId).find((s) => s.inquiry.id === inquiryId)?.inquiry ?? null
+  }
+
+  async list(guildId: string, query: InquiryQuery): Promise<InquiryPage> {
+    const matching = this.inquiries(guildId)
+      .map((s) => s.inquiry)
+      .filter(
+        (i) =>
+          (i.fromHall === query.hallId || i.toHall === query.hallId) &&
+          (query.after === undefined || i.seq < query.after)
+      )
+      .sort((a, b) => b.seq - a.seq)
+    const page = matching.slice(0, query.limit)
+    const last = page.at(-1)
+    return { inquiries: page, next: matching.length > query.limit && last ? last.seq : null }
+  }
+
+  async expireOverdue(guildId: string, at: Date): Promise<number> {
+    let expired = 0
+    for (const stored of this.inquiries(guildId)) {
+      if (stored.inquiry.status === 'open' && stored.expiresAtMs <= at.getTime()) {
+        stored.inquiry = { ...stored.inquiry, status: 'expired' }
+        expired += 1
+      }
+    }
+    return expired
   }
 }
