@@ -19,7 +19,7 @@ import type { DossierService } from './dossiers'
 import { createEventHub } from './event-hub'
 import { appendEvent, type EventBound, eventsHistory, headSeq } from './events'
 import type { Gates } from './gates'
-import { type GuildConfig, guildConfig, guildTripwires } from './guild-config'
+import { type GuildConfig, guildConfig, guildTripwires, lockedHallIds } from './guild-config'
 import { assertFinishBody, registerFinishBody } from './identity-schemas'
 import { GatesBarredError, type LearningEngine } from './learning-engine'
 import { characterLook } from './look-catalogue'
@@ -1447,9 +1447,18 @@ export function createApp(deps: AppDeps): Hono {
         blocked.set(entry.decisionKey, entry.reason)
       }
     }
+    // A locked Hall is skipped at claim and never logs a decision, so it is reported from the config.
+    const locked = new Set(
+      waiting.length > 0 ? lockedHallIds((await deps.config.current(who.guild)).config) : []
+    )
     const quests = listed.quests.map((q) => ({
       ...q,
-      blockReason: q.state === 'queued' ? (blocked.get(`${q.id}:${q.attempts}`) ?? null) : null,
+      blockReason:
+        q.state !== 'queued'
+          ? null
+          : locked.has(q.hallId)
+            ? ('hall_locked' as const)
+            : (blocked.get(`${q.id}:${q.attempts}`) ?? null),
     }))
     return c.json({ ...listed, quests, links })
   }
@@ -1559,7 +1568,12 @@ export function createApp(deps: AppDeps): Hono {
     if (c.req.param('id') !== check.guildId || !hallId.success) {
       return c.json({ error: 'not_found' }, 404)
     }
-    return (await deps.tripwires.resume(check.guildId, hallId.data))
+    const resumed = await deps.tripwires.resume(check.guildId, hallId.data)
+    if (resumed) {
+      // The loop count that paused the Hall must not re-pause it at the next pass.
+      await deps.quests.forgiveRepeats(check.guildId, hallId.data)
+    }
+    return resumed
       ? c.json({ hallId: hallId.data, paused: false })
       : c.json({ error: 'not_paused' }, 404)
   })

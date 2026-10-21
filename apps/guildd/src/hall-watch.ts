@@ -113,7 +113,9 @@ async function attemptsPerHall(
         ...(after ? { after } : {}),
       })
       for (const quest of page.quests) {
-        repeats.set(quest.hallId, Math.max(repeats.get(quest.hallId) ?? 0, quest.attempts))
+        // Claims given back (a wait, a bar, a park) are not loop repeats: only real attempts count.
+        const real = quest.attempts - quest.refunds
+        repeats.set(quest.hallId, Math.max(repeats.get(quest.hallId) ?? 0, real))
       }
       after = page.next ?? undefined
     } while (after !== undefined)

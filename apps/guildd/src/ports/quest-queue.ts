@@ -539,6 +539,7 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
       lastError: 'routing_blocked',
       // A wait is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
       maxAttempts: quest.maxAttempts + 1,
+      refunds: quest.refunds + 1,
       notBefore: notBefore.toISOString(),
     },
     event: 'quest.retry_scheduled',
@@ -566,6 +567,7 @@ export function parkTransition(
       waitMode: mode,
       // A wait is not a crash: the extra delivery it costs does not shrink the retry budget.
       maxAttempts: quest.maxAttempts + 1,
+      refunds: quest.refunds + 1,
       notBefore: now.toISOString(),
     },
     event: null,
