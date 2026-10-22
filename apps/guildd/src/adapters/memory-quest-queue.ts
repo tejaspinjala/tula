@@ -230,6 +230,22 @@ export class MemoryQuestQueue implements QuestQueue {
     return this.apply(guildId, failTransition(quest, attempt, error, this.clock.now(), delay))
   }
 
+  async wakeRoutingWaits(guildId: string): Promise<number> {
+    const now = this.clock.now()
+    let woken = 0
+    for (const q of this.guild(guildId).byId.values()) {
+      if (
+        q.state === 'queued' &&
+        q.lastError === 'routing_blocked' &&
+        Date.parse(q.notBefore) > now.getTime()
+      ) {
+        this.guild(guildId).byId.set(q.id, { ...q, notBefore: now.toISOString() })
+        woken += 1
+      }
+    }
+    return woken
+  }
+
   async forgiveRepeats(guildId: string, hallId: string): Promise<number> {
     let changed = 0
     for (const q of this.guild(guildId).byId.values()) {

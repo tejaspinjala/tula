@@ -12,6 +12,7 @@ import {
   type ProposeResult,
 } from '../ports/config-store'
 import type { KeyProvider } from '../ports/key-provider'
+import { wakeRoutingWaits } from './pg-quest-queue'
 import { SystemClock } from './system-clock'
 
 const versionRow = z.object({
@@ -117,6 +118,7 @@ export class PgConfigStore implements ConfigStore {
         where guild_id = ${guildId} and version = ${version}`
       await appendEvent(tx, this.keys, 'config.version_confirmed', { version })
       await this.appendLockEvents(tx, guildId, inForce.config, target.config, version)
+      await wakeRoutingWaits(tx, guildId, this.clock.now())
     })
   }
 
@@ -247,6 +249,7 @@ export class PgConfigStore implements ConfigStore {
     await appendEvent(tx, this.keys, 'config.version_proposed', { version, status, kind, change })
     if (status === 'applied') {
       await this.appendLockEvents(tx, guildId, base.config, config, version)
+      await wakeRoutingWaits(tx, guildId, this.clock.now())
     }
     return { version, status, change }
   }

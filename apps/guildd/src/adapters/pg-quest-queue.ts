@@ -48,6 +48,16 @@ import {
   type WaitMode,
 } from '../ports/quest-queue'
 
+/** Makes every routing-blocked, still-waiting Quest of the guild deliverable at `now`; returns how many it woke. */
+export async function wakeRoutingWaits(tx: TenantTx, guildId: string, now: Date): Promise<number> {
+  const rows = await tx`
+    update quests set not_before = ${now}
+    where guild_id = ${guildId} and state = 'queued' and last_error = 'routing_blocked'
+      and not_before > ${now}
+    returning quest_id`
+  return rows.length
+}
+
 const iso = z.date().transform((d) => d.toISOString())
 
 const questRow = z.object({
@@ -410,6 +420,13 @@ export class PgQuestQueue implements QuestQueue {
     return this.mutate(guildId, id, (q) =>
       failTransition(q, attempt, error, this.clock.now(), questRetryDelayMs(q, this.random()))
     )
+  }
+
+  async wakeRoutingWaits(guildId: string): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await this.lock(tx, guildId)
+      return wakeRoutingWaits(tx, guildId, this.clock.now())
+    })
   }
 
   async forgiveRepeats(guildId: string, hallId: string): Promise<number> {

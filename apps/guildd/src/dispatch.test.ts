@@ -209,6 +209,22 @@ describe('dispatch', () => {
     }
   }
 
+  test('a Quest with no routing profile waits: its charged attempts and retry budget stay flat, pass after pass', async () => {
+    const w = world(configWith({ providers: [], routingProfiles: [] }))
+    const quest = await w.queue()
+    for (let pass = 0; pass < 4; pass += 1) {
+      w.clock.advance(10 * 60_000)
+      expect(await dispatch(w.deps, w.guild)).toMatchObject({
+        status: 'blocked',
+        reason: 'no_provider_available',
+      })
+      const after = await w.quests.get(w.guild, quest.id)
+      expect(after).toMatchObject({ state: 'queued', lastError: 'routing_blocked' })
+      expect((after?.attempts ?? 0) - (after?.refunds ?? 0)).toBe(0)
+      expect((after?.maxAttempts ?? 0) - (after?.attempts ?? 0)).toBe(quest.maxAttempts)
+    }
+  })
+
   test('an empty queue is idle', async () => {
     const w = world()
     expect(await dispatch(w.deps, w.guild)).toEqual({ status: 'idle' })
