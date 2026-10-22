@@ -78,8 +78,10 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
 
   // The Seal count re-reads when a Seal event arrives on the stream; the poll is the backstop.
   const sealEvents = useLiveEvents().filter((e) => SEAL_EVENTS.has(e.type)).length
+  const sealRead = useRef('')
   useEffect(() => {
     let live = true
+    sealRead.current = `${refresh}:${sealEvents}`
     const read = () =>
       listSeals(session, fetch, 50)
         .then((page) => live && setWaiting({ count: page.seals.length, more: page.next !== null }))
