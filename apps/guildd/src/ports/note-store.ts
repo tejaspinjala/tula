@@ -119,16 +119,20 @@ export interface WikiLink {
 export function parseWikiLinks(text: string): WikiLink[] {
   const links: WikiLink[] = []
   let from = 0
+  let scan = 0
   for (;;) {
-    const open = text.indexOf('[[', from)
-    if (open < 0) {
-      break
-    }
-    const close = text.indexOf(']]', open + 2)
+    const close = text.indexOf(']]', scan)
     if (close < 0) {
       break
     }
+    scan = close + 1
+    // The innermost link: the last `[[` before this `]]`, after the previous link's end.
+    const open = text.lastIndexOf('[[', close - 2)
+    if (open < from) {
+      continue
+    }
     from = close + 2
+    scan = from
     const inner = text.slice(open + 2, close)
     const bar = inner.indexOf('|')
     const alias = bar < 0 ? null : inner.slice(bar + 1)

@@ -86,6 +86,14 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.get(g, target.id))?.backlinks).toEqual([])
     })
 
+    test('a note stored as [[T|alias]] or [[T#heading]] backlinks the target', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'T', body: 'x' })
+      const source = await store.add(g, { ...fact, title: 'Src', body: 'see [[T|alias]] [[T#h]]' })
+      expect((await store.get(g, target.id))?.backlinks).toEqual([{ id: source.id, title: 'Src' }])
+    })
+
     test('a link note stores a url', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

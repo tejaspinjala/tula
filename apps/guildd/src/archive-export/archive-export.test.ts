@@ -250,6 +250,44 @@ describe('link resolution (ADR-0015)', () => {
     expect(c).toContain('spooky Ghost')
     expect(c).not.toContain('[[Ghost')
   })
+  test.each([
+    '[[a [[Secret]] b]]',
+    '[[x|[[Secret]]',
+    '[[ [[Secret]]',
+    '[[[Secret]]]',
+    '[[Secret|[[x]]',
+    '[[[[Secret]]]]',
+  ])('nested %s leaks no title and leaves no stray brackets', (body) => {
+    const files = run([note({ id: '1', title: 'S', body })], {
+      privateLeftOut: 1,
+      withheldTitles: ['Secret'],
+    })
+    for (const f of files) {
+      expect(f.content).not.toContain('Secret')
+    }
+    const c = file(files, 'Engineering/S.md')
+    const text = c.slice(c.indexOf('# S'))
+    expect(text).not.toContain('[[')
+    expect(text).not.toContain(']]')
+  })
+  test('random nesting of [[ and ]] around withheld titles never leaks', () => {
+    let seed = 7
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return seed % n
+    }
+    const pieces = ['[[', ']]', '[', ']', '|', '#', ' ', 'x', '[[Secret]]', '[[SECRET|a]]']
+    for (let i = 0; i < 300; i++) {
+      const body = Array.from({ length: 4 + rnd(12) }, () => pieces[rnd(pieces.length)]).join('')
+      const files = run([note({ id: '1', title: 'S', body })], {
+        privateLeftOut: 1,
+        withheldTitles: ['Secret'],
+      })
+      for (const f of files) {
+        expect(f.content.toLowerCase()).not.toContain('secret')
+      }
+    }
+  })
   test('no withheld title appears in any output file for varied bodies', () => {
     const forms = (t: string) => [
       `[[${t}]]`,

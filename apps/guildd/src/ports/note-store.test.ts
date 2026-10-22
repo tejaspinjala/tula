@@ -11,6 +11,11 @@ describe('wikiLinks', () => {
       'market [stalls] "list"',
     ])
   })
+  test('reads the innermost link when [[ is nested', () => {
+    expect(wikiLinks('[[ [[T]]')).toEqual(['t'])
+    expect(wikiLinks('[[a [[T]] b]]')).toEqual(['t'])
+    expect(wikiLinks('[[[[T]]]]')).toEqual(['t'])
+  })
   test('de-duplicates and skips empty links', () => {
     expect(wikiLinks('[[A]] [[a|z]] [[]] [[ ]] [[|x]]')).toEqual(['a'])
   })
