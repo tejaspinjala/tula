@@ -3,11 +3,13 @@ import { type GuildConfig, guildConfig, hall, provider } from '../guild-config'
 import type { RiteGraph } from '../rites/graph'
 import {
   applyCharter,
+  CHARTER_MAX_BYTES,
   CONFIG_FIELD_CLASS,
   type ExportRite,
   exportCharter,
   HALL_FIELD_CLASS,
   PROVIDER_FIELD_CLASS,
+  parseCharter,
 } from './charter'
 
 const baseHall = { locked: false, privateEligible: true, captain: null, members: [] }
@@ -151,5 +153,23 @@ describe('field classification', () => {
     expect(Object.keys(CONFIG_FIELD_CLASS).sort()).toEqual(Object.keys(guildConfig.shape).sort())
     expect(Object.keys(HALL_FIELD_CLASS).sort()).toEqual(Object.keys(hall.shape).sort())
     expect(Object.keys(PROVIDER_FIELD_CLASS).sort()).toEqual(Object.keys(provider.shape).sort())
+  })
+})
+
+describe('parseCharter', () => {
+  test('round-trips an exported Charter', () => {
+    const c = exportCharter({ name: 'n', config, rites: [rite('ok')], now })
+    const r = parseCharter(JSON.stringify(c))
+    expect(r.ok).toBe(true)
+  })
+
+  test('refuses a document over the size cap and more than 50 Rites', () => {
+    expect(parseCharter(' '.repeat(CHARTER_MAX_BYTES + 1)).ok).toBe(false)
+    const many = exportCharter({ name: 'n', config, rites: [], now })
+    const over = {
+      ...many,
+      rites: Array.from({ length: 51 }, () => ({ name: 'r', graph: graphFor('work') })),
+    }
+    expect(parseCharter(JSON.stringify(over)).ok).toBe(false)
   })
 })

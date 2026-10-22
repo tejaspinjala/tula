@@ -105,7 +105,7 @@ A connection to an outside account (API, browser or manual).
 _Avoid_: integration
 
 **Charter**:
-An importable, exportable guild template with secrets and private data stripped.
+An importable, exportable guild template that carries structure (Halls, Members, Rites, caps) and never attestations (`privateEligible`), local repo allowlists or private-Hall Rites; importing one grants no authority (ADR-0014).
 _Avoid_: template
 
 ## Governance
