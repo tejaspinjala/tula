@@ -39,3 +39,14 @@ test('a refused roster request throws', async () => {
   const fetcher = async () => Response.json({ error: 'unauthenticated' }, { status: 401 })
   await expect(loadRoster(session, fetcher)).rejects.toThrow()
 })
+
+test('a Hall roomStyle survives the roster load and an unknown style is refused', async () => {
+  const page = (style: string) => ({
+    steward,
+    halls: [{ ...hall('a'), roomStyle: style }],
+    next: null,
+  })
+  const ok = await loadRoster(session, async () => Response.json(page('library')))
+  expect(ok.halls[0]?.roomStyle).toBe('library')
+  await expect(loadRoster(session, async () => Response.json(page('dungeon')))).rejects.toThrow()
+})

@@ -14,7 +14,7 @@ import {
 } from './daylight'
 import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './interact'
 import { bubbleCentreX, roomTags } from './layout'
-import { lightIsOn } from './lighting'
+import { lampPools, lightFadeMs, lightIsOn, lightPatches } from './lighting'
 import {
   browserStore,
   FADE_FRAME_MS,
@@ -257,6 +257,8 @@ export class HallScene extends Phaser.Scene {
   private phaseForced = false
   private veil: Phaser.GameObjects.Rectangle | null = null
   private lanterns: Phaser.GameObjects.Image[] = []
+  /** Window light patches and lamp pools: the world's light, under the tint and never on the chrome. */
+  private lightLayer: Phaser.GameObjects.Graphics | null = null
   private facingLeft = false
   private clock = 0
   private slotForced: number | null = null
@@ -524,6 +526,7 @@ export class HallScene extends Phaser.Scene {
       .setPosition(x, y)
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
       .setFillStyle(tint.color, tint.alpha)
+    this.drawLight(model, x, y)
     for (const lantern of this.lanterns) {
       lantern.destroy()
     }
@@ -544,6 +547,29 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
+  /** Redraws the room's light: hard-edged window patches by day and dusk, stepped lamp pools from dusk. */
+  private drawLight(model: Room | null, x: number, y: number): void {
+    this.lightLayer?.destroy()
+    this.lightLayer = null
+    if (model === null) {
+      return
+    }
+    const s = model.tileSize
+    const g = this.add.graphics().setDepth(DEPTH.top - 1)
+    for (const p of lightPatches(model.lights, this.phase)) {
+      g.fillStyle(0xfff2c0, p.alpha).fillRect(x + p.x * s, y + p.y * s, p.w * s, p.h * s)
+    }
+    for (const pool of lampPools(model.lights, this.phase)) {
+      g.fillStyle(0xffd27a, pool.alpha).fillCircle(x + pool.x * s, y + pool.y * s, pool.radius * s)
+    }
+    const fade = lightFadeMs(this.options.reducedMotion)
+    if (fade > 0) {
+      g.setAlpha(0)
+      this.tweens.add({ targets: g, alpha: 1, duration: fade })
+    }
+    this.lightLayer = g
+  }
+
   /** A map's data (the Great Hall's size follows the Halls it has doorways for). */
   private mapOf(id: MapKey): MapData {
     return mapData(id)
@@ -558,6 +584,7 @@ export class HallScene extends Phaser.Scene {
     const specs = state.rooms.map((r, index) => ({
       hall: { id: r.hallId, name: r.name, kind: r.kind, locked: r.locked, index },
       members: r.memberIds.map((id) => ({ id, captain: state.members[id]?.rank === 'captain' })),
+      style: r.roomStyle,
     }))
     const sig = JSON.stringify(specs)
     if (sig === this.hallSig || !this.ready) {

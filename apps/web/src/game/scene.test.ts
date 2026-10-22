@@ -44,6 +44,17 @@ test('a Member look override in the roster reaches the scene; others carry none'
   expect(scene.members.m1?.look).toBeUndefined()
 })
 
+test('a Hall roomStyle choice in the roster reaches its scene room; others carry none', () => {
+  const [first, second] = roster.halls
+  if (!first || !second) {
+    throw new Error('no halls')
+  }
+  const styled: SceneRoster = { ...roster, halls: [{ ...first, roomStyle: 'library' }, second] }
+  const scene = deriveScene({ roster: styled, quests: [], events: [], upTo: null })
+  expect(scene.rooms[0]?.roomStyle).toBe('library')
+  expect(scene.rooms[1]?.roomStyle).toBeUndefined()
+})
+
 const quests: SceneQuest[] = [
   { id: 'q1', title: 'Write the herald notice', hallId: 'h-herald', ownerId: 'm2' },
 ]
