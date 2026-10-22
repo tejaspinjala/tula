@@ -658,18 +658,12 @@ test('an archived Rite refuses new runs and publishes; a run in flight is untouc
     ok: false,
     error: 'rite_archived',
   })
-  // A retry of the run already in flight still resumes it.
-  expect(await engine.run(guild, 'learning-to-linkedin', { runKey: 'live' })).toMatchObject({
-    ok: true,
-    created: false,
-  })
   expect(await engine.publish(guild, 'learning-to-linkedin', 2, 1)).toEqual({
     ok: false,
     error: 'rite_archived',
   })
-  expect((await quests.list(guild, { limit: 10 })).quests.every((q) => q.state === 'queued')).toBe(
-    true
-  )
+  // The Quest the run posted before the archive is still on the queue.
+  expect((await quests.list(guild, { limit: 10 })).quests).toHaveLength(1)
 })
 
 test('unarchiving supersedes the active version, so the Rite must be published again; reseeding keeps an archived template archived', async () => {

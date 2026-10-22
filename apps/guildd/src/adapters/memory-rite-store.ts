@@ -20,6 +20,8 @@ interface GuildState {
   instances: Map<string, RiteRun>
   /** The active version each published-pending version was published over, keyed `rite:version`. */
   basedOn: Map<string, number | null>
+  /** When each archived Rite was archived; a Rite absent here is live. */
+  archived: Map<string, string>
 }
 
 /**
@@ -34,7 +36,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map(), basedOn: new Map() }
+      s = { rites: new Map(), instances: new Map(), basedOn: new Map(), archived: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -132,9 +134,14 @@ export class MemoryRiteStore implements RiteStore {
     page: { after?: string; limit: number; archived?: boolean }
   ): Promise<RitePage> {
     const summaries: RiteSummary[] = []
-    for (const [id, list] of this.state(guildId).rites) {
+    const { rites: all, archived } = this.state(guildId)
+    for (const [id, list] of all) {
       const latest = list.at(-1)
-      if (!latest || (page.after !== undefined && id <= page.after)) {
+      if (
+        !latest ||
+        (page.after !== undefined && id <= page.after) ||
+        archived.has(id) !== (page.archived === true)
+      ) {
         continue
       }
       summaries.push({
@@ -143,7 +150,7 @@ export class MemoryRiteStore implements RiteStore {
         latestVersion: latest.version,
         activeVersion: list.findLast((v) => v.status === 'active')?.version ?? null,
         updatedAt: latest.createdAt,
-        archivedAt: null,
+        archivedAt: archived.get(id) ?? null,
       })
     }
     summaries.sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -152,16 +159,38 @@ export class MemoryRiteStore implements RiteStore {
     return { rites, next: summaries.length > page.limit && last ? last.id : null }
   }
 
-  async archivedAt(_guildId: string, _riteId: string): Promise<string | null> {
-    throw new Error('not implemented')
+  async archivedAt(guildId: string, riteId: string): Promise<string | null> {
+    return this.state(guildId).archived.get(riteId) ?? null
   }
 
-  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
-    throw new Error('not implemented')
+  async archive(guildId: string, riteId: string): Promise<ArchiveResult> {
+    const s = this.state(guildId)
+    if (!s.rites.has(riteId)) {
+      return { ok: false, error: 'not_found' }
+    }
+    const existing = s.archived.get(riteId)
+    if (existing !== undefined) {
+      return { ok: true, changed: false, archivedAt: existing }
+    }
+    const archivedAt = this.clock.now().toISOString()
+    s.archived.set(riteId, archivedAt)
+    return { ok: true, changed: true, archivedAt }
   }
 
-  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
-    throw new Error('not implemented')
+  async unarchive(guildId: string, riteId: string): Promise<UnarchiveResult> {
+    const s = this.state(guildId)
+    const list = s.rites.get(riteId)
+    if (!list) {
+      return { ok: false, error: 'not_found' }
+    }
+    if (!s.archived.delete(riteId)) {
+      return { ok: true, changed: false, superseded: null }
+    }
+    const active = list.findLast((v) => v.status === 'active')
+    if (active) {
+      active.status = 'superseded'
+    }
+    return { ok: true, changed: true, superseded: active?.version ?? null }
   }
 
   async versions(

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Db } from '../db/client'
+import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
@@ -35,6 +35,7 @@ const summaryRow = z.object({
   latest_version: z.number(),
   active_version: z.number().nullable(),
   updated_at: date,
+  archived_at: date.nullable(),
 })
 const instanceRow = z.object({
   instance_id: z.string(),
@@ -250,17 +251,23 @@ export class PgRiteStore implements RiteStore {
     page: { after?: string; limit: number; archived?: boolean }
   ): Promise<RitePage> {
     const after = page.after ?? null
+    const archived = page.archived === true
     return this.db.withGuild(guildId, async (tx) => {
       const rows = await tx`
-        select workflow_id,
-          (array_agg(name order by version desc))[1] as name,
-          max(version)::int as latest_version,
-          max(version) filter (where status = 'active')::int as active_version,
-          max(created_at) as updated_at
-        from workflow_versions
-        where guild_id = ${guildId} and (${after}::text is null or workflow_id > ${after}::text)
-        group by workflow_id
-        order by workflow_id limit ${page.limit + 1}`
+        select v.workflow_id,
+          (array_agg(v.name order by v.version desc))[1] as name,
+          max(v.version)::int as latest_version,
+          max(v.version) filter (where v.status = 'active')::int as active_version,
+          max(v.created_at) as updated_at,
+          a.archived_at
+        from workflow_versions v
+        left join workflow_archive a
+          on a.guild_id = v.guild_id and a.workflow_id = v.workflow_id
+        where v.guild_id = ${guildId}
+          and (${after}::text is null or v.workflow_id > ${after}::text)
+          and (a.archived_at is not null) = ${archived}
+        group by v.workflow_id, a.archived_at
+        order by v.workflow_id limit ${page.limit + 1}`
       const all = rows.map((r) => {
         const s = summaryRow.parse(r)
         return {
@@ -269,7 +276,7 @@ export class PgRiteStore implements RiteStore {
           latestVersion: s.latest_version,
           activeVersion: s.active_version,
           updatedAt: s.updated_at,
-          archivedAt: null,
+          archivedAt: s.archived_at,
         }
       })
       const rites = all.slice(0, page.limit)
@@ -278,16 +285,68 @@ export class PgRiteStore implements RiteStore {
     })
   }
 
-  async archivedAt(_guildId: string, _riteId: string): Promise<string | null> {
-    throw new Error('not implemented')
+  async archivedAt(guildId: string, riteId: string): Promise<string | null> {
+    return this.db.withGuild(guildId, (tx) => this.archivedAtIn(tx, guildId, riteId))
   }
 
-  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
-    throw new Error('not implemented')
+  private async archivedAtIn(
+    tx: TenantTx,
+    guildId: string,
+    riteId: string
+  ): Promise<string | null> {
+    const [row] = await tx`
+      select archived_at from workflow_archive
+      where guild_id = ${guildId} and workflow_id = ${riteId}`
+    return row ? z.object({ archived_at: date.nullable() }).parse(row).archived_at : null
   }
 
-  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
-    throw new Error('not implemented')
+  private async exists(tx: TenantTx, guildId: string, riteId: string): Promise<boolean> {
+    const [row] = await tx`
+      select 1 as one from workflow_versions where guild_id = ${guildId} and workflow_id = ${riteId}
+      limit 1`
+    return row !== undefined
+  }
+
+  async archive(guildId: string, riteId: string): Promise<ArchiveResult> {
+    const now = this.clock.now()
+    return this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+      if (!(await this.exists(tx, guildId, riteId))) {
+        return { ok: false, error: 'not_found' }
+      }
+      const existing = await this.archivedAtIn(tx, guildId, riteId)
+      if (existing !== null) {
+        return { ok: true, changed: false, archivedAt: existing }
+      }
+      await tx`
+        insert into workflow_archive (guild_id, workflow_id, archived_at)
+        values (${guildId}, ${riteId}, ${now})
+        on conflict (guild_id, workflow_id) do update set archived_at = excluded.archived_at`
+      await appendEvent(tx, this.keys, RITE_EVENT.archived, { riteId })
+      return { ok: true, changed: true, archivedAt: now.toISOString() }
+    })
+  }
+
+  async unarchive(guildId: string, riteId: string): Promise<UnarchiveResult> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+      if (!(await this.exists(tx, guildId, riteId))) {
+        return { ok: false, error: 'not_found' }
+      }
+      if ((await this.archivedAtIn(tx, guildId, riteId)) === null) {
+        return { ok: true, changed: false, superseded: null }
+      }
+      await tx`
+        update workflow_archive set archived_at = null
+        where guild_id = ${guildId} and workflow_id = ${riteId}`
+      const [row] = await tx`
+        update workflow_versions set status = 'superseded'
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'
+        returning version`
+      const superseded = row ? z.object({ version: z.number() }).parse(row).version : null
+      await appendEvent(tx, this.keys, RITE_EVENT.unarchived, { riteId, superseded })
+      return { ok: true, changed: true, superseded }
+    })
   }
 
   async versions(

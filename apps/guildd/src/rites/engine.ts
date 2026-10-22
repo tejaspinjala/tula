@@ -213,6 +213,9 @@ export class RiteEngine {
     if (!draft) {
       return { ok: false, error: 'not_found' }
     }
+    if ((await this.deps.store.archivedAt(guildId, riteId)) !== null) {
+      return { ok: false, error: 'rite_archived' }
+    }
     const active = await this.deps.store.latestActive(guildId, riteId)
     const kind = classifyRiteChange(active?.graph ?? null, draft.graph)
     const widening = kind === 'widening' || draft.classification === 'widening'
@@ -242,14 +245,17 @@ export class RiteEngine {
     return this.deps.store.list(guildId, page)
   }
 
-  /** Archives a Rite. */
-  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
-    throw new Error('not implemented')
+  /**
+   * Archives a Rite: hidden from the list, no new run or publish. A run in flight completes, since
+   * its Quests are already on the queue.
+   */
+  archive(guildId: string, riteId: string): Promise<ArchiveResult> {
+    return this.deps.store.archive(guildId, riteId)
   }
 
-  /** Unarchives a Rite. */
-  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
-    throw new Error('not implemented')
+  /** Unarchives a Rite; its active version is superseded, so it must be published again to run. */
+  unarchive(guildId: string, riteId: string): Promise<UnarchiveResult> {
+    return this.deps.store.unarchive(guildId, riteId)
   }
 
   /** A version (the latest of any status when `version` is omitted) and the newest runnable one. */
@@ -308,6 +314,9 @@ export class RiteEngine {
     const head = await this.deps.store.getVersion(guildId, riteId)
     if (!head) {
       return { ok: false, error: 'not_found' }
+    }
+    if ((await this.deps.store.archivedAt(guildId, riteId)) !== null) {
+      return { ok: false, error: 'rite_archived' }
     }
     const pinned =
       opts.version === undefined
