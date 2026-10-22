@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import furniture from '../../public/game/furniture.json'
 import interiors from '../../public/game/interiors.json'
-import { memberSeats, stewardStand } from './actors'
+import { stewardStand } from './actors'
 import { lightIsOn } from './lighting'
 import {
   type Atlases,
@@ -88,8 +88,8 @@ describe('shadows', () => {
     const against = { ...lamp, tile: { x: 5, y: 3, w: 1, h: 1 } }
     expect(freeStanding({ ...room, furniture: [against] }, against)).toBe(false)
     const shadows = roomSprites(room, atlases).filter((s) => s.frame === 'shadow')
-    // Steward desk 2, Seal desk 2, Quest Board 2, mailbox 1, gate 2, lamp 1, plant 1.
-    expect(shadows.length).toBe(11)
+    // Steward desk 2, Seal desk 2, Quest Board 2, mailbox 1, gate 2, lamp 1, plant 1, Council table 2.
+    expect(shadows.length).toBe(13)
     expect(shadows.every((s) => s.depth === DEPTH.shadow)).toBe(true)
   })
 })
@@ -121,19 +121,6 @@ describe('lights', () => {
 })
 
 describe('Great Hall positions', () => {
-  test('Members get distinct open floor tiles clear of stands and doorway fronts', () => {
-    const seats = memberSeats(room, 6)
-    expect(new Set(seats.map((p) => `${p.x},${p.y}`)).size).toBe(6)
-    const blocked = new Set([
-      ...room.pois.map((p) => `${p.stand.x},${p.stand.y}`),
-      ...room.doorways.map((d) => `${d.tile.x},${d.tile.y + (d.tile.y > 5 ? -1 : 1)}`),
-    ])
-    for (const p of seats) {
-      expect(room.walkable(p.x, p.y)).toBe(true)
-      expect(blocked.has(`${p.x},${p.y}`)).toBe(false)
-    }
-  })
-
   test('the Steward stands in front of their desk', () => {
     expect(stewardStand(room)).toEqual({ x: 8, y: 6 })
   })

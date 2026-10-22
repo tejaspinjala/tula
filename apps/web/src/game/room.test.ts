@@ -152,9 +152,10 @@ describe('greatHall', () => {
     expect(doors[0]?.target).toBe('hall:heralds')
   })
 
-  test('holds the Steward, Seal desk, Quest Board, Mailbox and Gate', () => {
+  test('holds the Steward, Seal desk, Quest Board, Mailbox, Gate and Council table', () => {
     const gh = greatHall([hall('a')])
     expect(gh.pois.map((p) => p.kind).sort()).toEqual([
+      'council-table',
       'gate',
       'mailbox',
       'quest-board',
@@ -202,5 +203,47 @@ describe('defaultStyle', () => {
 
   test('anything else is a workshop', () => {
     expect(defaultStyle({ name: 'Zorblax', kind: 'work' })).toBe('workshop')
+  })
+})
+
+describe('the mailbox of a Hall room', () => {
+  test('every style and size has a mailbox the Guild Master can reach from the entry, off every station', () => {
+    for (const style of ROOM_STYLES) {
+      for (const crew of [1, 4, 8, 12]) {
+        const room = roomFor(hall('h'), members(crew), style)
+        const box = room.pois.find((p) => p.kind === 'mailbox')
+        expect(box).toBeDefined()
+        if (!box) {
+          continue
+        }
+        expect(room.walkable(box.tile.x, box.tile.y)).toBe(false)
+        expect(room.walkable(box.stand.x, box.stand.y)).toBe(true)
+        expect(reaches(room, room.spawn, box.stand)).toBe(true)
+        expect(room.furniture.some((f) => f.frame === 'mailbox')).toBe(true)
+        for (const s of room.stations) {
+          expect([s.tile.x, s.tile.y]).not.toEqual([box.tile.x, box.tile.y])
+          expect(reaches(room, room.spawn, s.tile)).toBe(true)
+        }
+      }
+    }
+  })
+})
+
+describe('the Council table of the Great Hall', () => {
+  test('is a POI on open floor the Guild Master can stand beside', () => {
+    for (const count of [0, 3, 8]) {
+      const room = greatHall(Array.from({ length: count }, (_v, i) => hall(`h${i}`)))
+      const table = room.pois.find((p) => p.kind === 'council-table')
+      expect(table).toBeDefined()
+      if (!table) {
+        continue
+      }
+      expect(room.walkable(table.tile.x, table.tile.y)).toBe(false)
+      expect(room.walkable(table.stand.x, table.stand.y)).toBe(true)
+      expect(reaches(room, room.spawn, table.stand)).toBe(true)
+      expect(
+        room.furniture.some((f) => f.tile.x === table.tile.x && f.tile.y === table.tile.y)
+      ).toBe(true)
+    }
   })
 })

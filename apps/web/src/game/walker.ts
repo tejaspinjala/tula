@@ -1,7 +1,7 @@
 import type { Anim, Plan, Stop } from './behavior'
 import { type Leg, routeBetween, type Spot, type WalkableOf } from './route'
 import { followPath, type Vec } from './walk'
-import type { MapId } from './world'
+import type { MapKey } from './world'
 
 /** How fast a Member walks about the town, in tiles per second (a Member strolls; the Guild Master runs). */
 export const STROLL = 5
@@ -9,7 +9,7 @@ export const STROLL = 5
 /** A Member's body in the town: which map, where, and what they are doing. Plain data, no engine objects. */
 export interface Walker {
   /** The map of the town the Member is in (tracked even when the camera is elsewhere). */
-  map: MapId
+  map: MapKey
   /** Position in tiles, tile `(x, y)` centred at `(x + 0.5, y + 0.5)`. */
   pos: Vec
   facingLeft: boolean
