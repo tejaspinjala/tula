@@ -716,7 +716,7 @@ export function RitePanel({
               pieces={paletteTypes().map((type) => ({
                 id: type,
                 label: `Add ${type}`,
-                glyph: type.replace(/^trigger\./, '').slice(0, 4),
+                glyph: type.replace(/^trigger\./, ''),
               }))}
               dragType={NODE_PIECE}
               onAdd={dropType}

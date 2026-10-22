@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 
+/** How a Bag page opens: the menu dialog, or a full-viewport workbench. */
+export type PageSize = 'menu' | 'workbench'
+
 /** The Bag's pages, in menu order. Each opens over the world at its path. */
 export const BAG_PAGES = [
-  { id: 'quests', path: '/quests', label: 'Quest Board' },
-  { id: 'seals', path: '/seals', label: 'Seals' },
-  { id: 'treasury', path: '/treasury', label: 'Treasury' },
-  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds' },
-  { id: 'guild', path: '/guild', label: 'Guild builder' },
-  { id: 'rites', path: '/rites', label: 'Rites' },
-  { id: 'charter', path: '/charter', label: 'Charter' },
-  { id: 'missives', path: '/missives', label: 'Missives' },
-  { id: 'mailbox', path: '/mailbox', label: 'Mailbox' },
-  { id: 'council', path: '/council', label: 'Council' },
-  { id: 'gates', path: '/gates', label: 'Gates' },
-  { id: 'settings', path: '/vault', label: 'Settings' },
-] as const
+  { id: 'quests', path: '/quests', label: 'Quest Board', size: 'menu' },
+  { id: 'seals', path: '/seals', label: 'Seals', size: 'menu' },
+  { id: 'treasury', path: '/treasury', label: 'Treasury', size: 'menu' },
+  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds', size: 'workbench' },
+  { id: 'guild', path: '/guild', label: 'Guild builder', size: 'workbench' },
+  { id: 'rites', path: '/rites', label: 'Rites', size: 'workbench' },
+  { id: 'charter', path: '/charter', label: 'Charter', size: 'menu' },
+  { id: 'missives', path: '/missives', label: 'Missives', size: 'menu' },
+  { id: 'mailbox', path: '/mailbox', label: 'Mailbox', size: 'menu' },
+  { id: 'council', path: '/council', label: 'Council', size: 'menu' },
+  { id: 'gates', path: '/gates', label: 'Gates', size: 'menu' },
+  { id: 'settings', path: '/vault', label: 'Settings', size: 'menu' },
+] as const satisfies readonly { id: string; path: string; label: string; size: PageSize }[]
 
 /** The id of one Bag page. */
 export type PageId = (typeof BAG_PAGES)[number]['id']

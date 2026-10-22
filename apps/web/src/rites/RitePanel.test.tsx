@@ -318,6 +318,23 @@ test('a save after the session changes goes to the new guild path', async () => 
   expect(put.at(-1)).toBe(`PUT /api/guilds/${next.guildId}/rites/w`)
 })
 
+test('palette tiles carry whole names, never a four letter cut', async () => {
+  const host = await mount(world(), true)
+  const glyphs = [...host.querySelectorAll('.palette .px-slot-glyph')].map((g) =>
+    g.getAttribute('data-glyph')
+  )
+  expect(glyphs).toEqual([
+    'manual',
+    'schedule',
+    'agent',
+    'subagents',
+    'team',
+    'verify',
+    'approval',
+    'post',
+  ])
+})
+
 test('the palette lists every node type of the shared schema', async () => {
   const host = await mount(world(), true)
   const labels = [...host.querySelectorAll('.palette [role="option"]')].map((b) =>

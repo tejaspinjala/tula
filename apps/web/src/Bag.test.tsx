@@ -193,3 +193,28 @@ test('opening a page from the menu moves keyboard focus to that page, not to the
   expect(document.activeElement?.id).toBe('treasury-title')
   await m.unmount()
 })
+
+test('a workbench page opens full-viewport with its back control in the frame title', async () => {
+  const c = calls()
+  const m = await mount(bag({ page: 'rites' }, c))
+  const dialog = m.host.querySelector('dialog')
+  expect(dialog?.getAttribute('data-size')).toBe('workbench')
+  const head = m.host.querySelector('.bag-head')
+  const back = [...(head?.querySelectorAll('button') ?? [])].find(
+    (b) => b.textContent?.trim() === 'Back to the Bag'
+  )
+  expect(back).toBeDefined()
+  await click(back as HTMLElement)
+  expect(c.menu).toBe(1)
+  await m.unmount()
+})
+
+test('menu pages and the menu itself keep the dialog', async () => {
+  const c = calls()
+  const seals = await mount(bag({ page: 'seals' }, c))
+  expect(seals.host.querySelector('dialog')?.getAttribute('data-size')).toBe('menu')
+  await seals.unmount()
+  const menu = await mount(bag({}, c))
+  expect(menu.host.querySelector('dialog')?.getAttribute('data-size')).toBe('menu')
+  await menu.unmount()
+})
