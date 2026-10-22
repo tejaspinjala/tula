@@ -26,6 +26,8 @@ export interface GameHandle {
   follow: (memberId: string | null) => void
   /** Sleeps the game loop (hidden tab) or wakes it. */
   setPaused: (paused: boolean) => void
+  /** Takes the Hall's pointer input away while a Bag page covers it, and gives it back. */
+  setInputEnabled: (enabled: boolean) => void
   destroy: () => void
 }
 
@@ -102,6 +104,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
         game.loop.wake()
       }
     },
+    setInputEnabled: (enabled) => scene.setInputEnabled(enabled),
     destroy: () => {
       stopWatching()
       game.destroy(true)
