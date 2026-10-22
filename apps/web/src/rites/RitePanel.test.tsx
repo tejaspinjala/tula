@@ -679,7 +679,7 @@ test('Show archived with no archived Rites shows an empty state and leaves the s
   expect(host.textContent).toContain('No archived Rites')
   expect(host.textContent).not.toContain('(unsaved)')
   expect(host.textContent).not.toContain('Unsaved changes')
-  await click(host, 'Back to Rites')
+  await click(host, '▶Back to Rites')
   expect(host.textContent).not.toContain('No archived Rites')
   expect(host.querySelector<HTMLInputElement>('.builder-save input')?.value).toBe('W')
   expect(host.querySelector<HTMLSelectElement>('select[aria-label="Rite"]')?.value).toBe('w')
