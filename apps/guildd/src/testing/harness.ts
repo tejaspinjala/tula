@@ -70,7 +70,6 @@ export interface HarnessOptions {
     Pick<
       AppDeps,
       | 'identity'
-      | 'legacyFounding'
       | 'secrets'
       | 'config'
       | 'notes'
@@ -146,8 +145,6 @@ export async function createHarness(options: HarnessOptions = {}) {
     keys,
     anchor,
     devGuildHeader: options.devGuildHeader ?? true,
-    // The legacy founding stays on under test whatever the header switch says (see AppDeps).
-    legacyFounding: options.app?.legacyFounding ?? true,
     eventPollMs: options.app?.eventPollMs ?? 25,
     // Tests found many guilds and sign in from one in-process address, so limits stay off unless a test sets them.
     rateLimits: options.app?.rateLimits ?? UNLIMITED_RATE_LIMITS,

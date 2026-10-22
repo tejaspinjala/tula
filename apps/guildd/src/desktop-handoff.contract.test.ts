@@ -1,17 +1,17 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { DESKTOP_CODE_TTL_MS } from './ports/identity'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 afterAll(() => harness.close())
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
+const _founded = z.object({ id: z.string(), foundingToken: z.string() })
 const opened = z.object({ token: z.string(), guildId: z.string() })
 const handoff = z.object({ code: z.string(), expiresAt: z.string() })
 const errorBody = z.object({ error: z.string() })
@@ -26,26 +26,8 @@ async function post(path: string, body: unknown, headers = {}, via = harness) {
 
 /** A founded guild whose Guild Master has signed in: its id and a Bearer session token. */
 async function signedInGuild(via = harness) {
-  const guild = founded.parse(
-    await (await post('/guilds', { name: 'Ember', goal: 'Ship' }, {}, via)).json()
-  )
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const reg = ceremony.parse(
-    await (
-      await post(
-        `/guilds/${guild.id}/passkeys/begin`,
-        {},
-        { 'x-founding-token': guild.foundingToken },
-        via
-      )
-    ).json()
-  )
-  await post(
-    `/guilds/${guild.id}/passkeys/finish`,
-    { challengeId: reg.challengeId, response: await key.register(reg.options) },
-    {},
-    via
-  )
+  const guild = await foundViaApi(via, { name: 'Ember', goal: 'Ship' })
+  const key = guild.key
   const sign = ceremony.parse(
     await (await post(`/guilds/${guild.id}/sign-in/begin`, {}, {}, via)).json()
   )

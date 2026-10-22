@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { CHALLENGE_TTL_MS } from './ports/identity'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
@@ -15,7 +16,7 @@ const ceremony = z.object({
   options: z.object({ challenge: z.string(), allowCredentials: z.array(z.unknown()).optional() }),
 })
 const session = z.object({ token: z.string(), guildId: z.string() })
-const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+const _foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
 const errorBody = z.object({ error: z.string() })
 
 async function post(path: string, body: unknown, via = harness, headers = {}) {
@@ -27,22 +28,9 @@ async function post(path: string, body: unknown, via = harness, headers = {}) {
 }
 
 async function foundWithPasskey() {
-  const founded = foundedBody.parse(
-    await (await post('/guilds', { name: 'Ember', goal: 'Ship' })).json()
-  )
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const begin = ceremony.parse(
-    await (
-      await post(`/guilds/${founded.id}/passkeys/begin`, {}, harness, {
-        'x-founding-token': founded.foundingToken,
-      })
-    ).json()
-  )
-  const finish = await post(`/guilds/${founded.id}/passkeys/finish`, {
-    challengeId: begin.challengeId,
-    response: await key.register(begin.options),
-  })
-  expect(finish.status).toBe(201)
+  const founded = await foundViaApi(harness, { name: 'Ember', goal: 'Ship' })
+  const key = founded.key
+  expect(founded.response.status).toBe(201)
   return { guildId: founded.id, key }
 }
 

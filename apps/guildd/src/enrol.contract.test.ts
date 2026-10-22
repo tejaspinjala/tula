@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { ENROL_TTL_MS } from './ports/identity'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
@@ -12,7 +13,7 @@ const ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
+const _founded = z.object({ id: z.string(), foundingToken: z.string() })
 const errorBody = z.object({ error: z.string() })
 
 async function post(path: string, body: unknown, headers = {}, via = harness) {
@@ -25,26 +26,8 @@ async function post(path: string, body: unknown, headers = {}, via = harness) {
 
 /** A guild with one passkey, and a link token minted on the host. */
 async function guildWithToken(via = harness) {
-  const guild = founded.parse(
-    await (await post('/guilds', { name: 'Ember', goal: 'Ship' }, {}, via)).json()
-  )
-  const first = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const begin = ceremony.parse(
-    await (
-      await post(
-        `/guilds/${guild.id}/passkeys/begin`,
-        {},
-        { 'x-founding-token': guild.foundingToken },
-        via
-      )
-    ).json()
-  )
-  await post(
-    `/guilds/${guild.id}/passkeys/finish`,
-    { challengeId: begin.challengeId, response: await first.register(begin.options) },
-    {},
-    via
-  )
+  const guild = await foundViaApi(via, { name: 'Ember', goal: 'Ship' })
+  const _first = guild.key
   const { token } = await via.adapters.identity.issueEnrolmentToken(guild.id)
   return { guildId: guild.id, token }
 }
