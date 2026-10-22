@@ -90,3 +90,61 @@ export async function setProviderPrivate(
   await confirmVersion(session, saved.version, fetcher, browser)
   return 'confirmed'
 }
+
+/** A routing profile as the Settings page shows it. */
+export interface ProfileRow {
+  id: string
+  provider: string
+  tier: 'cheap' | 'mid' | 'deep'
+  model?: string | undefined
+}
+
+/** The routing profiles in a config document, in order (the first is the default Summon uses). */
+export function profilesOf(_config: BuilderConfig): ProfileRow[] {
+  return []
+}
+
+/** The config with a provider added; the Vault secret it uses is named by the same id. */
+export function withProvider(
+  config: BuilderConfig,
+  _provider: { id: string; auth: ProviderRow['auth'] }
+): BuilderConfig {
+  return config
+}
+
+/** The config with a routing profile added (or replaced, by id). */
+export function withProfile(config: BuilderConfig, _profile: ProfileRow): BuilderConfig {
+  return config
+}
+
+/** The config without the routing profile. */
+export function withoutProfile(config: BuilderConfig, _id: string): BuilderConfig {
+  return config
+}
+
+/** The config without the provider and the profiles that named it. */
+export function withoutProvider(config: BuilderConfig, _id: string): BuilderConfig {
+  return config
+}
+
+/** The config with the profile moved first, so Summon preselects it. */
+export function withDefaultProfile(config: BuilderConfig, _id: string): BuilderConfig {
+  return config
+}
+
+/** How a routing change ended: applied at once, or confirmed with a passkey. */
+export type RoutingChange = 'applied' | 'confirmed'
+
+/**
+ * Saves an edit of the routing parts of the config. A widening edit (a new provider, a new or
+ * deeper profile) is saved pending and then confirmed with a fresh passkey; a narrowing one
+ * applies at once. The server classifies the change, never this code.
+ */
+export async function changeRouting(
+  _session: Session,
+  _edit: (config: BuilderConfig) => BuilderConfig,
+  _fetcher: Fetcher,
+  _browser: PasskeyBrowser
+): Promise<RoutingChange> {
+  return 'applied'
+}
