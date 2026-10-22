@@ -7,20 +7,22 @@ export interface YesNoProps {
   /** The choice the cursor starts on: NO for destructive actions and Seals. */
   safe: 'yes' | 'no'
   onAnswer: (yes: boolean) => void
+  /** Lists the safe choice first (No, Yes); the default order is Yes, No. */
+  safeFirst?: boolean
 }
 
-const ITEMS = [
-  { id: 'yes', label: 'Yes' },
-  { id: 'no', label: 'No' },
-] as const
+const YES = { id: 'yes', label: 'Yes' } as const
+const NO = { id: 'no', label: 'No' } as const
 
 /**
  * A Yes/No prompt stacked on the dialogue box. The question should name the cost
  * ("Spend 40 from the Treasury?"). The cursor starts on the safe choice; Y and N answer directly
  * and Esc declines.
  */
-export function YesNo({ question, safe, onAnswer }: YesNoProps) {
+export function YesNo({ question, safe, onAnswer, safeFirst = false }: YesNoProps) {
   const id = useId()
+  const items = safeFirst && safe === 'no' ? [NO, YES] : [YES, NO]
+  const initial = items.findIndex((item) => item.id === safe)
 
   function onKey(key: string): boolean {
     const lower = key.toLowerCase()
@@ -38,8 +40,8 @@ export function YesNo({ question, safe, onAnswer }: YesNoProps) {
       </p>
       <CursorMenu
         label={question}
-        items={ITEMS}
-        initial={safe === 'yes' ? 0 : 1}
+        items={items}
+        initial={initial}
         autoFocus
         onSelect={(choice) => onAnswer(choice === 'yes')}
         onBack={() => onAnswer(false)}

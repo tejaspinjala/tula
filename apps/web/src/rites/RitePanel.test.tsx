@@ -52,6 +52,8 @@ interface Options {
   history?: Record<string, unknown>[]
   /** Lists a second Rite, `v`, besides `w`. */
   second?: boolean
+  /** The version in force; defaults to 1. */
+  active?: number
 }
 
 function world(options: Options = {}) {
@@ -60,7 +62,7 @@ function world(options: Options = {}) {
   const urls: string[] = []
   // The newest version and the active one, as the server would report them after each write.
   let latest: Record<string, unknown> = stored
-  let activeVersion = 1
+  let activeVersion = options.active ?? 1
   let archived = false
   const fetcher = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
@@ -232,7 +234,7 @@ async function click(host: HTMLElement, name: string) {
   const found = [...host.querySelectorAll<HTMLElement>('button, [role="option"]')].find(
     (b) =>
       (b.getAttribute('role') === 'option'
-        ? b.getAttribute('aria-label')
+        ? (b.getAttribute('aria-label') ?? b.textContent?.trim())
         : b.textContent?.trim()) === name
   )
   if (!found) {
@@ -458,10 +460,10 @@ test('Archive asks a one-line confirm, then archives the Rite and drops it from 
   await click(host, 'Archive')
   expect(host.textContent).toContain('Archive W? It leaves the list and cannot run until restored.')
   expect(w.urls).not.toContain(`POST ${base}/w/archive`)
-  await click(host, 'Cancel')
+  await click(host, 'No')
   expect(host.textContent).not.toContain('Archive W?')
   await click(host, 'Archive')
-  await click(host, 'Archive W')
+  await click(host, 'Yes')
   expect(w.urls).toContain(`POST ${base}/w/archive`)
   const options = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
     (o) => o.textContent
@@ -473,8 +475,8 @@ test('the Archived filter lists only archived Rites and Unarchive restores one, 
   const w = world({ second: true })
   const host = await mount(w, true)
   await click(host, 'Archive')
-  await click(host, 'Archive W')
-  const filter = host.querySelector<HTMLInputElement>('input[aria-label="Show archived"]')
+  await click(host, 'Yes')
+  const filter = host.querySelector<HTMLElement>('button[aria-label="Show archived"]')
   if (!filter) {
     throw new Error('no Archived filter')
   }
@@ -491,13 +493,98 @@ test('the Archived filter lists only archived Rites and Unarchive restores one, 
   expect(run?.disabled).toBe(true)
   await click(host, 'Unarchive')
   expect(w.urls).toContain(`POST ${base}/w/unarchive`)
-  expect(host.querySelector<HTMLInputElement>('input[aria-label="Show archived"]')?.checked).toBe(
-    false
-  )
+  expect(
+    host.querySelector('button[aria-label="Show archived"]')?.getAttribute('aria-pressed')
+  ).toBe('false')
   const live = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
     (o) => o.textContent
   )
   expect(live).toContain('W')
   const runAfter = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Run')
   expect(runAfter?.disabled).toBe(true)
+})
+
+async function key(target: Element, name: string) {
+  await act(async () => {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })
+    )
+  })
+  await settle()
+}
+const option = (host: HTMLElement, text: string) =>
+  [...host.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === text)
+
+test('the archive confirm lists the safe No first, focused, and Cancel returns focus to Archive', async () => {
+  const host = await mount(world(), true)
+  await click(host, 'Archive')
+  const options = [...host.querySelectorAll('[role="option"]')].filter((o) =>
+    ['Yes', 'No'].includes(o.textContent ?? '')
+  )
+  expect(options.map((o) => o.textContent)).toEqual(['No', 'Yes'])
+  expect(doc.activeElement).toBe(option(host, 'No') ?? null)
+  await click(host, 'No')
+  const archive = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Archive')
+  expect(archive).toBeDefined()
+  expect(doc.activeElement).toBe(archive ?? null)
+})
+
+test('Esc cancels only the archive confirm and does not reach the Bag', async () => {
+  const host = await mount(world(), true)
+  const reached: string[] = []
+  doc.addEventListener('keydown', (e) => reached.push(e.key))
+  await click(host, 'Archive')
+  const no = option(host, 'No')
+  if (!no) {
+    throw new Error('no confirm')
+  }
+  await key(no, 'Escape')
+  expect(host.textContent).not.toContain('Archive W?')
+  expect(reached).not.toContain('Escape')
+})
+
+test('a rename alone enables Save draft, and the archive confirm names the saved Rite', async () => {
+  const host = await mount(world(), true)
+  const save = () =>
+    [...host.querySelectorAll('button')].find((b) => b.textContent === 'Save draft')
+  expect(save()?.disabled).toBe(true)
+  const name = host.querySelector<HTMLInputElement>('.builder-save input')
+  if (!name) {
+    throw new Error('no name input')
+  }
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(name, 'Renamed')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(save()?.disabled).toBe(false)
+  expect(host.textContent).toContain('Unsaved changes')
+  await click(host, 'Archive')
+  expect(host.textContent).toContain('Archive W? It leaves')
+  expect(host.textContent).not.toContain('Archive Renamed?')
+})
+
+test('archiving the only Rite shows an empty state, not an unsaved my-rite draft', async () => {
+  const host = await mount(world(), true)
+  await click(host, 'Archive')
+  await click(host, 'Yes')
+  expect(host.textContent).toContain('No Rites yet')
+  expect(host.textContent).not.toContain('my-rite')
+  expect(host.textContent).not.toContain('Unsaved changes')
+})
+
+test('outline buttons are named as steps so they differ from the action buttons', async () => {
+  const host = await mount(world(), true)
+  const outline = host.querySelector('[aria-label="Nodes"]')
+  expect(outline?.querySelector('button')?.getAttribute('aria-label')).toBe('Step: start')
+})
+
+test('a pending version left under a newer active reads as stale', async () => {
+  const history = [
+    { ...stored, version: 2, status: 'active' },
+    { ...stored, version: 1, status: 'pending', classification: 'widening' },
+  ]
+  const w = world({ history, active: 2 })
+  const host = await mount(w, true)
+  expect(host.textContent).toContain('stale')
+  expect(host.textContent).not.toContain('widening, pending')
 })
