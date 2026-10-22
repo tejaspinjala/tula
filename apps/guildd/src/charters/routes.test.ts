@@ -14,13 +14,14 @@ import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import { PgRiteStore } from '../adapters/pg-rite-store'
 import { createDb } from '../db/client'
 import { appendEvent } from '../events'
+import { defaultConfig } from '../guild-config'
 import type { RiteStore } from '../ports/rite-store'
 import { ProposalEngine } from '../proposals'
 import { RiteEngine } from '../rites/engine'
 import { LEARNING_TO_LINKEDIN } from '../rites/templates'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
-import { CHARTER_MAX_RITES, charterSchema } from './charter'
+import { CHARTER_MAX_RITES, charterSchema, exportCharter } from './charter'
 import { CHARTER_EVENT } from './events'
 import { type CharterExportedFact, mountCharterRoutes } from './routes'
 
@@ -95,7 +96,27 @@ async function setup(kind: 'memory' | 'postgres', maxBytes?: number) {
       `/guilds/${id}/charter`,
       token ? { headers: { authorization: `Bearer ${token}` } } : {}
     )
-  return { engine, guild, other, get, events, gets }
+  const preview = (id: string, body: unknown) =>
+    app.request(`/guilds/${id}/charter/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    })
+  const sourceCharter = (change: (c: ReturnType<typeof defaultConfig>) => unknown) =>
+    exportCharter({
+      name: 'Src',
+      config: charterSchema.shape.config.parse(change(defaultConfig())),
+      rites: [],
+      now: clock.now(),
+    })
+  const writes = async (id: string) => ({
+    version: (await config.current(id)).version,
+    rites: (await engine.list(id, { limit: 100 })).rites.length,
+    events: (await owner`select count(*)::int as n from events where guild_id = ${id}`).map((r) =>
+      Number(r.n)
+    )[0],
+  })
+  return { engine, guild, other, get, events, gets, preview, sourceCharter, writes, config }
 }
 
 for (const kind of ['memory', 'postgres'] as const) {
@@ -171,6 +192,53 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(res.status).toBe(413)
       expect(await res.json()).toEqual({ error: 'charter_too_large' })
       expect(await events(guild)).toEqual([])
+    })
+  })
+}
+
+for (const kind of ['memory', 'postgres'] as const) {
+  describe(`charter preview on the ${kind} adapters`, () => {
+    test('raising a cap is widening, a name change internal, the same config unchanged', async () => {
+      const { guild, preview, sourceCharter, config } = await setup(kind)
+      const { version } = await config.current(guild)
+      const widen = await preview(guild, {
+        charter: sourceCharter((c) => ({
+          ...c,
+          caps: { ...c.caps, dailyTokens: c.caps.dailyTokens + 1 },
+        })),
+      })
+      expect(widen.status).toBe(200)
+      expect(await widen.json()).toEqual({ change: 'widening', baseVersion: version })
+      const inner = await preview(guild, {
+        charter: sourceCharter((c) => ({ ...c, steward: { ...c.steward, name: 'Renamed' } })),
+      })
+      expect(await inner.json()).toEqual({ change: 'internal', baseVersion: version })
+      const same = await preview(guild, { charter: sourceCharter((c) => c) })
+      expect(await same.json()).toEqual({ change: 'unchanged', baseVersion: version })
+    })
+
+    test('a preview writes no config version, no event and no Rite', async () => {
+      const { guild, preview, sourceCharter, writes } = await setup(kind)
+      const before = await writes(guild)
+      const res = await preview(guild, {
+        charter: sourceCharter((c) => ({ ...c, caps: { ...c.caps, dailyTokens: 5 } })),
+      })
+      expect(res.status).toBe(200)
+      expect(await writes(guild)).toEqual(before)
+    })
+
+    test('errors match import: 400 invalid_request, 422 invalid_charter, 413 charter_too_large', async () => {
+      const { guild, preview } = await setup(kind)
+      expect((await preview(guild, 'not json')).status).toBe(400)
+      expect((await preview(guild, {})).status).toBe(400)
+      const bad = await preview(guild, { charter: { charter: 1 } })
+      expect(bad.status).toBe(422)
+      expect(await bad.json()).toEqual({ error: 'invalid_charter' })
+      const small = await setup(kind, 100)
+      const big = await small.preview(small.guild, {
+        charter: small.sourceCharter((c) => c),
+      })
+      expect(big.status).toBe(413)
     })
   })
 }
