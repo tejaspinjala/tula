@@ -17,15 +17,15 @@ export interface VersionDoc {
   version: number
   name: string
   graph: RiteGraph
-  status: 'active' | 'pending'
+  status: 'draft' | 'pending' | 'active' | 'superseded'
   classification: string
   createdAt: string
 }
 
-/** What a save reports; `pending` means a widening version awaits the passkey confirm. */
+/** What a save or publish reports; a save is a `draft`, `pending` means a widening version awaits the passkey confirm. */
 export interface SaveOutcome {
   version: number
-  status: 'active' | 'pending'
+  status: 'draft' | 'active' | 'pending'
   classification: string
 }
 
@@ -66,7 +66,7 @@ const versionBody = z.object({
   version: z.number(),
   name: z.string(),
   graph: riteGraph,
-  status: z.enum(['active', 'pending']),
+  status: z.enum(['draft', 'pending', 'active', 'superseded']),
   classification: z.string(),
   createdAt: z.string(),
 })
@@ -79,7 +79,7 @@ const issueBody = z.object({
 })
 const validateBody = z.object({ valid: z.boolean(), errors: z.array(issueBody) })
 const savedBody = z.object({
-  status: z.enum(['active', 'pending']),
+  status: z.enum(['draft', 'active', 'pending']),
   version: z.object({ version: z.number(), classification: z.string() }),
 })
 const rejectedBody = z.object({
@@ -200,7 +200,7 @@ export async function validateGraph(
   return body.errors
 }
 
-/** Saves a graph as the next version through `PUT`; throws {@link RiteRejected} when invalid. */
+/** Saves a graph as the next version (a draft that never runs) through `PUT`; throws {@link RiteRejected} when invalid. */
 export async function saveRite(
   s: Session,
   id: string,
@@ -224,6 +224,34 @@ export async function saveRite(
     version: saved.version.version,
     status: saved.status,
     classification: saved.version.classification,
+  }
+}
+
+/**
+ * Publishes a draft over the active version it was based on (null for none). An internal draft
+ * goes live (`active`); a widening one is `pending` until {@link confirmRiteVersion}. A moved
+ * active version is refused as `stale`.
+ */
+export async function publishRite(
+  s: Session,
+  id: string,
+  version: number,
+  basedOn: number | null,
+  f: Fetcher
+): Promise<SaveOutcome> {
+  const { res, data } = await send(f, `${base(s)}/${id}/versions/${version}/publish`, {
+    method: 'POST',
+    headers: json(s),
+    body: JSON.stringify({ basedOn }),
+  })
+  if (!res.ok) {
+    throw refusal(res.status, data)
+  }
+  const published = savedBody.parse(data)
+  return {
+    version: published.version.version,
+    status: published.status,
+    classification: published.version.classification,
   }
 }
 

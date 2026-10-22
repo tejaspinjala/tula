@@ -5,7 +5,12 @@ import { Badge } from '../Badge'
 import { loadCurrent } from '../builder/api'
 import { Palette } from '../builder/Palette'
 import { formatDollars, loadCosts } from '../costs'
-import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
+import {
+  type PasskeyBrowser,
+  PasskeyRequestError,
+  type Session,
+  webAuthnBrowser,
+} from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
 import { createBackoff, streamHandlers, streamNotice } from '../stream-retry'
 import { WorkSection } from '../WorkSection'
@@ -16,6 +21,7 @@ import {
   loadRite,
   loadRunState,
   loadVersions,
+  publishRite,
   RiteRejected,
   type RiteSummary,
   type RunState,
@@ -28,7 +34,7 @@ import {
 import { Canvas, NODE_PIECE } from './Canvas'
 import { Inspector } from './Inspector'
 import { layout, type Place } from './layout'
-import { addNode, connect, paletteTypes, saveBody, versionLine } from './model'
+import { addNode, connect, paletteTypes, riteChip, saveBody, versionLine } from './model'
 import { errorsByNode, type NodeOverlay, type RiteIssue, readRunFrame, runOverlay } from './overlay'
 
 /** Props of {@link RitePanel}. */
@@ -197,6 +203,7 @@ export function RitePanel({
   const [saved, setSaved] = useState<RiteGraph | null>(null)
   const [draft, setDraft] = useState<RiteGraph | null>(null)
   const [version, setVersion] = useState(0)
+  const [status, setStatus] = useState<VersionDoc['status'] | null>(null)
   const [activeVersion, setActiveVersion] = useState<number | null>(null)
   const [versions, setVersions] = useState<VersionDoc[]>([])
   const [halls, setHalls] = useState<{ id: string; name: string }[]>([])
@@ -228,9 +235,18 @@ export function RitePanel({
         setSaved(null)
         setDraft(STARTER)
         setVersion(0)
+        setStatus(null)
         setActiveVersion(null)
         setVersions([])
         return
+      }
+      setStatus(loaded.version.status)
+      if (loaded.version.status === 'pending') {
+        setPending({
+          version: loaded.version.version,
+          status: 'pending',
+          classification: loaded.version.classification,
+        })
       }
       setName(loaded.version.name)
       setSaved(loaded.version.graph)
@@ -380,23 +396,33 @@ export function RitePanel({
     }
   }
   const afterSave = async (outcome: SaveOutcome) => {
-    const refreshed = await listRites(session, fetcher).catch(() => list)
-    setList(refreshed)
-    if (outcome.status === 'pending') {
-      setPending(outcome)
-      setMessage(null)
-      const stored = await loadVersions(session, id, fetcher).catch(() => versions)
-      setVersions(stored)
-      setSaved(draft)
-      setVersion(outcome.version)
-      return
-    }
-    setPending(null)
+    setList(await listRites(session, fetcher).catch(() => list))
     await open(id)
-    setMessage(`Saved as version ${outcome.version} (${outcome.classification}); it is in force.`)
+    setMessage(
+      outcome.status === 'draft'
+        ? `Saved as draft version ${outcome.version} (${outcome.classification}). Publish it to put it in force.`
+        : outcome.status === 'pending'
+          ? null
+          : `Version ${outcome.version} is published and in force.`
+    )
   }
   const save = () =>
     attempt(async () => afterSave(await saveRite(session, id, saveBody(name, draft), fetcher)))
+  const publish = () =>
+    attempt(async () => {
+      try {
+        const outcome = await publishRite(session, id, version, activeVersion, fetcher)
+        await afterSave(outcome)
+      } catch (error) {
+        if (error instanceof PasskeyRequestError && error.code === 'stale') {
+          setFailed(
+            'This Rite changed since you opened it, so nothing was published. Reload it to see the live version.'
+          )
+          return
+        }
+        throw error
+      }
+    })
   const confirm = () =>
     attempt(async () => {
       if (pending) {
@@ -432,6 +458,7 @@ export function RitePanel({
       setSaved(null)
       setDraft(STARTER)
       setVersion(0)
+      setStatus(null)
       setActiveVersion(null)
       setVersions([])
       setPositions(noPlaces)
@@ -446,7 +473,7 @@ export function RitePanel({
     }
   }
 
-  const canRun = activeVersion !== null && !dirty && !pending
+  const canRun = activeVersion !== null && !dirty && !pending && status === 'active'
   const labelOf = (nodeId: string) => draft.nodes.find((n) => n.id === nodeId)?.name ?? nodeId
 
   return (
@@ -491,6 +518,12 @@ export function RitePanel({
         </button>
       </div>
       <p className="muted">
+        <span
+          data-testid="rite-chip"
+          className={`badge ${riteChip(status, dirty) === 'Live' ? 'badge-ok' : 'badge-warn'}`}
+        >
+          {riteChip(status, dirty)}
+        </span>{' '}
         {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
       </p>
       {wide && (
@@ -564,7 +597,15 @@ export function RitePanel({
             {dirty ? 'Unsaved changes' : 'No unsaved changes'}
           </p>
           <button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
-            Save
+            Save draft
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={dirty || status !== 'draft'}
+            onClick={publish}
+          >
+            Publish
           </button>
           <button
             type="button"

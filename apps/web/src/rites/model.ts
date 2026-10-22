@@ -162,6 +162,14 @@ export function versionLine(version: number, activeVersion: number | null): stri
       : `Version ${version} of ${activeVersion} in force.`
 }
 
+/** What the editor chip says about the version on screen: unsaved edits and drafts are a Draft. */
+export function riteChip(status: string | null, dirty: boolean): 'Draft' | 'Pending' | 'Live' {
+  if (dirty || status === 'draft' || status === null) {
+    return 'Draft'
+  }
+  return status === 'pending' ? 'Pending' : 'Live'
+}
+
 /** The `PUT /rites/:wid` body. */
 export function saveBody(name: string, graph: RiteGraph): { name: string; graph: RiteGraph } {
   return { name, graph }
