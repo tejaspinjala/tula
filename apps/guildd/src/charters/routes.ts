@@ -1,6 +1,7 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
-import type { GuildConfig } from '../guild-config'
+import { canonicalJson } from '../audit-chain'
+import { classifyChange, type GuildConfig } from '../guild-config'
 import type { CharterImporter } from '../ports/charter-import'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
@@ -11,6 +12,7 @@ import type { RiteEngine } from '../rites/engine'
 import {
   applyCharter,
   CHARTER_MAX_BYTES,
+  type Charter,
   type ExportRite,
   exportCharter,
   parseCharter,
@@ -22,6 +24,11 @@ export type CharterExportedFact = { rites: number; omitted: number }
 
 /** Room the request envelope (`baseVersion`, `importId`) gets beyond the Charter's own byte cap. */
 const ENVELOPE_SLACK_BYTES = 4096
+
+const previewBody = z.object({ charter: z.unknown() })
+
+/** How a previewed Charter would move the guild's config. */
+export type CharterChange = 'widening' | 'internal' | 'unchanged'
 
 const importBody = z.object({
   charter: z.unknown(),
@@ -48,7 +55,7 @@ export interface CharterRouteDeps {
   guildMasterSessionFor: (c: Context) => Promise<{ guild: string } | { res: Response }>
 }
 
-/** Mounts `GET /guilds/:id/charter` (Guild Master only). */
+/** Mounts the Charter routes: export, preview and import (Guild Master only). */
 export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
   /** Every Rite, live and archived, with the graph of its active version. */
   async function collectRites(guildId: string): Promise<ExportRite[]> {
@@ -108,39 +115,76 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
     })
     return c.json(charter)
   })
-  app.post('/guilds/:id/charter/preview', async (c) => c.json({ error: 'not_implemented' }, 501))
+  /** Reads, caps and parses a request envelope and the Charter inside it, or answers the error. */
+  async function readCharterBody<T extends { charter: unknown }>(
+    c: Context,
+    envelope: z.ZodType<T>
+  ): Promise<{ body: T; charter: Charter } | { res: Response }> {
+    const cap = deps.maxBytes ?? CHARTER_MAX_BYTES
+    const bytes = await readCapped(c.req.raw.body, cap + ENVELOPE_SLACK_BYTES)
+    if (bytes === null) {
+      return { res: c.json({ error: 'charter_too_large' }, 413) }
+    }
+    let json: unknown
+    try {
+      json = JSON.parse(new TextDecoder().decode(bytes))
+    } catch {
+      return { res: c.json({ error: 'invalid_request' }, 400) }
+    }
+    const body = envelope.safeParse(json)
+    if (!body.success) {
+      return { res: c.json({ error: 'invalid_request' }, 400) }
+    }
+    const text = JSON.stringify(body.data.charter)
+    if (new TextEncoder().encode(text).length > cap) {
+      return { res: c.json({ error: 'charter_too_large' }, 413) }
+    }
+    const parsed = parseCharter(text)
+    if (!parsed.ok) {
+      return { res: c.json({ error: 'invalid_charter' }, 422) }
+    }
+    return { body: body.data, charter: parsed.charter }
+  }
+
+  app.post('/guilds/:id/charter/preview', async (c) => {
+    const who = await deps.guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const read = await readCharterBody(c, previewBody)
+    if ('res' in read) {
+      return read.res
+    }
+    const { config: current, version } = await deps.config.current(who.guild)
+    const applied = applyCharter({
+      charter: read.charter,
+      current,
+      existingRiteNames: (await collectRites(who.guild)).map((r) => r.name),
+    })
+    if (!applied.ok) {
+      return c.json({ error: 'invalid_charter' }, 422)
+    }
+    const change: CharterChange =
+      canonicalJson(current) === canonicalJson(applied.config)
+        ? 'unchanged'
+        : classifyChange(current, applied.config) === 'widening'
+          ? 'widening'
+          : 'internal'
+    return c.json({ change, baseVersion: version })
+  })
   app.post('/guilds/:id/charter/import', async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
-    const cap = deps.maxBytes ?? CHARTER_MAX_BYTES
-    const bytes = await readCapped(c.req.raw.body, cap + ENVELOPE_SLACK_BYTES)
-    if (bytes === null) {
-      return c.json({ error: 'charter_too_large' }, 413)
+    const read = await readCharterBody(c, importBody)
+    if ('res' in read) {
+      return read.res
     }
-    const raw = new TextDecoder().decode(bytes)
-    let json: unknown
-    try {
-      json = JSON.parse(raw)
-    } catch {
-      return c.json({ error: 'invalid_request' }, 400)
-    }
-    const body = importBody.safeParse(json)
-    if (!body.success) {
-      return c.json({ error: 'invalid_request' }, 400)
-    }
-    const text = JSON.stringify(body.data.charter)
-    if (new TextEncoder().encode(text).length > cap) {
-      return c.json({ error: 'charter_too_large' }, 413)
-    }
-    const parsed = parseCharter(text)
-    if (!parsed.ok) {
-      return c.json({ error: 'invalid_charter' }, 422)
-    }
+    const { body, charter } = read
     const { config: current } = await deps.config.current(who.guild)
     const applied = applyCharter({
-      charter: parsed.charter,
+      charter,
       current,
       existingRiteNames: (await collectRites(who.guild)).map((r) => r.name),
     })
@@ -151,9 +195,9 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
       return c.json({ error: 'subscription_disabled' }, 409)
     }
     const outcome = await deps.imports.importCharter(who.guild, {
-      importId: body.data.importId,
-      requestHash: charterRequestHash(parsed.charter, body.data.baseVersion),
-      baseVersion: body.data.baseVersion,
+      importId: body.importId,
+      requestHash: charterRequestHash(charter, body.baseVersion),
+      baseVersion: body.baseVersion,
       config: applied.config,
       drafts: applied.drafts.map((d) => ({
         riteId: `r-${crypto.randomUUID()}`,
