@@ -99,6 +99,8 @@ export function GamePanel({
     tile: { x: 0, y: 0 },
   })
   const [unread, setUnread] = useState(0)
+  // Bumped whenever the game rebuilt its rooms, so the map reads them fresh.
+  const [roomsBuilt, setRoomsBuilt] = useState(0)
   const [miniMap, setMiniMap] = useState<GuildMap | null>(null)
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
@@ -322,6 +324,8 @@ export function GamePanel({
           onOpenCouncil: () => open.current('/council'),
           onLocation: setLocation,
           onMap: (map, tile) => setStanding({ map, tile }),
+          onRooms: () => setRoomsBuilt((n) => n + 1),
+          onStep: (tile) => setStanding((now) => ({ ...now, tile })),
           onNotice: setNotice,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
           onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
@@ -426,7 +430,7 @@ export function GamePanel({
     }
   }, [session, roster, mailEvents])
   useEffect(() => {
-    if (scene) {
+    if (scene && roomsBuilt > 0) {
       setMiniMap(
         guildMap({
           scene,
@@ -437,7 +441,7 @@ export function GamePanel({
         })
       )
     }
-  }, [scene, standing, unread])
+  }, [scene, standing, unread, roomsBuilt])
 
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
   const focusWorld = useCallback(() => frame.current?.focus(), [])
