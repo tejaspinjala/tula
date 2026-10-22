@@ -287,6 +287,37 @@ test('two rapid saves send one request at a time and the latest graph wins', asy
   expect(w.puts[1]?.graph.nodes).toHaveLength(4)
 })
 
+test('a save after the session changes goes to the new guild path', async () => {
+  const w = world()
+  const host = doc.createElement('div')
+  doc.body.appendChild(host)
+  const root = createRoot(host)
+  const render = (sess: typeof session) =>
+    act(async () => {
+      root.render(
+        <RitePanel
+          session={sess}
+          fetcher={w.fetcher}
+          browser={w.browser}
+          desktop={true}
+          validateDelayMs={0}
+          live={false}
+        />
+      )
+    })
+  await render(session)
+  await settle()
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  const next = { token: 't2', guildId: '22222222-2222-4222-8222-222222222222' }
+  await render(next)
+  await settle()
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  const put = w.urls.filter((u) => u.startsWith('PUT '))
+  expect(put.at(-1)).toBe(`PUT /api/guilds/${next.guildId}/rites/w`)
+})
+
 test('the palette lists every node type of the shared schema', async () => {
   const host = await mount(world(), true)
   const labels = [...host.querySelectorAll('.palette [role="option"]')].map((b) =>

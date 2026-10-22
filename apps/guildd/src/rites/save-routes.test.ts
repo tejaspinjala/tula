@@ -82,7 +82,7 @@ async function setup(kind: 'memory' | 'postgres') {
             await owner`select count(*)::int as n from events where guild_id = ${id} and type like ${`${RITE_EVENT_PREFIX}%`}`
           )[0]?.n
         )
-  return { guild, other, put, versions, riteEvents }
+  return { engine, guild, other, put, versions, riteEvents }
 }
 
 for (const kind of ['memory', 'postgres'] as const) {
@@ -98,6 +98,27 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(await riteEvents(guild)).toBe(events)
       const renamed = await put(guild, { name: 'Flow 2', graph: LEARNING_TO_LINKEDIN })
       expect(await renamed.json()).toMatchObject({ version: { version: 2 } })
+    })
+
+    test('saving the active version unchanged reports it active, not a draft', async () => {
+      const { engine, guild, put, versions } = await setup(kind)
+      await put(guild, { name: 'Flow', graph: LEARNING_TO_LINKEDIN })
+      await engine.publish(guild, 'wf', 1, null)
+      await engine.confirm(guild, 'wf', 1)
+      const again = await put(guild, { name: 'Flow', graph: LEARNING_TO_LINKEDIN })
+      expect(await again.json()).toMatchObject({ status: 'active', version: { version: 1 } })
+      expect(await versions(guild)).toBe(1)
+    })
+
+    test('a save id replayed with a different name or graph is 409 save_id_reused', async () => {
+      const { guild, put, versions } = await setup(kind)
+      await put(guild, { name: 'A', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
+      const renamed = await put(guild, { name: 'B', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
+      expect(renamed.status).toBe(409)
+      expect(await renamed.json()).toEqual({ error: 'save_id_reused' })
+      const same = await put(guild, { name: 'A', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
+      expect(same.status).toBe(200)
+      expect(await versions(guild)).toBe(1)
     })
 
     test('a repeated save id returns the first result and writes nothing', async () => {
