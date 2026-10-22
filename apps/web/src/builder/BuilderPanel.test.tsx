@@ -244,6 +244,14 @@ test('dropping a prebuilt Research Hall adds its Captain and two Members to the 
   expect(added?.members).toHaveLength(2)
 })
 
+test('palette tiles carry whole names, never a four letter cut', async () => {
+  const host = await mount(world(), true)
+  const glyphs = [...host.querySelectorAll('.palette .px-slot-glyph')].map((g) =>
+    g.getAttribute('data-glyph')
+  )
+  expect(glyphs).toEqual(['Hall', 'Member', 'Heralds', 'Research', 'Review'])
+})
+
 test('adding a blank Hall from the palette shows it and discard takes it back out', async () => {
   const w = world()
   const host = await mount(w, true)

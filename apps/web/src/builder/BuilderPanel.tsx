@@ -238,12 +238,12 @@ export function BuilderPanel({
           <Palette
             label="Palette"
             pieces={[
-              { id: 'hall', label: 'Add blank Hall', glyph: 'HALL' },
-              { id: 'member', label: 'Add blank Member', glyph: 'MBR' },
+              { id: 'hall', label: 'Add blank Hall', glyph: 'Hall' },
+              { id: 'member', label: 'Add blank Member', glyph: 'Member' },
               ...TEMPLATES.map((t) => ({
                 id: `template:${t.id}`,
                 label: `Add ${t.label}`,
-                glyph: t.label.slice(0, 4),
+                glyph: t.label,
               })),
             ]}
             dragType={PIECE_TYPE}
