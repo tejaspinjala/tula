@@ -5,6 +5,7 @@ import type { CharterImporter } from '../ports/charter-import'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import { MAX_RITE_PAGE } from '../ports/rite-store'
+import { readCapped } from '../read-capped'
 import { classifyRiteChange } from '../rites/classify'
 import type { RiteEngine } from '../rites/engine'
 import {
@@ -14,6 +15,7 @@ import {
   exportCharter,
   parseCharter,
 } from './charter'
+import { charterRequestHash } from './input-hash'
 
 /** What a `charter.exported` event records: counts only, never the document. */
 export type CharterExportedFact = { rites: number; omitted: number }
@@ -109,15 +111,11 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
       return who.res
     }
     const cap = deps.maxBytes ?? CHARTER_MAX_BYTES
-    const declared = Number(c.req.header('content-length') ?? 0)
-    if (declared > cap + ENVELOPE_SLACK_BYTES) {
+    const bytes = await readCapped(c.req.raw.body, cap + ENVELOPE_SLACK_BYTES)
+    if (bytes === null) {
       return c.json({ error: 'charter_too_large' }, 413)
     }
-    // The raw size is checked before any JSON parsing.
-    const raw = await c.req.text()
-    if (new TextEncoder().encode(raw).length > cap + ENVELOPE_SLACK_BYTES) {
-      return c.json({ error: 'charter_too_large' }, 413)
-    }
+    const raw = new TextDecoder().decode(bytes)
     let json: unknown
     try {
       json = JSON.parse(raw)
@@ -150,6 +148,7 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
     }
     const outcome = await deps.imports.importCharter(who.guild, {
       importId: body.data.importId,
+      requestHash: charterRequestHash(parsed.charter, body.data.baseVersion),
       baseVersion: body.data.baseVersion,
       config: applied.config,
       drafts: applied.drafts.map((d) => ({

@@ -24,7 +24,7 @@ export interface MemoryCharterEvent {
 export class MemoryCharterImporter implements CharterImporter {
   /** Events recorded, oldest first. */
   readonly events: MemoryCharterEvent[] = []
-  private readonly results = new Map<string, CharterImportResult>()
+  private readonly results = new Map<string, { hash: string; result: CharterImportResult }>()
   private readonly inFlight = new Map<string, Promise<CharterImportOutcome>>()
 
   constructor(
@@ -37,8 +37,8 @@ export class MemoryCharterImporter implements CharterImporter {
     const key = `${guildId}:${input.importId}`
     const running = this.inFlight.get(key)
     if (running) {
-      const first = await running
-      return first.ok ? { ...first, replayed: true } : first
+      await running
+      return this.apply(guildId, key, input)
     }
     const run = this.apply(guildId, key, input)
     this.inFlight.set(key, run)
@@ -55,8 +55,11 @@ export class MemoryCharterImporter implements CharterImporter {
     input: CharterImportInput
   ): Promise<CharterImportOutcome> {
     const prior = this.results.get(key)
+    const hash = input.requestHash
     if (prior) {
-      return { ok: true, result: structuredClone(prior), replayed: true }
+      return prior.hash === hash
+        ? { ok: true, result: structuredClone(prior.result), replayed: true }
+        : { ok: false, error: 'import_id_reused' }
     }
     try {
       const current = await this.config.current(guildId)
@@ -84,7 +87,7 @@ export class MemoryCharterImporter implements CharterImporter {
         })
       }
       const result: CharterImportResult = { config, riteIds: input.drafts.map((d) => d.riteId) }
-      this.results.set(key, structuredClone(result))
+      this.results.set(key, { hash, result: structuredClone(result) })
       this.events.push({
         guildId,
         type: CHARTER_EVENT.imported,

@@ -16,6 +16,8 @@ export interface CharterImportInput {
   importId: string
   /** The config version the caller was viewing; a moved version is refused `stale`. */
   baseVersion: number
+  /** Hash of the request (Charter and base version); the same `importId` with another hash is `import_id_reused`. */
+  requestHash: string
   config: GuildConfig
   drafts: CharterImportDraft[]
 }
@@ -29,7 +31,7 @@ export interface CharterImportResult {
 /** The outcome of {@link CharterImporter.importCharter}. */
 export type CharterImportOutcome =
   | { ok: true; result: CharterImportResult; replayed: boolean }
-  | { ok: false; error: 'stale' | 'seal_policy_locked' }
+  | { ok: false; error: 'stale' | 'seal_policy_locked' | 'import_id_reused' }
 
 /**
  * Port for importing a Charter. The config proposal (through the normal propose/classify rules),

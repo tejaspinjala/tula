@@ -77,6 +77,7 @@ import type { ProposalEngine } from './proposals'
 import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
+import { readCapped } from './read-capped'
 import type { Research } from './research'
 import type { RiteEngine } from './rites/engine'
 import { mountRiteRoutes } from './rites/routes'
@@ -457,34 +458,6 @@ export const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 
 /** Thrown when an ObjectStore call outlives its timeout. */
 class StoreTimeoutError extends Error {}
-
-/** Reads a request body, stopping as soon as it exceeds `limit`; null means over the limit. */
-async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number) {
-  const chunks: Uint8Array[] = []
-  let total = 0
-  if (body) {
-    const reader = body.getReader()
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-      total += value.byteLength
-      if (total > limit) {
-        await reader.cancel()
-        return null
-      }
-      chunks.push(value)
-    }
-  }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
 
 /**
  * The titles of the guild's Quests by id, read one at a time through the guild-scoped queue (so a

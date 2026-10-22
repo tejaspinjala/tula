@@ -48,9 +48,13 @@ export class PgCharterImporter implements CharterImporter {
       return await this.db.withGuild(guildId, async (tx) => {
         await tx`select pg_advisory_xact_lock(hashtextextended(${`charter-import:${guildId}:${input.importId}`}, 0))`
         const [prior] = await tx`
-          select result from charter_imports
+          select result, input_hash from charter_imports
           where guild_id = ${guildId} and import_id = ${input.importId}`
+        const hash = input.requestHash
         if (prior) {
+          if (prior.input_hash !== hash) {
+            return { ok: false as const, error: 'import_id_reused' as const }
+          }
           return { ok: true as const, result: storedResult.parse(prior.result), replayed: true }
         }
         const current = await this.config.currentIn(tx, guildId)
@@ -88,8 +92,8 @@ export class PgCharterImporter implements CharterImporter {
           rites: input.drafts.length,
         })
         await tx`
-          insert into charter_imports (guild_id, import_id, result, created_at)
-          values (${guildId}, ${input.importId}, ${tx.json(toJson(result))},
+          insert into charter_imports (guild_id, import_id, input_hash, result, created_at)
+          values (${guildId}, ${input.importId}, ${hash}, ${tx.json(toJson(result))},
             ${this.clock.now()})`
         return { ok: true as const, result, replayed: false }
       })

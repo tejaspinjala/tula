@@ -5,6 +5,7 @@
 create table charter_imports (
   guild_id uuid not null references guilds (guild_id),
   import_id text not null check (length(import_id) between 1 and 200),
+  input_hash text not null check (input_hash ~ '^[0-9a-f]{64}$'),
   result jsonb not null,
   created_at timestamptz not null default now(),
   primary key (guild_id, import_id)
