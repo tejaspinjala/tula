@@ -540,7 +540,9 @@ test('the Archived filter lists only archived Rites and Unarchive restores one, 
   const host = await mount(w, true)
   await click(host, 'Archive')
   await click(host, 'Yes')
-  const filter = host.querySelector<HTMLElement>('button[aria-label="Show archived"]')
+  const filter = [...host.querySelectorAll<HTMLElement>('button')].find((b) =>
+    (b.textContent ?? '').includes('Show archived')
+  )
   if (!filter) {
     throw new Error('no Archived filter')
   }
@@ -557,9 +559,8 @@ test('the Archived filter lists only archived Rites and Unarchive restores one, 
   expect(run?.disabled).toBe(true)
   await click(host, 'Unarchive')
   expect(w.urls).toContain(`POST ${base}/w/unarchive`)
-  expect(
-    host.querySelector('button[aria-label="Show archived"]')?.getAttribute('aria-pressed')
-  ).toBe('false')
+  expect(host.textContent).toContain('must be published again')
+  expect(host.textContent).toContain('Show archived')
   const live = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
     (o) => o.textContent
   )
@@ -625,6 +626,35 @@ test('a rename alone enables Save draft, and the archive confirm names the saved
   await click(host, 'Archive')
   expect(host.textContent).toContain('Archive W? It leaves')
   expect(host.textContent).not.toContain('Archive Renamed?')
+})
+
+test('Discard puts the name back as well as the graph', async () => {
+  const host = await mount(world(), true)
+  const name = host.querySelector<HTMLInputElement>('.builder-save input')
+  if (!name) {
+    throw new Error('no name input')
+  }
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(name, 'Renamed')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await click(host, 'Discard')
+  expect(host.querySelector<HTMLInputElement>('.builder-save input')?.value).toBe('W')
+  expect(host.textContent).toContain('No unsaved changes')
+})
+
+test('the archived toggle reads Show archived, then Hide archived', async () => {
+  const host = await mount(world({ second: true }), true)
+  const toggle = () =>
+    [...host.querySelectorAll('button')].find((b) =>
+      /(Show|Hide) archived/.test(b.textContent ?? '')
+    )
+  expect(toggle()?.textContent).toContain('Show archived')
+  await act(async () => {
+    toggle()?.click()
+  })
+  await settle()
+  expect(toggle()?.textContent).toContain('Hide archived')
 })
 
 test('archiving the only Rite shows an empty state, not an unsaved my-rite draft', async () => {

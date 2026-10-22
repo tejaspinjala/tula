@@ -36,5 +36,8 @@ export const sampleCharter: Charter = {
       graph: { nodes: [{ id: 'start', type: 'trigger.manual' }], edges: [] },
     },
   ],
-  omitted: [{ kind: 'rite', id: 'secret', reason: 'touches a private Hall' }],
+  omitted: [
+    { kind: 'rite', id: 'secret', reason: 'touches a private Hall' },
+    { kind: 'rite', id: 'draft', reason: 'unpublished' },
+  ],
 }

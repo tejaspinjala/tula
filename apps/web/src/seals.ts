@@ -5,6 +5,8 @@ import { type PasskeyBrowser, PasskeyRequestError, reauthenticate, type Session 
 const sealBody = z.object({
   id: z.string(),
   questId: z.string(),
+  /** The Quest's title, so a card never has to show an id; null when the Quest is gone. */
+  questTitle: z.string().nullable().optional(),
   requestedBy: z.string(),
   kind: z.string(),
   text: z.string(),

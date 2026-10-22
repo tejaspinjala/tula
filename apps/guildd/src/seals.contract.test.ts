@@ -75,12 +75,16 @@ async function signedIn() {
     )
     return proofBody.parse(await done.json()).proof
   }
-  async function request(text: string, requestedBy = 'herald-1') {
+  async function request(
+    text: string,
+    requestedBy = 'herald-1',
+    questId: string = crypto.randomUUID()
+  ) {
     // The store directly: the engine refuses a member as requester, but the route must still
     // refuse a decider equal to the requester if such a Seal ever exists.
     const a = harness.adapters
     return new PgSealStore(a.db, a.keys, a.clock).request(guildId, {
-      questId: crypto.randomUUID(),
+      questId,
       requestedBy,
       kind: 'post',
       text,
@@ -135,6 +139,47 @@ describe('Seal inbox over HTTP', () => {
     const [seal] = page.seals
     expect(seal?.evidence).toBe('verdict: pass')
     expect(seal?.actionHash).toBe(await hashProposal(seal?.text ?? ''))
+  })
+
+  test('each Seal carries its Quest title, null when the Quest is unknown', async () => {
+    const who = await signedIn()
+    const { quest } = await harness.adapters.quests.post(who.guildId, {
+      jobKey: 'seal-title',
+      templateId: 'herald-brief',
+      hallId: 'heralds',
+      rank: 'journeyman',
+      dataClass: 'internal',
+      title: 'Announce the harvest',
+      ownerId: 'heralds-member-2',
+      doneCondition: 'done',
+      roundLimit: 2,
+    })
+    const named = await who.request('named', 'herald-1', quest.id)
+    const orphan = await who.request('orphan')
+    const get = async (id: string) =>
+      z
+        .object({ questTitle: z.string().nullable() })
+        .parse(
+          await (
+            await send(harness, 'GET', `/guilds/${who.guildId}/seals/${id}`, undefined, who.auth)
+          ).json()
+        )
+    expect((await get(named.id)).questTitle).toBe('Announce the harvest')
+    expect((await get(orphan.id)).questTitle).toBeNull()
+    const list = z
+      .object({ seals: z.array(z.object({ id: z.string(), questTitle: z.string().nullable() })) })
+      .parse(
+        await (
+          await send(
+            harness,
+            'GET',
+            `/guilds/${who.guildId}/seals?status=requested&limit=10`,
+            undefined,
+            who.auth
+          )
+        ).json()
+      )
+    expect(list.seals.find((x) => x.id === named.id)?.questTitle).toBe('Announce the harvest')
   })
 
   test('stamping needs a fresh passkey re-authentication, and spends it', async () => {

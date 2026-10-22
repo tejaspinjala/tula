@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { formatGameTime } from './game-time'
 import { missiveCount, useLiveEvents } from './live-events'
 import { crossHallLabel, type HallMissive, loadMissives } from './missives'
 import type { Session } from './passkeys'
@@ -153,7 +154,7 @@ export function MissivesPanel({
                 <span className="muted"> ({crossHallLabel(m, hallId, hallName)})</span>
               )}{' '}
               <time dateTime={m.sentAt} className="muted">
-                {m.sentAt.slice(11, 16)}
+                {formatGameTime(m.sentAt)}
               </time>
               : {m.text}
             </li>
