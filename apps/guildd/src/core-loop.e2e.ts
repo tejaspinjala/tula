@@ -974,8 +974,29 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
 
     test('a routing-blocked Quest parks with a growing backoff, and a config change wakes it and clears last_error', async () => {
       const w = await make()
-      const { guildId } = await w.newGuild({ caps: { dailyTokens: 0, dailySpendCents: 0 } })
-      const quest = await post(w, guildId)
+      const { guildId } = await w.newGuild()
+      await w.configure(guildId, (c) => ({
+        ...c,
+        halls: c.halls.map((h) =>
+          h.id === 'health'
+            ? {
+                ...h,
+                locked: false,
+                privateEligible: true,
+                members: [{ id: 'health-member-1', name: 'Healer', rank: 'journeyman' as const }],
+              }
+            : h
+        ),
+      }))
+      const quest = await post(w, guildId, {
+        templateId: 'health-log',
+        hallId: 'health',
+        rank: 'journeyman',
+        dataClass: 'private',
+        ownerId: 'health-member-1',
+        title: 'Log my week',
+        doneCondition: 'A private health note is filed in the Health Archive',
+      })
       for (let pass = 0; pass < 100; pass += 1) {
         await w.dispatcher.dispatch(guildId)
         w.clock.advance(3000)
@@ -987,7 +1008,7 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
 
       await w.configure(guildId, (c) => ({
         ...c,
-        caps: { dailyTokens: 1_000_000, dailySpendCents: 1_000_000 },
+        providers: c.providers.map((p) => ({ ...p, privateEligible: true })),
       }))
       expect(await w.dispatcher.dispatch(guildId)).toMatchObject({
         status: 'started',
