@@ -1047,8 +1047,8 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       /** Saves the graph, confirms it (a fan-out is widening) and runs it. */
       const runGraph = async (w: E2eWorld, guild: string, graph: RiteGraph) => {
         const saved = await w.rites.save(guild, 'fanout', { name: 'Fan out', graph })
-        if (saved.status === 'invalid') {
-          throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
+        if (saved.status === 'invalid' || saved.status === 'save_id_reused') {
+          throw new Error(`invalid: ${JSON.stringify(saved)}`)
         }
         const published = await w.rites.publish(guild, 'fanout', saved.version.version, null)
         if (!published.ok) {

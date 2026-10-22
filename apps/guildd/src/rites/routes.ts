@@ -28,7 +28,11 @@ const versionPage = z.object({
   limit,
 })
 const versionNumber = z.coerce.number().int().min(1).max(2_147_483_647)
-const saveBody = z.object({ name: z.string().trim().min(1).max(200), graph: z.unknown() })
+const saveBody = z.object({
+  name: z.string().trim().min(1).max(200),
+  graph: z.unknown(),
+  saveId: z.string().min(1).max(200).optional(),
+})
 const publishBody = z.object({ basedOn: versionNumber.nullable() })
 const validateBody = z.object({ graph: z.unknown() })
 const runBody = z.object({
@@ -155,6 +159,9 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     const result = await deps.rites.save(who.guild, id, body.data)
     if (result.status === 'invalid') {
       return c.json({ error: 'invalid_rite', errors: result.errors }, 422)
+    }
+    if (result.status === 'save_id_reused') {
+      return c.json({ error: 'save_id_reused' }, 409)
     }
     return c.json(result)
   })
