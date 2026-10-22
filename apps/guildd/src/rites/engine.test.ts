@@ -8,12 +8,13 @@ import { MemoryRiteStore } from '../adapters/memory-rite-store'
 import { MemorySealStore } from '../adapters/memory-seal-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import { defaultConfig } from '../guild-config'
+import type { RiteStore } from '../ports/rite-store'
 import { ProposalEngine } from '../proposals'
 import { RiteEngine } from './engine'
 import type { RiteGraph } from './graph'
 import { LEARNING_TO_LINKEDIN } from './templates'
 
-async function setup() {
+async function setup(wrap: (store: RiteStore) => RiteStore = (store) => store) {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const config = new MemoryConfigStore(clock)
   const quests = new MemoryQuestQueue(clock, () => 0.5)
@@ -32,7 +33,7 @@ async function setup() {
   const seals = new MemorySealStore(clock)
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const engine = new RiteEngine({
-    store: new MemoryRiteStore(clock),
+    store: wrap(new MemoryRiteStore(clock)),
     config,
     quests,
     tripwires,
@@ -78,6 +79,7 @@ const chain = (): RiteGraph => ({
   ],
 })
 
+/** Saves a draft and publishes it over the current active version, as the editor does. */
 const mustSave = async (
   engine: RiteEngine,
   guild: string,
@@ -88,8 +90,85 @@ const mustSave = async (
   if (saved.status === 'invalid') {
     throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
   }
-  return saved
+  const basedOn = (await engine.get(guild, id))?.activeVersion ?? null
+  const published = await engine.publish(guild, id, saved.version.version, basedOn)
+  if (!published.ok) {
+    throw new Error(`publish: ${published.error}`)
+  }
+  return published
 }
+
+test('a save is a draft that no run can use, and the old active version keeps running', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const edited = chain()
+  const research = edited.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.briefTemplate = 'A better brief'
+  const saved = await engine.save(guild, 'chain', { name: 'Chain', graph: edited })
+  expect(saved).toMatchObject({ status: 'draft', version: { version: 2, status: 'draft' } })
+  expect(await engine.run(guild, 'chain', { version: 2 })).toMatchObject({
+    ok: false,
+    error: 'version_not_active',
+  })
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
+})
+
+test('publishing an internal draft activates it and supersedes the old active version', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const edited = chain()
+  const research = edited.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.briefTemplate = 'A better brief'
+  await engine.save(guild, 'chain', { name: 'Chain', graph: edited })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({
+    ok: true,
+    status: 'active',
+    version: { version: 2, status: 'active', classification: 'internal' },
+  })
+  expect((await engine.get(guild, 'chain', 1))?.version.status).toBe('superseded')
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 2 } })
+})
+
+test('publishing a widening draft is pending: the old version stays active until confirmed', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const wider = chain()
+  const research = wider.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.maxUsd = 2
+  await engine.save(guild, 'chain', { name: 'Chain', graph: wider })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({
+    ok: true,
+    status: 'pending',
+    version: { version: 2, status: 'pending' },
+  })
+  expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
+  expect(await engine.confirm(guild, 'chain', 2)).toMatchObject({ ok: true })
+  expect((await engine.get(guild, 'chain', 1))?.version.status).toBe('superseded')
+})
+
+test('publishing over a moved active version is stale; only drafts publish', async () => {
+  const { engine, guild } = await setup()
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({ ok: true })
+  expect(await engine.publish(guild, 'chain', 3, 1)).toEqual({ ok: false, error: 'stale' })
+  expect(await engine.publish(guild, 'chain', 2, 2)).toEqual({ ok: false, error: 'not_draft' })
+  expect(await engine.publish(guild, 'chain', 9, 2)).toEqual({ ok: false, error: 'not_found' })
+})
 
 test('an invalid graph is refused with coded errors and nothing is stored', async () => {
   const { engine, guild } = await setup()
@@ -116,7 +195,7 @@ test('a first version that can post is widening: pending until confirmed; a brie
     ok: false,
     error: 'no_active_version',
   })
-  expect((await engine.confirm(guild, 'chain', 1))?.status).toBe('active')
+  expect(await engine.confirm(guild, 'chain', 1)).toMatchObject({ ok: true })
   const edited = chain()
   const research = edited.nodes.find((n) => n.id === 'research')
   if (research?.type !== 'agent') {
@@ -128,7 +207,7 @@ test('a first version that can post is widening: pending until confirmed; a brie
     status: 'active',
     version: { version: 2, classification: 'internal' },
   })
-  expect(await engine.confirm(guild, 'chain', 9)).toBeNull()
+  expect(await engine.confirm(guild, 'chain', 9)).toEqual({ ok: false, error: 'not_found' })
 })
 
 test('a run pins a version and compiles agent nodes to Quests: blockedBy follows the edges, campaignId is the instance', async () => {
@@ -541,4 +620,29 @@ test('a fan-out node is widening: a new one, or a changed brief list, waits for 
   }
   node.briefs = ['Research something else']
   expect(await mustSave(engine, guild, 'fan', edited)).toMatchObject({ status: 'pending' })
+})
+
+test('a confirm landing between classification and the publish makes the publish stale, never active', async () => {
+  let beforePublish: () => Promise<unknown> = async () => undefined
+  const { engine, guild } = await setup((store) =>
+    Object.assign(Object.create(store), {
+      async publishDraft(...args: Parameters<RiteStore['publishDraft']>) {
+        await beforePublish()
+        return store.publishDraft(...args)
+      },
+    })
+  )
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const wider = chain()
+  const research = wider.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.maxUsd = 2
+  await mustSave(engine, guild, 'chain', wider)
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  beforePublish = () => engine.confirm(guild, 'chain', 2)
+  expect(await engine.publish(guild, 'chain', 3, 2)).toEqual({ ok: false, error: 'stale' })
+  expect((await engine.get(guild, 'chain', 3))?.version.status).toBe('draft')
 })

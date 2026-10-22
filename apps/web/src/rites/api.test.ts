@@ -6,6 +6,7 @@ import {
   listRites,
   loadRite,
   loadRunState,
+  publishRite,
   RiteRejected,
   runRite,
   saveRite,
@@ -100,15 +101,14 @@ test('validate posts the graph and returns the coded errors', async () => {
   expect(seen[0]?.body).toEqual({ graph })
 })
 
-test('save puts name and graph; a 202 is a pending widening', async () => {
+test('save puts name and graph and reports the stored draft', async () => {
   const { seen, fetcher } = fakes({
     [`PUT ${base}/w`]: {
-      status: 202,
-      body: { status: 'pending', version: { version: 3, classification: 'widening' } },
+      body: { status: 'draft', version: { version: 3, classification: 'widening' } },
     },
   })
   const outcome = await saveRite(session, 'w', { name: 'W', graph }, fetcher)
-  expect(outcome).toEqual({ version: 3, status: 'pending', classification: 'widening' })
+  expect(outcome).toEqual({ version: 3, status: 'draft', classification: 'widening' })
   expect(seen[0]?.method).toBe('PUT')
   expect(seen[0]?.body).toEqual({ name: 'W', graph })
 })
@@ -171,4 +171,28 @@ test('a run state lists each node with its status and Quest', async () => {
   }
   const { fetcher } = fakes({ [`GET ${base}/w/runs/r1`]: { body: state } })
   expect((await loadRunState(session, 'w', 'r1', fetcher))?.nodes[0]?.status).toBe('running')
+})
+
+test('publish sends the active version it was based on; a 202 is a pending widening', async () => {
+  const { seen, fetcher } = fakes({
+    [`POST ${base}/w/versions/3/publish`]: {
+      status: 202,
+      body: { status: 'pending', version: { version: 3, classification: 'widening' } },
+    },
+  })
+  expect(await publishRite(session, 'w', 3, 2, fetcher)).toEqual({
+    version: 3,
+    status: 'pending',
+    classification: 'widening',
+  })
+  expect(seen[0]?.body).toEqual({ basedOn: 2 })
+})
+
+test('a stale publish is a request error carrying the server code', async () => {
+  const { fetcher } = fakes({
+    [`POST ${base}/w/versions/3/publish`]: { status: 409, body: { error: 'stale' } },
+  })
+  const error = await publishRite(session, 'w', 3, null, fetcher).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(PasskeyRequestError)
+  expect(error instanceof PasskeyRequestError && error.code).toBe('stale')
 })

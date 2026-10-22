@@ -1,6 +1,8 @@
 import type { Clock } from '../ports/clock'
 import type {
+  ActivateResult,
   NewRiteVersion,
+  PublishDraftResult,
   RitePage,
   RiteRun,
   RiteRunPage,
@@ -14,6 +16,8 @@ interface GuildState {
   /** Versions per rite id, in version order (index + 1 is the version number). */
   rites: Map<string, RiteVersion[]>
   instances: Map<string, RiteRun>
+  /** The active version each published-pending version was published over, keyed `rite:version`. */
+  basedOn: Map<string, number | null>
 }
 
 /**
@@ -28,7 +32,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map() }
+      s = { rites: new Map(), instances: new Map(), basedOn: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -70,14 +74,55 @@ export class MemoryRiteStore implements RiteStore {
     return found ? structuredClone(found) : null
   }
 
-  async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
+  async publishDraft(
+    guildId: string,
+    riteId: string,
+    input: {
+      version: number
+      basedOn: number | null
+      classifiedAgainst: number | null
+      outcome: 'active' | 'pending'
+    }
+  ): Promise<PublishDraftResult> {
+    const list = this.state(guildId).rites.get(riteId) ?? []
+    const draft = list[input.version - 1]
+    if (!draft) {
+      return { ok: false, error: 'not_found' }
+    }
+    if (draft.status !== 'draft') {
+      return { ok: false, error: 'not_draft' }
+    }
+    const current = list.findLast((v) => v.status === 'active')
+    if ((current?.version ?? null) !== input.basedOn || input.basedOn !== input.classifiedAgainst) {
+      return { ok: false, error: 'stale' }
+    }
+    if (input.outcome === 'active' && current) {
+      current.status = 'superseded'
+    }
+    draft.status = input.outcome
+    this.state(guildId).basedOn.set(`${riteId}:${draft.version}`, current?.version ?? null)
+    return { ok: true, version: structuredClone(draft) }
+  }
+
+  async activate(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
     const list = this.state(guildId).rites.get(riteId) ?? []
     const found = list[version - 1]
     if (!found) {
-      return null
+      return { ok: false, error: 'not_found' }
     }
-    found.status = 'active'
-    return structuredClone(found)
+    if (found.status === 'pending') {
+      const over = this.state(guildId).basedOn.get(`${riteId}:${version}`) ?? null
+      if ((list.findLast((v) => v.status === 'active')?.version ?? null) !== over) {
+        return { ok: false, error: 'stale' }
+      }
+      for (const v of list) {
+        if (v.status === 'active') {
+          v.status = 'superseded'
+        }
+      }
+      found.status = 'active'
+    }
+    return { ok: true, version: structuredClone(found) }
   }
 
   async list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {

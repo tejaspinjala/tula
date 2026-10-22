@@ -4,7 +4,9 @@ import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
+  ActivateResult,
   NewRiteVersion,
+  PublishDraftResult,
   RitePage,
   RiteRun,
   RiteRunPage,
@@ -22,7 +24,7 @@ const versionRow = z.object({
   name: z.string(),
   graph: riteGraph,
   classification: z.enum(['internal', 'widening']),
-  status: z.enum(['active', 'pending']),
+  status: z.enum(['draft', 'pending', 'active', 'superseded']),
   created_at: date,
 })
 const summaryRow = z.object({
@@ -153,22 +155,91 @@ export class PgRiteStore implements RiteStore {
     })
   }
 
-  async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
+  async publishDraft(
+    guildId: string,
+    riteId: string,
+    input: {
+      version: number
+      basedOn: number | null
+      classifiedAgainst: number | null
+      outcome: 'active' | 'pending'
+    }
+  ): Promise<PublishDraftResult> {
     return this.db.withGuild(guildId, async (tx) => {
-      const [before] = await tx`
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+      const [found] = await tx`
         select status from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${input.version}`
+      if (!found) {
+        return { ok: false, error: 'not_found' }
+      }
+      if (z.object({ status: z.string() }).parse(found).status !== 'draft') {
+        return { ok: false, error: 'not_draft' }
+      }
+      const [current] = await tx`
+        select version from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'
+        order by version desc limit 1`
+      const active = current ? z.object({ version: z.number() }).parse(current).version : null
+      if (active !== input.basedOn || active !== input.classifiedAgainst) {
+        return { ok: false, error: 'stale' }
+      }
+      if (input.outcome === 'active' && active !== null) {
+        await tx`
+          update workflow_versions set status = 'superseded'
+          where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${active}`
+      }
+      const [row] = await tx`
+        update workflow_versions
+        set status = ${input.outcome}, based_on = ${input.outcome === 'pending' ? active : null}
+        where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${input.version}
+        returning ${tx.unsafe(VERSION_COLUMNS)}`
+      const version = toVersion(versionRow.parse(row))
+      await appendEvent(tx, this.keys, RITE_EVENT.versionPublished, {
+        riteId,
+        version: version.version,
+        status: version.status,
+        kind: version.classification,
+        supersedes: input.outcome === 'active' ? active : null,
+      })
+      return { ok: true, version }
+    })
+  }
+
+  async activate(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+      const [before] = await tx`
+        select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}`
       if (!before) {
-        return null
+        return { ok: false, error: 'not_found' }
       }
+      const current = toVersion(versionRow.parse(before))
+      if (current.status !== 'pending') {
+        return { ok: true, version: current }
+      }
+      const [over] = await tx`
+        select based_on from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}`
+      const [live] = await tx`
+        select version from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'
+        order by version desc limit 1`
+      const basedOn = z.object({ based_on: z.number().nullable() }).parse(over).based_on
+      const active = live ? z.object({ version: z.number() }).parse(live).version : null
+      if (active !== basedOn) {
+        return { ok: false, error: 'stale' }
+      }
+      await tx`
+        update workflow_versions set status = 'superseded'
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'`
       const [row] = await tx`
         update workflow_versions set status = 'active'
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}
         returning ${tx.unsafe(VERSION_COLUMNS)}`
-      if (z.object({ status: z.string() }).parse(before).status === 'pending') {
-        await appendEvent(tx, this.keys, RITE_EVENT.versionConfirmed, { riteId, version })
-      }
-      return row ? toVersion(versionRow.parse(row)) : null
+      await appendEvent(tx, this.keys, RITE_EVENT.versionConfirmed, { riteId, version })
+      return { ok: true, version: toVersion(versionRow.parse(row)) }
     })
   }
 

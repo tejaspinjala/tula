@@ -46,6 +46,12 @@ async function setup(role: string) {
   return { app, engine, guild, tripwires }
 }
 
+/** Saves the template as a draft and publishes it; a first version that can post waits pending. */
+const pendingRite = async (engine: RiteEngine, guild: string) => {
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await engine.publish(guild, 'wf', 1, null)
+}
+
 test('confirming a pending version needs the Guild Master and a proof', async () => {
   for (const [role, proof, status] of [
     ['member', 'good', 403],
@@ -53,7 +59,7 @@ test('confirming a pending version needs the Guild Master and a proof', async ()
     ['guild_master', 'good', 200],
   ] as const) {
     const { app, engine, guild } = await setup(role)
-    await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+    await pendingRite(engine, guild)
     const res = await app.request(`/guilds/${guild}/rites/wf/versions/1/confirm`, {
       method: 'POST',
       headers: { authorization: 'Bearer t', 'x-reauth-proof': proof },
@@ -67,7 +73,7 @@ test('confirming a pending version needs the Guild Master and a proof', async ()
 
 test('a run that fails part-way returns its runKey, so a retry resumes the same run', async () => {
   const { app, engine, guild, tripwires } = await setup('guild_master')
-  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await pendingRite(engine, guild)
   const confirmed = await app.request(`/guilds/${guild}/rites/wf/versions/1/confirm`, {
     method: 'POST',
     headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
@@ -90,4 +96,75 @@ test('a run that fails part-way returns its runKey, so a retry resumes the same 
     body: JSON.stringify({ runKey: body.runKey }),
   })
   expect(z.object({ runKey: z.string() }).parse(await retry.json()).runKey).toBe(body.runKey)
+})
+
+const publish = (app: Hono, guild: string, version: number, body: unknown) =>
+  app.request(`/guilds/${guild}/rites/wf/versions/${version}/publish`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
+    body: JSON.stringify(body),
+  })
+
+test('PUT saves a draft; publishing a widening draft is 202 and goes live only on confirm', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  const put = await app.request(`/guilds/${guild}/rites/wf`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'x', graph: LEARNING_TO_LINKEDIN }),
+  })
+  expect(put.status).toBe(200)
+  expect(await put.json()).toMatchObject({ status: 'draft', version: { version: 1 } })
+  expect((await engine.get(guild, 'wf'))?.activeVersion).toBeNull()
+  const published = await publish(app, guild, 1, { basedOn: null })
+  expect(published.status).toBe(202)
+  expect(await published.json()).toMatchObject({ status: 'pending', version: { version: 1 } })
+  expect((await engine.get(guild, 'wf'))?.activeVersion).toBeNull()
+})
+
+test('publish is refused 409 stale when the active version moved, 400 without basedOn', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  expect((await publish(app, guild, 1, { basedOn: 4 })).status).toBe(409)
+  expect(await (await publish(app, guild, 1, { basedOn: 4 })).json()).toEqual({ error: 'stale' })
+  expect((await publish(app, guild, 1, {})).status).toBe(400)
+  expect((await publish(app, guild, 7, { basedOn: null })).status).toBe(404)
+})
+
+test('publish is scoped to the session guild: another guild cannot publish a draft', async () => {
+  const { engine, guild } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  const other = crypto.randomUUID()
+  const app = new Hono()
+  const guard = async () => ({ guild: other })
+  mountRiteRoutes(app, {
+    rites: engine,
+    identity: { resolveSession: async () => null, consumeReauth: async () => false },
+    sessionGuildFor: guard,
+    guildMasterSessionFor: guard,
+  })
+  expect((await publish(app, other, 1, { basedOn: null })).status).toBe(404)
+  expect((await engine.get(guild, 'wf', 1))?.version.status).toBe('draft')
+})
+
+test('confirming a pending version is refused 409 stale once the active version moved', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  await pendingRite(engine, guild)
+  await engine.confirm(guild, 'wf', 1)
+  const wider = structuredClone(LEARNING_TO_LINKEDIN)
+  const agent = wider.nodes.find((n) => n.type === 'agent')
+  if (agent?.type !== 'agent') {
+    throw new Error('template changed')
+  }
+  agent.maxUsd = 9
+  await engine.save(guild, 'wf', { name: 'x', graph: wider })
+  await engine.publish(guild, 'wf', 2, 1)
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await engine.publish(guild, 'wf', 3, 1)
+  const res = await app.request(`/guilds/${guild}/rites/wf/versions/2/confirm`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
+  })
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({ error: 'stale' })
+  expect((await engine.get(guild, 'wf'))?.activeVersion).toBe(3)
 })

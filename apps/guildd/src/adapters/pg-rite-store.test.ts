@@ -81,3 +81,50 @@ test('the database freezes versions except the pending to active move, and refus
     )
   ).toContain('immutable')
 })
+
+test('a publish writes the published event, and a stale one writes nothing', async () => {
+  const guild = await newGuild()
+  const store = make()
+  await store.saveVersion(guild, 'wf', input())
+  await store.saveVersion(guild, 'wf', { ...input(), status: 'draft' })
+  await store.publishDraft(guild, 'wf', {
+    version: 2,
+    basedOn: 9,
+    classifiedAgainst: 9,
+    outcome: 'active',
+  })
+  await store.publishDraft(guild, 'wf', {
+    version: 2,
+    basedOn: 1,
+    classifiedAgainst: 1,
+    outcome: 'active',
+  })
+  const events = await owner`
+    select type, payload from events where guild_id = ${guild} and type = ${RITE_EVENT.versionPublished}`
+  expect(events.map((e) => e.payload)).toMatchObject([
+    { riteId: 'wf', version: 2, status: 'active' },
+  ])
+  expect(
+    await refused(
+      `update workflow_versions set status = 'draft' where guild_id = '${guild}' and version = 2`
+    )
+  ).toContain('immutable')
+})
+
+test('based_on is frozen once a version leaves draft, and a pending row with no base is stale over an active one', async () => {
+  const guild = await newGuild()
+  const store = make()
+  await store.saveVersion(guild, 'wf', input())
+  await store.saveVersion(guild, 'wf', { ...input('pending'), status: 'pending' })
+  expect(
+    await refused(
+      `update workflow_versions set based_on = 1 where guild_id = '${guild}' and version = 2`
+    )
+  ).toContain('immutable')
+  expect(
+    await refused(
+      `update workflow_versions set based_on = 1 where guild_id = '${guild}' and version = 1`
+    )
+  ).toContain('immutable')
+  expect(await store.activate(guild, 'wf', 2)).toEqual({ ok: false, error: 'stale' })
+})

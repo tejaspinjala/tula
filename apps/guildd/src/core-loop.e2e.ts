@@ -1050,6 +1050,10 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
         if (saved.status === 'invalid') {
           throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
         }
+        const published = await w.rites.publish(guild, 'fanout', saved.version.version, null)
+        if (!published.ok) {
+          throw new Error(`publish refused: ${published.error}`)
+        }
         await w.rites.confirm(guild, 'fanout', saved.version.version)
         const run = await w.rites.run(guild, 'fanout', { runKey: 'e2e' })
         if (!run.ok) {

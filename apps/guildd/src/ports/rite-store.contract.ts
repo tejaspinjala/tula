@@ -18,6 +18,28 @@ const version = (over: Partial<NewRiteVersion> = {}): NewRiteVersion => ({
   ...over,
 })
 
+/** Saves a draft and publishes it as pending over `basedOn`, as a widening publish does. */
+async function pendingOver(
+  store: RiteStore,
+  g: string,
+  riteId: string,
+  basedOn: number | null,
+  over: Partial<NewRiteVersion> = {}
+) {
+  const saved = await store.saveVersion(
+    g,
+    riteId,
+    version({ status: 'draft', classification: 'widening', ...over })
+  )
+  await store.publishDraft(g, riteId, {
+    version: saved.version,
+    basedOn,
+    classifiedAgainst: basedOn,
+    outcome: 'pending',
+  })
+  return saved.version
+}
+
 /** The RiteStore contract, run against every adapter. `make` returns a fresh store. */
 export function riteStoreContract(name: string, make: () => Promise<RiteStoreFixture>) {
   describe(`RiteStore contract: ${name}`, () => {
@@ -53,14 +75,20 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       const { store, newGuild } = await make()
       const g = await newGuild()
       await store.saveVersion(g, 'wf', version())
-      await store.saveVersion(g, 'wf', version({ status: 'pending', classification: 'widening' }))
+      await pendingOver(store, g, 'wf', 1)
       expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
       expect((await store.getVersion(g, 'wf'))?.version).toBe(2)
       const activated = await store.activate(g, 'wf', 2)
-      expect(activated).toMatchObject({ version: 2, status: 'active', classification: 'widening' })
-      expect((await store.activate(g, 'wf', 2))?.status).toBe('active')
+      expect(activated).toMatchObject({
+        ok: true,
+        version: { version: 2, status: 'active', classification: 'widening' },
+      })
+      expect(await store.activate(g, 'wf', 2)).toMatchObject({
+        ok: true,
+        version: { status: 'active' },
+      })
       expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
-      expect(await store.activate(g, 'wf', 9)).toBeNull()
+      expect(await store.activate(g, 'wf', 9)).toEqual({ ok: false, error: 'not_found' })
     })
 
     test('rites list in id order, paged, with their latest and active versions', async () => {
@@ -68,7 +96,7 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       const g = await newGuild()
       await store.saveVersion(g, 'b-flow', version({ name: 'B' }))
       await store.saveVersion(g, 'a-flow', version({ name: 'A' }))
-      await store.saveVersion(g, 'a-flow', version({ name: 'A2', status: 'pending' }))
+      await pendingOver(store, g, 'a-flow', 1, { name: 'A2' })
       const first = await store.list(g, { limit: 1 })
       expect(first.rites).toMatchObject([
         { id: 'a-flow', name: 'A2', latestVersion: 2, activeVersion: 1 },
@@ -126,11 +154,176 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       expect(page.next).toBeNull()
     })
 
+    test('a draft never counts as active; publishing an internal draft supersedes the old active', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
+      expect((await store.list(g, { limit: 10 })).rites[0]).toMatchObject({
+        latestVersion: 2,
+        activeVersion: 1,
+      })
+      const published = await store.publishDraft(g, 'wf', {
+        version: 2,
+        basedOn: 1,
+        classifiedAgainst: 1,
+        outcome: 'active',
+      })
+      expect(published).toMatchObject({ ok: true, version: { version: 2, status: 'active' } })
+      expect((await store.getVersion(g, 'wf', 1))?.status).toBe('superseded')
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+    })
+
+    test('a widening publish leaves the old active until the version is confirmed', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft', classification: 'widening' }))
+      const published = await store.publishDraft(g, 'wf', {
+        version: 2,
+        basedOn: 1,
+        classifiedAgainst: 1,
+        outcome: 'pending',
+      })
+      expect(published).toMatchObject({ ok: true, version: { version: 2, status: 'pending' } })
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
+      await store.activate(g, 'wf', 2)
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+      expect((await store.getVersion(g, 'wf', 1))?.status).toBe('superseded')
+    })
+
+    test('a publish based on a moved active version is stale and changes nothing', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      await store.publishDraft(g, 'wf', {
+        version: 2,
+        basedOn: 1,
+        classifiedAgainst: 1,
+        outcome: 'active',
+      })
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 3,
+          basedOn: 1,
+          classifiedAgainst: 1,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'stale' })
+      expect((await store.getVersion(g, 'wf', 3))?.status).toBe('draft')
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(2)
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 3,
+          basedOn: 2,
+          classifiedAgainst: 2,
+          outcome: 'active',
+        })
+      ).toMatchObject({ ok: true })
+    })
+
+    test('a publish whose classification baseline is no longer the active version is stale', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 2,
+          basedOn: 1,
+          classifiedAgainst: null,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'stale' })
+      expect((await store.getVersion(g, 'wf', 2))?.status).toBe('draft')
+    })
+
+    test('confirming a pending version is stale once the active version moved, and changes nothing', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      const pending = await pendingOver(store, g, 'wf', 1)
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      await store.publishDraft(g, 'wf', {
+        version: 3,
+        basedOn: 1,
+        classifiedAgainst: 1,
+        outcome: 'active',
+      })
+      expect(await store.activate(g, 'wf', pending)).toEqual({ ok: false, error: 'stale' })
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(3)
+      expect((await store.getVersion(g, 'wf', pending))?.status).toBe('pending')
+    })
+
+    test('only a draft can be published', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 1,
+          basedOn: null,
+          classifiedAgainst: null,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'not_draft' })
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 9,
+          basedOn: 1,
+          classifiedAgainst: 1,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'not_found' })
+    })
+
+    test('a first publish is based on no active version', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version({ status: 'draft' }))
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 1,
+          basedOn: 1,
+          classifiedAgainst: 1,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'stale' })
+      expect(
+        await store.publishDraft(g, 'wf', {
+          version: 1,
+          basedOn: null,
+          classifiedAgainst: null,
+          outcome: 'active',
+        })
+      ).toMatchObject({ ok: true })
+    })
+
+    test('one guild cannot publish another guild`s draft', async () => {
+      const { store, newGuild } = await make()
+      const a = await newGuild()
+      const b = await newGuild()
+      await store.saveVersion(a, 'secret', version({ status: 'draft' }))
+      expect(
+        await store.publishDraft(b, 'secret', {
+          version: 1,
+          basedOn: null,
+          classifiedAgainst: null,
+          outcome: 'active',
+        })
+      ).toEqual({ ok: false, error: 'not_found' })
+      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('draft')
+    })
+
     test('one guild never sees or changes another guild`s rites or instances', async () => {
       const { store, newGuild } = await make()
       const a = await newGuild()
       const b = await newGuild()
-      await store.saveVersion(a, 'secret', version({ status: 'pending' }))
+      await pendingOver(store, a, 'secret', null)
+      await store.activate(a, 'secret', 1)
       await store.saveVersion(a, 'secret', version())
       const { instance } = await store.createInstance(a, {
         riteId: 'secret',
@@ -139,12 +332,12 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       })
       expect(await store.getVersion(b, 'secret')).toBeNull()
       expect(await store.latestActive(b, 'secret')).toBeNull()
-      expect(await store.activate(b, 'secret', 1)).toBeNull()
+      expect(await store.activate(b, 'secret', 1)).toEqual({ ok: false, error: 'not_found' })
       expect((await store.list(b, { limit: 10 })).rites).toEqual([])
       expect((await store.versions(b, 'secret', { limit: 10 })).versions).toEqual([])
       expect(await store.getInstance(b, instance.id)).toBeNull()
       expect((await store.listInstances(b, 'secret', { limit: 10 })).instances).toEqual([])
-      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('pending')
+      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('active')
       await expect(
         store.createInstance(b, { riteId: 'secret', version: 2, runKey: 'k' })
       ).rejects.toThrow()

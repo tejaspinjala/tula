@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act } from 'react'
+import { z } from 'zod'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const session = { token: 't1', guildId: guild }
@@ -45,25 +46,31 @@ const config = {
 interface Options {
   errors?: { code: string; nodeId?: string; message: string }[]
   save?: { status: number; body: unknown }
+  /** The publish reply; defaults to an internal version going live. */
+  publish?: { status: number; body: unknown }
 }
 
 function world(options: Options = {}) {
   const puts: { name: string; graph: { nodes: { id: string; type: string }[] } }[] = []
+  const publishes: unknown[] = []
   const urls: string[] = []
+  // The newest version and the active one, as the server would report them after each write.
+  let latest: Record<string, unknown> = stored
+  let activeVersion = 1
   const fetcher = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     urls.push(`${method} ${url}`)
     if (url === `${base}?limit=50`) {
       return Response.json({
-        rites: [{ id: 'w', name: 'W', latestVersion: 1, activeVersion: 1 }],
+        rites: [{ id: 'w', name: 'W', latestVersion: 1, activeVersion }],
         next: null,
       })
     }
     if (url === `${base}/w`) {
-      return Response.json({ version: stored, activeVersion: 1 })
+      return Response.json({ version: latest, activeVersion })
     }
     if (url === `${base}/w/versions?limit=20`) {
-      return Response.json({ versions: [stored], next: null })
+      return Response.json({ versions: [latest], next: null })
     }
     if (url === `${base}/w/validate`) {
       const errors = options.errors ?? []
@@ -121,16 +128,38 @@ function world(options: Options = {}) {
     if (init?.method === 'PUT' && url === `${base}/w`) {
       urls.push(`PUT ${url}`)
       puts.push(JSON.parse(String(init.body)))
+      const body = JSON.parse(String(init.body))
       const reply = options.save ?? {
         status: 200,
+        body: { status: 'draft', version: { version: 2, classification: 'internal' } },
+      }
+      latest = { ...stored, version: 2, graph: body.graph, status: 'draft' }
+      return Response.json(reply.body, { status: reply.status })
+    }
+    if (init?.method === 'POST' && url === `${base}/w/versions/2/publish`) {
+      urls.push(`POST ${url}`)
+      publishes.push(JSON.parse(String(init.body)))
+      const reply = options.publish ?? {
+        status: 200,
         body: { status: 'active', version: { version: 2, classification: 'internal' } },
+      }
+      const body = z
+        .object({ status: z.string(), version: z.object({ classification: z.string() }) })
+        .safeParse(reply.body)
+      if (reply.status < 300 && body.success) {
+        latest = {
+          ...latest,
+          status: body.data.status,
+          classification: body.data.version.classification,
+        }
+        activeVersion = body.data.status === 'active' ? 2 : activeVersion
       }
       return Response.json(reply.body, { status: reply.status })
     }
     return fetcher(url, init)
   }
   const browser = { create: async () => ({}), get: async () => ({ signed: 'abc' }) }
-  return { puts, urls, fetcher: wrapped, browser }
+  return { puts, publishes, urls, fetcher: wrapped, browser }
 }
 
 const doc = globalThis.document
@@ -175,11 +204,11 @@ async function click(host: HTMLElement, name: string) {
   await settle()
 }
 
-test('adding a node from the palette and saving PUTs the edited graph', async () => {
+test('adding a node from the palette and saving a draft PUTs the edited graph', async () => {
   const w = world()
   const host = await mount(w, true)
   await click(host, 'Add agent')
-  await click(host, 'Save')
+  await click(host, 'Save draft')
   expect(w.puts[0]?.name).toBe('W')
   expect(w.puts[0]?.graph.nodes.map((n) => n.id)).toEqual(['start', 'agent'])
 })
@@ -215,19 +244,49 @@ test('a server validation error is badged on the node it names, and graph-level 
   expect(host.textContent).toContain('a rite needs at least one trigger')
 })
 
-test('a saved widening version waits for a passkey confirm; the server says pending', async () => {
+const chip = (host: HTMLElement) => host.querySelector('[data-testid="rite-chip"]')?.textContent
+
+test('Save draft then Publish: the chip reads Draft, then Live, and the publish carries the active version', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  expect(chip(host)).toBe('Live')
+  expect(
+    [...host.querySelectorAll('button')].find((b) => b.textContent === 'Publish')?.disabled
+  ).toBe(true)
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  expect(chip(host)).toBe('Draft')
+  expect(host.textContent).toContain('Saved as draft version 2')
+  await click(host, 'Publish')
+  expect(w.publishes).toEqual([{ basedOn: 1 }])
+  expect(chip(host)).toBe('Live')
+  expect(host.textContent).toContain('Version 2 is published and in force')
+})
+
+test('publishing a widening draft asks for the passkey; the old version stays in force until confirmed', async () => {
   const w = world({
-    save: {
+    publish: {
       status: 202,
       body: { status: 'pending', version: { version: 2, classification: 'widening' } },
     },
   })
   const host = await mount(w, true)
   await click(host, 'Add agent')
-  await click(host, 'Save')
+  await click(host, 'Save draft')
+  await click(host, 'Publish')
   expect(host.textContent).toContain('widening')
+  expect(chip(host)).toBe('Pending')
   await click(host, 'Confirm with passkey')
   expect(w.urls.some((u) => u.includes('/session/reauth/begin'))).toBe(true)
+})
+
+test('a publish refused as stale says the Rite moved on', async () => {
+  const w = world({ publish: { status: 409, body: { error: 'stale' } } })
+  const host = await mount(w, true)
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  await click(host, 'Publish')
+  expect(host.textContent).toContain('changed since you opened it')
 })
 
 test('running shows each node with status in words, attempts and cost', async () => {
