@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { act } from 'react'
 
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { CursorMenu } = await import('./CursorMenu')
@@ -88,5 +89,22 @@ test('hovering a row moves the cursor to it and clicking selects it', async () =
   expect(selected()).toBe(2)
   await click(third)
   expect(chosen).toEqual(['hall'])
+  await m.unmount()
+})
+
+test('hovering a row and then the first real pointermove moves the cursor to it', async () => {
+  const { m, options, selected } = await show()
+  const second = options()[1]
+  if (!second) {
+    throw new Error('no second row')
+  }
+  await act(async () => {
+    second.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  expect(selected()).toBe(0)
+  await act(async () => {
+    second.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
+  })
+  expect(selected()).toBe(1)
   await m.unmount()
 })
