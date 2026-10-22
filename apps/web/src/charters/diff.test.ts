@@ -26,10 +26,15 @@ test('the preview lists Halls added and removed by name', () => {
   expect(p.hallsRemoved).toEqual(['Health'])
 })
 
-test('the preview lists the Seal Policy and changed caps only', () => {
+test('the preview lists the Seal Policy, changed caps and the Captain of a shared Hall', () => {
   const p = previewCharter(current, sampleCharter)
   expect(p.settings).toEqual([
     { label: 'caps.dailyTokens', from: '5', to: '9' },
+    {
+      label: 'halls.heralds.captain',
+      from: 'null',
+      to: '{"id":"heralds-captain","name":"Captain"}',
+    },
     { label: 'sealPolicy', from: 'always', to: 'strict' },
   ])
 })

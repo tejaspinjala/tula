@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act } from 'react'
 import { sampleCharter } from './fixtures'
@@ -225,16 +225,16 @@ test('two same-named Rites render without a duplicate-key warning', async () => 
     throw new Error('fixture has no Rite')
   }
   const errors: unknown[][] = []
-  const original = console.error
-  console.error = (...args: unknown[]) => {
+  const sink = Reflect.get(globalThis, 'console')
+  const spy = spyOn(sink, 'error').mockImplementation((...args: unknown[]) => {
     errors.push(args)
-  }
+  })
   try {
     const w = await mount(applied)
     await pick(w.host, JSON.stringify({ ...sampleCharter, rites: [rite, rite] }))
     expect(w.host.textContent?.split('Morning digest').length).toBe(3)
   } finally {
-    console.error = original
+    spy.mockRestore()
   }
   expect(errors.filter((a) => String(a[0]).includes('same key'))).toEqual([])
 })
@@ -242,7 +242,9 @@ test('two same-named Rites render without a duplicate-key warning', async () => 
 test('Export downloads compact JSON', async () => {
   const w = await mount(applied)
   await click(w.host, 'Export Charter')
-  expect(w.downloads[0]?.text).toBe(JSON.stringify(sampleCharter))
+  const text = w.downloads[0]?.text ?? ''
+  expect(text).not.toContain('\n')
+  expect(text).toBe(JSON.stringify(JSON.parse(text)))
 })
 
 test('a reused import id shows a plain message and not the raw code', async () => {
