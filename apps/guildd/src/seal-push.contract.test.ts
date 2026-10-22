@@ -1,25 +1,18 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { z } from 'zod'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryPushNotifier } from './adapters/memory-push-notifier'
 import { MemoryPushStore } from './adapters/memory-push-store'
 import { headSeq } from './events'
 import { createSealPushRelay } from './seal-push'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
 
-const founded = z.object({ id: z.string() })
-
 /** Founds a guild through the public route, which also seeds its config. */
 async function foundGuild(name: string): Promise<string> {
-  const res = await harness.request('/guilds', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, goal: 'g' }),
-  })
-  return founded.parse(await res.json()).id
+  return (await foundViaApi(harness, { name, goal: 'g' })).id
 }
 
 const MEMBER = '44444444-4444-4444-8444-444444444444'

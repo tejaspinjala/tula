@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { hashBytes } from './ports/object-store'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness()
 const strict = await createHarness({ devGuildHeader: false })
@@ -217,23 +217,8 @@ describe('artifacts with a session', () => {
         headers: { 'content-type': 'application/json', ...headers },
         body: JSON.stringify(body),
       })
-    const founded = z
-      .object({ id: z.string(), foundingToken: z.string() })
-      .parse(await (await post('/guilds', { name: 'Bearer', goal: 'g' })).json())
-    const key = await SoftwareAuthenticator.create('localhost', 'http://localhost:5173')
-    const reg = ceremony.parse(
-      await (
-        await post(
-          `/guilds/${founded.id}/passkeys/begin`,
-          {},
-          { 'x-founding-token': founded.foundingToken }
-        )
-      ).json()
-    )
-    await post(`/guilds/${founded.id}/passkeys/finish`, {
-      challengeId: reg.challengeId,
-      response: await key.register(reg.options),
-    })
+    const founded = await foundViaApi(strict, { name: 'Bearer', goal: 'g' })
+    const key = founded.key
     const begin = ceremony.parse(
       await (await post(`/guilds/${founded.id}/sign-in/begin`, {})).json()
     )

@@ -3,16 +3,15 @@ import { z } from 'zod'
 import { MemoryClock } from './adapters/memory-clock'
 import { MemoryRateLimiter } from './adapters/memory-rate-limiter'
 import type { RateLimits } from './rate-limits'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 const window = 60_000
 const tight = (limit: number) => ({ limit, windowMs: window })
 
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
 const session = z.object({ token: z.string(), guildId: z.string() })
 
 const harnesses: Array<{ close: () => Promise<void> }> = []
@@ -44,27 +43,20 @@ async function harnessWith(rateLimits: Partial<RateLimits>, trustProxy = false) 
       { method: 'POST', headers: { ...json, ...headers }, body: JSON.stringify(body) },
       env
     )
-  const found = async () =>
-    founded.parse(await (await post('/guilds', {}, { name: 'Ember', goal: 'Ship' })).json())
+  const found = async () => {
+    const guild = await foundViaApi(harness, { name: 'Ember', goal: 'Ship' })
+    expect(guild.response.status).toBe(201)
+    return guild
+  }
   return { harness, post, found }
 }
 
-/** Founds a guild and registers its first passkey over HTTP. */
+/** Founds a guild through the atomic ceremony; its first passkey is `key`. */
 async function withPasskey(
-  post: Awaited<ReturnType<typeof harnessWith>>['post'],
+  _post: Awaited<ReturnType<typeof harnessWith>>['post'],
   found: Awaited<ReturnType<typeof harnessWith>>['found']
 ) {
-  const { id, foundingToken } = await found()
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const begin = ceremony.parse(
-    await (await post(`/guilds/${id}/passkeys/begin`, { 'x-founding-token': foundingToken })).json()
-  )
-  const registered = await post(
-    `/guilds/${id}/passkeys/finish`,
-    {},
-    { challengeId: begin.challengeId, response: await key.register(begin.options) }
-  )
-  expect(registered.status).toBe(201)
+  const { id, key } = await found()
   return { id, key }
 }
 
@@ -94,22 +86,23 @@ describe('rate limits on unauthenticated identity routes', () => {
   })
 
   test('passkeys begin and finish and founding are limited too', async () => {
-    const { post, found } = await harnessWith({
+    const { harness, post, found } = await harnessWith({
       'passkeys-begin': { client: tight(1) },
       'passkeys-finish': { client: tight(1) },
       founding: { client: tight(2) },
     })
-    const { id, foundingToken } = await found()
+    const { id } = await found()
     const begin = `/guilds/${id}/passkeys/begin`
-    expect((await post(begin, { 'x-founding-token': foundingToken })).status).toBe(200)
-    expect((await post(begin, { 'x-founding-token': foundingToken })).status).toBe(429)
+    expect((await post(begin)).status).toBe(401)
+    expect((await post(begin)).status).toBe(429)
     const finish = `/guilds/${id}/passkeys/finish`
     await post(finish)
     expect((await post(finish)).status).toBe(429)
-    expect((await post('/guilds', {}, { name: 'Two', goal: 'Ship' })).status).toBe(201)
-    const third = await post('/guilds', {}, { name: 'Three', goal: 'Ship' })
-    expect(third.status).toBe(429)
-    expect(third.headers.get('retry-after')).not.toBeNull()
+    const second = await foundViaApi(harness, { name: 'Two', goal: 'Ship' })
+    expect(second.response.status).toBe(201)
+    const third = await foundViaApi(harness, { name: 'Three', goal: 'Ship' })
+    expect(third.response.status).toBe(429)
+    expect(third.response.headers.get('retry-after')).not.toBeNull()
   })
 
   test('the stream ticket route answers 429 with Retry-After past its client limit', async () => {

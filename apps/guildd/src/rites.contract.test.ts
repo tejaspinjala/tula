@@ -4,8 +4,8 @@ import { RITE_EVENT_PREFIX } from './rites/events'
 import type { RiteGraph } from './rites/graph'
 import { LEARNING_TO_LINKEDIN } from './rites/templates'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const devHarness = await createHarness({ devGuildHeader: true })
@@ -14,10 +14,10 @@ afterAll(async () => {
   await devHarness.close()
 })
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+const _foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
 const tokenBody = z.object({ token: z.string() })
 const proofBody = z.object({ proof: z.string() })
 const listBody = z.object({
@@ -56,25 +56,9 @@ function send(method: string, path: string, body?: unknown, headers = {}, h = ha
 }
 
 async function signedIn() {
-  const founded = foundedBody.parse(
-    await (await send('POST', '/guilds', { name: 'Flows', goal: 'g' })).json()
-  )
+  const founded = await foundViaApi(harness, { name: 'Flows', goal: 'g' })
   const guildId = founded.id
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const reg = ceremony.parse(
-    await (
-      await send(
-        'POST',
-        `/guilds/${guildId}/passkeys/begin`,
-        {},
-        { 'x-founding-token': founded.foundingToken }
-      )
-    ).json()
-  )
-  await send('POST', `/guilds/${guildId}/passkeys/finish`, {
-    challengeId: reg.challengeId,
-    response: await key.register(reg.options),
-  })
+  const key = founded.key
   const begin = ceremony.parse(
     await (await send('POST', `/guilds/${guildId}/sign-in/begin`, {})).json()
   )

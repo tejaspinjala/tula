@@ -1,9 +1,5 @@
 import { expect } from 'bun:test'
-import { z } from 'zod'
-
-const IdBody = z.object({ id: z.string() })
-
-type Requester = { request: (path: string, init?: RequestInit) => Promise<Response> }
+import { foundViaApi, type Requester } from './found-via-api'
 
 /** One route under cross-guild test. */
 export interface CrossGuildProbe {
@@ -17,12 +13,7 @@ export interface CrossGuildProbe {
 }
 
 async function found(harness: Requester, name: string): Promise<string> {
-  const res = await harness.request('/guilds', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, goal: `${name} goal` }),
-  })
-  return IdBody.parse(await res.json()).id
+  return (await foundViaApi(harness, { name, goal: `${name} goal` })).id
 }
 
 /**

@@ -4,6 +4,7 @@ import { createApp, websocket } from './app'
 import { createDb, type Db } from './db/client'
 import { createEventHub } from './event-hub'
 import { appendEvent } from './events'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 
 const harness = await createHarness()
@@ -117,14 +118,19 @@ describe('event stream fan-out', () => {
       expect(s.counts.http - httpBefore).toBe(0)
       const started = performance.now()
       const health = await s.app.request('/health')
-      const founded = await s.app.request('/guilds', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Late', goal: 'g' }),
-      })
+      const healthMs = performance.now() - started
+      const founded = await foundViaApi(
+        { request: (p, i) => Promise.resolve(s.app.request(p, i)) },
+        {
+          name: 'Late',
+          goal: 'g',
+        }
+      )
       expect(health.status).toBe(200)
-      expect(founded.status).toBe(201)
-      expect(performance.now() - started).toBeLessThan(500)
+      expect(founded.response.status).toBe(201)
+      // Two founding requests plus passkey crypto: a generous bound that still catches a starved pool.
+      expect(healthMs).toBeLessThan(500)
+      expect(performance.now() - started).toBeLessThan(2000)
     } finally {
       for (const ws of sockets) {
         ws.close()

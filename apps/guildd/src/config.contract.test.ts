@@ -4,8 +4,8 @@ import { MemoryModelProvider } from './adapters/memory-model-provider'
 import { eventsAfter } from './events'
 import { defaultConfig, guildConfig } from './guild-config'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const devHarness = await createHarness({ devGuildHeader: true })
@@ -19,11 +19,11 @@ afterAll(async () => {
   await subscriptionHarness.close()
 })
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
 const session = z.object({ token: z.string(), guildId: z.string() })
-const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+const _foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
 const proofBody = z.object({ proof: z.string() })
 const configBody = z.object({ version: z.number(), config: guildConfig })
 const outcome = z.object({
@@ -57,26 +57,9 @@ function send(h: typeof harness, method: string, path: string, body?: unknown, h
 }
 
 async function signedIn(h: typeof harness = harness) {
-  const founded = foundedBody.parse(
-    await (await send(h, 'POST', '/guilds', { name: 'Config', goal: 'g' })).json()
-  )
+  const founded = await foundViaApi(h, { name: 'Config', goal: 'g' })
   const guildId = founded.id
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const reg = ceremony.parse(
-    await (
-      await send(
-        h,
-        'POST',
-        `/guilds/${guildId}/passkeys/begin`,
-        {},
-        { 'x-founding-token': founded.foundingToken }
-      )
-    ).json()
-  )
-  await send(h, 'POST', `/guilds/${guildId}/passkeys/finish`, {
-    challengeId: reg.challengeId,
-    response: await key.register(reg.options),
-  })
+  const key = founded.key
   const begin = ceremony.parse(
     await (await send(h, 'POST', `/guilds/${guildId}/sign-in/begin`, {})).json()
   )
@@ -471,15 +454,13 @@ describe('guild config over HTTP', () => {
   })
 
   test('seeding is chained: the founding transaction wrote a config event and the chain verifies', async () => {
-    const founded = foundedBody.parse(
-      await (await send(devHarness, 'POST', '/guilds', { name: 'Pinned', goal: 'g' })).json()
-    )
+    const founded = await foundViaApi(devHarness, { name: 'Pinned', goal: 'g' })
     const events = await devHarness.adapters.db.withGuild(founded.id, (tx) =>
       eventsAfter(tx, 0, 50)
     )
     // Pin everything founding writes: guild.founded first, then the identity and config events.
     expect(events.map((e) => e.type).sort()).toEqual(
-      ['config.seeded', 'guild.founded', 'identity.founding_token_issued'].sort()
+      ['config.seeded', 'guild.founded', 'identity.passkey_registered'].sort()
     )
     expect(events[0]?.type).toBe('guild.founded')
     const verify = await send(devHarness, 'GET', `/guilds/${founded.id}/audit/verify`, undefined, {
@@ -560,7 +541,7 @@ describe('guild config over HTTP', () => {
     const body = z
       .object({ unknownKeys: z.array(z.string()), truncated: z.boolean().optional() })
       .parse(await res.json())
-    expect(body.unknownKeys).toEqual([`caps.${'k'.repeat(300)}`.slice(0, 63) + '…'])
+    expect(body.unknownKeys).toEqual([`${`caps.${'k'.repeat(300)}`.slice(0, 63)}…`])
     expect(body.truncated).toBe(true)
     const short = { ...defaultConfig(), bogus: 1 }
     const ok = await who.put(short)

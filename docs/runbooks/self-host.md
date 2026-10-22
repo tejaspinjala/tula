@@ -151,8 +151,7 @@ first. Setup, in order:
 ## Exposing guildd
 
 guildd binds `127.0.0.1` (`HOST`), because the founding routes (`/founding/begin` and
-`/founding/finish`) are unauthenticated until a guild exists. (The legacy `POST /guilds` answers
-404 unless `DEV_GUILD_HEADER` is on.) `start:selfhost` pins `HOST=127.0.0.1`. To reach it from other machines, do
+`/founding/finish`) are unauthenticated until a guild exists. `start:selfhost` pins `HOST=127.0.0.1`. To reach it from other machines, do
 not set `HOST=0.0.0.0` bare: put a TLS reverse proxy in front, set `TRUST_PROXY=true` (exactly one
 proxy), and set production WebAuthn settings (`NODE_ENV=production`, `WEBAUTHN_RP_ID` and
 `WEBAUTHN_ORIGIN` for the public https origin).

@@ -4,6 +4,7 @@ import { MemoryKeyProvider } from './adapters/memory-key-provider'
 import { appendEvent } from './events'
 import type { KeyProvider } from './ports/key-provider'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
@@ -16,12 +17,7 @@ const Verdict = z.discriminatedUnion('intact', [
 ])
 
 async function found(): Promise<string> {
-  const res = await harness.request('/guilds', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: 'Ember', goal: 'Ship' }),
-  })
-  return z.object({ id: z.string() }).parse(await res.json()).id
+  return (await foundViaApi(harness, { name: 'Ember', goal: 'Ship' })).id
 }
 
 async function verify(id: string, caller = id) {
@@ -242,18 +238,13 @@ describe('founding is chained atomically', () => {
     const h = await createHarness({ app: { keys: flaky } })
     try {
       const name = `Atomic-${crypto.randomUUID()}`
-      const found = () =>
-        h.request('/guilds', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name, goal: 'g' }),
-        })
-      expect((await found()).status).toBe(500)
+      const found = () => foundViaApi(h, { name, goal: 'g' })
+      expect((await found()).response.status).toBe(500)
       expect((await h.owner`select 1 from guilds where name = ${name}`).length).toBe(0)
       failing = false
       const res = await found()
-      expect(res.status).toBe(201)
-      const id = z.object({ id: z.string() }).parse(await res.json()).id
+      expect(res.response.status).toBe(201)
+      const id = res.id
       expect((await h.owner`select 1 from guilds where name = ${name}`).length).toBe(1)
       const verdict = await h.request(`/guilds/${id}/audit/verify`, {
         headers: { 'x-guild-id': id },
