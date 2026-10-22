@@ -1,0 +1,36 @@
+.charter-block {
+  display: grid;
+  gap: calc(var(--px) * 3);
+  min-width: 0;
+  margin-block-start: calc(var(--px) * 4);
+}
+
+.charter-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: calc(var(--px) * 2);
+}
+
+.charter-list .item,
+.charter-file {
+  overflow-wrap: anywhere;
+}
+
+.charter-file {
+  display: grid;
+  gap: calc(var(--px) * 2);
+  max-width: 100%;
+}
+
+.charter-file input {
+  max-width: 100%;
+}
+
+.charter-confirm {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

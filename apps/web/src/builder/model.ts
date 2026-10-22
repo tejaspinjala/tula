@@ -24,7 +24,8 @@ const guildCaps = z.looseObject({
   maxBugReportsPerQuest: z.number().int().optional(),
   maxDossiersPerQuest: z.number().int().optional(),
 })
-const config = z.looseObject({
+/** The config document as the builder reads it. */
+export const builderConfigSchema = z.looseObject({
   steward: agent,
   halls: z.array(hall),
   caps: guildCaps.optional(),
@@ -35,11 +36,11 @@ export type BuilderMember = z.infer<typeof member>
 /** One Hall of the config as the builder edits it. */
 export type BuilderHall = z.infer<typeof hall>
 /** A guild config as the builder edits it: Halls and Members typed, every other key carried untouched. */
-export type BuilderConfig = z.infer<typeof config>
+export type BuilderConfig = z.infer<typeof builderConfigSchema>
 
 /** Parses a config document from the server. */
 export function parseConfig(value: unknown): BuilderConfig {
-  return config.parse(value)
+  return builderConfigSchema.parse(value)
 }
 
 /** Where a moved Member lands: a Hall, optionally before another Member. */

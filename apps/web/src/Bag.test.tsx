@@ -65,6 +65,7 @@ test('the Bag menu lists every page, the Hall tools and Sign out, as a modal dia
     'Ledger of Deeds',
     'Guild builder',
     'Rites',
+    'Charter',
     'Guild chat',
     'Mailbox',
     'Council',
@@ -103,7 +104,7 @@ test('tapping a row opens that page, by touch', async () => {
 test('Sign out is the last row', async () => {
   const c = calls()
   const m = await mount(bag({}, c))
-  await click(options(m.host)[12] as HTMLElement)
+  await click(options(m.host)[13] as HTMLElement)
   expect(c.signOut).toBe(1)
   await m.unmount()
 })
@@ -155,7 +156,7 @@ test('Settings holds the Hall lighting controls', async () => {
 test('the Hall tools page shows the zoom and teleport controls', async () => {
   const c = calls()
   const m = await mount(bag({}, c))
-  await click(options(m.host)[11] as HTMLElement)
+  await click(options(m.host)[12] as HTMLElement)
   expect(m.host.textContent).toContain('Hall tools body')
   await m.unmount()
 })

@@ -5,6 +5,7 @@ import { AwayPanel } from './AwayPanel'
 import { BuilderPanel } from './builder/BuilderPanel'
 import { CostTablePanel } from './CostTablePanel'
 import { CouncilPanel } from './CouncilPanel'
+import { CharterPanel } from './charters/CharterPanel'
 import { GatesPanel } from './GatesPanel'
 import { LearningPanel } from './LearningPanel'
 import { MailboxPanel } from './MailboxPanel'
@@ -99,6 +100,8 @@ function PageBody({
       )
     case 'rites':
       return <RitePanel session={session} />
+    case 'charter':
+      return <CharterPanel session={session} />
     case 'missives':
       return <MissivesPanel session={session} onTalk={onTalkTo} />
     case 'mailbox':
