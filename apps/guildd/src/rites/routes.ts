@@ -62,8 +62,8 @@ const RUN_STATUS: Record<RunError, 404 | 409 | 422> = {
 export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
   const base = '/guilds/:id/rites'
   const notFound = (c: Context) => c.json({ error: 'not_found' }, 404)
-  const wid = (c: Context) => {
-    const parsed = riteId.safeParse(c.req.param('wid'))
+  const riteIdParam = (c: Context) => {
+    const parsed = riteId.safeParse(c.req.param('riteId'))
     return parsed.success ? parsed.data : null
   }
 
@@ -92,9 +92,9 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     )
   })
 
-  app.get(`${base}/:wid`, async (c) => {
+  app.get(`${base}/:riteId`, async (c) => {
     const who = await deps.sessionGuildFor(c)
-    const id = wid(c)
+    const id = riteIdParam(c)
     if ('res' in who) {
       return who.res
     }
@@ -102,12 +102,12 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     return found ? c.json(found) : notFound(c)
   })
 
-  app.get(`${base}/:wid/versions`, async (c) => {
+  app.get(`${base}/:riteId/versions`, async (c) => {
     const who = await deps.sessionGuildFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const page = versionPage.safeParse({
       before: c.req.query('before'),
       limit: c.req.query('limit'),
@@ -126,7 +126,7 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     )
   })
 
-  app.post(`${base}/:wid/validate`, async (c) => {
+  app.post(`${base}/:riteId/validate`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
@@ -142,12 +142,12 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
   // The save answers `{ status, version: { version, ... } }` (the whole stored version, with its
   // classification), where the config PUT answers `{ version: number, status, change }`: a rite
   // version carries its graph and classification, so the object is returned rather than a number.
-  app.put(`${base}/:wid`, async (c) => {
+  app.put(`${base}/:riteId`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const body = saveBody.safeParse(await c.req.json().catch(() => null))
     if (!(id && body.success)) {
       return c.json({ error: 'invalid_request' }, 400)
@@ -159,12 +159,12 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     return c.json(result)
   })
 
-  app.post(`${base}/:wid/versions/:version/publish`, async (c) => {
+  app.post(`${base}/:riteId/versions/:version/publish`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const version = versionNumber.safeParse(c.req.param('version'))
     const body = publishBody.safeParse(await c.req.json().catch(() => null))
     if (!(id && version.success)) {
@@ -183,14 +183,14 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     )
   })
 
-  app.post(`${base}/:wid/versions/:version/confirm`, async (c) => {
+  app.post(`${base}/:riteId/versions/:version/confirm`, async (c) => {
     // Guild, role and version are checked first: a request that cannot succeed must not spend
     // the one-shot re-authentication proof.
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const version = versionNumber.safeParse(c.req.param('version'))
     if (!id || !version.success) {
       return notFound(c)
@@ -202,6 +202,9 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     if (found.version.status !== 'pending') {
       return c.json({ error: 'not_pending' }, 409)
     }
+    if (await deps.rites.isArchived(who.guild, id)) {
+      return c.json({ error: 'rite_archived' }, 409)
+    }
     const check = await checkSensitive(deps.identity, sessionHeaders(c))
     if (!check.ok) {
       return c.json({ error: check.error }, check.status)
@@ -211,7 +214,10 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     }
     const confirmed = await deps.rites.confirm(who.guild, id, version.data)
     if (!confirmed.ok) {
-      return confirmed.error === 'not_found' ? notFound(c) : c.json({ error: 'stale' }, 409)
+      if (confirmed.error === 'not_found') {
+        return notFound(c)
+      }
+      return c.json({ error: confirmed.error }, 409)
     }
     return c.json({ version: version.data, status: 'active' })
   })
@@ -219,23 +225,23 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
   // Archive and unarchive are idempotent and need no passkey: they widen nothing (unarchive leaves
   // no active version, so the Rite must be published, and confirmed if widening, again).
   for (const action of ['archive', 'unarchive'] as const) {
-    app.post(`${base}/:wid/${action}`, async (c) => {
+    app.post(`${base}/:riteId/${action}`, async (c) => {
       const who = await deps.guildMasterSessionFor(c)
       if ('res' in who) {
         return who.res
       }
-      const id = wid(c)
+      const id = riteIdParam(c)
       const result = id ? await deps.rites[action](who.guild, id) : null
       return result?.ok ? c.json({ riteId: id, archived: action === 'archive' }) : notFound(c)
     })
   }
 
-  app.post(`${base}/:wid/runs`, async (c) => {
+  app.post(`${base}/:riteId/runs`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const body = runBody.safeParse(await c.req.json().catch(() => ({})))
     if (!(id && body.success)) {
       return c.json({ error: 'invalid_request' }, 400)
@@ -258,12 +264,12 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     return c.json({ instance: result.instance, quests: result.quests }, result.created ? 201 : 200)
   })
 
-  app.get(`${base}/:wid/runs`, async (c) => {
+  app.get(`${base}/:riteId/runs`, async (c) => {
     const who = await deps.sessionGuildFor(c)
     if ('res' in who) {
       return who.res
     }
-    const id = wid(c)
+    const id = riteIdParam(c)
     const page = idPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
     if (!page.success) {
       return c.json({ error: 'invalid_page' }, 400)
@@ -279,13 +285,13 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     )
   })
 
-  app.get(`${base}/:wid/runs/:rid`, async (c) => {
+  app.get(`${base}/:riteId/runs/:runId`, async (c) => {
     const who = await deps.sessionGuildFor(c)
     if ('res' in who) {
       return who.res
     }
-    const rid = z.uuid().safeParse(c.req.param('rid'))
-    const state = rid.success ? await deps.rites.state(who.guild, rid.data) : null
-    return state && state.instance.riteId === c.req.param('wid') ? c.json(state) : notFound(c)
+    const runId = z.uuid().safeParse(c.req.param('runId'))
+    const state = runId.success ? await deps.rites.state(who.guild, runId.data) : null
+    return state && state.instance.riteId === c.req.param('riteId') ? c.json(state) : notFound(c)
   })
 }

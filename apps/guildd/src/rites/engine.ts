@@ -231,10 +231,16 @@ export class RiteEngine {
 
   /**
    * Confirms a pending version (the caller has re-authenticated). `stale` when the active version
-   * moved since it was published, so a confirm never rolls a newer version back.
+   * moved since it was published, so a confirm never rolls a newer version back; `rite_archived`
+   * when the Rite is archived (unarchive and publish again).
    */
   async confirm(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
     return this.deps.store.activate(guildId, riteId, version)
+  }
+
+  /** Whether the Rite is archived, so a caller can refuse before spending a re-authentication proof. */
+  async isArchived(guildId: string, riteId: string): Promise<boolean> {
+    return (await this.deps.store.archivedAt(guildId, riteId)) !== null
   }
 
   /** Rites in id order after `after`. */
@@ -304,7 +310,8 @@ export class RiteEngine {
    * Starts an instance of an active version, or resumes it for the same `runKey`. The graph is
    * validated again against today's config, then each `agent` node is posted as a Quest through
    * the normal checks (Hall locks, Tripwires, owners), keyed `instance:node:0` so a restart posts
-   * nothing twice.
+   * nothing twice. An archived Rite refuses every run, including a retry of an existing `runKey`:
+   * there is no resume while archived (unarchive and publish to retry).
    */
   async run(
     guildId: string,
