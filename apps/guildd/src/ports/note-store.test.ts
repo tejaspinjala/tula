@@ -16,6 +16,10 @@ describe('wikiLinks', () => {
     expect(wikiLinks('[[a [[T]] b]]')).toEqual(['t'])
     expect(wikiLinks('[[[[T]]]]')).toEqual(['t'])
   })
+  test('a title ending in a bracket keeps it', () => {
+    expect(wikiLinks('[[Diary [2026]]]')).toEqual(['diary [2026]'])
+    expect(wikiLinks('[[Diary [2026]]] and [[Plain]]')).toEqual(['diary [2026]', 'plain'])
+  })
   test('de-duplicates and skips empty links', () => {
     expect(wikiLinks('[[A]] [[a|z]] [[]] [[ ]] [[|x]]')).toEqual(['a'])
   })

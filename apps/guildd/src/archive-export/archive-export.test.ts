@@ -270,21 +270,80 @@ describe('link resolution (ADR-0015)', () => {
     expect(text).not.toContain('[[')
     expect(text).not.toContain(']]')
   })
+  test.each(['[[Diary [2026]]]', '[[Diary [2026]]]]', 'a [[Diary [2026]]] b'])(
+    'a withheld title ending in a bracket does not leak via %s',
+    (body) => {
+      const files = run([note({ id: '1', title: 'S', body })], {
+        privateLeftOut: 1,
+        withheldTitles: ['Diary [2026]'],
+      })
+      for (const f of files) {
+        expect(f.content.toLowerCase()).not.toContain('diary')
+      }
+      expect(file(files, 'Engineering/S.md')).toContain('[withheld]')
+    }
+  )
+  test('a withheld title ending in ]] does not leak', () => {
+    const files = run([note({ id: '1', title: 'S', body: 'x [[Notes ]]]] y' })], {
+      privateLeftOut: 1,
+      withheldTitles: ['Notes ]]'],
+    })
+    expect(file(files, 'Engineering/S.md')).toContain('x [withheld] y')
+  })
+  test('a bracketed withheld title next to an exported longer title resolves each correctly', () => {
+    const files = run(
+      [
+        note({ id: '1', title: 'S', body: '[[Diary [2026]]] and [[Diary [2026] public]]' }),
+        note({ id: '2', title: 'Diary [2026] public' }),
+      ],
+      { privateLeftOut: 1, withheldTitles: ['Diary [2026]'] }
+    )
+    const c = file(files, 'Engineering/S.md')
+    expect(c).toContain('[withheld] and [[Engineering/Diary 2026 public|Diary 2026 public]]')
+  })
+  test.each(['[[Diary [2026', 'see [[diary [20', 'x]] Diary [2026]] y'])(
+    'fail closed: text from link syntax containing or truncating a withheld title is withheld (%s)',
+    (body) => {
+      const files = run([note({ id: '1', title: 'S', body })], {
+        privateLeftOut: 1,
+        withheldTitles: ['Diary [2026]'],
+      })
+      expect(file(files, 'Engineering/S.md').toLowerCase()).not.toContain('diary')
+    }
+  )
+  test('ordinary prose is never withheld', () => {
+    const c = bodyOf('I keep a diary. Plain [[Ghost]] text.')
+    expect(c).toContain('I keep a diary.')
+  })
   test('random nesting of [[ and ]] around withheld titles never leaks', () => {
     let seed = 7
     const rnd = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2147483648
       return seed % n
     }
-    const pieces = ['[[', ']]', '[', ']', '|', '#', ' ', 'x', '[[Secret]]', '[[SECRET|a]]']
-    for (let i = 0; i < 300; i++) {
+    const titles = ['Secret', 'Diary [2026]', 'Notes ]]', 'Tail]']
+    const pieces = [
+      '[[',
+      ']]',
+      '[',
+      ']',
+      '|',
+      '#',
+      ' ',
+      'x',
+      ...titles.map((t) => `[[${t}]]`),
+      '[[SECRET|a]]',
+    ]
+    for (let i = 0; i < 500; i++) {
       const body = Array.from({ length: 4 + rnd(12) }, () => pieces[rnd(pieces.length)]).join('')
       const files = run([note({ id: '1', title: 'S', body })], {
         privateLeftOut: 1,
-        withheldTitles: ['Secret'],
+        withheldTitles: titles,
       })
       for (const f of files) {
-        expect(f.content.toLowerCase()).not.toContain('secret')
+        for (const t of titles) {
+          expect(f.content.toLowerCase()).not.toContain(t.toLowerCase())
+        }
       }
     }
   })
