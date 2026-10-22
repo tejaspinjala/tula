@@ -7,12 +7,20 @@ import {
   readNote,
   searchNotes,
 } from './archive'
-import { PasskeyRequestError, type Session } from './passkeys'
+import type { Fetcher } from './artifacts'
+import { type PasskeyBrowser, PasskeyRequestError, type Session } from './passkeys'
 import { PixelButton } from './ui/pixel'
 import { WorkSection } from './WorkSection'
 
 /** The Archive screen: add text or link notes, search them, and read versions and backlinks. */
-export function ArchivePanel({ session }: { session: Session | null }) {
+export function ArchivePanel({
+  session,
+}: {
+  session: Session | null
+  fetcher?: Fetcher
+  browser?: PasskeyBrowser
+  download?: (filename: string, blob: Blob) => void
+}) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [kind, setKind] = useState<'text' | 'link'>('text')

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
-import { PasskeyRequestError, type Session } from './passkeys'
+import { type PasskeyBrowser, PasskeyRequestError, type Session } from './passkeys'
 
 const noteBody = z.object({
   id: z.string(),
@@ -67,6 +67,23 @@ export function listNotes(session: Session, fetcher: Fetcher, limit = 50) {
 /** Full-text searches the guild's notes (first page). */
 export function searchNotes(session: Session, query: string, fetcher: Fetcher, limit = 50) {
   return call(session, fetcher, `?limit=${limit}&q=${encodeURIComponent(query)}`, pageBody)
+}
+
+/** What an export hands back: the zip, its file name and the server's counts. */
+export interface ArchiveExport {
+  blob: Blob
+  filename: string
+  counts: { exported: number; privateIncluded: number; privateLeftOut: number }
+}
+
+/** Exports the Archive as a zip; `includePrivate` first runs the passkey re-auth. */
+export async function exportArchive(
+  _session: Session,
+  _includePrivate: boolean,
+  _fetcher: Fetcher,
+  _browser: PasskeyBrowser
+): Promise<ArchiveExport> {
+  throw new Error('not implemented')
 }
 
 /** Reads one note with every version and its backlinks. */
