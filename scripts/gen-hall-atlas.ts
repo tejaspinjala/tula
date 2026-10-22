@@ -32,7 +32,7 @@ export async function renderHallAtlases(): Promise<Map<string, Uint8Array>> {
       size: { w: atlas.width, h: atlas.height },
       frames: atlas.frames,
     }
-    out.set(`${atlas.name}.json`, new TextEncoder().encode(`${JSON.stringify(map, null, 1)}\n`))
+    out.set(`${atlas.name}.json`, new TextEncoder().encode(`${JSON.stringify(map, null, 2)}\n`))
   }
   return out
 }

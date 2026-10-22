@@ -38,3 +38,33 @@ test('it shows every component of the kit', async () => {
   expect(has('.px-theme')).toBe(true)
   await m.unmount()
 })
+
+test('it shows every frame of the interiors and furniture atlases, grouped by room style', async () => {
+  const m = await mount(<KitchenSink />)
+  for (const style of [
+    'great hall',
+    'writing room',
+    'library',
+    'workshop',
+    'studio',
+    'infirmary',
+    'garden room',
+    'quiet room',
+  ]) {
+    expect(m.host.querySelector(`section[aria-label="${style}"] .px-room`)).not.toBeNull()
+  }
+  const shown = new Set(
+    [...m.host.querySelectorAll('.px-tileset-cell [role="img"]')].map((n) =>
+      n.getAttribute('aria-label')
+    )
+  )
+  for (const file of ['interiors', 'furniture']) {
+    const map = JSON.parse(
+      await Bun.file(`${import.meta.dir}/../../../public/game/${file}.json`).text()
+    )
+    for (const name of Object.keys(map.frames)) {
+      expect(shown.has(name)).toBe(true)
+    }
+  }
+  await m.unmount()
+})
