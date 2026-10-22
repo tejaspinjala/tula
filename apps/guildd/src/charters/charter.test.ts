@@ -18,6 +18,7 @@ import {
   applyCharter,
   CAPS_FIELD_CLASS,
   CHARTER_MAX_BYTES,
+  CHARTER_MAX_RITES,
   CONFIG_FIELD_CLASS,
   CONTENT_POLICY_FIELD_CLASS,
   type ExportRite,
@@ -101,6 +102,38 @@ describe('exportCharter', () => {
       { kind: 'rite', id: 'old', reason: 'archived' },
       { kind: 'rite', id: 'draft', reason: 'unpublished' },
       { kind: 'rite', id: 'secret', reason: 'private_hall' },
+    ])
+  })
+})
+
+describe('the Rite limit', () => {
+  test('exports the first CHARTER_MAX_RITES by name then id and lists the rest as over_limit', () => {
+    const ids = Array.from(
+      { length: CHARTER_MAX_RITES + 2 },
+      (_, i) => `r${String(i).padStart(3, '0')}`
+    )
+    // Same name for all, so the order falls to the id; input order is reversed to prove sorting.
+    const rites = [...ids].reverse().map((id) => rite(id, { name: 'same' }))
+    const c = exportCharter({ name: 'n', config, rites, now })
+    expect(c.rites).toHaveLength(CHARTER_MAX_RITES)
+    expect(c.omitted.filter((o) => o.kind === 'rite')).toEqual([
+      { kind: 'rite', id: 'r050', reason: 'over_limit' },
+      { kind: 'rite', id: 'r051', reason: 'over_limit' },
+    ])
+  })
+
+  test('omitted Rites do not count against the limit, and the name sorts before the id', () => {
+    const rites = [
+      ...Array.from({ length: CHARTER_MAX_RITES }, (_, i) =>
+        rite(`a${i}`, { name: `n${String(i).padStart(2, '0')}` })
+      ),
+      rite('z', { name: 'zzz' }),
+      rite('old', { name: 'aaa', archivedAt: '2025-01-01T00:00:00.000Z' }),
+    ]
+    const c = exportCharter({ name: 'n', config, rites, now })
+    expect(c.omitted.filter((o) => o.kind === 'rite')).toEqual([
+      { kind: 'rite', id: 'old', reason: 'archived' },
+      { kind: 'rite', id: 'z', reason: 'over_limit' },
     ])
   })
 })
