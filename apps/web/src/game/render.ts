@@ -114,6 +114,15 @@ export function roomSprites(room: Room, atlases: Atlases): Sprite[] {
   return out
 }
 
+/**
+ * The whole zoom a room opens at: the largest (up to 4x) that shows all of it, but never below 2x,
+ * so a narrow screen crops the room and follows the Guild Master instead of drawing it too small to read.
+ */
+export function roomZoom(view: { w: number; h: number }, world: { w: number; h: number }): number {
+  const fit = Math.floor(Math.min(view.w / world.w, view.h / world.h))
+  return Math.min(4, Math.max(2, fit))
+}
+
 /** The part of the screen the camera draws in: everything below the reserved HUD strip. */
 export function viewportFor(screen: { w: number; h: number }, hudHeight: number): Viewport {
   const y = Math.min(Math.max(0, Math.round(hudHeight)), screen.h)

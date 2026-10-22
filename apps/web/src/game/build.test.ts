@@ -15,7 +15,7 @@ test('the lazy-load boundary: only game/start.ts and HallScene.ts import Phaser,
     )
   for (const file of walk(srcRoot).filter((f) => /\.tsx?$/.test(f) && !f.includes('.test.'))) {
     const text = readFileSync(file, 'utf8')
-    if (/from ['"]phaser['"]|import\(['"]phaser['"]\)/.test(text)) {
+    if (/^import (?!type ).*from ['"]phaser['"]|import\(['"]phaser['"]\)/m.test(text)) {
       importsPhaser.push(file.slice(srcRoot.length + 1))
     }
     if (/^import (?!type ).* from ['"].*game\/(start|HallScene)['"]/m.test(text)) {

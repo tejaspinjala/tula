@@ -16,7 +16,7 @@ import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './int
 import { bubbleCentreX, roomTags } from './layout'
 import { lightIsOn } from './lighting'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
-import { type Atlases, actorDepth, viewportFor } from './render'
+import { type Atlases, actorDepth, roomZoom, viewportFor } from './render'
 import { Retained } from './retained'
 import { DEPTH, greatHall, type Room } from './room'
 import { drawRoom, makeShadow, moveShadow, preloadAtlases, registerAtlases } from './roomView'
@@ -376,7 +376,9 @@ export class HallScene extends Phaser.Scene {
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     const view = this.viewport()
-    this.zoomLevel = openZoomWhole(view.w, view.h, w, h)
+    // A room opens at the largest whole zoom that shows all of it; a town map fills the frame.
+    this.zoomLevel =
+      this.viewMap === 'hall' ? roomZoom(view, { w, h }) : openZoomWhole(view.w, view.h, w, h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
     if (this.viewMap === this.current) {
@@ -968,12 +970,11 @@ export class HallScene extends Phaser.Scene {
     }
     const view = this.viewport()
     const map = this.mapOf(this.viewMap)
-    this.zoomLevel = (keepFollow ? zoomAfterResize : integerZoom)(
-      view.w,
-      view.h,
-      px(map.width, map.tileSize),
-      px(map.height, map.tileSize)
-    )
+    const world = { w: px(map.width, map.tileSize), h: px(map.height, map.tileSize) }
+    this.zoomLevel =
+      this.viewMap === 'hall'
+        ? roomZoom(view, world)
+        : (keepFollow ? zoomAfterResize : integerZoom)(view.w, view.h, world.w, world.h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
     this.centre()
@@ -1057,7 +1058,7 @@ export class HallScene extends Phaser.Scene {
             (door.tile.x + 0.5) * s,
             (door.tile.y - 0.5) * s,
             FONT,
-            tag.text.slice(0, 11),
+            tag.text.slice(0, 7),
             8
           )
           .setOrigin(0.5, 0.5)
@@ -1067,7 +1068,8 @@ export class HallScene extends Phaser.Scene {
         if (tag.closed) {
           made.push(
             this.add
-              .image((door.tile.x + 0.5) * s, (door.tile.y + 0.5) * s, TILES, FRAME.doorClosed)
+              .rectangle(door.tile.x * s, door.tile.y * s, s, s, 0x101018, 0.6)
+              .setOrigin(0, 0)
               .setDepth(DEPTH.wall + 2)
           )
         }
@@ -1128,7 +1130,7 @@ export class HallScene extends Phaser.Scene {
         made.push(
           this.label(
             (gate.tile.x - 1) * s,
-            (gate.tile.y - 1) * s,
+            (gate.tile.y - 2) * s,
             state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
             8,
             state.gateClosed ? 0xff6666 : 0x99ff99

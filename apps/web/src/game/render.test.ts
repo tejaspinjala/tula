@@ -9,6 +9,7 @@ import {
   actorShadow,
   freeStanding,
   roomSprites,
+  roomZoom,
   viewportFor,
 } from './render'
 import { DEPTH, greatHall } from './room'
@@ -135,5 +136,16 @@ describe('Great Hall positions', () => {
 
   test('the Steward stands in front of their desk', () => {
     expect(stewardStand(room)).toEqual({ x: 8, y: 6 })
+  })
+})
+
+describe('the zoom a room opens at', () => {
+  test('is the largest whole zoom that shows the whole room', () => {
+    expect(roomZoom({ w: 1280, h: 694 }, { w: 304, h: 192 })).toBe(3)
+    expect(roomZoom({ w: 1280, h: 1000 }, { w: 304, h: 192 })).toBe(4)
+  })
+
+  test('never drops below 2x, so a phone crops the room and follows the Guild Master', () => {
+    expect(roomZoom({ w: 390, h: 720 }, { w: 304, h: 192 })).toBe(2)
   })
 })
