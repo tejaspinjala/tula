@@ -8,6 +8,7 @@ export const BAG_PAGES = [
   { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds' },
   { id: 'guild', path: '/guild', label: 'Guild builder' },
   { id: 'rites', path: '/rites', label: 'Rites' },
+  { id: 'charter', path: '/charter', label: 'Charter' },
   { id: 'missives', path: '/missives', label: 'Guild chat' },
   { id: 'mailbox', path: '/mailbox', label: 'Mailbox' },
   { id: 'council', path: '/council', label: 'Council' },

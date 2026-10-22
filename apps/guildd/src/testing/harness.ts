@@ -170,6 +170,7 @@ export async function createHarness(options: HarnessOptions = {}) {
       seals: composed.seals,
       proposals: composed.proposals,
       rites: composed.rites,
+      charterImports: composed.charterImports,
       quests: composed.quests,
       mcp: composed.mcp,
       tripwires: composed.tripwires,

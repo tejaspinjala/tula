@@ -15,6 +15,7 @@ import { MemorySearchProvider } from './adapters/memory-search-provider'
 import { PgActivityLog } from './adapters/pg-activity-log'
 import { PgAwaitingSealReader } from './adapters/pg-awaiting-seal-reader'
 import { PgBugReportStore } from './adapters/pg-bug-report-store'
+import { PgCharterImporter } from './adapters/pg-charter-importer'
 import { PgConfigStore } from './adapters/pg-config-store'
 import { PgCouncilStore } from './adapters/pg-council-store'
 import { PgDossierStore } from './adapters/pg-dossier-store'
@@ -182,6 +183,15 @@ export async function compose(
     overrides.proposals ??
     new ProposalEngine({ store: new PgProposalStore(db, keys, clock), config })
   const riteStore = new PgRiteStore(db, keys, clock)
+  const charterImports =
+    overrides.charterImports ??
+    new PgCharterImporter(
+      db,
+      keys,
+      config instanceof PgConfigStore ? config : new PgConfigStore(db, keys, clock),
+      riteStore,
+      clock
+    )
   const handoffs = new PgHandoffStore(db, keys)
   const dossierStore = overrides.dossierStore ?? new PgDossierStore(db, keys)
   const dossiers =
@@ -316,6 +326,7 @@ export async function compose(
         seals: sealStore,
         handoffs,
       }),
+    charterImports,
     notes,
     missives,
     inquiries,

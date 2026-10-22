@@ -9,6 +9,7 @@ test('the Bag lists every page in menu order, ending with Settings', () => {
     'Ledger of Deeds',
     'Guild builder',
     'Rites',
+    'Charter',
     'Guild chat',
     'Mailbox',
     'Council',

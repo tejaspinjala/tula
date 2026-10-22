@@ -11,6 +11,8 @@ import {
 } from './audit-chain'
 import { awayDigest, MAX_DIGEST_PAGE } from './away-digest'
 import type { BugReportService } from './bug-reports'
+import { CHARTER_EVENT } from './charters/events'
+import { mountCharterRoutes } from './charters/routes'
 import { costPerPost } from './cost-per-post'
 import type { CouncilEngine } from './council'
 import { type Db, FoundingClosedError } from './db/client'
@@ -31,6 +33,7 @@ import {
   fileBugReportInput,
   MAX_BUG_REPORT_PAGE,
 } from './ports/bug-report-store'
+import type { CharterImporter } from './ports/charter-import'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
@@ -74,6 +77,7 @@ import type { ProposalEngine } from './proposals'
 import { isPushEndpoint, PUSH_SERVICE_HOSTS } from './push-endpoint'
 import { postQuest, postQuestInput } from './quests'
 import { DEFAULT_RATE_LIMITS, type RateLimits, rateLimit } from './rate-limits'
+import { readCapped } from './read-capped'
 import type { Research } from './research'
 import type { RiteEngine } from './rites/engine'
 import { mountRiteRoutes } from './rites/routes'
@@ -128,6 +132,8 @@ export interface AppDeps {
   proposals: ProposalEngine
   /** Versioned Rites and their instances; compiles agent nodes to governed Quests, with no authority of its own. */
   rites: RiteEngine
+  /** Charter import: config proposal, Rite drafts, event and idempotency record in one transaction. */
+  charterImports: CharterImporter
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** The stateless MCP gateway Members call with a lease handle; authorises every call itself. */
@@ -453,34 +459,6 @@ export const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 /** Thrown when an ObjectStore call outlives its timeout. */
 class StoreTimeoutError extends Error {}
 
-/** Reads a request body, stopping as soon as it exceeds `limit`; null means over the limit. */
-async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number) {
-  const chunks: Uint8Array[] = []
-  let total = 0
-  if (body) {
-    const reader = body.getReader()
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-      total += value.byteLength
-      if (total > limit) {
-        await reader.cancel()
-        return null
-      }
-      chunks.push(value)
-    }
-  }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
 /**
  * The titles of the guild's Quests by id, read one at a time through the guild-scoped queue (so a
  * Quest of another guild reads as missing). Ids that are not uuids and unknown Quests are left out.
@@ -607,6 +585,9 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/guild-master/presence', limited('presence-read'))
   app.post('/guilds/:id/guild-master/away', limited('presence-write'))
   app.post('/guilds/:id/guild-master/return', limited('presence-write'))
+  app.get('/guilds/:id/charter', limited('rite-read'))
+  app.post('/guilds/:id/charter/preview', limited('rite-read'))
+  app.post('/guilds/:id/charter/import', limited('rite-write'))
   app.get('/guilds/:id/rites', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId/versions', limited('rite-read'))
@@ -2107,6 +2088,26 @@ export function createApp(deps: AppDeps): Hono {
     rites: deps.rites,
     identity: deps.identity,
     sessionGuildFor,
+    guildMasterSessionFor,
+  })
+
+  mountCharterRoutes(app, {
+    rites: deps.rites,
+    config: deps.config,
+    clock: deps.clock,
+    imports: deps.charterImports,
+    namesDisabledSubscription,
+    guildName: async (id) => {
+      const rows = await deps.db.withGuild(
+        id,
+        (tx) => tx`select name from guilds where guild_id = ${id}`
+      )
+      const name = rows[0]?.name
+      return typeof name === 'string' ? name : null
+    },
+    recordExported: async (id, fact) => {
+      await deps.db.withGuild(id, (tx) => appendEvent(tx, deps.keys, CHARTER_EVENT.exported, fact))
+    },
     guildMasterSessionFor,
   })
 

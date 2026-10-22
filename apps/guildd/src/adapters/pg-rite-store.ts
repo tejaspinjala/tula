@@ -86,26 +86,34 @@ export class PgRiteStore implements RiteStore {
   ) {}
 
   async saveVersion(guildId: string, riteId: string, input: NewRiteVersion): Promise<RiteVersion> {
+    return this.db.withGuild(guildId, (tx) => this.saveVersionIn(tx, guildId, riteId, input))
+  }
+
+  /** {@link RiteStore.saveVersion} on a transaction the caller owns, so it commits with other writes. */
+  async saveVersionIn(
+    tx: TenantTx,
+    guildId: string,
+    riteId: string,
+    input: NewRiteVersion
+  ): Promise<RiteVersion> {
     const now = this.clock.now()
-    return this.db.withGuild(guildId, async (tx) => {
-      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
-      const [row] = await tx`
-        insert into workflow_versions
-          (guild_id, workflow_id, version, name, graph, classification, status, created_at)
-        select ${guildId}, ${riteId}, coalesce(max(version), 0) + 1, ${input.name},
-          ${JSON.stringify(input.graph)}::text::jsonb, ${input.classification}, ${input.status},
-          ${now}
-        from workflow_versions where guild_id = ${guildId} and workflow_id = ${riteId}
-        returning ${tx.unsafe(VERSION_COLUMNS)}`
-      const saved = toVersion(versionRow.parse(row))
-      await appendEvent(tx, this.keys, RITE_EVENT.versionSaved, {
-        riteId,
-        version: saved.version,
-        status: saved.status,
-        kind: saved.classification,
-      })
-      return saved
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+    const [row] = await tx`
+      insert into workflow_versions
+        (guild_id, workflow_id, version, name, graph, classification, status, created_at)
+      select ${guildId}, ${riteId}, coalesce(max(version), 0) + 1, ${input.name},
+        ${JSON.stringify(input.graph)}::text::jsonb, ${input.classification}, ${input.status},
+        ${now}
+      from workflow_versions where guild_id = ${guildId} and workflow_id = ${riteId}
+      returning ${tx.unsafe(VERSION_COLUMNS)}`
+    const saved = toVersion(versionRow.parse(row))
+    await appendEvent(tx, this.keys, RITE_EVENT.versionSaved, {
+      riteId,
+      version: saved.version,
+      status: saved.status,
+      kind: saved.classification,
     })
+    return saved
   }
 
   async seedVersion(
