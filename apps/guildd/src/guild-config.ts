@@ -531,7 +531,16 @@ export function routingChanged(prev: GuildConfig, next: GuildConfig): boolean {
   return (
     !same(prev.providers, next.providers) ||
     !same(prev.routingProfiles, next.routingProfiles) ||
-    next.halls.some((h) => !h.locked && prev.halls.find((p) => p.id === h.id)?.locked === true)
+    next.halls.length !== prev.halls.length ||
+    next.halls.some((h) => {
+      const before = prev.halls.find((p) => p.id === h.id)
+      return (
+        before === undefined ||
+        before.privateEligible !== h.privateEligible ||
+        before.kind !== h.kind ||
+        (before.locked && !h.locked)
+      )
+    })
   )
 }
 
