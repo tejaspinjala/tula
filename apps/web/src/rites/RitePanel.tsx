@@ -13,6 +13,7 @@ import {
 } from '../passkeys'
 import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
 import { createBackoff, streamHandlers, streamNotice } from '../stream-retry'
+import { EmptyState, PixelButton, YesNo } from '../ui/pixel'
 import { WorkSection } from '../WorkSection'
 import {
   archiveRite,
@@ -169,7 +170,12 @@ function OutlineRow({
 }) {
   return (
     <li data-node-id={id} className="item">
-      <button type="button" aria-pressed={selected} onClick={() => onSelect(id)}>
+      <button
+        type="button"
+        aria-label={`Step: ${label}`}
+        aria-pressed={selected}
+        onClick={() => onSelect(id)}
+      >
         {label}
       </button>{' '}
       <span className="muted">{type}</span>
@@ -224,6 +230,10 @@ export function RitePanel({
   const [overlay, setOverlay] = useState<ReadonlyMap<string, NodeOverlay>>(noOverlay)
   const [showArchived, setShowArchived] = useState(false)
   const [confirmingArchive, setConfirmingArchive] = useState(false)
+  const [savedName, setSavedName] = useState<string | null>(null)
+  const [empty, setEmpty] = useState(false)
+  const [refocus, setRefocus] = useState(false)
+  const archiveButton = useRef<HTMLButtonElement>(null)
 
   const open = useCallback(
     async (riteId: string) => {
@@ -241,6 +251,7 @@ export function RitePanel({
       setOverlay(noOverlay)
       if (!loaded) {
         setName(riteId)
+        setSavedName(null)
         setSaved(null)
         setDraft(STARTER)
         setVersion(0)
@@ -258,6 +269,8 @@ export function RitePanel({
         })
       }
       setName(loaded.version.name)
+      setSavedName(loaded.version.name)
+      setEmpty(false)
       setSaved(loaded.version.graph)
       setDraft(loaded.version.graph)
       setVersion(loaded.version.version)
@@ -296,6 +309,7 @@ export function RitePanel({
         setId('my-rite')
         setName('My Rite')
         setDraft(STARTER)
+        setEmpty(true)
       })
       .catch(() => alive && setFailed('The Rites could not be loaded.'))
     loadCurrent(session, fetcher)
@@ -361,6 +375,13 @@ export function RitePanel({
     return () => clearInterval(timer)
   }, [live, running, refreshRun])
 
+  useEffect(() => {
+    if (refocus && !confirmingArchive) {
+      archiveButton.current?.focus()
+      setRefocus(false)
+    }
+  }, [refocus, confirmingArchive])
+
   const split = useMemo(() => errorsByNode(issues), [issues])
   const places = useMemo(() => {
     const merged = new Map(draft ? layout(draft) : [])
@@ -380,7 +401,8 @@ export function RitePanel({
     )
   }
 
-  const dirty = saved === null || JSON.stringify(draft) !== JSON.stringify(saved)
+  const dirty =
+    saved === null || JSON.stringify(draft) !== JSON.stringify(saved) || name !== savedName
   const edit = (next: RiteGraph) => {
     setDraft(next)
     setMessage(null)
@@ -481,6 +503,8 @@ export function RitePanel({
     setId(archived ? id : 'my-rite')
     setName(archived ? name : 'My Rite')
     setSaved(null)
+    setSavedName(null)
+    setEmpty(!archived)
     setDraft(STARTER)
     setVersion(0)
     setStatus(null)
@@ -511,6 +535,8 @@ export function RitePanel({
       setId(newId)
       setName(newId)
       setSaved(null)
+      setSavedName(null)
+      setEmpty(false)
       setDraft(STARTER)
       setVersion(0)
       setStatus(null)
@@ -542,25 +568,27 @@ export function RitePanel({
       </h2>
       {streamNotice(streamFailures) !== null && <p role="status">{streamNotice(streamFailures)}</p>}
       <div className="actions">
-        <label>
-          Rite
-          <select
-            aria-label="Rite"
-            value={list.some((w) => w.id === id) ? id : ''}
-            onChange={(e) => {
-              if (e.target.value) {
-                open(e.target.value).catch(() => setFailed('That Rite could not be loaded.'))
-              }
-            }}
-          >
-            {!list.some((w) => w.id === id) && <option value="">{`${id} (unsaved)`}</option>}
-            {list.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!empty && (
+          <label>
+            Rite
+            <select
+              aria-label="Rite"
+              value={list.some((w) => w.id === id) ? id : ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  open(e.target.value).catch(() => setFailed('That Rite could not be loaded.'))
+                }
+              }}
+            >
+              {!list.some((w) => w.id === id) && <option value="">{`${id} (unsaved)`}</option>}
+              {list.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {wide && (
           <>
             <label>
@@ -575,202 +603,228 @@ export function RitePanel({
         <button type="button" className="btn-primary" disabled={!canRun} onClick={startRun}>
           Run
         </button>
-        <label>
-          <input
-            type="checkbox"
-            aria-label="Show archived"
-            checked={showArchived}
-            onChange={(e) => toggleArchived(e.target.checked)}
-          />{' '}
+        <PixelButton
+          aria-label="Show archived"
+          aria-pressed={showArchived}
+          onClick={() => toggleArchived(!showArchived)}
+        >
+          <span className="px-cursor" aria-hidden="true">
+            {showArchived ? '\u25B6' : '\u25B7'}
+          </span>
           Archived
-        </label>
+        </PixelButton>
         {wide && archivedView && (
           <button type="button" onClick={unarchive}>
             Unarchive
           </button>
         )}
         {wide && !archivedView && version > 0 && !confirmingArchive && (
-          <button type="button" onClick={() => setConfirmingArchive(true)}>
+          <button ref={archiveButton} type="button" onClick={() => setConfirmingArchive(true)}>
             Archive
           </button>
         )}
       </div>
       {confirmingArchive && (
-        <p role="alert" className="builder-pending">
-          {`Archive ${name}? It leaves the list and cannot run until restored.`}{' '}
-          <button type="button" className="btn-primary" onClick={archive}>
-            {`Archive ${name}`}
-          </button>{' '}
-          <button type="button" onClick={() => setConfirmingArchive(false)}>
-            Cancel
-          </button>
-        </p>
-      )}
-      <p className="muted">
-        <span
-          data-testid="rite-chip"
-          className={`badge ${riteChip(status, dirty) === 'Live' ? 'badge-ok' : 'badge-warn'}`}
+        <div
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation()
+            }
+          }}
         >
-          {riteChip(status, dirty)}
-        </span>{' '}
-        {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
-      </p>
-      {wide && (
-        <Palette
-          label="Palette"
-          pieces={paletteTypes().map((type) => ({
-            id: type,
-            label: `Add ${type}`,
-            glyph: type.replace(/^trigger\./, '').slice(0, 4),
-          }))}
-          dragType={NODE_PIECE}
-          onAdd={dropType}
-        />
-      )}
-      {split.graphLevel.length > 0 && (
-        <ul aria-label="Graph problems">
-          {split.graphLevel.map((text) => (
-            <li key={text} role="alert" className="error-text">
-              {text}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="builder-body">
-        <Canvas
-          graph={draft}
-          places={places}
-          issues={split.byNode}
-          overlay={overlay}
-          selected={selected}
-          readOnly={!wide}
-          onSelect={setSelected}
-          onConnect={(from, to) => edit(connect(draft, from, to))}
-          onMove={(nodeId, place) => setPositions(new Map(positions).set(nodeId, place))}
-          onDropType={dropType}
-        />
-        {wide && (
-          <Inspector
-            graph={draft}
-            selected={selected}
-            halls={halls}
-            onChange={edit}
-            onSelect={setSelected}
+          <YesNo
+            safe="no"
+            safeFirst
+            question={`Archive ${savedName ?? name}? It leaves the list and cannot run until restored.`}
+            onAnswer={(yes) => {
+              if (yes) {
+                archive()
+              } else {
+                setConfirmingArchive(false)
+                setRefocus(true)
+              }
+            }}
           />
-        )}
-      </div>
-      <details open className="builder-outline">
-        <summary>Nodes (keyboard access to every node)</summary>
-        <ul className="outline" aria-label="Nodes">
-          {draft.nodes.map((n) => (
-            <OutlineRow
-              key={n.id}
-              id={n.id}
-              label={labelOf(n.id)}
-              type={n.type}
-              issues={split.byNode.get(n.id) ?? []}
-              overlay={overlay.get(n.id)}
-              selected={selected === n.id}
-              onSelect={setSelected}
+        </div>
+      )}
+      {empty ? (
+        <EmptyState member="steward" line="No Rites yet. Name a new Rite id above to start one." />
+      ) : (
+        <>
+          <p className="muted">
+            <span
+              data-testid="rite-chip"
+              className={`badge ${riteChip(status, dirty) === 'Live' ? 'badge-ok' : 'badge-warn'}`}
+            >
+              {riteChip(status, dirty)}
+            </span>{' '}
+            {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
+          </p>
+          {wide && (
+            <Palette
+              label="Palette"
+              pieces={paletteTypes().map((type) => ({
+                id: type,
+                label: `Add ${type}`,
+                glyph: type.replace(/^trigger\./, '').slice(0, 4),
+              }))}
+              dragType={NODE_PIECE}
+              onAdd={dropType}
             />
-          ))}
-        </ul>
-      </details>
-      {wide && (
-        <div className="actions builder-save">
-          <label>
-            Name
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <p role="status" className={dirty ? 'unsaved' : 'muted'}>
-            {dirty ? 'Unsaved changes' : 'No unsaved changes'}
-          </p>
-          <button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
-            Save draft
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={dirty || status !== 'draft'}
-            onClick={publish}
-          >
-            Publish
-          </button>
-          <button
-            type="button"
-            disabled={!dirty || saved === null}
-            onClick={() => saved && edit(saved)}
-          >
-            Discard
-          </button>
-        </div>
-      )}
-      {pending && (
-        <div role="alert" className="builder-pending">
-          <p>
-            Version {pending.version} is a {pending.classification} change, so it is stored but not
-            in force until you confirm it with your passkey.
-          </p>
-          <button type="button" className="btn-primary" onClick={confirm}>
-            Confirm with passkey
-          </button>
-        </div>
-      )}
-      {message && <p role="status">{message}</p>}
-      {failed && (
-        <p role="alert" className="error-text">
-          {failed}
-        </p>
-      )}
-      <section aria-labelledby="wf-history-heading">
-        <h3 id="wf-history-heading" className="sub-title">
-          Version history
-        </h3>
-        <ul aria-label="Versions">
-          {versions.map((row) => {
-            const open = expanded.includes(row.version)
-            const active = versions.find((v) => v.version === activeVersion) ?? fetchedActive
-            const lines =
-              active && active.version !== row.version
-                ? describeDiff(diffGraphs(active.graph, row.graph))
-                : []
-            return (
-              <li key={row.version} className="item">
-                Version {row.version}: {row.classification}, {row.status}{' '}
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() =>
-                    setExpanded(
-                      open ? expanded.filter((v) => v !== row.version) : [...expanded, row.version]
-                    )
-                  }
-                >
-                  {`${open ? 'Hide' : 'Show'} changes in version ${row.version}`}
-                </button>{' '}
-                {wide && (
-                  <button type="button" onClick={() => restore(row)}>
-                    {`Restore version ${row.version}`}
-                  </button>
-                )}
-                {open && (
-                  <ul aria-label={`Changes in version ${row.version}`} className="muted">
-                    {row.version === activeVersion ? (
-                      <li>This is the version in force.</li>
-                    ) : !active ? (
-                      <li>No version is in force yet, so there is nothing to compare.</li>
-                    ) : lines.length === 0 ? (
-                      <li>No changes from the version in force.</li>
-                    ) : (
-                      lines.map((line) => <li key={line}>{line}</li>)
+          )}
+          {split.graphLevel.length > 0 && (
+            <ul aria-label="Graph problems">
+              {split.graphLevel.map((text) => (
+                <li key={text} role="alert" className="error-text">
+                  {text}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="builder-body">
+            <Canvas
+              graph={draft}
+              places={places}
+              issues={split.byNode}
+              overlay={overlay}
+              selected={selected}
+              readOnly={!wide}
+              onSelect={setSelected}
+              onConnect={(from, to) => edit(connect(draft, from, to))}
+              onMove={(nodeId, place) => setPositions(new Map(positions).set(nodeId, place))}
+              onDropType={dropType}
+            />
+            {wide && (
+              <Inspector
+                graph={draft}
+                selected={selected}
+                halls={halls}
+                onChange={edit}
+                onSelect={setSelected}
+              />
+            )}
+          </div>
+          <details open className="builder-outline">
+            <summary>Nodes (keyboard access to every node)</summary>
+            <ul className="outline" aria-label="Nodes">
+              {draft.nodes.map((n) => (
+                <OutlineRow
+                  key={n.id}
+                  id={n.id}
+                  label={labelOf(n.id)}
+                  type={n.type}
+                  issues={split.byNode.get(n.id) ?? []}
+                  overlay={overlay.get(n.id)}
+                  selected={selected === n.id}
+                  onSelect={setSelected}
+                />
+              ))}
+            </ul>
+          </details>
+          {wide && (
+            <div className="actions builder-save">
+              <label>
+                Name
+                <input value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <p role="status" className={dirty ? 'unsaved' : 'muted'}>
+                {dirty ? 'Unsaved changes' : 'No unsaved changes'}
+              </p>
+              <button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
+                Save draft
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={dirty || status !== 'draft'}
+                onClick={publish}
+              >
+                Publish
+              </button>
+              <button
+                type="button"
+                disabled={!dirty || saved === null}
+                onClick={() => saved && edit(saved)}
+              >
+                Discard
+              </button>
+            </div>
+          )}
+          {pending && (
+            <div role="alert" className="builder-pending">
+              <p>
+                Version {pending.version} is a {pending.classification} change, so it is stored but
+                not in force until you confirm it with your passkey.
+              </p>
+              <button type="button" className="btn-primary" onClick={confirm}>
+                Confirm with passkey
+              </button>
+            </div>
+          )}
+          {message && <p role="status">{message}</p>}
+          {failed && (
+            <p role="alert" className="error-text">
+              {failed}
+            </p>
+          )}
+          <section aria-labelledby="wf-history-heading">
+            <h3 id="wf-history-heading" className="sub-title">
+              Version history
+            </h3>
+            <ul aria-label="Versions">
+              {versions.map((row) => {
+                const open = expanded.includes(row.version)
+                const active = versions.find((v) => v.version === activeVersion) ?? fetchedActive
+                const lines =
+                  active && active.version !== row.version
+                    ? describeDiff(diffGraphs(active.graph, row.graph))
+                    : []
+                return (
+                  <li key={row.version} className="item">
+                    Version {row.version}:{' '}
+                    {row.status === 'pending' &&
+                    activeVersion !== null &&
+                    row.version < activeVersion
+                      ? 'stale \u2014 save and publish a new draft to change this Rite'
+                      : `${row.classification}, ${row.status}`}{' '}
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() =>
+                        setExpanded(
+                          open
+                            ? expanded.filter((v) => v !== row.version)
+                            : [...expanded, row.version]
+                        )
+                      }
+                    >
+                      {`${open ? 'Hide' : 'Show'} changes in version ${row.version}`}
+                    </button>{' '}
+                    {wide && (
+                      <button type="button" onClick={() => restore(row)}>
+                        {`Restore version ${row.version}`}
+                      </button>
                     )}
-                  </ul>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </section>
+                    {open && (
+                      <ul aria-label={`Changes in version ${row.version}`} className="muted">
+                        {row.version === activeVersion ? (
+                          <li>This is the version in force.</li>
+                        ) : !active ? (
+                          <li>No version is in force yet, so there is nothing to compare.</li>
+                        ) : lines.length === 0 ? (
+                          <li>No changes from the version in force.</li>
+                        ) : (
+                          lines.map((line) => <li key={line}>{line}</li>)
+                        )}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        </>
+      )}
     </section>
   )
 }

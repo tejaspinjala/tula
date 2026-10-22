@@ -159,7 +159,9 @@ export function versionLine(version: number, activeVersion: number | null): stri
     ? 'Not saved yet.'
     : activeVersion === null
       ? `Version ${version}, not yet in force.`
-      : `Version ${version} of ${activeVersion} in force.`
+      : version === activeVersion
+        ? `Viewing v${version}, in force`
+        : `Viewing v${version} \u00b7 v${activeVersion} in force`
 }
 
 /** What the editor chip says about the version on screen: unsaved edits and drafts are a Draft. */

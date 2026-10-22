@@ -234,7 +234,7 @@ async function click(host: HTMLElement, name: string) {
   const found = [...host.querySelectorAll<HTMLElement>('button, [role="option"]')].find(
     (b) =>
       (b.getAttribute('role') === 'option'
-        ? b.getAttribute('aria-label')
+        ? (b.getAttribute('aria-label') ?? b.textContent?.trim())
         : b.textContent?.trim()) === name
   )
   if (!found) {

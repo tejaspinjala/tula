@@ -119,6 +119,7 @@
   min-width: 0;
   min-height: 0;
   border: var(--px) solid var(--px-ink);
+  border-radius: 0;
   background: var(--px-gold-500);
 }
 
@@ -188,7 +189,8 @@
   top: calc(var(--px) * 4);
   right: calc(var(--px) * 4);
   margin: 0;
-  white-space: nowrap;
+  max-width: calc(100% - var(--px) * 8);
+  box-sizing: border-box;
   padding: calc(var(--px) * 2) calc(var(--px) * 3);
   border: calc(var(--px) * 2) solid var(--px-ink);
   background: var(--px-paper);
