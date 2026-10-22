@@ -681,3 +681,22 @@ describe('strict on write, tolerant on read', () => {
     expect(seen).toHaveLength(1)
   })
 })
+
+describe('routing profile order carries authority', () => {
+  const two = (order: readonly string[]): GuildConfig => ({
+    ...defaultConfig(),
+    providers: [
+      { id: 'a', auth: 'api_key', privateEligible: false },
+      { id: 'b', auth: 'api_key', privateEligible: false },
+    ],
+    routingProfiles: order.map((id) => ({ id, provider: id, tier: 'mid' as const })),
+  })
+
+  test('swapping two surviving profiles is widening', () => {
+    expect(classifyChange(two(['a', 'b']), two(['b', 'a']))).toBe('widening')
+  })
+
+  test('removing a profile while the rest keep their order is tightening', () => {
+    expect(classifyChange(two(['a', 'b']), two(['b']))).toBe('tightening')
+  })
+})

@@ -1,11 +1,18 @@
 import { expect, test } from 'bun:test'
 import { parseConfig } from './builder/model'
 import {
+  changeRouting,
   describePrivateDestination,
   loadProviderStatus,
+  profilesOf,
   providersOf,
   setProviderPrivate,
+  withDefaultProfile,
+  withoutProfile,
+  withoutProvider,
   withPrivateEligible,
+  withProfile,
+  withProvider,
 } from './providers'
 
 const self = { hosted: false, vendor: 'Anthropic' }
@@ -164,6 +171,82 @@ test('a stale save is rejected and nothing is confirmed', async () => {
   const { seen, fetcher, browser } = fakes({ status: 409, body: { error: 'stale' } })
   await expect(setProviderPrivate(sess, 'anthropic', true, fetcher, browser)).rejects.toMatchObject(
     { code: 'stale' }
+  )
+  expect(seen).toEqual([`GET ${cfg}`, `PUT ${cfg}`])
+})
+
+const empty = parseConfig({ steward: { id: 's', name: 'S' }, halls: [], sealPolicy: 'always' })
+
+test('adding a provider and profiles keeps every other key and the order of profiles', () => {
+  const withKey = withProvider(empty, { id: 'anthropic', auth: 'api_key' })
+  expect(providersOf(withKey)).toEqual([
+    { id: 'anthropic', auth: 'api_key', privateEligible: false },
+  ])
+  const one = withProfile(withKey, { id: 'main', provider: 'anthropic', tier: 'mid' })
+  const two = withProfile(one, { id: 'deep', provider: 'anthropic', tier: 'deep', model: 'm' })
+  expect(profilesOf(two).map((p) => p.id)).toEqual(['main', 'deep'])
+  expect(two.sealPolicy).toBe('always')
+  const replaced = withProfile(two, { id: 'main', provider: 'anthropic', tier: 'cheap' })
+  expect(profilesOf(replaced).map((p) => [p.id, p.tier])).toEqual([
+    ['main', 'cheap'],
+    ['deep', 'deep'],
+  ])
+})
+
+test('a provider already named cannot be added twice', () => {
+  const once = withProvider(empty, { id: 'anthropic', auth: 'api_key' })
+  expect(providersOf(withProvider(once, { id: 'anthropic', auth: 'subscription' }))).toHaveLength(1)
+})
+
+test('removing a provider removes the profiles that named it; removing a profile leaves the provider', () => {
+  const full = withProfile(withProvider(empty, { id: 'a', auth: 'api_key' }), {
+    id: 'p',
+    provider: 'a',
+    tier: 'mid',
+  })
+  expect(providersOf(withoutProfile(full, 'p'))).toHaveLength(1)
+  expect(profilesOf(withoutProfile(full, 'p'))).toEqual([])
+  expect(providersOf(withoutProvider(full, 'a'))).toEqual([])
+  expect(profilesOf(withoutProvider(full, 'a'))).toEqual([])
+})
+
+test('making a profile the default moves it first and changes nothing else', () => {
+  let c = withProvider(empty, { id: 'a', auth: 'api_key' })
+  c = withProfile(c, { id: 'x', provider: 'a', tier: 'mid' })
+  c = withProfile(c, { id: 'y', provider: 'a', tier: 'deep' })
+  const next = withDefaultProfile(c, 'y')
+  expect(profilesOf(next).map((p) => p.id)).toEqual(['y', 'x'])
+  expect(withDefaultProfile(c, 'nope')).toEqual(c)
+})
+
+test('a widening routing change is saved pending, then confirmed with the passkey', async () => {
+  const { seen, puts, fetcher, browser } = fakes({
+    status: 202,
+    body: { version: 3, status: 'pending', change: 'widening' },
+  })
+  const done = await changeRouting(
+    sess,
+    (c) =>
+      withProfile(withProvider(c, { id: 'new', auth: 'api_key' }), {
+        id: 'p',
+        provider: 'new',
+        tier: 'mid',
+      }),
+    fetcher,
+    browser
+  )
+  expect(done).toBe('confirmed')
+  expect(seen.at(-1)).toBe(`POST ${cfg}/versions/3/confirm`)
+  expect(JSON.stringify(puts[0])).toContain('"baseVersion":2')
+})
+
+test('a narrowing routing change applies at once and never asks for the passkey', async () => {
+  const { seen, fetcher, browser } = fakes({
+    status: 200,
+    body: { version: 3, status: 'applied', change: 'tightening' },
+  })
+  expect(await changeRouting(sess, (c) => withoutProvider(c, 'anthropic'), fetcher, browser)).toBe(
+    'applied'
   )
   expect(seen).toEqual([`GET ${cfg}`, `PUT ${cfg}`])
 })

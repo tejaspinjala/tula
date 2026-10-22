@@ -308,6 +308,11 @@ export interface QuestQueue {
    * Idempotent: a repeat for the same delivery changes nothing.
    */
   releaseClaim(guildId: string, id: string, attempt: number, notBefore: Date): Promise<Quest>
+  /**
+   * Ends every routing wait of the guild at once (`notBefore` becomes now), so a config change is
+   * tried without waiting out the backoff; returns how many Quests it woke. Idempotent; attempts untouched.
+   */
+  wakeRoutingWaits(guildId: string): Promise<number>
   /** Refunds every attempt of the Hall's open Quests, so a resume starts its loop count from zero; returns how many Quests changed. */
   forgiveRepeats(guildId: string, hallId: string): Promise<number>
   /**

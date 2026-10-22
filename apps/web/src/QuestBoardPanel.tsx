@@ -12,6 +12,7 @@ import {
   inCampaign,
   isPrivateQuest,
   loadQuests,
+  needsRoutingSetup,
   postQuest,
   QUEST_TEMPLATES,
   questStreamUrl,
@@ -35,7 +36,14 @@ const COLUMN_NAMES: Record<BoardQuest['state'], string> = {
  * The Quest Board in the ledger view: Quests by state, kept live from the event stream. Every
  * Quest event (and each reconnect) reloads the list; dead-lettered Quests have their own column.
  */
-export function QuestBoardPanel({ session }: { session: Session | null }) {
+export function QuestBoardPanel({
+  session,
+  onSetupRouting,
+}: {
+  session: Session | null
+  /** Opens Settings, where providers and routing profiles are added. */
+  onSetupRouting?: (() => void) | undefined
+}) {
   const [quests, setQuests] = useState<BoardQuest[]>([])
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -266,6 +274,9 @@ export function QuestBoardPanel({ session }: { session: Session | null }) {
                     <strong>{quest.title}</strong>
                     {isPrivateQuest(quest) && <Badge tone="private">Private</Badge>}
                     {waitingReason(quest) && <div>{waitingReason(quest)}</div>}
+                    {onSetupRouting && needsRoutingSetup(quest) && (
+                      <PixelButton onClick={onSetupRouting}>▶ Set up routing</PixelButton>
+                    )}
                     <div>
                       {quest.hallId} / {quest.ownerId}
                     </div>

@@ -420,6 +420,31 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(await queue.get(g, b.quest.id)).toMatchObject({ attempts: 2, refunds: 0 })
     })
 
+    test('waking routing waits makes only the routing-blocked Quests of that guild deliverable now', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const waiting = await queue.post(g, quest())
+      const failing = await queue.post(g, quest())
+      const elsewhere = await queue.post(other, quest())
+      const later = new Date(clock.now().getTime() + 3_600_000)
+      for (const [guild, q] of [
+        [g, waiting.quest],
+        [other, elsewhere.quest],
+      ] as const) {
+        const claimed = await queue.claim(guild, { ...LEASE, questId: q.id })
+        await queue.releaseClaim(guild, q.id, claimed?.attempts ?? 0, later)
+      }
+      const crashed = await queue.claim(g, { ...LEASE, questId: failing.quest.id })
+      await queue.fail(g, failing.quest.id, crashed?.attempts ?? 0, 'timeout')
+      const failedAt = (await queue.get(g, failing.quest.id))?.notBefore
+      expect(await queue.wakeRoutingWaits(g)).toBe(1)
+      expect((await queue.get(g, waiting.quest.id))?.notBefore).toBe(clock.now().toISOString())
+      expect((await queue.get(g, failing.quest.id))?.notBefore).toBe(failedAt)
+      expect((await queue.get(other, elsewhere.quest.id))?.notBefore).toBe(later.toISOString())
+      expect(await queue.wakeRoutingWaits(g)).toBe(0)
+    })
+
     test('a Quest whose lease lapses past its attempts is dead-lettered, not leased again', async () => {
       const { queue, clock, events, newGuild } = await make()
       const g = await newGuild()

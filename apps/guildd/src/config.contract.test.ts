@@ -231,6 +231,122 @@ describe('provider private eligibility over HTTP', () => {
   })
 })
 
+describe('providers and routing profiles over HTTP', () => {
+  const provider = { id: 'anthropic', auth: 'api_key' as const, privateEligible: false }
+  const profile: { id: string; provider: string; tier: 'cheap' | 'mid' | 'deep' } = {
+    id: 'main',
+    provider: 'anthropic',
+    tier: 'mid',
+  }
+  const withRouting = (profiles: readonly (typeof profile)[]) => ({
+    ...defaultConfig(),
+    providers: [provider],
+    routingProfiles: [...profiles],
+  })
+
+  test('a new provider with a profile is pending until a passkey confirm; removing the profile applies at once', async () => {
+    const who = await signedIn()
+    const added = await who.put(withRouting([profile]))
+    expect(added.status).toBe(202)
+    expect(outcome.parse(await added.json())).toMatchObject({
+      status: 'pending',
+      change: 'widening',
+    })
+    expect((await who.current()).config.providers).toEqual([])
+    const confirm = `${who.base}/config/versions/2/confirm`
+    expect((await send(harness, 'POST', confirm, {}, who.auth)).status).toBe(403)
+    const ok = await send(
+      harness,
+      'POST',
+      confirm,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect(ok.status).toBe(200)
+    expect((await who.current()).config.routingProfiles).toEqual([profile])
+    const removed = await who.put(withRouting([]))
+    expect(removed.status).toBe(200)
+    expect(outcome.parse(await removed.json())).toMatchObject({
+      status: 'applied',
+      change: 'tightening',
+    })
+    expect((await who.current()).config.routingProfiles).toEqual([])
+  })
+
+  test('a profile that widens an existing one (a deeper tier) is pending, a stale base is 409', async () => {
+    const who = await signedIn()
+    await who.put(withRouting([profile]))
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/2/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    const deeper = await who.put(withRouting([{ ...profile, tier: 'deep' }]))
+    expect(deeper.status).toBe(202)
+    const stale = await send(
+      harness,
+      'PUT',
+      `${who.base}/config`,
+      { config: withRouting([]), baseVersion: 1 },
+      who.auth
+    )
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'stale' })
+  })
+
+  test('swapping two confirmed same-tier profiles is pending widening until a passkey confirm', async () => {
+    const who = await signedIn()
+    const two = (order: readonly string[]) => ({
+      ...defaultConfig(),
+      providers: [
+        { id: 'a', auth: 'api_key' as const, privateEligible: false },
+        { id: 'b', auth: 'api_key' as const, privateEligible: false },
+      ],
+      routingProfiles: order.map((id) => ({ id, provider: id, tier: 'mid' as const })),
+    })
+    await who.put(two(['a', 'b']))
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/2/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    const swapped = await who.put(two(['b', 'a']))
+    expect(swapped.status).toBe(202)
+    expect(outcome.parse(await swapped.json())).toMatchObject({
+      status: 'pending',
+      change: 'widening',
+    })
+    expect((await who.current()).config.routingProfiles.map((p) => p.id)).toEqual(['a', 'b'])
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/3/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect((await who.current()).config.routingProfiles.map((p) => p.id)).toEqual(['b', 'a'])
+  })
+
+  test("another guild cannot add a provider to this guild's config", async () => {
+    const first = await signedIn()
+    const second = await signedIn()
+    const write = await send(
+      harness,
+      'PUT',
+      `${first.base}/config`,
+      { config: withRouting([profile]), baseVersion: 1 },
+      second.auth
+    )
+    expect(write.status).toBe(404)
+    expect((await first.current()).config.providers).toEqual([])
+    expect((await second.current()).config.providers).toEqual([])
+  })
+})
+
 describe('config PUT with a base version', () => {
   test('a change made after the caller read the config is refused as stale, not clobbered', async () => {
     const who = await signedIn()
