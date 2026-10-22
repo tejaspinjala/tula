@@ -23,7 +23,7 @@ export interface CursorMenuProps {
 
 /**
  * A ▶ cursor menu: a listbox with a roving tabindex. Up/Down wrap, Home/End jump, Enter selects,
- * Esc or Backspace goes back. Hovering a row moves the cursor; the selected row shows the ▶.
+ * Esc or Backspace goes back. Hovering a row moves the cursor, but only after a real pointermove (a pointer resting under a freshly opened menu never steals it); the selected row shows the ▶.
  */
 export function CursorMenu({
   label,
@@ -35,6 +35,8 @@ export function CursorMenu({
   onKey,
 }: CursorMenuProps) {
   const [cursor, setCursor] = useState(initial)
+  const pointerMoved = useRef(false)
+  const hovered = useRef<number | null>(null)
   const rows = useRef<(HTMLDivElement | null)[]>([])
 
   const startFocused = useRef(false)
@@ -92,7 +94,17 @@ export function CursorMenu({
   }
 
   return (
-    <div className="px-menu" role="listbox" aria-label={label}>
+    <div
+      className="px-menu"
+      role="listbox"
+      aria-label={label}
+      onPointerMove={() => {
+        pointerMoved.current = true
+        if (hovered.current !== null) {
+          setCursor(hovered.current)
+        }
+      }}
+    >
       {items.map((item, index) => (
         <div
           key={item.id}
@@ -106,7 +118,12 @@ export function CursorMenu({
           tabIndex={index === cursor ? 0 : -1}
           onKeyDown={onKeyDown}
           onFocus={() => setCursor(index)}
-          onMouseOver={() => setCursor(index)}
+          onMouseOver={() => {
+            hovered.current = index
+            if (pointerMoved.current) {
+              setCursor(index)
+            }
+          }}
           onClick={() => {
             setCursor(index)
             choose(index)

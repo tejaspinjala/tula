@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { act } from 'react'
 
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { YesNo } = await import('./YesNo')
@@ -67,5 +68,35 @@ test('Esc declines', async () => {
   }
   await press(row, 'Escape')
   expect(answers).toEqual([false])
+  await m.unmount()
+})
+
+test('a pointer already resting on Yes when the menu opens does not steal the cursor', async () => {
+  const { m, answers, options, selected } = await show('no')
+  const yes = options()[0]
+  const row = selected()
+  if (!yes || !row) {
+    throw new Error('no rows')
+  }
+  await act(async () => {
+    yes.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  expect(selected()?.textContent).toBe('No')
+  await press(row, 'Enter')
+  expect(answers).toEqual([false])
+  await m.unmount()
+})
+
+test('a real pointermove then a hover moves the cursor', async () => {
+  const { m, options, selected } = await show('no')
+  const yes = options()[0]
+  if (!yes) {
+    throw new Error('no rows')
+  }
+  await act(async () => {
+    yes.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
+    yes.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  expect(selected()?.textContent).toBe('Yes')
   await m.unmount()
 })

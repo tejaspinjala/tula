@@ -1,18 +1,79 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  type ArchiveExport,
   type ArchiveNote,
   type ArchiveNoteDetail,
   addNote,
+  exportArchive,
   listNotes,
   readNote,
   searchNotes,
 } from './archive'
-import { PasskeyRequestError, type Session } from './passkeys'
+import type { Fetcher } from './artifacts'
+import { type PasskeyBrowser, PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import { PixelButton } from './ui/pixel'
 import { WorkSection } from './WorkSection'
 
+// One stable function: a fresh default per render would be a new prop every time.
+const liveFetch: Fetcher = (url, init) => fetch(url, init)
+
+/** Saves the zip through a temporary link. */
+function browserDownload(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+const notes = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`
+
+/** The plain-language outcome of an export. */
+function outcomeLine(counts: ArchiveExport['counts']): string {
+  return counts.privateIncluded > 0
+    ? `Exported ${notes(counts.exported)}, ${counts.privateIncluded} of them private.`
+    : `Exported ${notes(counts.exported)}; ${counts.privateLeftOut} private ${counts.privateLeftOut === 1 ? 'note' : 'notes'} left out.`
+}
+
+/** A plain message for a refused or failed export. */
+function exportFailure(error: unknown): string {
+  if (!(error instanceof PasskeyRequestError)) {
+    return 'The export failed. Try again.'
+  }
+  if (error.status === 401) {
+    return 'Sign in again to export the Archive.'
+  }
+  if (error.status === 403) {
+    return 'Confirm with your passkey to include private notes, then try again.'
+  }
+  if (error.status === 413) {
+    return 'The Archive is too large to export in one zip.'
+  }
+  if (error.status === 429) {
+    return 'Too many exports. Wait a moment and try again.'
+  }
+  return `The export was refused: ${error.code}.`
+}
+
 /** The Archive screen: add text or link notes, search them, and read versions and backlinks. */
-export function ArchivePanel({ session }: { session: Session | null }) {
+export function ArchivePanel({
+  session,
+  fetcher = liveFetch,
+  browser = webAuthnBrowser,
+  download = browserDownload,
+}: {
+  session: Session | null
+  fetcher?: Fetcher
+  browser?: PasskeyBrowser
+  download?: (filename: string, blob: Blob) => void
+}) {
+  const [includePrivate, setIncludePrivate] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const exportingRef = useRef(false)
+  const statusRef = useRef<HTMLParagraphElement>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [kind, setKind] = useState<'text' | 'link'>('text')
@@ -35,6 +96,32 @@ export function ArchivePanel({ session }: { session: Session | null }) {
       setMessage(
         error instanceof PasskeyRequestError ? `${label} refused: ${error.code}` : `${label} failed`
       )
+    }
+  }
+
+  useEffect(() => {
+    if (message) {
+      statusRef.current?.scrollIntoView?.({ block: 'nearest' })
+    }
+  }, [message])
+
+  async function runExport(current: Session) {
+    if (exportingRef.current) {
+      return
+    }
+    exportingRef.current = true
+    setExporting(true)
+    setMessage('Exporting...')
+    try {
+      const out = await exportArchive(current, includePrivate, fetcher, browser)
+      download(out.filename, out.blob)
+      setMessage(outcomeLine(out.counts))
+    } catch (error) {
+      setMessage(exportFailure(error))
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+      setIncludePrivate(false)
     }
   }
 
@@ -116,6 +203,22 @@ export function ArchivePanel({ session }: { session: Session | null }) {
               Add note
             </PixelButton>
           </form>
+          <div className="flex flex-wrap gap-2">
+            <PixelButton
+              aria-pressed={includePrivate}
+              onClick={() => setIncludePrivate((on) => !on)}
+            >
+              Include private notes
+            </PixelButton>
+            <PixelButton disabled={exporting} onClick={() => runExport(session)}>
+              Export archive
+            </PixelButton>
+          </div>
+          <p className="text-sm">
+            {includePrivate
+              ? 'Private notes will be included; your passkey confirms it.'
+              : 'Private notes stay out of the export.'}
+          </p>
           <label htmlFor="note-search">Search notes</label>
           <div className="flex gap-2">
             <input
@@ -165,7 +268,7 @@ export function ArchivePanel({ session }: { session: Session | null }) {
               </ol>
             </article>
           ) : null}
-          <p role="status" aria-live="polite">
+          <p ref={statusRef} role="status" aria-live="polite">
             {message}
           </p>
         </div>

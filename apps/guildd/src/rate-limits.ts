@@ -42,6 +42,7 @@ export type RateRoute =
   | 'rite-read'
   | 'rite-write'
   | 'rite-run'
+  | 'archive-export'
 
 /** Limits for one route: per client address, and (for guild routes) per guild across all clients. */
 export interface RouteLimits {
@@ -137,6 +138,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   'rite-read': writeLimits(60, 240),
   'rite-write': writeLimits(20, 60),
   'rite-run': writeLimits(10, 30),
+  // An export reads every note and zips them: a few a minute is plenty.
+  'archive-export': writeLimits(3, 10),
   // Session-bearing routes have no guild in the path, so there is no guild bucket.
   reauth: {
     client: { limit: 30, windowMs: MINUTE },
@@ -278,4 +281,5 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'rite-read': 'session',
   'rite-write': 'session',
   'rite-run': 'session',
+  'archive-export': 'session',
 }

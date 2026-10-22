@@ -47,9 +47,10 @@ export async function click(target: Element): Promise<void> {
   })
 }
 
-/** Moves the pointer over `target` (mouseover then mouseenter) inside `act`. */
+/** Moves the pointer over `target` (pointermove, mouseover, mousemove) inside `act`. */
 export async function hover(target: Element): Promise<void> {
   await act(async () => {
+    target.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
     target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
   })

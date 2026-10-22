@@ -53,6 +53,8 @@ export interface Note extends NoteVersion {
   kind: NoteKind
   /** How sensitive the note is; `private` for a note filed by a private-class Quest. */
   dataClass: DataClass
+  /** The Hall the note is filed under; null for the Guild Master's own. */
+  hallId: string | null
 }
 
 /** A NoteLink seen from its target: the note that links in with `[[title]]`. */
@@ -100,16 +102,99 @@ export class NoteError extends Error {
   }
 }
 
-/** The `[[wiki link]]` targets in `text`, as normalised keys (trimmed, lower-cased, de-duplicated). */
-export function wikiLinks(text: string): string[] {
-  const keys = new Set<string>()
-  for (const m of text.matchAll(/\[\[([^[\]]+)\]\]/g)) {
-    const key = titleKey(m[1] ?? '')
-    if (key) {
-      keys.add(key)
+/** One `[[target#heading|alias]]` occurrence in a text; `start`/`end` are the source offsets of the whole link. */
+export interface WikiLink {
+  start: number
+  end: number
+  target: string
+  heading: string | null
+  alias: string | null
+}
+
+function balanced(text: string): boolean {
+  let depth = 0
+  for (const ch of text) {
+    depth += ch === '[' ? 1 : ch === ']' ? -1 : 0
+    if (depth < 0) {
+      return false
     }
   }
-  return [...keys]
+  return depth === 0
+}
+
+/** The target of a link body (before any `|alias` and `#heading`). */
+function targetOf(inner: string): string {
+  const head = inner.split('|')[0] ?? ''
+  return head.split('#')[0] ?? ''
+}
+
+/**
+ * The single wiki-link parser: each `]]` closes the innermost `[[` before it. `|alias` and then
+ * `#heading` / `#^block` are split off. Titles may contain brackets: when the `]]` is followed by
+ * more `]`, the target extended by them is also tried, preferring a title `known` to the caller,
+ * else the bracket-balanced reading. Links with an empty target are skipped.
+ */
+export function parseWikiLinks(text: string, known?: (key: string) => boolean): WikiLink[] {
+  const links: WikiLink[] = []
+  let from = 0
+  let scan = 0
+  for (;;) {
+    const found = text.indexOf(']]', scan)
+    if (found < 0) {
+      break
+    }
+    scan = found + 1
+    // The innermost link: the last `[[` before this `]]`, after the previous link's end.
+    const open = text.lastIndexOf('[[', found - 2)
+    if (open < from) {
+      continue
+    }
+    let extra = 0
+    while (text[found + 2 + extra] === ']') {
+      extra++
+    }
+    let close = found
+    const plain = text.slice(open + 2, found)
+    if (extra > 0 && !plain.includes('|') && !plain.includes('#')) {
+      const candidates: number[] = []
+      for (let k = extra; k >= 0; k--) {
+        candidates.push(k)
+      }
+      const inner = (k: number) => text.slice(open + 2, found + k)
+      const byKnown = known
+        ? candidates.find((k) => known(titleKey(targetOf(inner(k)))))
+        : undefined
+      const k =
+        byKnown ??
+        (balanced(inner(0)) ? 0 : candidates.reverse().find((c) => balanced(inner(c)))) ??
+        0
+      close = found + k
+    }
+    from = close + 2
+    scan = from
+    const inner = text.slice(open + 2, close)
+    const bar = inner.indexOf('|')
+    const alias = bar < 0 ? null : inner.slice(bar + 1)
+    const head = bar < 0 ? inner : inner.slice(0, bar)
+    const hash = head.indexOf('#')
+    const target = hash < 0 ? head : head.slice(0, hash)
+    if (!target.trim()) {
+      continue
+    }
+    links.push({
+      start: open,
+      end: close + 2,
+      target,
+      heading: hash < 0 ? null : head.slice(hash + 1),
+      alias,
+    })
+  }
+  return links
+}
+
+/** The `[[wiki link]]` target titles in `text`, as normalised keys (no alias or heading; trimmed, lower-cased, de-duplicated). */
+export function wikiLinks(text: string): string[] {
+  return [...new Set(parseWikiLinks(text).map((l) => titleKey(l.target)))]
 }
 
 /** The normalised key a note's title is linked by. */
@@ -186,6 +271,8 @@ export interface NoteStore {
   ): Promise<NoteDetail | null>
   /** Notes in id order, strictly after `after`, at most `limit`. */
   list(guildId: string, page: NotePaging): Promise<NotePage>
+  /** How many private notes the guild holds; a count only, never a title or body. */
+  countPrivate(guildId: string): Promise<number>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */
   search(guildId: string, query: string, page: NotePaging): Promise<NotePage>
 }

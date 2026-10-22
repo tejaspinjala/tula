@@ -86,6 +86,27 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.get(g, target.id))?.backlinks).toEqual([])
     })
 
+    test('countPrivate counts the private notes of one guild', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      expect(await store.countPrivate(g)).toBe(0)
+      await store.add(g, { ...fact, title: 'Open', body: 'x' })
+      await store.add(g, { ...fact, title: 'P1', body: 'x' }, undefined, undefined, 'private')
+      await store.add(g, { ...fact, title: 'P2', body: 'x' }, 'a', undefined, 'private')
+      await store.add(other, { ...fact, title: 'P3', body: 'x' }, undefined, undefined, 'private')
+      expect(await store.countPrivate(g)).toBe(2)
+      expect(await store.countPrivate(other)).toBe(1)
+    })
+
+    test('a note stored as [[T|alias]] or [[T#heading]] backlinks the target', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'T', body: 'x' })
+      const source = await store.add(g, { ...fact, title: 'Src', body: 'see [[T|alias]] [[T#h]]' })
+      expect((await store.get(g, target.id))?.backlinks).toEqual([{ id: source.id, title: 'Src' }])
+    })
+
     test('a link note stores a url', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
@@ -153,6 +174,20 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       const n = await store.add(g, { ...fact, title: 'Race', body: 'v1' })
       await Promise.all([store.edit(g, n.id, { body: 'v2' }), store.edit(g, n.id, { body: 'v3' })])
       expect((await store.get(g, n.id))?.versions.map((v) => v.version)).toEqual([1, 2, 3])
+    })
+
+    test('a listed note names the Hall it is filed under, or null for the Guild Master\u2019s own', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const filed = await store.add(g, { ...fact, title: 'Filed', body: 'x' }, 'eng')
+      const own = await store.add(g, { ...fact, title: 'Own', body: 'x' })
+      expect(filed.hallId).toBe('eng')
+      const listed = new Map(
+        (await store.list(g, { limit: 10 })).notes.map((n) => [n.id, n.hallId])
+      )
+      expect(listed.get(filed.id)).toBe('eng')
+      expect(listed.get(own.id)).toBeNull()
+      expect((await store.get(g, filed.id))?.note.hallId).toBe('eng')
     })
 
     test('a note filed under one Hall is invisible to another Hall\u2019s filter, whatever its title says', async () => {

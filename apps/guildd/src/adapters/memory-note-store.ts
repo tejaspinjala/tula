@@ -54,7 +54,13 @@ export class MemoryNoteStore implements NoteStore {
     const stored = keyed === undefined ? undefined : this.notes(guildId).get(keyed)
     const current = stored?.versions.at(-1)
     if (keyed !== undefined && stored && current) {
-      return { id: keyed, kind: stored.kind, dataClass: stored.dataClass, ...current }
+      return {
+        id: keyed,
+        kind: stored.kind,
+        dataClass: stored.dataClass,
+        hallId: stored.hall,
+        ...current,
+      }
     }
     const id = crypto.randomUUID()
     this.notes(guildId).set(id, {
@@ -66,7 +72,7 @@ export class MemoryNoteStore implements NoteStore {
     if (idempotencyKey !== undefined) {
       this.keyed.set(slot, id)
     }
-    return { id, kind: input.kind, dataClass, ...version }
+    return { id, kind: input.kind, dataClass, hallId: hallId ?? null, ...version }
   }
 
   async edit(guildId: string, id: string, changes: NoteChanges): Promise<Note> {
@@ -77,7 +83,7 @@ export class MemoryNoteStore implements NoteStore {
     }
     const version = nextVersion(mergeChanges(current, changes), current.version + 1)
     stored.versions.push(version)
-    return { id, kind: stored.kind, dataClass: stored.dataClass, ...version }
+    return { id, kind: stored.kind, dataClass: stored.dataClass, hallId: stored.hall, ...version }
   }
 
   async get(
@@ -111,7 +117,7 @@ export class MemoryNoteStore implements NoteStore {
     }
     backlinks.sort((a, b) => a.id.localeCompare(b.id))
     return {
-      note: { id, kind: stored.kind, dataClass: stored.dataClass, ...current },
+      note: { id, kind: stored.kind, dataClass: stored.dataClass, hallId: stored.hall, ...current },
       versions: [...stored.versions],
       backlinks,
     }
@@ -119,6 +125,16 @@ export class MemoryNoteStore implements NoteStore {
 
   async list(guildId: string, page: NotePaging): Promise<NotePage> {
     return this.page(guildId, page, () => true)
+  }
+
+  async countPrivate(guildId: string): Promise<number> {
+    let count = 0
+    for (const stored of this.notes(guildId).values()) {
+      if (stored.dataClass === 'private') {
+        count++
+      }
+    }
+    return count
   }
 
   async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
@@ -143,7 +159,13 @@ export class MemoryNoteStore implements NoteStore {
         (stored.dataClass !== 'private' || page.includePrivate === true) &&
         keep(current)
       ) {
-        matches.push({ id, kind: stored.kind, dataClass: stored.dataClass, ...current })
+        matches.push({
+          id,
+          kind: stored.kind,
+          dataClass: stored.dataClass,
+          hallId: stored.hall,
+          ...current,
+        })
       }
     }
     matches.sort((a, b) => (a.id < b.id ? -1 : 1))
