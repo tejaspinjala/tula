@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   type ArchiveExport,
   type ArchiveNote,
@@ -71,6 +71,9 @@ export function ArchivePanel({
   download?: (filename: string, blob: Blob) => void
 }) {
   const [includePrivate, setIncludePrivate] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const exportingRef = useRef(false)
+  const statusRef = useRef<HTMLParagraphElement>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [kind, setKind] = useState<'text' | 'link'>('text')
@@ -96,7 +99,18 @@ export function ArchivePanel({
     }
   }
 
+  useEffect(() => {
+    if (message) {
+      statusRef.current?.scrollIntoView?.({ block: 'nearest' })
+    }
+  }, [message])
+
   async function runExport(current: Session) {
+    if (exportingRef.current) {
+      return
+    }
+    exportingRef.current = true
+    setExporting(true)
     setMessage('Exporting...')
     try {
       const out = await exportArchive(current, includePrivate, fetcher, browser)
@@ -104,6 +118,10 @@ export function ArchivePanel({
       setMessage(outcomeLine(out.counts))
     } catch (error) {
       setMessage(exportFailure(error))
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+      setIncludePrivate(false)
     }
   }
 
@@ -192,7 +210,9 @@ export function ArchivePanel({
             >
               Include private notes
             </PixelButton>
-            <PixelButton onClick={() => runExport(session)}>Export archive</PixelButton>
+            <PixelButton disabled={exporting} onClick={() => runExport(session)}>
+              Export archive
+            </PixelButton>
           </div>
           <p className="text-sm">
             {includePrivate
@@ -248,7 +268,7 @@ export function ArchivePanel({
               </ol>
             </article>
           ) : null}
-          <p role="status" aria-live="polite">
+          <p ref={statusRef} role="status" aria-live="polite">
             {message}
           </p>
         </div>

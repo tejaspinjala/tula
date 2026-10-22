@@ -36,6 +36,7 @@ export function CursorMenu({
 }: CursorMenuProps) {
   const [cursor, setCursor] = useState(initial)
   const pointerMoved = useRef(false)
+  const hovered = useRef<number | null>(null)
   const rows = useRef<(HTMLDivElement | null)[]>([])
 
   const startFocused = useRef(false)
@@ -99,6 +100,9 @@ export function CursorMenu({
       aria-label={label}
       onPointerMove={() => {
         pointerMoved.current = true
+        if (hovered.current !== null) {
+          setCursor(hovered.current)
+        }
       }}
     >
       {items.map((item, index) => (
@@ -115,6 +119,7 @@ export function CursorMenu({
           onKeyDown={onKeyDown}
           onFocus={() => setCursor(index)}
           onMouseOver={() => {
+            hovered.current = index
             if (pointerMoved.current) {
               setCursor(index)
             }
