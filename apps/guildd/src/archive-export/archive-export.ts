@@ -62,6 +62,15 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/** Text that stays plain: any `[[` or `]]` collapses to a single bracket, so it can never form a link. */
+function plain(text: string): string {
+  let out = text
+  while (out.includes('[[') || out.includes(']]')) {
+    out = out.replaceAll('[[', '[').replaceAll(']]', ']')
+  }
+  return out
+}
+
 function aliasOf(title: string): string {
   return oneLine([...title].filter((ch) => !'|[]'.includes(ch)).join(''))
 }
@@ -104,8 +113,26 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
   const rewrite = (body: string): string => {
     let out = ''
     let at = 0
+    let fenced = false
+    // A gap is text between links. A dangling `[[Title|` naming a withheld title is withheld too;
+    // after a withheld or plain replacement, edge brackets are dropped so none can pair into `[[`.
+    const gap = (text: string): string => {
+      let t = fenced ? text.replace(/^\]+/, '') : text
+      for (let i = t.indexOf('[['); i >= 0; i = t.indexOf('[[', i + 2)) {
+        const name =
+          t
+            .slice(i + 2)
+            .split('|')[0]
+            ?.split('#')[0] ?? ''
+        if (withheld.has(titleKey(name))) {
+          t = `${t.slice(0, i)}[withheld]`
+          break
+        }
+      }
+      return plain(t)
+    }
     for (const link of parseWikiLinks(body)) {
-      out += body.slice(at, link.start)
+      out += gap(body.slice(at, link.start))
       at = link.end
       const key = titleKey(link.target)
       const target = byKey.get(key)
@@ -114,15 +141,14 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
         const label = link.alias === null ? '' : aliasOf(link.alias)
         const heading = link.heading === null ? '' : `#${oneLine(link.heading)}`
         out += `[[${path}${heading}|${label || aliasOf(target.title)}]]`
-      } else if (withheld.has(key)) {
-        out += '[withheld]'
+        fenced = false
       } else {
-        out += oneLine(link.alias ?? link.target)
-          .replaceAll('[[', '[')
-          .replaceAll(']]', ']')
+        out = out.replace(/\[+$/, '')
+        out += withheld.has(key) ? '[withheld]' : plain(oneLine(link.alias ?? link.target))
+        fenced = true
       }
     }
-    return out + body.slice(at)
+    return out + gap(body.slice(at))
   }
 
   const files: ExportFile[] = notes.map((n) => {
