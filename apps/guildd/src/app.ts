@@ -2494,13 +2494,20 @@ export function createApp(deps: AppDeps): Hono {
     if (!page.success) {
       return c.json({ error: 'invalid_page' }, 400)
     }
-    return c.json(
-      await deps.seals.list(who.guild, {
-        limit: page.data.limit,
-        ...(page.data.after ? { after: page.data.after } : {}),
-        ...(page.data.status ? { status: page.data.status } : {}),
-      })
+    const found = await deps.seals.list(who.guild, {
+      limit: page.data.limit,
+      ...(page.data.after ? { after: page.data.after } : {}),
+      ...(page.data.status ? { status: page.data.status } : {}),
+    })
+    const titles = await questTitles(
+      deps.quests,
+      who.guild,
+      found.seals.map((s) => s.questId)
     )
+    return c.json({
+      ...found,
+      seals: found.seals.map((s) => ({ ...s, questTitle: titles.get(s.questId) ?? null })),
+    })
   })
 
   app.get('/guilds/:id/seals/:sealId', async (c) => {
@@ -2510,7 +2517,11 @@ export function createApp(deps: AppDeps): Hono {
     }
     const id = uuid.safeParse(c.req.param('sealId'))
     const seal = id.success ? await deps.seals.get(who.guild, id.data) : null
-    return seal ? c.json(seal) : c.json({ error: 'not_found' }, 404)
+    if (!seal) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const titles = await questTitles(deps.quests, who.guild, [seal.questId])
+    return c.json({ ...seal, questTitle: titles.get(seal.questId) ?? null })
   })
 
   for (const [verb, verdict] of [

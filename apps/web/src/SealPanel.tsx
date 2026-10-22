@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, sealTone } from './Badge'
-import { shortenId } from './GuildId'
 import { PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import { enablePush } from './push'
 import { loadQuests } from './quests'
@@ -94,7 +93,11 @@ export function SealPanel({ session }: { session: Session | null }) {
   }, [session, refresh])
 
   function replace(updated: InboxSeal) {
-    setSeals((all) => all.map((s) => (s.id === updated.id ? updated : s)))
+    setSeals((all) =>
+      all.map((s) =>
+        s.id === updated.id ? { ...updated, questTitle: updated.questTitle ?? s.questTitle } : s
+      )
+    )
   }
 
   function markPostedButton(seal: InboxSeal) {
@@ -133,22 +136,31 @@ export function SealPanel({ session }: { session: Session | null }) {
   }
 
   function decide(seal: InboxSeal, verdict: 'approved' | 'denied') {
-    return run(verdict === 'approved' ? 'Stamp' : 'Deny', async (current) =>
-      replace(
-        await decideSeal(
-          current,
-          seal,
-          verdict,
-          verdict === 'denied' ? notes[seal.id]?.trim() || undefined : undefined,
-          fetch,
-          webAuthnBrowser
+    return run(verdict === 'approved' ? 'Stamp' : 'Deny', async (current) => {
+      // A denial settles at once and is put back if the server refuses it.
+      if (verdict === 'denied') {
+        replace({ ...seal, status: 'denied' })
+      }
+      try {
+        replace(
+          await decideSeal(
+            current,
+            seal,
+            verdict,
+            verdict === 'denied' ? notes[seal.id]?.trim() || undefined : undefined,
+            fetch,
+            webAuthnBrowser
+          )
         )
-      )
-    )
+      } catch (error) {
+        replace(seal)
+        throw error
+      }
+    })
   }
 
   function questName(seal: InboxSeal) {
-    return titles[seal.questId] ?? shortenId(seal.questId)
+    return seal.questTitle ?? titles[seal.questId] ?? 'Untitled Quest'
   }
 
   return (

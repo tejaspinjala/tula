@@ -271,6 +271,6 @@ test('Deny settles the Seal at once, and a failed Deny rolls it back with a mess
   })
   holdReauth = null
   expect(labels(host)).toContain('Deny with note')
-  expect(host.querySelector('[role="status"]')?.textContent).toContain('Deny failed')
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('Deny refused')
   await act(async () => root.unmount())
 })

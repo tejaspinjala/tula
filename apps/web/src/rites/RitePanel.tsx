@@ -560,7 +560,7 @@ export function RitePanel({
     attempt(async () => {
       await unarchiveRite(session, id, fetcher)
       await reload(false)
-      setMessage('Rite restored. Publish a version to put it in force again.')
+      setMessage('Rite restored. It must be published again to be in force.')
     })
   const toggleArchived = (archived: boolean) =>
     attempt(async () => {
@@ -639,15 +639,11 @@ export function RitePanel({
         <button type="button" className="btn-primary" disabled={!canRun} onClick={startRun}>
           Run
         </button>
-        <PixelButton
-          aria-label="Show archived"
-          aria-pressed={showArchived}
-          onClick={() => toggleArchived(!showArchived)}
-        >
+        <PixelButton onClick={() => toggleArchived(!showArchived)}>
           <span className="px-cursor" aria-hidden="true">
             {showArchived ? '\u25B6' : '\u25B7'}
           </span>
-          Archived
+          {showArchived ? 'Hide archived' : 'Show archived'}
         </PixelButton>
         {wide && archivedView && (
           <button type="button" onClick={unarchive}>
@@ -781,7 +777,14 @@ export function RitePanel({
               <button
                 type="button"
                 disabled={!dirty || saved === null}
-                onClick={() => saved && edit(saved)}
+                onClick={() => {
+                  if (saved) {
+                    edit(saved)
+                  }
+                  if (savedName !== null) {
+                    setName(savedName)
+                  }
+                }}
               >
                 Discard
               </button>
