@@ -111,25 +111,64 @@ export interface WikiLink {
   alias: string | null
 }
 
+function balanced(text: string): boolean {
+  let depth = 0
+  for (const ch of text) {
+    depth += ch === '[' ? 1 : ch === ']' ? -1 : 0
+    if (depth < 0) {
+      return false
+    }
+  }
+  return depth === 0
+}
+
+/** The target of a link body (before any `|alias` and `#heading`). */
+function targetOf(inner: string): string {
+  const head = inner.split('|')[0] ?? ''
+  return head.split('#')[0] ?? ''
+}
+
 /**
- * The single wiki-link parser: finds each `[[`, takes everything up to the next `]]`, splits off
- * `|alias` and then `#heading` / `#^block`. Titles may contain single brackets. Links with an
- * empty target are skipped.
+ * The single wiki-link parser: each `]]` closes the innermost `[[` before it. `|alias` and then
+ * `#heading` / `#^block` are split off. Titles may contain brackets: when the `]]` is followed by
+ * more `]`, the target extended by them is also tried, preferring a title `known` to the caller,
+ * else the bracket-balanced reading. Links with an empty target are skipped.
  */
-export function parseWikiLinks(text: string): WikiLink[] {
+export function parseWikiLinks(text: string, known?: (key: string) => boolean): WikiLink[] {
   const links: WikiLink[] = []
   let from = 0
   let scan = 0
   for (;;) {
-    const close = text.indexOf(']]', scan)
-    if (close < 0) {
+    const found = text.indexOf(']]', scan)
+    if (found < 0) {
       break
     }
-    scan = close + 1
+    scan = found + 1
     // The innermost link: the last `[[` before this `]]`, after the previous link's end.
-    const open = text.lastIndexOf('[[', close - 2)
+    const open = text.lastIndexOf('[[', found - 2)
     if (open < from) {
       continue
+    }
+    let extra = 0
+    while (text[found + 2 + extra] === ']') {
+      extra++
+    }
+    let close = found
+    const plain = text.slice(open + 2, found)
+    if (extra > 0 && !plain.includes('|') && !plain.includes('#')) {
+      const candidates: number[] = []
+      for (let k = extra; k >= 0; k--) {
+        candidates.push(k)
+      }
+      const inner = (k: number) => text.slice(open + 2, found + k)
+      const byKnown = known
+        ? candidates.find((k) => known(titleKey(targetOf(inner(k)))))
+        : undefined
+      const k =
+        byKnown ??
+        (balanced(inner(0)) ? 0 : candidates.reverse().find((c) => balanced(inner(c)))) ??
+        0
+      close = found + k
     }
     from = close + 2
     scan = from
