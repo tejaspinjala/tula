@@ -44,7 +44,7 @@ export interface BagProps {
   onSignOut: () => void
   /** Returns keyboard focus to the world. */
   focusWorld: () => void
-  /** Closes the Bag and opens the talk conversation with a Member (the Guild chat's Talk). */
+  /** Closes the Bag and opens the talk conversation with a Member (Missives' Talk). */
   onTalkTo?: ((memberId: string) => void) | undefined
   /** Reloads the Hall after the guild config changed (a Charter import). */
   onConfigChanged?: (() => void) | undefined

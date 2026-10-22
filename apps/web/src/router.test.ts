@@ -10,7 +10,7 @@ test('the Bag lists every page in menu order, ending with Settings', () => {
     'Guild builder',
     'Rites',
     'Charter',
-    'Guild chat',
+    'Missives',
     'Mailbox',
     'Council',
     'Gates',

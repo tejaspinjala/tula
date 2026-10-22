@@ -264,6 +264,19 @@ redistribution or require purchase for commercial use).
 sprite, frame, font rip (including FontStruct recreations of the DS fonts), sound, logo, character name,
 or trade dress closely copied (e.g. the exact DP frame patterns). No "Pokémon-style" naming in product copy.
 
+## 6b. Asset contract for the 3/4 world (ADR-0016)
+
+Every world asset (rooms, furniture, characters, tiles) follows one contract so art from different sources fits:
+
+- **Grid:** 16 px tiles. Rooms are whole tiles; a room fits the screen at a whole-number zoom.
+- **Back walls** are three tiles tall: one top row and two face rows (windows, shelves and pictures sit on the face rows).
+- **Furniture** has a whole-tile footprint and a separate top layer drawn above characters, so a Member walks behind tall pieces and in front of low ones (y-sort on the footprint's bottom edge).
+- **Characters** are 16x24 with a 16x8 hard-edged pixel shadow under the feet.
+- **Shadows** are hard-edged pixel shapes, never blurred.
+- **Palette:** one locked palette shared with the UI tokens, with a day and a night variant. Time-of-day tint applies to the world layer only, never to the chrome.
+- **Packing:** packed PNG atlases with a JSON frame map (name to x, y, w, h); no loose per-sprite PNGs at runtime.
+- **Provenance:** every asset file has a CREDITS.md line (source, author, licence, URL). Original art says so. Nothing from Pokémon or Stardew (see the forbidden list above).
+
 ---
 
 ## 7. Accessibility in pixel UIs

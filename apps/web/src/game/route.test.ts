@@ -37,8 +37,8 @@ test('every leg but the last ends in a door of its map, and the next leg starts 
 })
 
 test('the same route twice is the same route, and every tile on it is walkable', () => {
-  const a = routeBetween(stand('seal-desk'), stand('treasury-vault'))
-  expect(routeBetween(stand('seal-desk'), stand('treasury-vault'))).toEqual(a)
+  const a = routeBetween(stand('seal-desk'), stand('counting-house'))
+  expect(routeBetween(stand('seal-desk'), stand('counting-house'))).toEqual(a)
   for (const leg of a ?? []) {
     for (const tile of leg.path) {
       expect(mapData(leg.map).walkable(tile.x, tile.y)).toBe(true)
