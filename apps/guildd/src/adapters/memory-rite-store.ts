@@ -12,6 +12,7 @@ import type {
   RiteSummary,
   RiteVersion,
   RiteVersionPage,
+  SaveDraftResult,
   UnarchiveResult,
 } from '../ports/rite-store'
 
@@ -22,7 +23,7 @@ interface GuildState {
   /** When each archived Rite was archived; a Rite absent here is live. */
   archived: Map<string, string>
   /** The version each `[riteId, saveId]` first returned. */
-  saves: Map<string, number>
+  saves: Map<string, { version: number; hash: string }>
 }
 
 /**
@@ -61,25 +62,27 @@ export class MemoryRiteStore implements RiteStore {
     guildId: string,
     riteId: string,
     input: NewRiteVersion,
-    saveId?: string
-  ): Promise<RiteVersion> {
+    save?: { id: string; hash: string }
+  ): Promise<SaveDraftResult> {
     const { saves, rites } = this.state(guildId)
-    const key = JSON.stringify([riteId, saveId])
+    const key = JSON.stringify([riteId, save?.id])
     const list = rites.get(riteId) ?? []
-    const earlier = saveId === undefined ? undefined : saves.get(key)
-    const seen = earlier === undefined ? undefined : list[earlier - 1]
-    if (seen) {
-      return structuredClone(seen)
+    const earlier = save ? saves.get(key) : undefined
+    const seen = earlier ? list[earlier.version - 1] : undefined
+    if (earlier && seen) {
+      return earlier.hash === save?.hash
+        ? { ok: true, version: structuredClone(seen) }
+        : { ok: false, error: 'save_id_reused' }
     }
     const newest = list.at(-1)
     const saved =
       newest && newest.name === input.name && isDeepStrictEqual(newest.graph, input.graph)
         ? structuredClone(newest)
         : await this.saveVersion(guildId, riteId, input)
-    if (saveId !== undefined) {
-      saves.set(key, saved.version)
+    if (save) {
+      saves.set(key, { version: saved.version, hash: save.hash })
     }
-    return saved
+    return { ok: true, version: saved }
   }
 
   async seedVersion(

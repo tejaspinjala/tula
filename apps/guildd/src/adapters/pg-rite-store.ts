@@ -15,6 +15,7 @@ import type {
   RiteStore,
   RiteVersion,
   RiteVersionPage,
+  SaveDraftResult,
   UnarchiveResult,
 } from '../ports/rite-store'
 import { RITE_EVENT } from '../rites/events'
@@ -121,18 +122,23 @@ export class PgRiteStore implements RiteStore {
     guildId: string,
     riteId: string,
     input: NewRiteVersion,
-    saveId?: string
-  ): Promise<RiteVersion> {
+    save?: { id: string; hash: string }
+  ): Promise<SaveDraftResult> {
     return this.db.withGuild(guildId, async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
-      if (saveId !== undefined) {
-        const [seen] = await tx`
-          select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
-          where guild_id = ${guildId} and workflow_id = ${riteId} and version = (
-            select version from rite_saves
-            where guild_id = ${guildId} and workflow_id = ${riteId} and save_id = ${saveId})`
-        if (seen) {
-          return toVersion(versionRow.parse(seen))
+      if (save) {
+        const [prior] = await tx`
+          select input_hash, version from rite_saves
+          where guild_id = ${guildId} and workflow_id = ${riteId} and save_id = ${save.id}`
+        if (prior) {
+          const first = z.object({ input_hash: z.string(), version: z.number() }).parse(prior)
+          if (first.input_hash !== save.hash) {
+            return { ok: false, error: 'save_id_reused' }
+          }
+          const [seen] = await tx`
+            select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
+            where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${first.version}`
+          return { ok: true, version: toVersion(versionRow.parse(seen)) }
         }
       }
       const [row] = await tx`
@@ -144,12 +150,12 @@ export class PgRiteStore implements RiteStore {
         newest && newest.name === input.name && isDeepStrictEqual(newest.graph, input.graph)
           ? newest
           : await this.saveVersionIn(tx, guildId, riteId, input)
-      if (saveId !== undefined) {
+      if (save) {
         await tx`
-          insert into rite_saves (guild_id, workflow_id, save_id, version, created_at)
-          values (${guildId}, ${riteId}, ${saveId}, ${saved.version}, ${this.clock.now()})`
+          insert into rite_saves (guild_id, workflow_id, save_id, input_hash, version, created_at)
+          values (${guildId}, ${riteId}, ${save.id}, ${save.hash}, ${saved.version}, ${this.clock.now()})`
       }
-      return saved
+      return { ok: true, version: saved }
     })
   }
 

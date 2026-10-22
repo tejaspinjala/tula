@@ -88,8 +88,8 @@ const mustSave = async (
   name = 'Chain'
 ) => {
   const saved = await engine.save(guild, id, { name, graph })
-  if (saved.status === 'invalid') {
-    throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
+  if (saved.status === 'invalid' || saved.status === 'save_id_reused') {
+    throw new Error(`invalid: ${JSON.stringify(saved)}`)
   }
   const basedOn = (await engine.get(guild, id))?.activeVersion ?? null
   const published = await engine.publish(guild, id, saved.version.version, basedOn)

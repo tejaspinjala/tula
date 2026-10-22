@@ -29,7 +29,7 @@ export interface VersionDoc {
 /** What a save or publish reports; a save is a `draft`, `pending` means a widening version awaits the passkey confirm. */
 export interface SaveOutcome {
   version: number
-  status: 'draft' | 'active' | 'pending'
+  status: 'draft' | 'active' | 'pending' | 'superseded'
   classification: string
 }
 
@@ -85,7 +85,7 @@ const issueBody = z.object({
 })
 const validateBody = z.object({ valid: z.boolean(), errors: z.array(issueBody) })
 const savedBody = z.object({
-  status: z.enum(['draft', 'active', 'pending']),
+  status: z.enum(['draft', 'active', 'pending', 'superseded']),
   version: z.object({ version: z.number(), classification: z.string() }),
 })
 const rejectedBody = z.object({

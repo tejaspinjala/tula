@@ -160,6 +160,9 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     if (result.status === 'invalid') {
       return c.json({ error: 'invalid_rite', errors: result.errors }, 422)
     }
+    if (result.status === 'save_id_reused') {
+      return c.json({ error: 'save_id_reused' }, 409)
+    }
     return c.json(result)
   })
 

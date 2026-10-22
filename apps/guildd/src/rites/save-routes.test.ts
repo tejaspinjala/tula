@@ -126,7 +126,7 @@ for (const kind of ['memory', 'postgres'] as const) {
       const first = await put(guild, { name: 'A', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
       const firstBody: unknown = await first.json()
       await put(guild, { name: 'B', graph: LEARNING_TO_LINKEDIN, saveId: 's2' })
-      const repeat = await put(guild, { name: 'C', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
+      const repeat = await put(guild, { name: 'A', graph: LEARNING_TO_LINKEDIN, saveId: 's1' })
       expect(await repeat.json()).toEqual(firstBody)
       expect(await versions(guild)).toBe(2)
     })

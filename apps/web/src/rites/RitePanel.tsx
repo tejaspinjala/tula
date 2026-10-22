@@ -245,6 +245,8 @@ export function RitePanel({
   const [empty, setEmpty] = useState(false)
   const [refocus, setRefocus] = useState(false)
   const archiveButton = useRef<HTMLButtonElement>(null)
+  const current = useRef({ session, fetcher })
+  current.current = { session, fetcher }
   // One queue per Rite: its saves go one at a time and a queued save a newer one supersedes is dropped.
   const saveQueues = useRef(
     new Map<string, SaveQueue<{ name: string; graph: RiteGraph }, SaveOutcome>>()
@@ -450,28 +452,38 @@ export function RitePanel({
       }
     }
   }
-  const afterSave = async (outcome: SaveOutcome) => {
+  const afterSave = async (outcome: SaveOutcome, fromSave = false) => {
     setList(await listRites(session, fetcher).catch(() => list))
     await open(id)
     setMessage(
-      outcome.status === 'draft'
-        ? `Saved as draft version ${outcome.version} (${outcome.classification}). Publish it to put it in force.`
-        : outcome.status === 'pending'
-          ? null
-          : `Version ${outcome.version} is published and in force.`
+      fromSave && outcome.status === 'active'
+        ? `Version ${outcome.version} is already in force and unchanged.`
+        : fromSave && outcome.status === 'superseded'
+          ? `Version ${outcome.version} is unchanged.`
+          : outcome.status === 'draft'
+            ? `Saved as draft version ${outcome.version} (${outcome.classification}). Publish it to put it in force.`
+            : outcome.status === 'pending'
+              ? null
+              : `Version ${outcome.version} is published and in force.`
     )
   }
   const queuedSave = (riteId: string, body: { name: string; graph: RiteGraph }) => {
     let queue = saveQueues.current.get(riteId)
     if (!queue) {
       queue = new SaveQueue((input) =>
-        saveRite(session, riteId, { ...input, saveId: crypto.randomUUID() }, fetcher)
+        saveRite(
+          current.current.session,
+          riteId,
+          { ...input, saveId: crypto.randomUUID() },
+          current.current.fetcher
+        )
       )
       saveQueues.current.set(riteId, queue)
     }
     return queue.enqueue(body)
   }
-  const save = () => attempt(async () => afterSave(await queuedSave(id, saveBody(name, draft))))
+  const save = () =>
+    attempt(async () => afterSave(await queuedSave(id, saveBody(name, draft)), true))
   const publish = () =>
     attempt(async () => {
       try {
@@ -497,7 +509,7 @@ export function RitePanel({
       }
     })
   const restore = (row: VersionDoc) =>
-    attempt(async () => afterSave(await queuedSave(id, saveBody(row.name, row.graph))))
+    attempt(async () => afterSave(await queuedSave(id, saveBody(row.name, row.graph)), true))
   const startRun = () =>
     attempt(async () => {
       const outcome = await runRite(session, id, fetcher, crypto.randomUUID())
