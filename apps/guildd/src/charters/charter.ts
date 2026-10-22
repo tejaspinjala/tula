@@ -193,6 +193,19 @@ function resetLocal(obj: Plain, table: Readonly<Record<string, FieldClass>>): Pl
   )
 }
 
+/** One omitted entry for each `local` boolean that was true on an item and export reset to false. */
+function resetFlags(
+  list: string,
+  items: readonly ({ id: string } & Plain)[],
+  table: Readonly<Record<string, FieldClass>>
+): Charter['omitted'] {
+  return items.flatMap((item) =>
+    Object.entries(table)
+      .filter(([k, cls]) => cls === 'local' && item[k] === true)
+      .map(([k]) => ({ kind: 'config', id: `${list}.${item.id}.${k}`, reason: 'local' }))
+  )
+}
+
 /** Apply side of a table: every `local` key comes from `held` (the current object); a missing boolean is false. */
 function takeLocal(
   obj: Plain,
@@ -239,6 +252,10 @@ export function exportCharter(input: {
       ([k, cls]) => cls === 'local' && source[k] !== undefined && typeof source[k] !== 'boolean'
     )
     .map(([k]) => ({ kind: 'config', id: k, reason: 'local' }))
+  omitted.push(
+    ...resetFlags('halls', input.config.halls, t.hall),
+    ...resetFlags('providers', input.config.providers, t.provider)
+  )
   const hallKind = new Map(input.config.halls.map((h) => [h.id, h.kind]))
   const scheduleIds = new Set(input.config.schedules.map((x) => x.id))
   const rites: { name: string; graph: RiteGraph }[] = []

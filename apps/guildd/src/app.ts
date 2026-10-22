@@ -586,6 +586,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/guild-master/away', limited('presence-write'))
   app.post('/guilds/:id/guild-master/return', limited('presence-write'))
   app.get('/guilds/:id/charter', limited('rite-read'))
+  app.post('/guilds/:id/charter/preview', limited('rite-read'))
   app.post('/guilds/:id/charter/import', limited('rite-write'))
   app.get('/guilds/:id/rites', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId', limited('rite-read'))
