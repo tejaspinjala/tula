@@ -641,6 +641,7 @@ function hallNoWider(prev: Hall, next: Hall): boolean {
       'privateEligible',
       'captain',
       'members',
+      'roomStyle',
       'maxConcurrentMembers',
     ])
   )
@@ -754,7 +755,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   )
 }
 
-/** Drops display names and Member looks at every depth, leaving only what can carry risk. */
+/** Drops display names, Member looks and room styles at every depth, leaving only what can carry risk. */
 function withoutNames(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutNames)
@@ -762,7 +763,7 @@ function withoutNames(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([k]) => k !== 'name' && k !== 'look')
+        .filter(([k]) => k !== 'name' && k !== 'look' && k !== 'roomStyle')
         .map(([k, v]) => [k, withoutNames(v)])
     )
   }
