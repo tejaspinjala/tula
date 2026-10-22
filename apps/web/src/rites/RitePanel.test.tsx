@@ -61,9 +61,33 @@ function world(options: Options = {}) {
   // The newest version and the active one, as the server would report them after each write.
   let latest: Record<string, unknown> = stored
   let activeVersion = 1
+  let archived = false
   const fetcher = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     urls.push(`${method} ${url}`)
+    if (url === `${base}/w/archive` && method === 'POST') {
+      archived = true
+      return Response.json({ riteId: 'w', archived: true })
+    }
+    if (url === `${base}/w/unarchive` && method === 'POST') {
+      archived = false
+      latest = { ...latest, status: 'superseded' }
+      return Response.json({ riteId: 'w', archived: false })
+    }
+    if (url === `${base}?limit=50&archived=true`) {
+      return Response.json({
+        rites: archived
+          ? [{ id: 'w', name: 'W', latestVersion: 1, activeVersion, archivedAt: 'then' }]
+          : [],
+        next: null,
+      })
+    }
+    if (url === `${base}?limit=50` && archived) {
+      return Response.json({
+        rites: options.second ? [{ id: 'v', name: 'V', latestVersion: 1, activeVersion: 1 }] : [],
+        next: null,
+      })
+    }
     if (url === `${base}?limit=50`) {
       return Response.json({
         rites: [
@@ -426,4 +450,54 @@ test('switching to another Rite collapses every expanded history row', async () 
   })
   expect(host.querySelector('[aria-label="Versions"] [aria-expanded="true"]')).toBeNull()
   expect(host.textContent).not.toContain('Added node out')
+})
+
+test('Archive asks a one-line confirm, then archives the Rite and drops it from the list', async () => {
+  const w = world({ second: true })
+  const host = await mount(w, true)
+  await click(host, 'Archive')
+  expect(host.textContent).toContain('Archive W? It leaves the list and cannot run until restored.')
+  expect(w.urls).not.toContain(`POST ${base}/w/archive`)
+  await click(host, 'Cancel')
+  expect(host.textContent).not.toContain('Archive W?')
+  await click(host, 'Archive')
+  await click(host, 'Archive W')
+  expect(w.urls).toContain(`POST ${base}/w/archive`)
+  const options = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
+    (o) => o.textContent
+  )
+  expect(options).toEqual(['V'])
+})
+
+test('the Archived filter lists only archived Rites and Unarchive restores one, needing a publish again', async () => {
+  const w = world({ second: true })
+  const host = await mount(w, true)
+  await click(host, 'Archive')
+  await click(host, 'Archive W')
+  const filter = host.querySelector<HTMLInputElement>('input[aria-label="Show archived"]')
+  if (!filter) {
+    throw new Error('no Archived filter')
+  }
+  await act(async () => {
+    filter.click()
+  })
+  await settle()
+  expect(w.urls).toContain(`GET ${base}?limit=50&archived=true`)
+  const options = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
+    (o) => o.textContent
+  )
+  expect(options).toEqual(['W'])
+  const run = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Run')
+  expect(run?.disabled).toBe(true)
+  await click(host, 'Unarchive')
+  expect(w.urls).toContain(`POST ${base}/w/unarchive`)
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Show archived"]')?.checked).toBe(
+    false
+  )
+  const live = [...host.querySelectorAll('select[aria-label="Rite"] option')].map(
+    (o) => o.textContent
+  )
+  expect(live).toContain('W')
+  const runAfter = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Run')
+  expect(runAfter?.disabled).toBe(true)
 })
