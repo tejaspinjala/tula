@@ -227,7 +227,7 @@ export function exportCharter(input: {
   /** Defaults to {@link DEFAULT_FIELD_TABLES}. */
   tables?: FieldTables
 }): Charter {
-  const t = DEFAULT_FIELD_TABLES
+  const t = input.tables ?? DEFAULT_FIELD_TABLES
   const source: Plain = input.config
   const config = {
     ...resetLocal(source, t.config),
@@ -305,7 +305,7 @@ export function applyCharter(input: {
   /** Defaults to {@link DEFAULT_FIELD_TABLES}. */
   tables?: FieldTables
 }): ApplyResult {
-  const t = DEFAULT_FIELD_TABLES
+  const t = input.tables ?? DEFAULT_FIELD_TABLES
   const valid = charterSchema.safeParse(input.charter)
   if (!valid.success) {
     return { ok: false, error: 'invalid_charter', message: valid.error.message }
