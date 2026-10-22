@@ -5,6 +5,9 @@ import { builderConfigSchema } from '../builder/model'
 /** The largest Charter file the client reads, matching the server's 256 KB cap. */
 export const CHARTER_MAX_BYTES = 256 * 1024
 
+/** Raw file text beyond this is refused unread; the cap itself is measured on the compact form. */
+const RAW_MAX_BYTES = 4 * CHARTER_MAX_BYTES
+
 /** What an export left out of the file, and why. */
 export const omittedEntry = z.object({ kind: z.string(), id: z.string(), reason: z.string() })
 
@@ -31,14 +34,18 @@ export class CharterFileError extends Error {
 
 /** Parses the text of a `.charter.json` file, or throws {@link CharterFileError}. */
 export function parseCharter(text: string): Charter {
-  if (new TextEncoder().encode(text).length > CHARTER_MAX_BYTES) {
-    throw new CharterFileError('The file is too large for a Charter (256 KB at most).')
+  const tooLarge = new CharterFileError('The file is too large for a Charter (256 KB at most).')
+  if (new TextEncoder().encode(text).length > RAW_MAX_BYTES) {
+    throw tooLarge
   }
   let json: unknown
   try {
     json = JSON.parse(text)
   } catch {
     throw new CharterFileError('The file is not valid JSON.')
+  }
+  if (new TextEncoder().encode(JSON.stringify(json)).length > CHARTER_MAX_BYTES) {
+    throw tooLarge
   }
   const parsed = charterSchema.safeParse(json)
   if (!parsed.success) {

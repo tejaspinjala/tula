@@ -30,6 +30,13 @@ function show(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
+const memberList = z.array(z.object({ name: z.string() })).catch([])
+
+function memberNames(value: unknown): string {
+  const names = memberList.parse(value).map((m) => m.name)
+  return names.length > 0 ? names.join(', ') : '(none)'
+}
+
 function record(value: unknown): Record<string, unknown> {
   return z.record(z.string(), z.unknown()).catch({}).parse(value)
 }
@@ -47,6 +54,57 @@ export function previewCharter(current: BuilderConfig, charter: Charter): Charte
   const compare = (label: string, from: unknown, to: unknown) => {
     if (JSON.stringify(from) !== JSON.stringify(to)) {
       settings.push({ label, from: show(from), to: show(to) })
+    }
+  }
+  for (const [key, value] of Object.entries(record(next.steward))) {
+    compare(`steward.${key}`, record(current.steward)[key], value)
+  }
+  for (const key of Object.keys(record(current.steward))) {
+    if (!(key in record(next.steward))) {
+      compare(`steward.${key}`, record(current.steward)[key], undefined)
+    }
+  }
+  const hallsHere = new Map(current.halls.map((h) => [h.id, record(h)]))
+  for (const hall of next.halls) {
+    const mine = hallsHere.get(hall.id)
+    if (!mine) {
+      continue
+    }
+    const theirs = record(hall)
+    for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+      if (key === 'id' || key === 'privateEligible') {
+        continue
+      }
+      if (key === 'members') {
+        if (JSON.stringify(mine.members) !== JSON.stringify(theirs.members)) {
+          settings.push({
+            label: `halls.${hall.id}.members`,
+            from: memberNames(mine.members),
+            to: memberNames(theirs.members),
+          })
+        }
+      } else {
+        compare(`halls.${hall.id}.${key}`, mine[key], theirs[key])
+      }
+    }
+  }
+  const providersHere = new Map(providersOf(current).map((p) => [p.id, record(p)]))
+  const providersThere = new Map(providersOf(next).map((p) => [p.id, record(p)]))
+  for (const [id, theirs] of providersThere) {
+    const mine = providersHere.get(id)
+    if (!mine) {
+      compare(`providers.${id}`, undefined, 'added')
+      continue
+    }
+    for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+      if (key !== 'id' && key !== 'privateEligible') {
+        compare(`providers.${id}.${key}`, mine[key], theirs[key])
+      }
+    }
+  }
+  for (const id of providersHere.keys()) {
+    if (!providersThere.has(id)) {
+      compare(`providers.${id}`, 'present', undefined)
     }
   }
   const before = record(current)

@@ -52,6 +52,18 @@ function reasonFor(error: unknown): string {
     if (error.status === 409 && error.code === 'import_id_reused') {
       return 'This import was already used for a different Charter. Try the import again. Nothing was changed.'
     }
+    if (error.code === 'invalid_charter') {
+      return 'This file is not a Charter this guild can read. Nothing was changed.'
+    }
+    if (error.code === 'subscription_disabled') {
+      return 'Charters need the Subscription, and the Subscription is off for this guild. Nothing was changed.'
+    }
+    if (error.code === 'seal_policy_locked') {
+      return 'The Seal Policy is locked on this guild, so this Charter cannot change it. Nothing was changed.'
+    }
+    if (error.code === 'invalid_request') {
+      return 'The import request could not be understood. Try the import again. Nothing was changed.'
+    }
     return `The server refused this Charter (${error.code}). Nothing was changed.`
   }
   return `The import failed (${error instanceof Error ? error.message : 'unknown'}). Nothing was changed.`
@@ -61,12 +73,18 @@ function List({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) {
     return null
   }
+  const seen = new Map<string, number>()
+  const keyed = items.map((item) => {
+    const n = seen.get(item) ?? 0
+    seen.set(item, n + 1)
+    return { item, key: `${item}#${n}` }
+  })
   return (
     <>
       <h4 className="sub-title">{label}</h4>
       <ul aria-label={label} className="charter-list">
-        {items.map((item) => (
-          <li key={item} className="item">
+        {keyed.map(({ item, key }) => (
+          <li key={key} className="item">
             {item}
           </li>
         ))}
@@ -141,7 +159,7 @@ export function CharterPanel({
     setMessage(null)
     try {
       const out = await exportCharter(session, fetcher)
-      download(fileName(out.name), JSON.stringify(out, null, 2))
+      download(fileName(out.name), JSON.stringify(out))
       setOmitted(out.omitted)
       setMessage(`Exported ${fileName(out.name)}.`)
     } catch (error) {

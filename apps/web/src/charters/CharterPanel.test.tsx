@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act } from 'react'
 import { sampleCharter } from './fixtures'
@@ -199,7 +199,52 @@ test('a 422 shows the reason and nothing changed', async () => {
   await pick(w.host, JSON.stringify(sampleCharter))
   await click(w.host, 'Import this Charter')
   await click(w.host, 'Yes')
-  expect(w.host.querySelector('[role="alert"]')?.textContent).toContain('invalid_charter')
+  expect(w.host.querySelector('[role="alert"]')?.textContent).toContain(
+    'is not a Charter this guild can read'
+  )
+})
+
+test.each([
+  ['invalid_charter', 422, 'is not a Charter this guild can read'],
+  ['subscription_disabled', 403, 'Subscription is off'],
+  ['seal_policy_locked', 403, 'Seal Policy is locked'],
+  ['invalid_request', 400, 'could not be understood'],
+])('the refusal %s shows its own plain message', async (code, status, words) => {
+  const w = await mount({ status, body: { error: code } })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  const text = w.host.querySelector('[role="alert"]')?.textContent ?? ''
+  expect(text).toContain(words)
+  expect(text).not.toContain(code)
+})
+
+test('two same-named Rites render without a duplicate-key warning', async () => {
+  const rite = sampleCharter.rites[0]
+  if (!rite) {
+    throw new Error('fixture has no Rite')
+  }
+  const errors: unknown[][] = []
+  const sink = Reflect.get(globalThis, 'console')
+  const spy = spyOn(sink, 'error').mockImplementation((...args: unknown[]) => {
+    errors.push(args)
+  })
+  try {
+    const w = await mount(applied)
+    await pick(w.host, JSON.stringify({ ...sampleCharter, rites: [rite, rite] }))
+    expect(w.host.textContent?.split('Morning digest').length).toBe(3)
+  } finally {
+    spy.mockRestore()
+  }
+  expect(errors.filter((a) => String(a[0]).includes('same key'))).toEqual([])
+})
+
+test('Export downloads compact JSON', async () => {
+  const w = await mount(applied)
+  await click(w.host, 'Export Charter')
+  const text = w.downloads[0]?.text ?? ''
+  expect(text).not.toContain('\n')
+  expect(text).toBe(JSON.stringify(JSON.parse(text)))
 })
 
 test('a reused import id shows a plain message and not the raw code', async () => {
