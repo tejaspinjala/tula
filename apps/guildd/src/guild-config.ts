@@ -25,6 +25,17 @@ export const member = agent.extend({
   look: characterLook.optional(),
 })
 
+/** The room styles a Hall's room can be furnished in (ADR-0016); cosmetic. */
+export const ROOM_STYLES = [
+  'writing-room',
+  'library',
+  'workshop',
+  'studio',
+  'infirmary',
+  'garden-room',
+  'quiet-room',
+] as const
+
 /** A Hall: a department of the guild, with its Captain and Members. */
 export const hall = z.strictObject({
   id: slug,
@@ -37,6 +48,8 @@ export const hall = z.strictObject({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
+  /** Overrides the room style picked from the Hall's kind and name; cosmetic, so changing it is neutral. */
+  roomStyle: z.enum(ROOM_STYLES).optional(),
   /**
    * Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when
    * absent. Raising it widens risk. Only live-leased `active` Quests count (a parked parent or a
