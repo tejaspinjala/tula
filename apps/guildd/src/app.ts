@@ -210,6 +210,11 @@ export interface AppDeps {
   suggestions?: SuggestionStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
+  /**
+   * Whether the legacy `POST /guilds` is served. It writes the guild before any passkey exists, so
+   * production refuses it; it follows `devGuildHeader` unless composition overrides it.
+   */
+  legacyFounding?: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
   rateLimiter: RateLimiter
   /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
@@ -235,6 +240,10 @@ const { upgradeWebSocket, websocket } = createBunWebSocket()
 /** The Bun websocket handler; pass it to `Bun.serve` next to the app's `fetch`. */
 export { websocket }
 
+const foundFinishBody = registerFinishBody.extend({
+  name: z.string().trim().min(1).max(200),
+  goal: z.string().trim().min(1).max(2000),
+})
 const foundGuildBody = z.object({
   name: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(2000),
@@ -544,6 +553,8 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: 'rate_limited' }, 429)
   }
   app.post('/guilds', limited('founding'))
+  app.post('/founding/begin', limited('founding-begin'))
+  app.post('/founding/finish', limited('founding'))
   app.get('/founding', limited('founding-status'))
   app.post('/sign-in/begin', limited('signin-begin'))
   app.post('/sign-in/finish', limited('signin-finish'))
@@ -627,7 +638,12 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ open })
   })
 
+  // The legacy founding writes the guild before any passkey exists, so an abandoned ceremony
+  // leaves an orphan. Only the dev/test switch (the one that enables x-guild-id) keeps it.
   app.post('/guilds', async (c) => {
+    if (!(deps.legacyFounding ?? deps.devGuildHeader)) {
+      return c.json({ error: 'not_found' }, 404)
+    }
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)
@@ -651,6 +667,48 @@ export function createApp(deps: AppDeps): Hono {
         { once: mode === 'once' }
       )
       return c.json({ id, foundingToken }, 201)
+    } catch (error) {
+      if (error instanceof FoundingClosedError) {
+        return c.json({ error: 'founding_closed' }, 403)
+      }
+      throw error
+    }
+  })
+
+  // Founding as one ceremony: nothing is written for the guild until the first passkey verifies,
+  // then the guild, its Guild Master, its seeded Halls and the passkey commit in ONE transaction.
+  app.post('/founding/begin', async (c) => {
+    if ((deps.foundingMode ?? 'open') === 'closed') {
+      return c.json({ error: 'founding_closed' }, 403)
+    }
+    return c.json(await deps.identity.beginFounding())
+  })
+
+  app.post('/founding/finish', async (c) => {
+    const body = foundFinishBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const mode = deps.foundingMode ?? 'open'
+    if (mode === 'closed') {
+      return c.json({ error: 'founding_closed' }, 403)
+    }
+    try {
+      const { guildId } = await deps.identity.finishFounding(
+        body.data.challengeId,
+        body.data.response,
+        (write) =>
+          deps.db.foundGuildChained(
+            { name: body.data.name, goal: body.data.goal },
+            deps.keys,
+            async (tx, id) => {
+              await deps.config.seed(id, tx)
+              await write(tx, id)
+            },
+            { once: mode === 'once' }
+          )
+      )
+      return c.json({ id: guildId }, 201)
     } catch (error) {
       if (error instanceof FoundingClosedError) {
         return c.json({ error: 'founding_closed' }, 403)

@@ -166,3 +166,23 @@ test('outstanding desktop codes per guild are capped, evicting the oldest', asyn
   expect(await store.spendDesktopCode(a, 'c0', 'state-c0', T0, note)).toBeNull()
   expect(await store.spendDesktopCode(a, 'c1', 'state-c1', T0, note)).not.toBeNull()
 })
+
+test('a failure after the first passkey is written rolls back the guild, its events, chain and passkey', async () => {
+  const name = `Founding ${crypto.randomUUID()}`
+  const credential = { ...cred, id: `rollback-${crypto.randomUUID()}` }
+  await expect(
+    db.foundGuildChained({ name, goal: 'g' }, new MemoryKeyProvider(), async (tx, id) => {
+      await store.saveCredential(id, credential, note, tx)
+      throw new Error('seed failed after the passkey')
+    })
+  ).rejects.toThrow('seed failed')
+  const [guilds] = await owner`select count(*)::int as n from guilds where name = ${name}`
+  expect(Number(guilds?.n)).toBe(0)
+  const [creds] =
+    await owner`select count(*)::int as n from identity_credentials where credential_id = ${credential.id}`
+  expect(Number(creds?.n)).toBe(0)
+  const [orphans] = await owner`select
+    (select count(*) from events where guild_id not in (select guild_id from guilds))::int as events,
+    (select count(*) from audit_chain where guild_id not in (select guild_id from guilds))::int as chain`
+  expect([orphans?.events, orphans?.chain]).toEqual([0, 0])
+})

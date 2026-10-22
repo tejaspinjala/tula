@@ -72,8 +72,13 @@ export class PgIdentityStore implements IdentityStore {
     })
   }
 
-  async saveCredential(guildId: string, c: StoredCredential, event: IdentityEvent): Promise<void> {
-    await this.db.withGuild(guildId, async (tx) => {
+  async saveCredential(
+    guildId: string,
+    c: StoredCredential,
+    event: IdentityEvent,
+    outer?: TenantTx
+  ): Promise<void> {
+    const write = async (tx: TenantTx) => {
       const inserted =
         await tx`insert into identity_credentials (guild_id, credential_id, public_key, counter, transports)
            values (${guildId}, ${c.id}, ${isoBase64URL.fromBuffer(c.publicKey)}, ${c.counter}, ${c.transports})
@@ -81,7 +86,8 @@ export class PgIdentityStore implements IdentityStore {
       if (inserted.length > 0) {
         await this.append(tx, event)
       }
-    })
+    }
+    await (outer ? write(outer) : this.db.withGuild(guildId, write))
   }
 
   async updateCounter(guildId: string, credentialId: string, counter: number): Promise<void> {

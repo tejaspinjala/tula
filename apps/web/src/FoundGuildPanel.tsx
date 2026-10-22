@@ -1,29 +1,19 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import type { Fetcher } from './artifacts'
 import {
-  foundGuild,
+  foundGuildWithPasskey,
   type PasskeyBrowser,
   passkeyFailure,
   passkeyLine,
-  registerPasskey,
   type Session,
   signIn,
 } from './passkeys'
 import { PixelButton } from './ui/pixel'
 
-/** The words shown for a refused or abandoned founding step. */
-function describe(error: unknown, registering: boolean): string {
-  const kind = passkeyFailure(error)
-  if (kind === 'refused' && registering) {
-    return 'This founding token has already been used or is no longer valid.'
-  }
-  return passkeyLine(kind, 'founding')
-}
-
 /**
  * First-run screen: the Guild Master names the guild and its goal, then creates the first
- * passkey. The one-time founding token lives only in this component's memory (never storage or
- * the URL), so a cancelled passkey can be retried without founding a second guild.
+ * passkey. Nothing is written until the passkey verifies, so a cancelled prompt leaves no guild and
+ * can simply be retried.
  */
 export function FoundGuildPanel({
   fetcher,
@@ -41,7 +31,6 @@ export function FoundGuildPanel({
   const goalId = useId()
   const [name, setName] = useState('')
   const [goal, setGoal] = useState('')
-  const [founded, setFounded] = useState<{ id: string; foundingToken: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -49,17 +38,11 @@ export function FoundGuildPanel({
     event.preventDefault()
     setBusy(true)
     setError('')
-    let registering = founded !== null
     try {
-      const guild = founded ?? (await foundGuild(name.trim(), goal.trim(), fetcher))
-      setFounded(guild)
-      registering = true
-      await registerPasskey(guild.id, undefined, fetcher, browser, guild.foundingToken)
-      registering = false
-      setFounded(null)
+      const guild = await foundGuildWithPasskey(name.trim(), goal.trim(), fetcher, browser)
       onSession(await signIn(guild.id, fetcher, browser))
     } catch (caught) {
-      setError(describe(caught, registering))
+      setError(passkeyLine(passkeyFailure(caught), 'founding'))
     } finally {
       setBusy(false)
     }
@@ -78,7 +61,6 @@ export function FoundGuildPanel({
           name="guild-name"
           required
           maxLength={200}
-          disabled={founded !== null}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
@@ -88,12 +70,11 @@ export function FoundGuildPanel({
           name="guild-goal"
           required
           maxLength={2000}
-          disabled={founded !== null}
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
         />
         <PixelButton type="submit" disabled={busy}>
-          {founded ? 'Create passkey' : 'Found your guild'}
+          Found your guild
         </PixelButton>
         <p role="alert" className="title-line">
           {error}

@@ -1078,5 +1078,57 @@ export function identityContract(name: string, make: () => Promise<IdentityContr
         ).toBe('invalid_challenge')
       })
     })
+
+    describe('founding a guild with its first passkey', () => {
+      test('an abandoned ceremony never reaches the founding write', async () => {
+        const s = await make()
+        await s.identity.beginFounding()
+        const guildId = await s.newGuild()
+        expect(await s.identity.hasCredentials(guildId)).toBe(false)
+      })
+
+      test('a verified attestation founds the guild and stores its passkey', async () => {
+        const s = await make()
+        const key = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const begin = await s.identity.beginFounding()
+        const guildId = await s.newGuild()
+        const founded = await s.identity.finishFounding(
+          begin.challengeId,
+          await key.register(begin.options),
+          async (write) => {
+            await write(undefined, guildId)
+            return guildId
+          }
+        )
+        expect(founded.guildId).toBe(guildId)
+        expect(await s.identity.hasCredentials(guildId)).toBe(true)
+        expect((await s.events(guildId)).map((e) => e.type)).toContain(
+          'identity.passkey_registered'
+        )
+      })
+
+      test('a bad attestation never calls the founding write, and the challenge is single-use', async () => {
+        const s = await make()
+        const key = await SoftwareAuthenticator.create(s.rpId, s.origin)
+        const begin = await s.identity.beginFounding()
+        const response = await key.register(begin.options)
+        let calls = 0
+        const found = async () => {
+          calls += 1
+          return crypto.randomUUID()
+        }
+        const other = await s.identity.beginFounding()
+        expect(await failure(s.identity.finishFounding(other.challengeId, response, found))).toBe(
+          'verification_failed'
+        )
+        expect(calls).toBe(0)
+        expect(await failure(s.identity.finishFounding(other.challengeId, response, found))).toBe(
+          'invalid_challenge'
+        )
+        expect(await failure(s.identity.finishFounding(crypto.randomUUID(), response, found))).toBe(
+          'invalid_challenge'
+        )
+      })
+    })
   })
 }

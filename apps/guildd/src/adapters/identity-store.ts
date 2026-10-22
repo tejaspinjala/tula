@@ -73,9 +73,15 @@ export interface IdentityStore {
   listCredentials(guildId: string): Promise<StoredCredential[]>
   /**
    * Stores a passkey and appends `event` in the same transaction; the same credential id again
-   * changes nothing and appends nothing.
+   * changes nothing and appends nothing. Given the founding transaction `tx`, a database-backed
+   * adapter writes inside it so the passkey commits or rolls back with the guild.
    */
-  saveCredential(guildId: string, credential: StoredCredential, event: IdentityEvent): Promise<void>
+  saveCredential(
+    guildId: string,
+    credential: StoredCredential,
+    event: IdentityEvent,
+    tx?: TenantTx
+  ): Promise<void>
   /** Records the authenticator's latest signature counter. */
   updateCounter(guildId: string, credentialId: string, counter: number): Promise<void>
   /**
