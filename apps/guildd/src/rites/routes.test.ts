@@ -168,3 +168,41 @@ test('confirming a pending version is refused 409 stale once the active version 
   expect(await res.json()).toEqual({ error: 'stale' })
   expect((await engine.get(guild, 'wf'))?.activeVersion).toBe(3)
 })
+
+const versionRows = z.object({
+  versions: z.array(
+    z.object({ version: z.number(), status: z.string(), classification: z.string() })
+  ),
+})
+
+test('the versions route returns status and classification per version, newest first', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await engine.publish(guild, 'wf', 1, null)
+  await engine.confirm(guild, 'wf', 1)
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  const res = await app.request(`/guilds/${guild}/rites/wf/versions`)
+  expect(res.status).toBe(200)
+  const body = versionRows.parse(await res.json())
+  expect(body.versions.map((v) => [v.version, v.status])).toEqual([
+    [2, 'draft'],
+    [1, 'active'],
+  ])
+  expect(body.versions.every((v) => v.classification.length > 0)).toBe(true)
+})
+
+test('the versions route lists only the session guild: another guild sees none', async () => {
+  const { engine, guild } = await setup('guild_master')
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  const other = crypto.randomUUID()
+  const app = new Hono()
+  const guard = async () => ({ guild: other })
+  mountRiteRoutes(app, {
+    rites: engine,
+    identity: { resolveSession: async () => null, consumeReauth: async () => false },
+    sessionGuildFor: guard,
+    guildMasterSessionFor: guard,
+  })
+  const res = await app.request(`/guilds/${other}/rites/wf/versions`)
+  expect(versionRows.parse(await res.json()).versions).toEqual([])
+})
