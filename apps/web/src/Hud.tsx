@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AwayBadge } from './AwayBadge'
+import { useLiveEvents } from './live-events'
 import type { Session } from './passkeys'
 import { listSeals } from './seals'
 import { formatCents, loadTreasuryOverview, type TreasuryView } from './treasury'
@@ -7,6 +8,15 @@ import { Frame, Meter, PixelButton } from './ui/pixel'
 
 /** How often the HUD reads its numbers again while the Guild Master walks. */
 const POLL_MS = 30_000
+
+/** The stream events that change how many Seals wait. */
+const SEAL_EVENTS: ReadonlySet<string> = new Set([
+  'seal.requested',
+  'seal.approved',
+  'seal.council_approved',
+  'seal.denied',
+  'seal.expired',
+])
 
 /** Props of {@link Hud}. */
 export interface HudProps {
@@ -57,9 +67,6 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
       loadTreasuryOverview(session, fetch)
         .then((overview) => live && setTreasury(overview))
         .catch(() => live && setTreasury(null))
-      listSeals(session, fetch, 50)
-        .then((page) => live && setWaiting({ count: page.seals.length, more: page.next !== null }))
-        .catch(() => live && setWaiting(null))
     }
     read()
     const id = setInterval(read, POLL_MS)
@@ -68,6 +75,22 @@ export function Hud({ session, guildName, status, refresh, onOpenBag, onOpenSeal
       clearInterval(id)
     }
   }, [session, refresh])
+
+  // The Seal count re-reads when a Seal event arrives on the stream; the poll is the backstop.
+  const sealEvents = useLiveEvents().filter((e) => SEAL_EVENTS.has(e.type)).length
+  useEffect(() => {
+    let live = true
+    const read = () =>
+      listSeals(session, fetch, 50)
+        .then((page) => live && setWaiting({ count: page.seals.length, more: page.next !== null }))
+        .catch(() => live && setWaiting(null))
+    read()
+    const id = setInterval(read, POLL_MS)
+    return () => {
+      live = false
+      clearInterval(id)
+    }
+  }, [session, refresh, sealEvents])
 
   const cap = treasury ? treasury.limits.dailyCapCents : 0
   const left = treasury ? treasury.limits.dailyCapCents - treasury.spentTodayCents : 0
