@@ -150,6 +150,13 @@ test('Export downloads <name>.charter.json and lists what was left out', async (
   expect(w.host.textContent).toContain('touches a private Hall')
 })
 
+test('an unpublished Rite is left out with a reason that says what to do', async () => {
+  const w = await mount(applied)
+  await click(w.host, 'Export Charter')
+  expect(w.host.textContent).toContain('Publish this Rite to include it')
+  expect(w.host.textContent).not.toContain('rite draft: unpublished')
+})
+
 test('a bad file shows an error and sends nothing', async () => {
   const w = await mount(applied)
   await pick(w.host, '{nope')

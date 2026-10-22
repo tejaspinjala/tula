@@ -10,7 +10,11 @@ const { createRoot } = await import('react-dom/client')
 const { SealPanel } = await import('./SealPanel')
 const { parseEvidence, sealStatusLabel } = await import('./seals')
 
+let payloadTitle: string | null | undefined
+let questsDown = false
+let holdReauth: Promise<void> | null = null
 const seal = (status: string) => ({
+  ...(payloadTitle === undefined ? {} : { questTitle: payloadTitle }),
   id: '22222222-2222-4222-8222-222222222222',
   questId: 'q1',
   requestedBy: 'm',
@@ -36,6 +40,7 @@ beforeAll(() => {
       const url = String(input instanceof Request ? input.url : input)
       if (url.endsWith('/session/reauth/begin')) {
         reauths.push(url)
+        await holdReauth
       }
       if (url.includes('/seals/') && url.endsWith('/posted')) {
         posted.push(init?.body)
@@ -47,7 +52,7 @@ beforeAll(() => {
           next: null,
         })
       }
-      if (url.includes('/quests')) {
+      if (url.includes('/quests') && !questsDown) {
         return Response.json({
           quests: [
             {
@@ -223,4 +228,49 @@ test('a guild with no Seal waiting gets an in-world line and a refresh action', 
   expect(labels(host)).toContain('▶Look again')
   await act(async () => root.unmount())
   status = 'requested'
+})
+
+test('a Seal card shows the Quest title from the Seal payload, with no Quest list needed', async () => {
+  status = 'requested'
+  payloadTitle = 'Payload title'
+  questsDown = true
+  const { host, root } = await mount()
+  expect(host.textContent).toContain('Seal for Payload title')
+  expect(host.textContent).toContain('Quest: Payload title')
+  await act(async () => root.unmount())
+  payloadTitle = undefined
+  questsDown = false
+})
+
+test('a Seal without a Quest title reads Untitled Quest, never an id', async () => {
+  status = 'requested'
+  payloadTitle = null
+  questsDown = true
+  const { host, root } = await mount()
+  expect(host.textContent).toContain('Seal for Untitled Quest')
+  expect(host.textContent).not.toContain('q1')
+  await act(async () => root.unmount())
+  payloadTitle = undefined
+  questsDown = false
+})
+
+test('Deny settles the Seal at once, and a failed Deny rolls it back with a message', async () => {
+  status = 'requested'
+  let release: () => void = () => undefined
+  holdReauth = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const { host, root } = await mount()
+  await click(host, 'Deny with note')
+  await press(cursor(host), 'y')
+  expect(host.textContent).toContain('denied')
+  expect(labels(host)).not.toContain('Deny with note')
+  await act(async () => {
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  holdReauth = null
+  expect(labels(host)).toContain('Deny with note')
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('Deny failed')
+  await act(async () => root.unmount())
 })

@@ -167,3 +167,30 @@ test('a private Quest wears a Private badge and a waiting one shows its real rea
   expect(plainCard?.textContent).not.toContain('Waiting')
   await act(async () => root.unmount())
 })
+
+test('on first load each column count matches the Quests listed under it', async () => {
+  const doneQuest = { ...quest, id: 'q-done', title: 'Finished thing', state: 'done', round: 1 }
+  const earlier = globalThis.fetch
+  globalThis.fetch = Object.assign(
+    async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url.includes('/quests')) {
+        return Response.json({ quests: [doneQuest], next: null })
+      }
+      return Response.json({ error: 'down' }, { status: 503 })
+    },
+    { preconnect: realFetch.preconnect }
+  )
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(<QuestBoardPanel session={session} />)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  expect(host.textContent).toContain('Done (1)')
+  expect(host.textContent).not.toContain('Done (0)')
+  expect(host.querySelectorAll('ul[aria-label="Done"] li')).toHaveLength(1)
+  await act(async () => root.unmount())
+  globalThis.fetch = earlier
+})
