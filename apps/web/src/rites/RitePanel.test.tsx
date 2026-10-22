@@ -666,6 +666,26 @@ test('archiving the only Rite shows an empty state, not an unsaved my-rite draft
   expect(host.textContent).not.toContain('Unsaved changes')
 })
 
+test('Show archived with no archived Rites shows an empty state and leaves the selected Rite untouched', async () => {
+  const host = await mount(world(), true)
+  const toggle = () =>
+    [...host.querySelectorAll('button')].find((b) =>
+      /(Show|Hide) archived/.test(b.textContent ?? '')
+    )
+  await act(async () => {
+    toggle()?.click()
+  })
+  await settle()
+  expect(host.textContent).toContain('No archived Rites')
+  expect(host.textContent).not.toContain('(unsaved)')
+  expect(host.textContent).not.toContain('Unsaved changes')
+  await click(host, '▶Back to Rites')
+  expect(host.textContent).not.toContain('No archived Rites')
+  expect(host.querySelector<HTMLInputElement>('.builder-save input')?.value).toBe('W')
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Rite"]')?.value).toBe('w')
+  expect(host.textContent).toContain('Live')
+})
+
 test('outline buttons are named as steps so they differ from the action buttons', async () => {
   const host = await mount(world(), true)
   const outline = host.querySelector('[aria-label="Nodes"]')
