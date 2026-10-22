@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AwayScroll } from './AwayScroll'
 import { Bag } from './Bag'
-import { GamePanel } from './GamePanel'
+import { type GameLoader, GamePanel } from './GamePanel'
 import { Hud } from './Hud'
 import { endSession, type Session } from './passkeys'
 import { BAG_PAGES, useRoute } from './router'
@@ -15,11 +15,14 @@ export function Shell({
   guildName,
   status,
   onSession,
+  loadGame,
 }: {
   session: Session
   guildName: string
   status: 'checking' | 'ok' | 'down'
   onSession: (session: Session | null) => void
+  /** Loads the game module; tests swap it for a fake. */
+  loadGame?: GameLoader | undefined
 }) {
   const { page, navigate } = useRoute()
   const [bagOpen, setBagOpen] = useState(false)
@@ -81,7 +84,7 @@ export function Shell({
   }
   return (
     <main id="main" tabIndex={-1} className="shell">
-      <GamePanel session={session} navigate={openPath}>
+      <GamePanel session={session} navigate={openPath} inputEnabled={!visible} loadGame={loadGame}>
         {({ hallControls, focusWorld, talkTo }) => (
           <>
             <Hud

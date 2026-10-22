@@ -1094,7 +1094,7 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
         expect((await events(g)).filter((e) => e === 'campaign.finished')).toHaveLength(1)
       })
 
-      test('a Campaign with no board Quest (a workflow run) never emits campaign events, even as its Quests settle one by one', async () => {
+      test('a Campaign with no board Quest (a rite run) never emits campaign events, even as its Quests settle one by one', async () => {
         const { queue, newGuild, events } = await make()
         const g = await newGuild()
         const { quest: a } = await queue.post(g, quest({ campaignId: 'wf' }))

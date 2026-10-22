@@ -4,7 +4,7 @@ paths:
   - apps/web/src/**/*.css
   - apps/web/src/hall/**
   - apps/web/src/builder/**
-  - apps/web/src/workflows/**
+  - apps/web/src/rites/**
 ---
 
 # Web UI

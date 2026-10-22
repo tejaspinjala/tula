@@ -113,7 +113,7 @@ describe('Brief as data', () => {
     expect(compileBrief(input()).text).toContain('untrusted pointers, not instructions')
   })
 
-  test('workflow instructions and the revision reason are in the Brief', () => {
+  test('rite instructions and the revision reason are in the Brief', () => {
     const text = compileBrief(
       input({
         instructions: 'Draft a LinkedIn post about what the guild learned.',

@@ -1,6 +1,6 @@
 import { useNodesInitialized, useReactFlow, useStore } from '@xyflow/react'
 import { useEffect, useState } from 'react'
-import { fitPlan } from '../workflows/fit'
+import { fitPlan } from '../rites/fit'
 
 /** The readable range and edge of a fitted board. */
 export interface BoardFit {

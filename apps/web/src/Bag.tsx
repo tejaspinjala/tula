@@ -15,6 +15,7 @@ import { ProvidersPanel } from './ProvidersPanel'
 import type { Session } from './passkeys'
 import { QuestBoardPanel } from './QuestBoardPanel'
 import { RosterPanel } from './RosterPanel'
+import { RitePanel } from './rites/RitePanel'
 import { BAG_PAGES, type PageId } from './router'
 import { SealPanel } from './SealPanel'
 import { SummonPanel } from './SummonPanel'
@@ -24,7 +25,6 @@ import { TripwirePanel } from './TripwirePanel'
 import { CursorMenu, Frame, PixelButton, ThemeControls } from './ui/pixel'
 import { VaultPanel } from './VaultPanel'
 import { FlatWorkContext } from './WorkSection'
-import { WorkflowPanel } from './workflows/WorkflowPanel'
 
 /** Props of {@link Bag}. */
 export interface BagProps {
@@ -97,8 +97,8 @@ function PageBody({
           <SummonPanel session={session} />
         </>
       )
-    case 'workflows':
-      return <WorkflowPanel session={session} />
+    case 'rites':
+      return <RitePanel session={session} />
     case 'missives':
       return <MissivesPanel session={session} onTalk={onTalkTo} />
     case 'mailbox':

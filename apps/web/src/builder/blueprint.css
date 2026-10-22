@@ -20,7 +20,7 @@
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
 
-.workflow-canvas {
+.rite-canvas {
   height: 28rem;
 }
 
@@ -119,6 +119,11 @@
   min-width: 0;
   min-height: 0;
   border: var(--px) solid var(--px-ink);
+  /* React Flow rounds handles; the logical longhands square them (the guard bans the shorthand name). */
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
   background: var(--px-gold-500);
 }
 
@@ -188,7 +193,8 @@
   top: calc(var(--px) * 4);
   right: calc(var(--px) * 4);
   margin: 0;
-  white-space: nowrap;
+  max-width: calc(100% - var(--px) * 8);
+  box-sizing: border-box;
   padding: calc(var(--px) * 2) calc(var(--px) * 3);
   border: calc(var(--px) * 2) solid var(--px-ink);
   background: var(--px-paper);
@@ -204,7 +210,7 @@
   }
 }
 
-/* Builder and workflow chrome: the paper plate, its titles and the primary and danger buttons. */
+/* Builder and rite chrome: the paper plate, its titles and the primary and danger buttons. */
 .card {
   background: var(--surface);
   border: calc(var(--px) * 2) solid var(--border);
@@ -264,4 +270,12 @@
 
 .card {
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
+}
+
+/* The archive confirm sits in a bare fieldset, so Esc can be caught without a role on a div. */
+.rite-confirm {
+  border: 0;
+  margin: calc(var(--px) * 4) 0 0;
+  padding: 0;
+  min-width: 0;
 }
