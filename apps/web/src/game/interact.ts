@@ -90,3 +90,8 @@ export function nearestTarget(
   }
   return best
 }
+
+/** The point of a tile rectangle nearest `from`, at tile centres: reach a desk's edge, not its middle. */
+export function reachPoint(_rect: { x: number; y: number; w: number; h: number }, _from: Vec): Vec {
+  throw new Error('todo')
+}
