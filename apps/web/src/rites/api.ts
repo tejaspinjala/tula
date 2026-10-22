@@ -226,11 +226,11 @@ export async function validateGraph(
   return body.errors
 }
 
-/** Saves a graph as the next version (a draft that never runs) through `PUT`; throws {@link RiteRejected} when invalid. */
+/** Saves a graph as the next version (a draft that never runs) through `PUT`; a repeated `saveId` or an unchanged graph and name returns the existing version; throws {@link RiteRejected} when invalid. */
 export async function saveRite(
   s: Session,
   id: string,
-  body: { name: string; graph: RiteGraph },
+  body: { name: string; graph: RiteGraph; saveId?: string },
   f: Fetcher
 ): Promise<SaveOutcome> {
   const { res, data } = await send(f, `${base(s)}/${id}`, {

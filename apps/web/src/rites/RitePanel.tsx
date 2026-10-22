@@ -48,6 +48,7 @@ import {
   versionLine,
 } from './model'
 import { errorsByNode, type NodeOverlay, type RiteIssue, readRunFrame, runOverlay } from './overlay'
+import { SaveQueue } from './saveQueue'
 
 /** Props of {@link RitePanel}. */
 export interface RitePanelProps {
@@ -244,6 +245,10 @@ export function RitePanel({
   const [empty, setEmpty] = useState(false)
   const [refocus, setRefocus] = useState(false)
   const archiveButton = useRef<HTMLButtonElement>(null)
+  // One queue per Rite: its saves go one at a time and a queued save a newer one supersedes is dropped.
+  const saveQueues = useRef(
+    new Map<string, SaveQueue<{ name: string; graph: RiteGraph }, SaveOutcome>>()
+  )
 
   const open = useCallback(
     async (riteId: string) => {
@@ -456,8 +461,17 @@ export function RitePanel({
           : `Version ${outcome.version} is published and in force.`
     )
   }
-  const save = () =>
-    attempt(async () => afterSave(await saveRite(session, id, saveBody(name, draft), fetcher)))
+  const queuedSave = (riteId: string, body: { name: string; graph: RiteGraph }) => {
+    let queue = saveQueues.current.get(riteId)
+    if (!queue) {
+      queue = new SaveQueue((input) =>
+        saveRite(session, riteId, { ...input, saveId: crypto.randomUUID() }, fetcher)
+      )
+      saveQueues.current.set(riteId, queue)
+    }
+    return queue.enqueue(body)
+  }
+  const save = () => attempt(async () => afterSave(await queuedSave(id, saveBody(name, draft))))
   const publish = () =>
     attempt(async () => {
       try {
@@ -483,9 +497,7 @@ export function RitePanel({
       }
     })
   const restore = (row: VersionDoc) =>
-    attempt(async () =>
-      afterSave(await saveRite(session, id, saveBody(row.name, row.graph), fetcher))
-    )
+    attempt(async () => afterSave(await queuedSave(id, saveBody(row.name, row.graph))))
   const startRun = () =>
     attempt(async () => {
       const outcome = await runRite(session, id, fetcher, crypto.randomUUID())
