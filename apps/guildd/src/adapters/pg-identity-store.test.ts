@@ -166,3 +166,18 @@ test('outstanding desktop codes per guild are capped, evicting the oldest', asyn
   expect(await store.spendDesktopCode(a, 'c0', 'state-c0', T0, note)).toBeNull()
   expect(await store.spendDesktopCode(a, 'c1', 'state-c1', T0, note)).not.toBeNull()
 })
+
+test('a failure writing the first passkey rolls the whole guild back', async () => {
+  const name = `Founding ${crypto.randomUUID()}`
+  const keys = new MemoryKeyProvider()
+  const holder = await foundTestGuild(db, { name: 'Holder', goal: 'g' })
+  const taken = { ...cred, id: `taken-${crypto.randomUUID()}` }
+  await store.saveCredential(holder, taken, note)
+  await expect(
+    db.foundGuildChained({ name, goal: 'g' }, keys, async (tx, id) => {
+      await store.saveCredential(id, taken, note, tx)
+    })
+  ).rejects.toThrow()
+  const [row] = await owner`select count(*)::int as n from guilds where name = ${name}`
+  expect(Number(row?.n)).toBe(0)
+})

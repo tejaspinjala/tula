@@ -79,6 +79,12 @@ export interface ReauthProof {
 }
 
 /**
+ * Stores the first passkey of a guild being founded. Given the founding transaction `tx`, a
+ * database-backed adapter writes inside it; the memory adapter has no transaction and ignores it.
+ */
+export type FoundingWrite = (tx: TenantTx | undefined, guildId: string) => Promise<void>
+
+/**
  * Port for the Guild Master's identity (ADR-0007): passkey ceremonies, guild-bound sessions and
  * re-authentication proofs. Every ceremony is a begin/finish pair carrying a one-use challenge.
  */
@@ -111,6 +117,26 @@ export interface IdentityProvider {
     response: RegistrationResponseJSON,
     auth?: { sessionToken?: string }
   ): Promise<{ credentialId: string }>
+  /**
+   * Starts founding a guild: a passkey ceremony that runs BEFORE any guild exists. Nothing is
+   * written for the guild until {@link IdentityProvider.finishFounding} verifies the attestation,
+   * so an abandoned ceremony leaves no guild behind.
+   */
+  beginFounding(): Promise<{
+    challengeId: string
+    options: PublicKeyCredentialCreationOptionsJSON
+  }>
+  /**
+   * Verifies the attestation, then calls `found` with a `write` that stores the first passkey.
+   * `found` must create the guild and run `write(tx, guildId)` inside the guild's founding
+   * transaction, so a failure of either rolls back both. The challenge is consumed either way.
+   * @returns the new guild's id and the passkey's credential id.
+   */
+  finishFounding(
+    challengeId: string,
+    response: RegistrationResponseJSON,
+    found: (write: FoundingWrite) => Promise<string>
+  ): Promise<{ guildId: string; credentialId: string }>
   /**
    * Mints the guild's one-time enrolment token for a new device (replacing any earlier one),
    * `<guild id>.<at least 128 random bits>`. Returned once; only its hash is kept. Run by the host
