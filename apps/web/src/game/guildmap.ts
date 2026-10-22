@@ -226,3 +226,31 @@ export function mapSummary(map: GuildMap): string {
   }
   return parts.join(' ')
 }
+
+/** Where the schematic puts a room, in grid cells (a column may be fractional). */
+export interface MapSlot {
+  id: MapKey
+  col: number
+  row: number
+}
+
+/** The schematic grid: every room's slot, the Town's column, and the grid width in columns. */
+export interface MapLayout {
+  slots: MapSlot[]
+  /** The Town hangs off the Great Hall's row, in the column right of every Hall room. */
+  townCol: number
+  cols: number
+}
+
+/** Lays the rooms out: the Great Hall on top, the Hall rooms in rows of up to four below it. */
+export function mapLayout(_map: GuildMap): MapLayout {
+  return { slots: [], townCol: 0, cols: 0 }
+}
+
+/** A direction the ▶ cursor moves on the schematic. */
+export type MapDirection = 'up' | 'down' | 'left' | 'right'
+
+/** The room the cursor lands on moving `dir` from `from`; `from` itself when nothing lies that way. */
+export function moveCursor(_layout: MapLayout, from: MapKey, _dir: MapDirection): MapKey {
+  return from
+}
