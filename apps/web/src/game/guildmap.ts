@@ -164,3 +164,65 @@ export function guildMap(input: GuildMapInput): GuildMap {
   }
   return { current, rooms, marks }
 }
+
+/** Where and how large the mini map draws a room. */
+export interface MiniView {
+  /** Canvas pixels per map tile, always a whole number. */
+  scale: number
+  /** The first tile column and row shown. */
+  originX: number
+  originY: number
+}
+
+/**
+ * The window of a room the mini map canvas shows: the largest whole-number scale at which the room
+ * fits, else scale 1 cropped to the canvas and centred on `focus`, kept inside the room.
+ */
+export function miniView(
+  room: { w: number; h: number },
+  focus: Point,
+  canvas: { w: number; h: number }
+): MiniView {
+  const scale = Math.max(1, Math.floor(Math.min(canvas.w / room.w, canvas.h / room.h)))
+  const cols = Math.min(room.w, Math.floor(canvas.w / scale))
+  const rows = Math.min(room.h, Math.floor(canvas.h / scale))
+  const clamp = (v: number, max: number) => Math.max(0, Math.min(v, max))
+  return {
+    scale,
+    originX: clamp(focus.x - Math.floor(cols / 2), room.w - cols),
+    originY: clamp(focus.y - Math.floor(rows / 2), room.h - rows),
+  }
+}
+
+/** What the screen-reader location summary says of the mini map. */
+export function mapSummary(map: GuildMap): string {
+  const here = map.rooms.find((r) => r.id === map.current)
+  if (!here) {
+    return 'Mini map: not in a room of the Guildhall.'
+  }
+  const label = (r: MapRoom) => `${r.name}${r.locked ? ' (locked)' : r.private ? ' (private)' : ''}`
+  const near = map.rooms.filter((r) => here.links.includes(r.id))
+  const parts = [`Mini map: ${label(here)}.`]
+  parts.push(near.length > 0 ? `Doors lead to ${near.map(label).join(', ')}.` : 'No doors.')
+  const inRoom = map.marks.filter((m) => m.room === map.current)
+  const waiting = inRoom.filter((m) => m.kind === 'member' && m.state === 'waiting_seal').length
+  if (waiting > 0) {
+    parts.push(`${waiting} waiting for a Seal.`)
+  }
+  for (const m of inRoom) {
+    if (m.kind !== 'poi' || m.count === 0) {
+      continue
+    }
+    if (m.poi === 'seal-desk') {
+      parts.push(`${m.count} waiting at the Seal desk.`)
+    } else if (m.poi === 'mailbox') {
+      parts.push(`${m.count} unread in the mailbox.`)
+    } else if (m.poi === 'quest-board') {
+      parts.push(`${m.count} on the Quest Board.`)
+    }
+  }
+  if (inRoom.some((m) => m.kind === 'poi' && m.poi === 'gate' && m.closed)) {
+    parts.push('The gate is barred.')
+  }
+  return parts.join(' ')
+}

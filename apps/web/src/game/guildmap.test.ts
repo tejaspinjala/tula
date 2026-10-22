@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { guildMap } from './guildmap'
+import { guildMap, mapSummary, miniView } from './guildmap'
 import { greatHall, type Room, type RoomHall, roomFor } from './room'
 import type { SceneMember, SceneRoom, SceneState } from './scene'
 
@@ -112,5 +112,26 @@ describe('the Guild Map model', () => {
       room: 'hall:w',
       tile: { x: 3, y: 4 },
     })
+  })
+})
+
+describe('the mini map view', () => {
+  test('draws at a whole-number scale and keeps the Guild Master in view', () => {
+    const small = miniView({ w: 12, h: 8 }, { x: 6, y: 4 }, { w: 64, h: 48 })
+    expect(small).toMatchObject({ scale: 5, originX: 0, originY: 0 })
+    const big = miniView({ w: 80, h: 60 }, { x: 78, y: 58 }, { w: 64, h: 48 })
+    expect(Number.isInteger(big.scale)).toBe(true)
+    expect(big.originX).toBe(80 - Math.floor(64 / big.scale))
+  })
+
+  test('the screen-reader summary names the room, neighbours, Members, Seals and mail', () => {
+    const text = mapSummary(build('hall'))
+    expect(text).toContain('Great Hall')
+    expect(text).toContain('Works')
+    expect(text).toContain('Health (private)')
+    expect(text).toContain('Vault (locked)')
+    expect(text).toContain('2 waiting at the Seal desk')
+    expect(text).toContain('5 unread in the mailbox')
+    expect(mapSummary(build('hall:w'))).toContain('1 waiting for a Seal')
   })
 })
