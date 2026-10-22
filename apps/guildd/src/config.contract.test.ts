@@ -296,6 +296,41 @@ describe('providers and routing profiles over HTTP', () => {
     expect(await stale.json()).toEqual({ error: 'stale' })
   })
 
+  test('swapping two confirmed same-tier profiles is pending widening until a passkey confirm', async () => {
+    const who = await signedIn()
+    const two = (order: readonly string[]) => ({
+      ...defaultConfig(),
+      providers: [
+        { id: 'a', auth: 'api_key' as const, privateEligible: false },
+        { id: 'b', auth: 'api_key' as const, privateEligible: false },
+      ],
+      routingProfiles: order.map((id) => ({ id, provider: id, tier: 'mid' as const })),
+    })
+    await who.put(two(['a', 'b']))
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/2/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    const swapped = await who.put(two(['b', 'a']))
+    expect(swapped.status).toBe(202)
+    expect(outcome.parse(await swapped.json())).toMatchObject({
+      status: 'pending',
+      change: 'widening',
+    })
+    expect((await who.current()).config.routingProfiles.map((p) => p.id)).toEqual(['a', 'b'])
+    await send(
+      harness,
+      'POST',
+      `${who.base}/config/versions/3/confirm`,
+      {},
+      { ...who.auth, 'x-reauth-proof': await who.proof() }
+    )
+    expect((await who.current()).config.routingProfiles.map((p) => p.id)).toEqual(['b', 'a'])
+  })
+
   test("another guild cannot add a provider to this guild's config", async () => {
     const first = await signedIn()
     const second = await signedIn()
