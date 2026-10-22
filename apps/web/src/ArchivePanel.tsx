@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
+import { parseWikiLinks, titleKey } from '../../guildd/src/ports/note-store'
 import {
   type ArchiveExport,
   type ArchiveNote,
@@ -27,6 +28,36 @@ function browserDownload(filename: string, blob: Blob): void {
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+/** The badge a private note wears in the list and the header. */
+function PrivateBadge() {
+  return <span className="text-sm font-semibold">PRIVATE</span>
+}
+
+/** The body as text, with each `[[link]]` to a known note as a button that opens it. */
+function linkedBody(
+  body: string,
+  idOf: (key: string) => string | undefined,
+  open: (id: string) => void
+): ReactNode[] {
+  const out: ReactNode[] = []
+  let from = 0
+  for (const link of parseWikiLinks(body, (key) => idOf(key) !== undefined)) {
+    const id = idOf(titleKey(link.target))
+    if (id === undefined) {
+      continue
+    }
+    out.push(<Fragment key={`t${from}`}>{body.slice(from, link.start)}</Fragment>)
+    out.push(
+      <PixelButton key={link.start} onClick={() => open(id)}>
+        {link.alias ?? link.target}
+      </PixelButton>
+    )
+    from = link.end
+  }
+  out.push(<Fragment key={`t${from}`}>{body.slice(from)}</Fragment>)
+  return out
 }
 
 const notes = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`
@@ -124,6 +155,10 @@ export function ArchivePanel({
       setIncludePrivate(false)
     }
   }
+
+  const openNote = (id: string) =>
+    run('Open note', async (current) => setDetail(await readNote(current, id, fetch)))
+  const idByTitle = (key: string) => notes.find((n) => titleKey(n.title) === key)?.id
 
   const find = (current: Session) =>
     (query.trim() ? searchNotes(current, query, fetch) : listNotes(current, fetch)).then((page) =>
@@ -232,15 +267,8 @@ export function ArchivePanel({
           <ul aria-label="Notes" className="work-log">
             {notes.map((note) => (
               <li key={note.id}>
-                <PixelButton
-                  onClick={() =>
-                    run('Open note', async (current) =>
-                      setDetail(await readNote(current, note.id, fetch))
-                    )
-                  }
-                >
-                  {note.title}
-                </PixelButton>{' '}
+                <PixelButton onClick={() => openNote(note.id)}>{note.title}</PixelButton>{' '}
+                {note.dataClass === 'private' ? <PrivateBadge /> : null}{' '}
                 <span className="text-sm">
                   {note.trust === 'fact' ? 'fact' : 'quarantined assumption'}, v{note.version}
                 </span>
@@ -249,13 +277,19 @@ export function ArchivePanel({
           </ul>
           {detail ? (
             <article aria-label="Note detail" className="work-note">
-              <h3 className="font-semibold">{detail.note.title}</h3>
-              <p className="whitespace-pre-wrap">{detail.note.body}</p>
+              <h3 className="font-semibold">
+                {detail.note.title} {detail.note.dataClass === 'private' ? <PrivateBadge /> : null}
+              </h3>
+              <p className="whitespace-pre-wrap">
+                {linkedBody(detail.note.body, idByTitle, openNote)}
+              </p>
               {detail.note.evidence ? <p>Evidence: {detail.note.evidence}</p> : null}
               <h4 className="mt-2 font-semibold">Backlinks</h4>
               <ul aria-label="Backlinks">
                 {detail.backlinks.map((link) => (
-                  <li key={link.id}>{link.title}</li>
+                  <li key={link.id}>
+                    <PixelButton onClick={() => openNote(link.id)}>{link.title}</PixelButton>
+                  </li>
                 ))}
               </ul>
               <h4 className="mt-2 font-semibold">Versions</h4>
