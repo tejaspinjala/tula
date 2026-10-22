@@ -626,6 +626,8 @@ export function RitePanel({
       </div>
       {confirmingArchive && (
         <div
+          role="group"
+          aria-label="Archive this Rite"
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.stopPropagation()
