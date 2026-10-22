@@ -81,6 +81,25 @@ describe('GET /guilds/:id/archive/export through the composed app', () => {
     expect(await exported(a.guildId)).toHaveLength(2)
   })
 
+  test('a replayed proof after a successful private export is 403 with no new event', async () => {
+    const a = await signedIn('Guild A')
+    const headers = await a.reauth()
+    expect((await harness.request(url(a.guildId, '?private=true'), { headers })).status).toBe(200)
+    expect(await exported(a.guildId)).toHaveLength(1)
+    const replay = await harness.request(url(a.guildId, '?private=true'), { headers })
+    expect(replay.status).toBe(403)
+    expect(await exported(a.guildId)).toHaveLength(1)
+  })
+
+  test('a wrong x-reauth-proof is 403 with no event', async () => {
+    const a = await signedIn('Guild A')
+    const res = await harness.request(url(a.guildId, '?private=true'), {
+      headers: { ...a.auth, 'x-reauth-proof': 'not-a-proof' },
+    })
+    expect(res.status).toBe(403)
+    expect(await exported(a.guildId)).toHaveLength(0)
+  })
+
   test('anonymous, dev-header-only and bogus-token requests are 401 with no event', async () => {
     const a = await signedIn('Guild A')
     for (const headers of [
