@@ -46,21 +46,67 @@ export const PROVIDER_FIELD_CLASS: Record<string, FieldClass> = {
 }
 
 /** Nested objects hold only structure: every key is classified so a new one must be reviewed. */
-export const MEMBER_FIELD_CLASS: Record<string, FieldClass> = {}
+export const MEMBER_FIELD_CLASS: Record<string, FieldClass> = {
+  id: 'structure',
+  name: 'structure',
+  rank: 'structure',
+  look: 'structure',
+}
 /** Keys of an agent (the Steward and every Captain). */
-export const AGENT_FIELD_CLASS: Record<string, FieldClass> = {}
+export const AGENT_FIELD_CLASS: Record<string, FieldClass> = {
+  id: 'structure',
+  name: 'structure',
+}
 /** Keys of the guild caps. */
-export const CAPS_FIELD_CLASS: Record<string, FieldClass> = {}
+export const CAPS_FIELD_CLASS: Record<string, FieldClass> = {
+  dailyTokens: 'structure',
+  dailySpendCents: 'structure',
+  concurrentQuests: 'structure',
+  sealPostWindowHours: 'structure',
+  maxChildrenPerQuest: 'structure',
+  maxSpawnDepth: 'structure',
+  maxQuestsPerCampaign: 'structure',
+  maxMissivesPerQuest: 'structure',
+  maxResearchPerQuest: 'structure',
+  maxInquiriesPerQuest: 'structure',
+  maxBugReportsPerQuest: 'structure',
+  maxDossiersPerQuest: 'structure',
+  maxCouncilApprovalsPerDay: 'structure',
+  maxCouncilSessionsPerDay: 'structure',
+}
 /** Keys of the Treasury envelope. */
-export const TREASURY_FIELD_CLASS: Record<string, FieldClass> = {}
+export const TREASURY_FIELD_CLASS: Record<string, FieldClass> = {
+  dailyCapCents: 'structure',
+  treasurerLimitCents: 'structure',
+  reservePercent: 'structure',
+  reinvestPercent: 'structure',
+}
 /** Keys of the Tripwire thresholds. */
-export const TRIPWIRES_FIELD_CLASS: Record<string, FieldClass> = {}
+export const TRIPWIRES_FIELD_CLASS: Record<string, FieldClass> = {
+  tokenBurnMultiple: 'structure',
+  gateDenialsPerHour: 'structure',
+  loopRepeats: 'structure',
+}
 /** Keys of the content policy. */
-export const CONTENT_POLICY_FIELD_CLASS: Record<string, FieldClass> = {}
+export const CONTENT_POLICY_FIELD_CLASS: Record<string, FieldClass> = {
+  maxLength: 'structure',
+  bannedTerms: 'structure',
+  requiredTerms: 'structure',
+  allowMetaDrafts: 'structure',
+}
 /** Keys of a routing profile. */
-export const ROUTING_PROFILE_FIELD_CLASS: Record<string, FieldClass> = {}
+export const ROUTING_PROFILE_FIELD_CLASS: Record<string, FieldClass> = {
+  id: 'structure',
+  provider: 'structure',
+  tier: 'structure',
+  model: 'structure',
+  price: 'structure',
+}
 /** Keys of a schedule. */
-export const SCHEDULE_FIELD_CLASS: Record<string, FieldClass> = {}
+export const SCHEDULE_FIELD_CLASS: Record<string, FieldClass> = {
+  id: 'structure',
+  cron: 'structure',
+}
 
 /** The Charter document (ADR-0014): guild structure only, never attestations or private data. */
 export const charterSchema = z.strictObject({
@@ -119,10 +165,41 @@ function nodeHallIds(graph: RiteGraph): string[] {
   return graph.nodes.flatMap((n) => ('hallId' in n ? [n.hallId] : []))
 }
 
+type Plain = Record<string, unknown>
+
+/** Export side of a table: a `local` boolean becomes false, any other `local` key is dropped. */
+function resetLocal(obj: Plain, table: Record<string, FieldClass>): Plain {
+  return Object.fromEntries(
+    Object.entries(obj).flatMap(([k, v]): [string, unknown][] => {
+      if (table[k] !== 'local') {
+        return [[k, v]]
+      }
+      return typeof v === 'boolean' ? [[k, false]] : []
+    })
+  )
+}
+
+/** Apply side of a table: every `local` key comes from `held` (the current object); a missing boolean is false. */
+function takeLocal(obj: Plain, table: Record<string, FieldClass>, held: Plain | undefined): Plain {
+  const out: Plain = Object.fromEntries(Object.entries(obj).filter(([k]) => table[k] !== 'local'))
+  for (const [k, cls] of Object.entries(table)) {
+    if (cls !== 'local') {
+      continue
+    }
+    const mine = held?.[k]
+    if (typeof mine === 'boolean' || typeof obj[k] === 'boolean') {
+      out[k] = mine === true
+    } else if (mine !== undefined) {
+      out[k] = mine
+    }
+  }
+  return out
+}
+
 /**
- * Builds a Charter from a guild: every `privateEligible` becomes false, `learningRepos` is dropped,
- * and Rites that are archived, unpublished or touch a private Hall are left out. Each removal is
- * listed in `omitted`.
+ * Builds a Charter from a guild: every `local` key is dropped (booleans become false) and Rites
+ * that are archived, unpublished or touch a private Hall are left out. Each removal is listed in
+ * `omitted`. The result is parsed strictly, so an unexpected runtime key fails closed.
  */
 export function exportCharter(input: {
   name: string
@@ -130,18 +207,19 @@ export function exportCharter(input: {
   rites: ExportRite[]
   now: Date
 }): Charter {
-  const { learningRepos, ...rest } = input.config
-  const config: GuildConfig = {
-    ...rest,
-    halls: rest.halls.map((h) => ({ ...h, privateEligible: false })),
-    providers: rest.providers.map((p) => ({ ...p, privateEligible: false })),
+  const source: Plain = input.config
+  const config = {
+    ...resetLocal(source, CONFIG_FIELD_CLASS),
+    halls: input.config.halls.map((h) => resetLocal(h, HALL_FIELD_CLASS)),
+    providers: input.config.providers.map((p) => resetLocal(p, PROVIDER_FIELD_CLASS)),
   }
-  const omitted: Charter['omitted'] = []
-  if (learningRepos !== undefined) {
-    omitted.push({ kind: 'config', id: 'learningRepos', reason: 'local' })
-  }
+  const omitted: Charter['omitted'] = Object.entries(CONFIG_FIELD_CLASS)
+    .filter(
+      ([k, cls]) => cls === 'local' && source[k] !== undefined && typeof source[k] !== 'boolean'
+    )
+    .map(([k]) => ({ kind: 'config', id: k, reason: 'local' }))
   const hallKind = new Map(input.config.halls.map((h) => [h.id, h.kind]))
-  const rites: Charter['rites'] = []
+  const rites: { name: string; graph: RiteGraph }[] = []
   for (const r of input.rites) {
     const reason = omitReason(r, hallKind)
     if (reason !== null || r.activeGraph === null) {
@@ -150,14 +228,14 @@ export function exportCharter(input: {
       rites.push({ name: r.name, graph: r.activeGraph })
     }
   }
-  return {
+  return charterSchema.parse({
     charter: 1,
     name: input.name,
     exportedAt: input.now.toISOString(),
     config,
     rites,
     omitted,
-  }
+  })
 }
 
 function omitReason(r: ExportRite, hallKind: Map<string, 'work' | 'private'>): string | null {
@@ -209,23 +287,34 @@ export function applyCharter(input: {
     return { ok: false, error: 'invalid_charter', message: valid.error.message }
   }
   const charter = valid.data
-  const heldHalls = new Map(input.current.halls.map((h) => [h.id, h.privateEligible]))
-  const heldProviders = new Map(input.current.providers.map((p) => [p.id, p.privateEligible]))
-  const { learningRepos, ...rest } = charter.config
-  void learningRepos
-  const config: GuildConfig = {
-    ...rest,
-    halls: rest.halls.map((h) => ({ ...h, privateEligible: heldHalls.get(h.id) ?? false })),
-    providers: rest.providers.map((p) => ({
-      ...p,
-      privateEligible: heldProviders.get(p.id) ?? false,
-    })),
-    ...(input.current.learningRepos === undefined
-      ? {}
-      : { learningRepos: input.current.learningRepos }),
+  const heldConfig: Plain = input.current
+  const byId = (list: { id: string }[]) => new Map(list.map((x): [string, Plain] => [x.id, x]))
+  const heldHalls = byId(input.current.halls)
+  const heldProviders = byId(input.current.providers)
+  const candidate = guildConfig.safeParse({
+    ...takeLocal(charter.config, CONFIG_FIELD_CLASS, heldConfig),
+    halls: charter.config.halls.map((h) => takeLocal(h, HALL_FIELD_CLASS, heldHalls.get(h.id))),
+    providers: charter.config.providers.map((p) =>
+      takeLocal(p, PROVIDER_FIELD_CLASS, heldProviders.get(p.id))
+    ),
+  })
+  if (!candidate.success) {
+    return { ok: false, error: 'invalid_charter', message: candidate.error.message }
   }
+  const config = candidate.data
   const hallIds = new Set(config.halls.map((h) => h.id))
+  const scheduleIds = new Set(config.schedules.map((x) => x.id))
   for (const r of charter.rites) {
+    const noSchedule = r.graph.nodes.find(
+      (n) => n.type === 'trigger.schedule' && !scheduleIds.has(n.scheduleId)
+    )
+    if (noSchedule !== undefined) {
+      return {
+        ok: false,
+        error: 'invalid_charter',
+        message: `rite "${r.name}" names a schedule the charter config does not define`,
+      }
+    }
     const missing = nodeHallIds(r.graph).find((id) => !hallIds.has(id))
     if (missing !== undefined) {
       return {
