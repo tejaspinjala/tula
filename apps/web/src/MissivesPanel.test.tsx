@@ -96,7 +96,7 @@ async function mount(ui: React.ReactElement) {
 test('a Hall’s exchange is listed newest first with Member names, as plain text', async () => {
   const m = await mount(<MissivesPanel session={session} />)
   const heading = m.host.querySelector('h2')
-  expect(heading?.textContent).toBe('Guild chat')
+  expect(heading?.textContent).toBe('Missives')
   const rows = [...m.host.querySelectorAll('[data-testid="missive"]')].map((r) => r.textContent)
   expect(rows).toHaveLength(3)
   expect(rows[0]).toContain('from Health')

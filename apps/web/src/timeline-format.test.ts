@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { eventText } from './event-text'
+import { describeEvent } from './event-text'
 import { groupRepeats, relativeTime, stateWord } from './timeline-format'
 
 const now = Date.parse('2026-03-01T12:00:00.000Z')
@@ -43,8 +43,8 @@ test('event text names a Quest by its title when the log lists it', () => {
     payload: { quest_id: 'q1', attempt: 1, handoff_hash: 'h' },
     occurredAt: ago(0),
   }
-  expect(eventText(event, { q1: 'Announce run check' })).toBe(
+  expect(describeEvent(event, { q1: 'Announce run check' })).toBe(
     'Handoff recorded for Quest Announce run check'
   )
-  expect(eventText(event)).toBe('Handoff recorded for Quest q1')
+  expect(describeEvent(event)).toBe('Handoff recorded for Quest q1')
 })

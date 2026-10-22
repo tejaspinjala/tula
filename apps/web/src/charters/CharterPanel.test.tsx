@@ -170,10 +170,27 @@ test('a picked Charter shows the preview before anything is sent', async () => {
   const text = w.host.textContent ?? ''
   expect(text).toContain('Forge')
   expect(text).toContain('Health')
-  expect(text).toContain('caps.dailyTokens')
   expect(text).toContain('Morning digest')
   expect(text).toContain('learningRepos')
   expect(w.imports).toHaveLength(0)
+})
+
+test('the preview reads as grouped change lines, never raw JSON', async () => {
+  const w = await mount(applied)
+  await pick(w.host, JSON.stringify(sampleCharter))
+  const lines = (label: string) =>
+    Array.from(w.host.querySelectorAll(`[aria-label="${label}"] li`)).map((li) => li.textContent)
+  expect(lines('Halls')).toContain('Hall Forge will be added')
+  expect(lines('Halls')).toContain('Hall Health will be removed')
+  expect(lines('Halls')).toContain('Hall heralds: Captain changes from none to Captain')
+  expect(lines('Caps')).toContain('Daily tokens cap changes from 5 to 9')
+  expect(lines('Seal Policy')).toContain('Seal Policy changes from always to strict')
+  expect(lines('Rites')).toContain('Rite Morning digest will be added as a draft')
+  const text = w.host.textContent ?? ''
+  expect(text).not.toMatch(/[{}]/)
+  expect(text).not.toContain('->')
+  expect(text).not.toContain('caps.dailyTokens')
+  expect(text).toContain('Widens authority: waits for your passkey')
 })
 
 test('confirming posts the version shown and a fresh import id, then reports applied', async () => {

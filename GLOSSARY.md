@@ -52,7 +52,7 @@ _Avoid_: backlog
 
 **Missive**:
 A short note (up to 2000 characters) one Member sends another Member of its Hall, the whole Hall, or, with `toHall`, a Member or the whole of another Hall (`send_missive`, `read_missives`). Capped per Quest, cross-Hall sends included (`maxMissivesPerQuest`, refused as `missive_cap`). Cross-Hall refusals: `unknown_hall`, `same_hall`, `not_in_hall`, and `private_boundary` (the one cross-Hall rule, by direction: pushing, a private Hall or a private-class Quest may not send to a work Hall; pulling, where data flows back to the requester as for a Dossier or an Inquiry answer, a private Hall or private-class data may not reach a Quest that is neither in a private Hall nor private-class). Its text is untrusted: it is stored as data, shown to a model only inside a per-call random nonce frame (a cross-Hall Missive also names the sending Hall), and the Guild Master reads Missives in the ledger and the Hall mailbox. Work products travel as Handoffs (ids and hashes), not Missives.
-_Avoid_: DM, chat, message, notification
+_Avoid_: DM, chat, Guild chat, message, notification
 
 **Research**:
 A Member's governed web search (`research` MCP tool, ADR-0010). guildd, never the sandbox, runs the query through the configured search provider and reads short extracts of the top pages through the page fetcher, so the egress allowlist stays closed. Off unless the host configures a provider and the guild sets `maxResearchPerQuest` above 0 (default 0; enabling or raising it is widening, so it needs a Seal). Each call is capped per Quest (`research_cap`) and charged to the Treasury in code (`RESEARCH_CALL_COST_CENTS`, refused as `research_declined`); a private-class Quest is refused (`provider_not_private_eligible`) unless the provider is private-eligible, a host setting; outbound calls have timeouts and jittered retries (`research_timeout`, `research_failed`). A refused or failed call charges nothing, but a failed one still counts toward the cap; a page that cannot be read (private host, 4xx, not text) is skipped without retry and reported in the result's `note`. Results (title, url, extract of at most 1000 characters) are untrusted web text, returned inside a per-call random nonce frame; nothing is executed. The store keeps ids only, never the query or a result.
@@ -153,6 +153,36 @@ _Avoid_: stop button
 **The Watch**:
 Security, shared across all Halls.
 _Avoid_: SecOps
+
+## The world
+
+**Great Hall**:
+The entrance room of the Guildhall, where the Guild Master starts. It holds the Steward's desk, the Seal desk, the Quest Board, the Mailbox and the Gate, and its doorways lead to each Hall's room (ADR-0016).
+_Avoid_: lobby, home screen, dashboard
+
+**Guild Map**:
+The one-screen view of the whole Guildhall: the Great Hall, every Hall room, the town maps and how their doorways connect, with each Hall's name, locked or private state and Members. Its corner view is the **mini map**. It reads only client scene state, never a new server call, and choosing a room walks or teleports the Guild Master there (ADR-0016).
+_Avoid_: world map, minimap (write mini map), radar
+
+**Mailbox**:
+The landmark in the Great Hall where unread Missives wait, with its unread count; opening it opens Missives. It is a place in the world, not a notification.
+_Avoid_: inbox, notifications
+
+**Counting House**:
+The town map where the Treasury is kept (formerly the vault map, id `vault`, now `counting-house`). Not the Vault of secrets.
+_Avoid_: vault map, bank
+
+**Treasury chest**:
+The Hall object that shows the Treasury's spend in the Great Hall (formerly `coins`).
+_Avoid_: coins, wallet
+
+**HUD**:
+The reserved strip of game chrome at the top of the screen (Seals waiting, Treasury, time of day). The camera never draws under it, and the time-of-day tint never touches it.
+_Avoid_: toolbar, header, status bar
+
+**Bag**:
+The Guild Master's menu of pages (Missives, Seals, Treasury, Archive, Rites, Settings and the rest), opened over the game. Menu pages are a framed dialog; workbench pages (Rites, Guild builder, Archive, Ledger) open as a full-screen framed board.
+_Avoid_: menu, sidebar, nav
 
 ## Resources and memory
 

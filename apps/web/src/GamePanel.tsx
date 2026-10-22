@@ -47,7 +47,7 @@ export interface WorldSlots {
   hallControls: ReactNode
   /** Returns keyboard focus to the world after an overlay closes. */
   focusWorld: () => void
-  /** Opens the talk conversation with a Member (the Guild chat's way to address one). */
+  /** Opens the talk conversation with a Member (the way Missives lets you to address one). */
   talkTo: (memberId: string) => void
   /** Reloads the guild's Halls and Members after the config in force changed (a Charter import). */
   refreshHall: () => void

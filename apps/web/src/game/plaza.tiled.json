@@ -263,7 +263,7 @@
         },
         {
           "id": 5,
-          "name": "door-to-vault",
+          "name": "door-to-counting-house",
           "type": "door",
           "x": 464,
           "y": 96,
@@ -272,7 +272,7 @@
           "rotation": 0,
           "visible": true,
           "properties": [
-            { "name": "to", "type": "string", "value": "vault" },
+            { "name": "to", "type": "string", "value": "counting-house" },
             { "name": "toX", "type": "int", "value": 6 },
             { "name": "toY", "type": "int", "value": 8 }
           ]
