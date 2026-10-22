@@ -2,7 +2,7 @@
 
 An **Archive export** lets a Guild Master take the Archive out of Guildhall as plain files that open in any Markdown tool. It is only trustworthy if the folder is portable, keeps facts apart from quarantined assumptions, and never leaks a private note by default.
 
-**A folder of Markdown files.** One file per note at `<Hall name>/<file>.md`; notes with no Hall go under `Guild Master/`, private notes under `Private/<Hall name>/`. `Archive.md` at the root is the index, with separate Facts and Quarantined assumptions sections, counts. The builder is a pure function (`buildArchiveExport`): the caller reads the notes and writes the files.
+**A folder of Markdown files.** One file per note at `<Hall name>/<file>.md`; notes with no Hall go under `Guild Master/`, private notes under `Private/<Hall name>/`. `Archive.md` at the root is the index, with separate Facts and Quarantined assumptions sections, a count of exported notes, and a constant line saying whether private notes are included. The builder is a pure function (`buildArchiveExport`): the caller reads the notes and writes the files.
 
 **Safe names.** File and folder names strip `/ \ : * ? " < > | # ^ [ ]` and control characters, trim dots and spaces, suffix reserved Windows names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) with `_`, and cap at 120 characters. Collisions (case-insensitive, as on macOS and Windows) get ` (2)`, ` (3)` suffixes assigned in note-id order, so the same Archive always exports to the same paths.
 
