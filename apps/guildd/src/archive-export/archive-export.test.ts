@@ -33,6 +33,7 @@ function run(notes: ExportNote[], extra: Partial<ArchiveExportInput> = {}) {
     halls,
     guildName: 'Tula',
     now: NOW,
+    includePrivate: false,
     ...extra,
   })
 }
@@ -244,9 +245,14 @@ describe('link resolution (ADR-0015)', () => {
       'I keep a diary. Plain Ghost text.'
     )
   })
-  test('index lists exported notes only and carries no private count', () => {
+  test('index says private notes are not included, with no count, in default mode', () => {
     const idx = file(run([note({ id: '1', title: 'S' })]), 'Archive.md')
-    expect(idx).not.toMatch(/left out|private/i)
+    expect(idx).toContain('Private notes are not included in this export.')
+    expect(idx).not.toMatch(/left out|\d private/i)
+  })
+  test('index says private notes are included under Private/ in private mode', () => {
+    const idx = file(run([note({ id: '1', title: 'S' })], { includePrivate: true }), 'Archive.md')
+    expect(idx).toContain('Private notes are included, under Private/.')
   })
 })
 

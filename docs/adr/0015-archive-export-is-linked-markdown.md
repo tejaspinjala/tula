@@ -14,6 +14,6 @@ An **Archive export** lets a Guild Master take the Archive out of Guildhall as p
 
 **Caps and the event.** An export is capped at 10,000 notes and 50 MB uncompressed; beyond that the route answers 413 `archive_too_large`. The passkey proof is spent before the caps are checked, so a 413 costs the Guild Master that re-auth. A successful export appends `archive.exported` with counts only (exported, privateIncluded, privateLeftOut), never titles or bodies.
 
-**Private notes leave only on request and with re-auth.** The default export contains no private note; asking for them is a passkey-confirmed action, like unlocking a private Hall (ADR-0012). The number left out appears only in the response header and the event.
+**Private notes leave only on request and with re-auth.** The default export contains no private note; asking for them is a passkey-confirmed action, like unlocking a private Hall (ADR-0012). The number left out appears only in the response header and the event; `Archive.md` carries a constant line instead ("Private notes are not included in this export." or "Private notes are included, under Private/."), and zip entry times are pinned to the export's `now`, so the bytes depend on nothing private.
 
 We rejected a single JSON dump (not readable or linkable outside Guildhall) and exporting quarantined assumptions as plain notes (it would blur them with facts once outside the Archive).

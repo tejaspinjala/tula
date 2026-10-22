@@ -165,6 +165,8 @@ for (const kind of ['memory', 'postgres'] as const) {
       const res = await get()
       const after = await unzip(res)
       expect(after.files).toEqual(before.files)
+      expect(after.files['Archive.md']).toContain('Private notes are not included in this export.')
+      expect(after.bytes).toEqual(before.bytes)
       expect(JSON.stringify(after.files)).not.toContain('[withheld]')
       expect(counts.parse(JSON.parse(res.headers.get('x-archive-counts') ?? 'null'))).toEqual({
         exported: 2,
@@ -205,6 +207,7 @@ for (const kind of ['memory', 'postgres'] as const) {
         privateLeftOut: 0,
       })
       const { files } = await unzip(res)
+      expect(files['Archive.md']).toContain('Private notes are included, under Private/.')
       const secret = Object.entries(files).find(([p]) => p.startsWith('Private/'))
       expect(secret?.[1]).toContain(SECRET_BODY)
       expect(await events()).toEqual([{ exported: 2, privateIncluded: 1, privateLeftOut: 0 }])

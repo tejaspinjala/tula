@@ -15,6 +15,8 @@ export interface ArchiveExportInput {
   halls: readonly { id: string; name: string }[]
   guildName: string
   now: Date
+  /** Whether private notes are among `notes`; only changes the constant partial-export line of the index. */
+  includePrivate: boolean
 }
 
 const MAX_NAME = 120
@@ -164,6 +166,9 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
     `Exported ${input.now.toISOString().slice(0, 10)}.`,
     '',
     `Notes exported: ${notes.length}`,
+    input.includePrivate
+      ? 'Private notes are included, under Private/.'
+      : 'Private notes are not included in this export.',
     '',
     `## Facts (${facts.length})`,
     '',

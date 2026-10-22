@@ -111,11 +111,13 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
 
     const privateLeftOut = wantPrivate ? 0 : await deps.notes.countPrivate(who.guild)
     const { config } = await deps.config.current(who.guild)
+    const now = deps.clock.now()
     const files = buildArchiveExport({
       notes: exported,
       halls: config.halls.map((h) => ({ id: h.id, name: h.name })),
       guildName: name,
-      now: deps.clock.now(),
+      now,
+      includePrivate: wantPrivate,
     })
     const encoded = files.map((f) => [f.path, strToU8(f.content)] as const)
     if (encoded.reduce((sum, [, data]) => sum + data.length, 0) > caps.maxBytes) {
@@ -126,7 +128,7 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
       privateIncluded,
       privateLeftOut,
     }
-    const zip = (deps.zip ?? zipSync)(Object.fromEntries(encoded))
+    const zip = (deps.zip ?? ((f) => zipSync(f, { mtime: now })))(Object.fromEntries(encoded))
     await deps.recordExported(who.guild, fact)
     return new Response(zip, {
       headers: {
