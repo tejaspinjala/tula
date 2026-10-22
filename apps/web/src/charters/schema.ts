@@ -30,6 +30,21 @@ export class CharterFileError extends Error {
 }
 
 /** Parses the text of a `.charter.json` file, or throws {@link CharterFileError}. */
-export function parseCharter(_text: string): Charter {
-  throw new CharterFileError('not implemented')
+export function parseCharter(text: string): Charter {
+  if (new TextEncoder().encode(text).length > CHARTER_MAX_BYTES) {
+    throw new CharterFileError('The file is too large for a Charter (256 KB at most).')
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new CharterFileError('The file is not valid JSON.')
+  }
+  const parsed = charterSchema.safeParse(json)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    const where = first?.path.join('.') || 'document'
+    throw new CharterFileError(`The file is not a Charter this version reads (${where}).`)
+  }
+  return parsed.data
 }

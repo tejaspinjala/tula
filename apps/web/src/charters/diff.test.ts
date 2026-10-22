@@ -29,8 +29,8 @@ test('the preview lists Halls added and removed by name', () => {
 test('the preview lists the Seal Policy and changed caps only', () => {
   const p = previewCharter(current, sampleCharter)
   expect(p.settings).toEqual([
-    { label: 'sealPolicy', from: 'always', to: 'strict' },
     { label: 'caps.dailyTokens', from: '5', to: '9' },
+    { label: 'sealPolicy', from: 'always', to: 'strict' },
   ])
 })
 
