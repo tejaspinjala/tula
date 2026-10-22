@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { eventText } from './event-text'
+import { describeEvent, EVENT_TYPES } from './event-text'
 import type { ReplayEvent } from './replay'
 import { RITE_EVENT } from './rites/events'
 
@@ -134,16 +134,45 @@ const cases: Array<[ReplayEvent, string]> = [
 ]
 
 test.each(cases)('event %#: text names the event in plain words', (event, text) => {
-  expect(eventText(event)).toBe(text)
+  expect(describeEvent(event)).toBe(text)
 })
 
 test('an unknown event still has text, and a malformed payload never throws', () => {
-  expect(eventText(ev('future.thing', { x: 1 }))).toBe('Event future.thing, number 7')
-  expect(eventText(ev('quest.done', 5))).toBe('Quest done')
+  expect(describeEvent(ev('future.thing', { x: 1 }))).not.toContain('future.thing')
+  expect(describeEvent(ev('quest.done', 5))).toBe('Quest done')
+})
+
+test('every event type in the web union has its own sentence, never the raw type or number', () => {
+  const unknownSentence = describeEvent(ev('zz.never_heard_of_it', {}))
+  for (const type of EVENT_TYPES) {
+    const text = describeEvent(ev(type, {}))
+    expect(text).not.toBe(unknownSentence)
+    expect(text).not.toContain(type)
+    expect(text).not.toMatch(/number \d/)
+  }
+})
+
+test('an event type outside the union gets a plain fallback sentence with no raw type', () => {
+  const text = describeEvent(ev('future.thing', { x: 1 }))
+  expect(text).not.toContain('future.thing')
+  expect(text).not.toMatch(/number \d/)
+  expect(text.length).toBeGreaterThan(10)
+})
+
+test('member.activity reads as a sentence about the Quest', () => {
+  const event = ev('member.activity', {
+    questId: 'q1',
+    memberId: 'm1',
+    hallId: 'h1',
+    activity: 'researching',
+  })
+  expect(describeEvent(event, { q1: 'Draft the reminder' })).toBe(
+    'A Member is researching on Quest Draft the reminder'
+  )
 })
 
 test('text never carries secret-looking payload fields', () => {
-  const text = eventText(
+  const text = describeEvent(
     ev('vault.secret_added', { ref: 'r1', value: 'sk-live-123', token: 'tok', hash: 'h' })
   )
   expect(text).not.toContain('sk-live-123')

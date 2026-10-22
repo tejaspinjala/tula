@@ -4,6 +4,9 @@ import type { ReplayEvent } from './replay'
 import { RITE_EVENT } from './rites/events'
 import { formatCents } from './treasury'
 
+/** The event types the web has a sentence for (stub: filled in with the fix). */
+export const EVENT_TYPES = ['member.activity'] as const
+
 const fields = z.record(z.string(), z.unknown())
 
 function str(p: Record<string, unknown>, key: string): string {
@@ -26,7 +29,7 @@ function cents(p: Record<string, unknown>): string {
  * Plain-language, screen-reader text for one event; `names` maps Quest ids to titles. It names ids, hashes and amounts only; it
  * never reads secret-bearing fields, and an unknown or malformed event still gets text.
  */
-export function eventText(event: ReplayEvent, names: Record<string, string> = {}): string {
+export function describeEvent(event: ReplayEvent, names: Record<string, string> = {}): string {
   const parsed = fields.safeParse(event.payload)
   const p: Record<string, unknown> = parsed.success ? parsed.data : {}
   const has = parsed.success
