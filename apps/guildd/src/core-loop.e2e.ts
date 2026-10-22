@@ -972,6 +972,33 @@ export function coreLoopEndToEnd(name: string, make: () => Promise<E2eWorld>): v
       expect(await w.sandboxes.list(guildId)).toEqual([])
     })
 
+    test('a routing-blocked Quest parks with a growing backoff, and a config change wakes it and clears last_error', async () => {
+      const w = await make()
+      const { guildId } = await w.newGuild({ caps: { dailyTokens: 0, dailySpendCents: 0 } })
+      const quest = await post(w, guildId)
+      for (let pass = 0; pass < 100; pass += 1) {
+        await w.dispatcher.dispatch(guildId)
+        w.clock.advance(3000)
+      }
+      const parked = await w.quests.get(guildId, quest.id)
+      // Claimed and released on every 3 s pass would be 100 claims; a doubling backoff is O(log N).
+      expect(parked?.attempts).toBeLessThanOrEqual(12)
+      expect(parked).toMatchObject({ state: 'queued', lastError: 'routing_blocked' })
+
+      await w.configure(guildId, (c) => ({
+        ...c,
+        caps: { dailyTokens: 1_000_000, dailySpendCents: 1_000_000 },
+      }))
+      expect(await w.dispatcher.dispatch(guildId)).toMatchObject({
+        status: 'started',
+        questId: quest.id,
+      })
+      expect(await w.quests.get(guildId, quest.id)).toMatchObject({
+        state: 'active',
+        lastError: null,
+      })
+    })
+
     test('a rite run reaches done through the normal dispatcher, Verdict and Seal; a restart posts nothing twice', async () => {
       const w = await make()
       const engine = w.rites
