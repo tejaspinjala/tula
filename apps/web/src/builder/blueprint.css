@@ -9,19 +9,21 @@
 
 /* Palette tiles are wide enough to wrap a whole name, never a cut one. */
 .palette .px-slotgrid {
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--px) * 40), 1fr));
+  display: flex;
+  flex-wrap: wrap;
 }
 .palette .px-slot {
   width: auto;
+  min-width: calc(var(--px) * 32);
   height: auto;
   min-height: calc(var(--px) * 32);
 }
 .palette .px-slot-glyph {
   position: static;
   min-height: calc(var(--px) * 32);
-  padding: calc(var(--px) * 2);
+  padding: calc(var(--px) * 2) calc(var(--px) * 3);
   text-align: center;
-  overflow-wrap: anywhere;
+  overflow: visible;
 }
 
 .palette-caption {
