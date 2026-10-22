@@ -19,7 +19,7 @@ import { RiteEngine } from '../rites/engine'
 import { LEARNING_TO_LINKEDIN } from '../rites/templates'
 import { foundTestGuild } from '../testing/found-guild'
 import { testDbUrl } from '../testing/test-db'
-import { charterSchema } from './charter'
+import { CHARTER_MAX_RITES, charterSchema } from './charter'
 import { CHARTER_EVENT } from './events'
 import { type CharterExportedFact, mountCharterRoutes } from './routes'
 
@@ -32,8 +32,8 @@ afterAll(async () => {
 
 const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
 
-/** Two guilds on one store; the guard mirrors the app's: 401 anonymous, 404 other guild, 403 non-master. */
-async function setup(kind: 'memory' | 'postgres') {
+/** A guild on the chosen adapters, with the session guard stubbed to pass. */
+async function setup(kind: 'memory' | 'postgres', maxBytes?: number) {
   const keys = new MemoryKeyProvider()
   const found = (name: string) =>
     kind === 'memory'
@@ -57,11 +57,6 @@ async function setup(kind: 'memory' | 'postgres') {
   })
   const memoryEvents: { guild: string; fact: CharterExportedFact }[] = []
   const app = new Hono()
-  const principals: Record<string, { guild: string; role: string }> = {
-    master: { guild, role: 'guild_master' },
-    member: { guild, role: 'member' },
-    otherMaster: { guild: other, role: 'guild_master' },
-  }
   mountCharterRoutes(app, {
     rites: engine,
     config,
@@ -74,19 +69,9 @@ async function setup(kind: 'memory' | 'postgres') {
       }
       await db.withGuild(id, (tx) => appendEvent(tx, keys, CHARTER_EVENT.exported, fact))
     },
-    guildMasterSessionFor: async (c) => {
-      const token = c.req.header('authorization')?.replace('Bearer ', '')
-      const who = token ? principals[token] : undefined
-      if (!who) {
-        return { res: c.json({ error: 'unauthenticated' }, 401) }
-      }
-      if (who.guild !== c.req.param('id')) {
-        return { res: c.json({ error: 'not_found' }, 404) }
-      }
-      return who.role === 'guild_master'
-        ? { guild: who.guild }
-        : { res: c.json({ error: 'forbidden' }, 403) }
-    },
+    // Auth and cross-guild behaviour is tested through the composed app (routes.app.test.ts).
+    guildMasterSessionFor: async (c) => ({ guild: c.req.param('id') ?? '' }),
+    ...(maxBytes === undefined ? {} : { maxBytes }),
   })
   const events = async (id: string): Promise<string[]> => {
     if (kind === 'memory') {
@@ -136,18 +121,27 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(await events(guild)).toEqual([CHARTER_EVENT.exported])
     })
 
-    test('anonymous is 401 and a member is 403, with no event', async () => {
-      const { guild, get, events } = await setup(kind)
-      expect((await get(guild)).status).toBe(401)
-      expect((await get(guild, 'member')).status).toBe(403)
-      expect(await events(guild)).toEqual([])
+    test('more than the Rite limit exports the first by name then id and omits the rest as over_limit', async () => {
+      const { engine, guild, get } = await setup(kind)
+      for (let i = 0; i < CHARTER_MAX_RITES + 1; i++) {
+        const id = `r${String(i).padStart(3, '0')}`
+        await engine.save(guild, id, { name: 'same', graph: LEARNING_TO_LINKEDIN })
+        await engine.publish(guild, id, 1, null)
+        await engine.confirm(guild, id, 1)
+      }
+      const res = await get(guild, 'master')
+      expect(res.status).toBe(200)
+      const charter = charterSchema.parse(await res.json())
+      expect(charter.rites).toHaveLength(CHARTER_MAX_RITES)
+      expect(charter.omitted).toContainEqual({ kind: 'rite', id: 'r050', reason: 'over_limit' })
     })
 
-    test('the Guild Master of another guild cannot export this one', async () => {
-      const { guild, other, get, events } = await setup(kind)
-      expect((await get(guild, 'otherMaster')).status).toBe(404)
+    test('a document over the byte limit is 413 charter_too_large and records no event', async () => {
+      const { guild, get, events } = await setup(kind, 100)
+      const res = await get(guild, 'master')
+      expect(res.status).toBe(413)
+      expect(await res.json()).toEqual({ error: 'charter_too_large' })
       expect(await events(guild)).toEqual([])
-      expect(await events(other)).toEqual([])
     })
   })
 }

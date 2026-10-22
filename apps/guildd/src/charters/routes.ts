@@ -17,6 +17,8 @@ export interface CharterRouteDeps {
   guildName: (guildId: string) => Promise<string | null>
   /** Writes the `charter.exported` event to the guild's ledger. */
   recordExported: (guildId: string, fact: CharterExportedFact) => Promise<void>
+  /** Largest document the route returns; defaults to `CHARTER_MAX_BYTES`. */
+  maxBytes?: number
   /** The calling session when it is the Guild Master of `:id`, else a ready response (401/403/404). */
   guildMasterSessionFor: (c: Context) => Promise<{ guild: string } | { res: Response }>
 }
