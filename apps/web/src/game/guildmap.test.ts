@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { guildMap, mapLayout, mapSummary, miniView, moveCursor } from './guildmap'
+import { guildMap, mapLayout, mapSummary, miniView, moveCursor, travelSlot } from './guildmap'
 import { greatHall, type Room, type RoomHall, roomFor } from './room'
 import type { SceneMember, SceneRoom, SceneState } from './scene'
 
@@ -133,6 +133,16 @@ describe('the mini map view', () => {
     expect(text).toContain('2 waiting at the Seal desk')
     expect(text).toContain('5 unread in the mailbox')
     expect(mapSummary(build('hall:w'))).toContain('1 waiting for a Seal')
+  })
+})
+
+describe('travelling from the map', () => {
+  test('the Great Hall is the entrance, a Hall room its slot, anything else nowhere', () => {
+    const keys = ['hall:w', 'hall:p', 'hall:l'] as const
+    expect(travelSlot('hall', keys)).toBeNull()
+    expect(travelSlot('hall:p', keys)).toBe(1)
+    expect(travelSlot('hall:zzz', keys)).toBeUndefined()
+    expect(travelSlot('plaza', keys)).toBeUndefined()
   })
 })
 

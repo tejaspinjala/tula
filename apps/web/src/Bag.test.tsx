@@ -59,6 +59,7 @@ test('the Bag menu lists every page, the Hall tools and Sign out, as a modal dia
   const dialog = m.host.querySelector('dialog')
   expect(dialog?.open).toBe(true)
   expect(options(m.host).map((o) => o.textContent)).toEqual([
+    'Guild Map',
     'Quest Board',
     'Seals',
     'Treasury',
@@ -88,7 +89,8 @@ test('Enter on a row opens that page, by keyboard', async () => {
   const m = await mount(bag({}, c))
   const rows = options(m.host)
   await press(rows[0] as HTMLElement, 'ArrowDown')
-  await press(options(m.host)[1] as HTMLElement, 'Enter')
+  await press(options(m.host)[1] as HTMLElement, 'ArrowDown')
+  await press(options(m.host)[2] as HTMLElement, 'Enter')
   expect(c.paths).toEqual(['/seals'])
   await m.unmount()
 })
@@ -96,7 +98,7 @@ test('Enter on a row opens that page, by keyboard', async () => {
 test('tapping a row opens that page, by touch', async () => {
   const c = calls()
   const m = await mount(bag({}, c))
-  await click(options(m.host)[2] as HTMLElement)
+  await click(options(m.host)[3] as HTMLElement)
   expect(c.paths).toEqual(['/treasury'])
   await m.unmount()
 })
@@ -104,7 +106,7 @@ test('tapping a row opens that page, by touch', async () => {
 test('Sign out is the last row', async () => {
   const c = calls()
   const m = await mount(bag({}, c))
-  await click(options(m.host)[13] as HTMLElement)
+  await click(options(m.host)[14] as HTMLElement)
   expect(c.signOut).toBe(1)
   await m.unmount()
 })
@@ -156,7 +158,7 @@ test('Settings holds the Hall lighting controls', async () => {
 test('the Hall tools page shows the zoom and teleport controls', async () => {
   const c = calls()
   const m = await mount(bag({}, c))
-  await click(options(m.host)[12] as HTMLElement)
+  await click(options(m.host)[13] as HTMLElement)
   expect(m.host.textContent).toContain('Hall tools body')
   await m.unmount()
 })

@@ -350,6 +350,21 @@ test('B opens the Bag and Esc closes it, and focus returns to the world', async 
   await act(async () => root.unmount())
 })
 
+test('G opens the Guild Map page and G again closes it; typing a g does not', async () => {
+  const { host, root } = await signedIn()
+  const field = document.createElement('input')
+  host.appendChild(field)
+  await key('g', field)
+  expect(bagOpen(host)).toBe(false)
+  await key('g')
+  expect(bagOpen(host)).toBe(true)
+  expect(window.location.pathname).toBe('/map')
+  expect(host.querySelector('#map-title')?.textContent).toBe('Guild Map')
+  await key('g')
+  expect(bagOpen(host)).toBe(false)
+  await act(async () => root.unmount())
+})
+
 test('B typed into a field does not open the Bag', async () => {
   const { host, root } = await signedIn()
   const field = document.createElement('input')

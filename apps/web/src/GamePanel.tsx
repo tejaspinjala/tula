@@ -10,7 +10,7 @@ import {
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
-import { type GuildMap, guildMap, mapSummary } from './game/guildmap'
+import { type GuildMap, guildMap, mapSummary, travelSlot } from './game/guildmap'
 import { initialTalk, talkReducer } from './game/interact'
 import { announceLocation } from './game/location'
 import type { LookChoice } from './game/look'
@@ -18,7 +18,7 @@ import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
-import { greatRoom, hallRoomOf, type MapKey } from './game/world'
+import { greatRoom, hallRoomOf, type MapKey, roomKeys } from './game/world'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
@@ -56,6 +56,10 @@ export interface WorldSlots {
   talkTo: (memberId: string) => void
   /** Reloads the guild's Halls and Members after the config in force changed (a Charter import). */
   refreshHall: () => void
+  /** The Guild Map (null until the Hall's rooms are built), for the map page. */
+  map: GuildMap | null
+  /** Teleports the Guild Master to a room of the map (the same path as the Hall tools select). */
+  travel: (key: MapKey) => void
 }
 
 /**
@@ -519,7 +523,7 @@ export function GamePanel({
           ? `${announceLocation(location)} ${mapSummary(miniMap)}`
           : announceLocation(location)}
       </p>
-      {miniMap && <MiniMap map={miniMap} />}
+      {miniMap && <MiniMap map={miniMap} onOpen={() => open.current('/map')} />}
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
         {notice}
       </p>
@@ -589,6 +593,13 @@ export function GamePanel({
         {children({
           hallControls,
           focusWorld,
+          map: miniMap,
+          travel: (key) => {
+            const slot = travelSlot(key, roomKeys())
+            if (slot !== undefined) {
+              handle.current?.teleport(slot)
+            }
+          },
           refreshHall: () => setHallEpoch((n) => n + 1),
           talkTo: (id) => {
             dispatchTalk({ type: 'inspect', id })

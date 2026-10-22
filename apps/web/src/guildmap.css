@@ -1,0 +1,98 @@
+/* The Guild Map page: rooms on a grid joined by doorway lines, or the same rooms as a list. */
+.gmap-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--px) * 3);
+  margin-bottom: calc(var(--px) * 2);
+}
+.gmap-notice {
+  min-height: 1lh;
+  margin: 0 0 calc(var(--px) * 2);
+  color: var(--px-danger-700);
+}
+.gmap-grid {
+  position: relative;
+  display: grid;
+  grid-auto-rows: minmax(calc(var(--px) * 40), auto);
+  gap: calc(var(--px) * 6) 0;
+  padding: calc(var(--px) * 3);
+  background: var(--px-paper-200);
+  border: calc(var(--px) * 2) solid var(--px-line);
+}
+.gmap-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  stroke: var(--px-wood-700);
+  stroke-width: calc(var(--px) * 2);
+}
+.gmap-lines line {
+  vector-effect: non-scaling-stroke;
+}
+.gmap-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--px) * 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gmap-room {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: calc(var(--px) * 1);
+  margin: 0 calc(var(--px) * 2);
+  padding: calc(var(--px) * 2) calc(var(--px) * 3) calc(var(--px) * 2) calc(var(--px) * 10);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  text-align: left;
+  color: var(--px-dialog-text);
+  background: var(--px-dialog);
+  border: calc(var(--px) * 2) solid var(--px-line);
+  cursor: pointer;
+}
+.gmap-list .gmap-room {
+  width: 100%;
+  margin: 0;
+}
+.gmap-room[data-kind="locked"] {
+  border-style: dashed;
+  color: var(--px-text-muted);
+  cursor: not-allowed;
+}
+.gmap-room[data-kind="private"] {
+  border-color: var(--px-plum-500);
+}
+.gmap-room[data-here="true"] {
+  border-color: var(--px-gold-500);
+}
+.gmap-room[tabindex="0"]::before {
+  content: "▶";
+  position: absolute;
+  left: calc(var(--px) * 3);
+  top: calc(var(--px) * 2);
+}
+.gmap-room:focus-visible {
+  outline: calc(var(--px) * 2) solid var(--px-ink);
+  outline-offset: calc(var(--px) * 2);
+}
+.gmap-name {
+  font-weight: bold;
+}
+.gmap-count {
+  font-size: var(--text-sm);
+  color: var(--px-text-muted);
+}
+.gmap-town {
+  cursor: default;
+  align-self: center;
+  background: var(--px-paper);
+  color: var(--px-text);
+}

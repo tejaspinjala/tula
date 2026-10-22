@@ -243,14 +243,49 @@ export interface MapLayout {
 }
 
 /** Lays the rooms out: the Great Hall on top, the Hall rooms in rows of up to four below it. */
-export function mapLayout(_map: GuildMap): MapLayout {
-  return { slots: [], townCol: 0, cols: 0 }
+export function mapLayout(map: GuildMap): MapLayout {
+  const halls = map.rooms.filter((r) => r.id !== 'hall')
+  const across = Math.min(4, Math.max(1, halls.length))
+  const slots: MapSlot[] = []
+  if (map.rooms.some((r) => r.id === 'hall')) {
+    slots.push({ id: 'hall', col: (across - 1) / 2, row: 0 })
+  }
+  halls.forEach((r, i) => {
+    slots.push({ id: r.id, col: i % across, row: 1 + Math.floor(i / across) })
+  })
+  return { slots, townCol: across, cols: across + 1 }
+}
+
+/** The teleport slot of a map key: null for the Great Hall entrance, undefined when it has none. */
+export function travelSlot(key: MapKey, keys: readonly MapKey[]): number | null | undefined {
+  if (key === 'hall') {
+    return null
+  }
+  const slot = keys.indexOf(key)
+  return slot < 0 ? undefined : slot
 }
 
 /** A direction the ▶ cursor moves on the schematic. */
 export type MapDirection = 'up' | 'down' | 'left' | 'right'
 
 /** The room the cursor lands on moving `dir` from `from`; `from` itself when nothing lies that way. */
-export function moveCursor(_layout: MapLayout, from: MapKey, _dir: MapDirection): MapKey {
-  return from
+export function moveCursor(layout: MapLayout, from: MapKey, dir: MapDirection): MapKey {
+  const here = layout.slots.find((s) => s.id === from)
+  if (!here) {
+    return from
+  }
+  const sideways = dir === 'left' || dir === 'right'
+  const sign = dir === 'left' || dir === 'up' ? -1 : 1
+  const ahead = layout.slots.filter((s) =>
+    sideways ? s.row === here.row && (s.col - here.col) * sign > 0 : (s.row - here.row) * sign > 0
+  )
+  const cost = (s: MapSlot) =>
+    sideways
+      ? Math.abs(s.col - here.col)
+      : Math.abs(s.row - here.row) * 1000 + Math.abs(s.col - here.col)
+  const best = ahead.reduce<MapSlot | null>(
+    (a, s) => (a === null || cost(s) < cost(a) ? s : a),
+    null
+  )
+  return best?.id ?? from
 }

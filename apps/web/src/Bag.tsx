@@ -7,6 +7,9 @@ import { CostTablePanel } from './CostTablePanel'
 import { CouncilPanel } from './CouncilPanel'
 import { CharterPanel } from './charters/CharterPanel'
 import { GatesPanel } from './GatesPanel'
+import { GuildMapPanel } from './GuildMapPanel'
+import type { GuildMap } from './game/guildmap'
+import type { MapKey } from './game/world'
 import { LearningPanel } from './LearningPanel'
 import { MailboxPanel } from './MailboxPanel'
 import { MissivesPanel } from './MissivesPanel'
@@ -48,6 +51,10 @@ export interface BagProps {
   onTalkTo?: ((memberId: string) => void) | undefined
   /** Reloads the Hall after the guild config changed (a Charter import). */
   onConfigChanged?: (() => void) | undefined
+  /** The Guild Map the map page draws (null until the Hall's rooms are built). */
+  map?: GuildMap | null | undefined
+  /** Travels the Guild Master to a room from the map page. */
+  onTravel?: ((id: MapKey) => void) | undefined
 }
 
 const HALL_TOOLS = 'hall-tools'
@@ -66,6 +73,8 @@ function PageBody({
   onTalkTo,
   onConfigChanged,
   onSetupRouting,
+  map,
+  onTravel,
 }: {
   page: PageId
   session: Session
@@ -73,8 +82,12 @@ function PageBody({
   onTalkTo?: ((memberId: string) => void) | undefined
   onConfigChanged?: (() => void) | undefined
   onSetupRouting?: (() => void) | undefined
+  map?: GuildMap | null | undefined
+  onTravel?: ((id: MapKey) => void) | undefined
 }) {
   switch (page) {
+    case 'map':
+      return <GuildMapPanel map={map ?? null} onTravel={(id) => onTravel?.(id)} />
     case 'quests':
       return <QuestBoardPanel session={session} onSetupRouting={onSetupRouting} />
     case 'seals':
@@ -152,6 +165,8 @@ export function Bag({
   focusWorld,
   onTalkTo,
   onConfigChanged,
+  map,
+  onTravel,
 }: BagProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const wasVisible = useRef(false)
@@ -251,6 +266,8 @@ export function Bag({
                 onSession={onSession}
                 onTalkTo={onTalkTo}
                 onConfigChanged={onConfigChanged}
+                map={map}
+                onTravel={onTravel}
                 onSetupRouting={() => onOpenPath('/vault')}
               />
             </FlatWorkContext.Provider>
