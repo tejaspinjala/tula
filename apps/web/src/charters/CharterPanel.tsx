@@ -138,6 +138,17 @@ function Preview({ preview, impact }: { preview: CharterPreview; impact: ImportI
   )
 }
 
+const OMIT_REASONS: Record<string, string> = {
+  unpublished: 'Publish this Rite to include it',
+  archived: 'Unarchive this Rite to include it',
+  private_hall: 'It touches a private Hall',
+}
+
+/** The words for why the Charter left something out; an unknown reason is shown as given. */
+function omitReasonText(reason: string): string {
+  return OMIT_REASONS[reason] ?? reason
+}
+
 /** The Charter page: export the guild, or import a Charter with a preview first. */
 export function CharterPanel({
   session,
@@ -339,7 +350,7 @@ export function CharterPanel({
             <ul aria-label="Left out of the file" className="charter-list">
               {omitted.map((o) => (
                 <li key={`${o.kind}:${o.id}`} className="item">
-                  {o.kind} {o.id}: {o.reason}
+                  {o.kind} {o.id}: {omitReasonText(o.reason)}
                 </li>
               ))}
             </ul>
