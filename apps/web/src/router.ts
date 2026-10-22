@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 
+/** How a Bag page opens: the menu dialog, or a full-viewport workbench. */
+export type PageSize = 'menu' | 'workbench'
+
 /** The Bag's pages, in menu order. Each opens over the world at its path. */
 export const BAG_PAGES = [
-  { id: 'quests', path: '/quests', label: 'Quest Board' },
-  { id: 'seals', path: '/seals', label: 'Seals' },
-  { id: 'treasury', path: '/treasury', label: 'Treasury' },
-  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds' },
-  { id: 'guild', path: '/guild', label: 'Guild builder' },
-  { id: 'rites', path: '/rites', label: 'Rites' },
-  { id: 'charter', path: '/charter', label: 'Charter' },
-  { id: 'missives', path: '/missives', label: 'Missives' },
-  { id: 'mailbox', path: '/mailbox', label: 'Mailbox' },
-  { id: 'council', path: '/council', label: 'Council' },
-  { id: 'gates', path: '/gates', label: 'Gates' },
-  { id: 'settings', path: '/vault', label: 'Settings' },
+  { id: 'quests', path: '/quests', label: 'Quest Board', size: 'menu' as PageSize },
+  { id: 'seals', path: '/seals', label: 'Seals', size: 'menu' as PageSize },
+  { id: 'treasury', path: '/treasury', label: 'Treasury', size: 'menu' as PageSize },
+  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds', size: 'menu' as PageSize },
+  { id: 'guild', path: '/guild', label: 'Guild builder', size: 'menu' as PageSize },
+  { id: 'rites', path: '/rites', label: 'Rites', size: 'menu' as PageSize },
+  { id: 'charter', path: '/charter', label: 'Charter', size: 'menu' as PageSize },
+  { id: 'missives', path: '/missives', label: 'Missives', size: 'menu' as PageSize },
+  { id: 'mailbox', path: '/mailbox', label: 'Mailbox', size: 'menu' as PageSize },
+  { id: 'council', path: '/council', label: 'Council', size: 'menu' as PageSize },
+  { id: 'gates', path: '/gates', label: 'Gates', size: 'menu' as PageSize },
+  { id: 'settings', path: '/vault', label: 'Settings', size: 'menu' as PageSize },
 ] as const
 
 /** The id of one Bag page. */

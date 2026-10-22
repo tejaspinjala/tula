@@ -50,3 +50,9 @@ test('unknown paths are not known', () => {
 test('the Council page opens at /council', () => {
   expect(pageFor('/council', '')).toBe('council')
 })
+
+test('Rites, Guild builder, Ledger of Deeds are workbench pages; the rest are menu pages', () => {
+  const workbench = BAG_PAGES.filter((p) => p.size === 'workbench').map((p) => p.label)
+  expect(workbench).toEqual(['Ledger of Deeds', 'Guild builder', 'Rites'])
+  expect(BAG_PAGES.filter((p) => p.size === 'menu')).toHaveLength(BAG_PAGES.length - 3)
+})
