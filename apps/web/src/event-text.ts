@@ -4,8 +4,87 @@ import type { ReplayEvent } from './replay'
 import { RITE_EVENT } from './rites/events'
 import { formatCents } from './treasury'
 
-/** The event types the web has a sentence for (stub: filled in with the fix). */
-export const EVENT_TYPES = ['member.activity'] as const
+/** Every event type the web has a sentence for; the exhaustive test walks this list. */
+export const EVENT_TYPES = [
+  'guild.founded',
+  'identity.founding_token_issued',
+  'identity.founding_token_spent',
+  'identity.passkey_registered',
+  'identity.signed_in',
+  'identity.signed_out',
+  'identity.reauthenticated',
+  'identity.enrolment_token_issued',
+  'identity.enrolment_token_spent',
+  'identity.desktop_code_issued',
+  'identity.desktop_code_spent',
+  'config.seeded',
+  'config.version_proposed',
+  'config.version_confirmed',
+  'artifact.stored',
+  'artifact.attached',
+  'handoff.recorded',
+  'note.added',
+  'note.edited',
+  'vault.secret_added',
+  'hall.paused',
+  'hall.locked',
+  'hall.unlocked',
+  'hall.resumed',
+  'quest.posted',
+  'quest.claimed',
+  'quest.awaiting_seal',
+  'quest.done',
+  'quest.retry_scheduled',
+  'quest.dead',
+  'quest.spawned',
+  'missive.sent',
+  'proposal.created',
+  'verdict.recorded',
+  'seal.requested',
+  'seal.approved',
+  'seal.council_approved',
+  'seal.denied',
+  'seal.reserved',
+  'seal.consumed',
+  'seal.released',
+  'seal.expired',
+  'post.published_manually',
+  'treasury.entry',
+  'treasury.spend',
+  'steward.cap_reached',
+  'gates.barred',
+  'gates.lifted',
+  'guildmaster.away',
+  'guildmaster.returned',
+  'council.convened',
+  'council.voted',
+  'council.escalated',
+  'council.approved',
+  'council.halted',
+  'member.activity',
+  'campaign.started',
+  'campaign.finished',
+  'trigger.manual',
+  'trigger.schedule',
+  'inquiry.asked',
+  'inquiry.answered',
+  'inquiry.expired',
+  'learning.accepted',
+  'learning.dismissed',
+  'bug_report.filed',
+  'bug_report.duplicate',
+  'bug_report.fixed',
+  'dossier.created',
+  'charter.exported',
+  'charter.imported',
+  'archive.exported',
+  'workflow.version_saved',
+  'workflow.version_confirmed',
+  'workflow.version_published',
+  'workflow.run_started',
+  'workflow.archived',
+  'workflow.unarchived',
+] as const
 
 const fields = z.record(z.string(), z.unknown())
 
@@ -148,7 +227,55 @@ export function describeEvent(event: ReplayEvent, names: Record<string, string> 
       return `The Council of Elders approved the Proposal of Quest ${q(p, 'questId', names)} in place of a Seal`
     case 'council.halted':
       return `Bar the Gates halted the Council of Elders; Quest ${q(p, 'questId', names)} stays awaiting a Seal`
+    case 'identity.enrolment_token_issued':
+      return 'Enrolment token issued'
+    case 'identity.enrolment_token_spent':
+      return 'Enrolment token spent'
+    case 'identity.desktop_code_issued':
+      return 'Desktop sign-in code issued'
+    case 'identity.desktop_code_spent':
+      return 'Desktop sign-in code spent'
+    case 'member.activity':
+      return `A Member is ${typeof p.activity === 'string' ? p.activity.replaceAll('_', ' ') : 'busy'} on Quest ${q(p, 'questId', names)}`
+    case 'campaign.started':
+      return 'A Campaign started'
+    case 'campaign.finished':
+      return 'A Campaign finished'
+    case 'trigger.manual':
+      return 'A Rite was triggered by hand'
+    case 'trigger.schedule':
+      return 'A Rite was triggered by its schedule'
+    case 'inquiry.asked':
+      return 'A Member asked the Guild Master a question'
+    case 'inquiry.answered':
+      return 'The Guild Master answered a question'
+    case 'inquiry.expired':
+      return 'A question to the Guild Master expired unanswered'
+    case 'learning.accepted':
+      return 'A Learning was accepted into the Archive'
+    case 'learning.dismissed':
+      return 'A Learning was dismissed'
+    case 'bug_report.filed':
+      return 'A bug report was filed'
+    case 'bug_report.duplicate':
+      return 'A bug report was matched to an earlier one'
+    case 'bug_report.fixed':
+      return 'A bug report was marked fixed'
+    case 'dossier.created':
+      return 'A dossier was created'
+    case 'charter.exported':
+      return 'The Charter was exported'
+    case 'charter.imported':
+      return 'A Charter was imported'
+    case 'archive.exported':
+      return 'The Archive was exported'
+    case 'workflow.version_published':
+      return 'A Rite version was published'
+    case 'workflow.archived':
+      return 'A Rite was archived'
+    case 'workflow.unarchived':
+      return 'A Rite was brought back from the archive'
     default:
-      return `Event ${event.type}, number ${event.seq}`
+      return 'Something happened in the guild'
   }
 }
