@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
-import { type PasskeyBrowser, PasskeyRequestError, type Session } from './passkeys'
+import { type PasskeyBrowser, PasskeyRequestError, reauthenticate, type Session } from './passkeys'
 
 const noteBody = z.object({
   id: z.string(),
@@ -16,6 +16,12 @@ const detailBody = z.object({
   note: noteBody,
   versions: z.array(noteBody.omit({ id: true, kind: true })),
   backlinks: z.array(z.object({ id: z.string(), title: z.string() })),
+})
+
+const countsHeader = z.object({
+  exported: z.number(),
+  privateIncluded: z.number(),
+  privateLeftOut: z.number(),
 })
 
 /** A Note as the Archive returns it: a fact with evidence, or a quarantined assumption. */
@@ -78,12 +84,27 @@ export interface ArchiveExport {
 
 /** Exports the Archive as a zip; `includePrivate` first runs the passkey re-auth. */
 export async function exportArchive(
-  _session: Session,
-  _includePrivate: boolean,
-  _fetcher: Fetcher,
-  _browser: PasskeyBrowser
+  session: Session,
+  includePrivate: boolean,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<ArchiveExport> {
-  throw new Error('not implemented')
+  const headers: Record<string, string> = { authorization: `Bearer ${session.token}` }
+  if (includePrivate) {
+    headers['x-reauth-proof'] = await reauthenticate(session.token, fetcher, browser)
+  }
+  const res = await fetcher(
+    `/api/guilds/${session.guildId}/archive/export${includePrivate ? '?private=true' : ''}`,
+    { method: 'GET', headers }
+  )
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null)
+    const code = z.object({ error: z.string() }).safeParse(data)
+    throw new PasskeyRequestError(res.status, code.success ? code.data.error : 'unknown')
+  }
+  const counts = countsHeader.parse(JSON.parse(res.headers.get('x-archive-counts') ?? 'null'))
+  const named = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')
+  return { blob: await res.blob(), filename: named?.[1] ?? 'archive.zip', counts }
 }
 
 /** Reads one note with every version and its backlinks. */
