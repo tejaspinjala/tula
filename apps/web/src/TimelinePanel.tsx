@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { eventText } from './event-text'
+import { describeEvent } from './event-text'
 import { loadHistory } from './history'
 import { prefersReducedMotion, scrollBehavior } from './motion'
 import type { Session } from './passkeys'
@@ -39,7 +39,7 @@ export function TimelinePanel({ session }: { session: Session | null }) {
       .then((loaded) => {
         const fresh = loaded.slice(known.current)
         if (known.current > 0 && fresh.length > 0) {
-          setAnnouncement(fresh.map((e) => eventText(e)).join('. '))
+          setAnnouncement(fresh.map((e) => describeEvent(e)).join('. '))
         }
         known.current = loaded.length
         setEvents(loaded)
@@ -57,7 +57,7 @@ export function TimelinePanel({ session }: { session: Session | null }) {
   )
   const applied = events.slice(0, at)
   const shown = groupRepeats(
-    applied.slice(-VISIBLE).map((event) => ({ event, text: eventText(event, names) }))
+    applied.slice(-VISIBLE).map((event) => ({ event, text: describeEvent(event, names) }))
   )
   const nowMs = Date.now()
 

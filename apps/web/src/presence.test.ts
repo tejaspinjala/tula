@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { eventText } from './event-text'
+import { describeEvent } from './event-text'
 import { describeAway, goAway, loadPresence, returnHome } from './presence'
 
 const session = { token: 't1', guildId: '11111111-1111-4111-8111-111111111111' }
@@ -50,6 +50,6 @@ test('describeAway says who is away and until when, or that the Guild Master is 
 
 test('away mode events read in plain language', () => {
   const ev = (type: string) => ({ seq: 3, type, payload: {}, occurredAt: away.since })
-  expect(eventText(ev('guildmaster.away'))).toBe('Guild Master went away')
-  expect(eventText(ev('guildmaster.returned'))).toBe('Guild Master returned')
+  expect(describeEvent(ev('guildmaster.away'))).toBe('Guild Master went away')
+  expect(describeEvent(ev('guildmaster.returned'))).toBe('Guild Master returned')
 })
