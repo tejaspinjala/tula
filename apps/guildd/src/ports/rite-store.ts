@@ -104,6 +104,18 @@ export interface RiteStore {
   /** Appends the next version of the Rite (creating it on the first), numbered without gaps. */
   saveVersion(guildId: string, riteId: string, input: NewRiteVersion): Promise<RiteVersion>
   /**
+   * Saves a draft idempotently, atomically. A `saveId` already used for this Rite returns the
+   * version its first use returned and writes nothing; an input whose name and graph equal the
+   * newest version's returns that version and writes no version and no event. Otherwise it
+   * appends like {@link RiteStore.saveVersion}. Save ids are scoped to one Rite in one guild.
+   */
+  saveDraft(
+    guildId: string,
+    riteId: string,
+    input: NewRiteVersion,
+    saveId?: string
+  ): Promise<RiteVersion>
+  /**
    * Saves version 1 only when the Rite has no version at all, atomically; returns it, or null
    * when one already exists. Used to seed templates without a check-then-write race.
    */

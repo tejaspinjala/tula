@@ -28,7 +28,11 @@ const versionPage = z.object({
   limit,
 })
 const versionNumber = z.coerce.number().int().min(1).max(2_147_483_647)
-const saveBody = z.object({ name: z.string().trim().min(1).max(200), graph: z.unknown() })
+const saveBody = z.object({
+  name: z.string().trim().min(1).max(200),
+  graph: z.unknown(),
+  saveId: z.string().min(1).max(200).optional(),
+})
 const publishBody = z.object({ basedOn: versionNumber.nullable() })
 const validateBody = z.object({ graph: z.unknown() })
 const runBody = z.object({

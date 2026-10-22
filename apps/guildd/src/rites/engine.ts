@@ -175,12 +175,13 @@ export class RiteEngine {
 
   /**
    * Saves the next version as a draft: invalid graphs are refused with coded errors. A draft
-   * never runs; {@link RiteEngine.publish} decides whether it goes live.
+   * never runs; {@link RiteEngine.publish} decides whether it goes live. A repeated `saveId`, or
+   * an input equal to the newest version, returns that version and writes nothing.
    */
   async save(
     guildId: string,
     riteId: string,
-    input: { name: string; graph: unknown }
+    input: { name: string; graph: unknown; saveId?: string | undefined }
   ): Promise<SaveResult> {
     const errors = await this.validate(guildId, input.graph)
     if (errors.length > 0) {
@@ -188,12 +189,17 @@ export class RiteEngine {
     }
     const graph = riteGraph.parse(input.graph)
     const previous = await this.deps.store.latestActive(guildId, riteId)
-    const version = await this.deps.store.saveVersion(guildId, riteId, {
-      name: input.name,
-      graph,
-      classification: classifyRiteChange(previous?.graph ?? null, graph),
-      status: 'draft',
-    })
+    const version = await this.deps.store.saveDraft(
+      guildId,
+      riteId,
+      {
+        name: input.name,
+        graph,
+        classification: classifyRiteChange(previous?.graph ?? null, graph),
+        status: 'draft',
+      },
+      input.saveId
+    )
     return { status: 'draft', version }
   }
 

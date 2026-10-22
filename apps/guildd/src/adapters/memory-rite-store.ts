@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { Clock } from '../ports/clock'
 import type {
   ActivateResult,
@@ -20,6 +21,8 @@ interface GuildState {
   instances: Map<string, RiteRun>
   /** When each archived Rite was archived; a Rite absent here is live. */
   archived: Map<string, string>
+  /** The version each `[riteId, saveId]` first returned. */
+  saves: Map<string, number>
 }
 
 /**
@@ -34,7 +37,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map(), archived: new Map() }
+      s = { rites: new Map(), instances: new Map(), archived: new Map(), saves: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -52,6 +55,31 @@ export class MemoryRiteStore implements RiteStore {
     }
     rites.set(riteId, [...list, saved])
     return structuredClone(saved)
+  }
+
+  async saveDraft(
+    guildId: string,
+    riteId: string,
+    input: NewRiteVersion,
+    saveId?: string
+  ): Promise<RiteVersion> {
+    const { saves, rites } = this.state(guildId)
+    const key = JSON.stringify([riteId, saveId])
+    const list = rites.get(riteId) ?? []
+    const earlier = saveId === undefined ? undefined : saves.get(key)
+    const seen = earlier === undefined ? undefined : list[earlier - 1]
+    if (seen) {
+      return structuredClone(seen)
+    }
+    const newest = list.at(-1)
+    const saved =
+      newest && newest.name === input.name && isDeepStrictEqual(newest.graph, input.graph)
+        ? structuredClone(newest)
+        : await this.saveVersion(guildId, riteId, input)
+    if (saveId !== undefined) {
+      saves.set(key, saved.version)
+    }
+    return saved
   }
 
   async seedVersion(

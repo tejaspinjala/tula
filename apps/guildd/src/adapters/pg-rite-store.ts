@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
@@ -114,6 +115,42 @@ export class PgRiteStore implements RiteStore {
       kind: saved.classification,
     })
     return saved
+  }
+
+  async saveDraft(
+    guildId: string,
+    riteId: string,
+    input: NewRiteVersion,
+    saveId?: string
+  ): Promise<RiteVersion> {
+    return this.db.withGuild(guildId, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
+      if (saveId !== undefined) {
+        const [seen] = await tx`
+          select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
+          where guild_id = ${guildId} and workflow_id = ${riteId} and version = (
+            select version from rite_saves
+            where guild_id = ${guildId} and workflow_id = ${riteId} and save_id = ${saveId})`
+        if (seen) {
+          return toVersion(versionRow.parse(seen))
+        }
+      }
+      const [row] = await tx`
+        select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId}
+        order by version desc limit 1`
+      const newest = row ? toVersion(versionRow.parse(row)) : null
+      const saved =
+        newest && newest.name === input.name && isDeepStrictEqual(newest.graph, input.graph)
+          ? newest
+          : await this.saveVersionIn(tx, guildId, riteId, input)
+      if (saveId !== undefined) {
+        await tx`
+          insert into rite_saves (guild_id, workflow_id, save_id, version, created_at)
+          values (${guildId}, ${riteId}, ${saveId}, ${saved.version}, ${this.clock.now()})`
+      }
+      return saved
+    })
   }
 
   async seedVersion(
