@@ -50,6 +50,7 @@ import {
 
 /** Makes every routing-blocked, still-waiting Quest of the guild deliverable at `now`; returns how many it woke. */
 export async function wakeRoutingWaits(tx: TenantTx, guildId: string, now: Date): Promise<number> {
+  await tx`select pg_advisory_xact_lock(hashtextextended(${`quests:${guildId}`}, 0))`
   const rows = await tx`
     update quests set not_before = ${now}
     where guild_id = ${guildId} and state = 'queued' and last_error = 'routing_blocked'
@@ -424,7 +425,6 @@ export class PgQuestQueue implements QuestQueue {
 
   async wakeRoutingWaits(guildId: string): Promise<number> {
     return this.db.withGuild(guildId, async (tx) => {
-      await this.lock(tx, guildId)
       return wakeRoutingWaits(tx, guildId, this.clock.now())
     })
   }

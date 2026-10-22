@@ -2,7 +2,13 @@ import type { JSONValue } from 'postgres'
 import { z } from 'zod'
 import type { Db, TenantTx } from '../db/client'
 import { appendEvent } from '../events'
-import { classifyChange, defaultConfig, type GuildConfig, parseStoredConfig } from '../guild-config'
+import {
+  classifyChange,
+  defaultConfig,
+  type GuildConfig,
+  parseStoredConfig,
+  routingChanged,
+} from '../guild-config'
 import type { Clock } from '../ports/clock'
 import {
   ConfigError,
@@ -118,7 +124,9 @@ export class PgConfigStore implements ConfigStore {
         where guild_id = ${guildId} and version = ${version}`
       await appendEvent(tx, this.keys, 'config.version_confirmed', { version })
       await this.appendLockEvents(tx, guildId, inForce.config, target.config, version)
-      await wakeRoutingWaits(tx, guildId, this.clock.now())
+      if (routingChanged(inForce.config, target.config)) {
+        await wakeRoutingWaits(tx, guildId, this.clock.now())
+      }
     })
   }
 
@@ -249,7 +257,9 @@ export class PgConfigStore implements ConfigStore {
     await appendEvent(tx, this.keys, 'config.version_proposed', { version, status, kind, change })
     if (status === 'applied') {
       await this.appendLockEvents(tx, guildId, base.config, config, version)
-      await wakeRoutingWaits(tx, guildId, this.clock.now())
+      if (routingChanged(base.config, config)) {
+        await wakeRoutingWaits(tx, guildId, this.clock.now())
+      }
     }
     return { version, status, change }
   }

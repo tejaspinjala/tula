@@ -1,4 +1,4 @@
-import { classifyChange, defaultConfig, type GuildConfig } from '../guild-config'
+import { classifyChange, defaultConfig, type GuildConfig, routingChanged } from '../guild-config'
 import type { Clock } from '../ports/clock'
 import {
   ConfigError,
@@ -76,7 +76,9 @@ export class MemoryConfigStore implements ConfigStore {
     const before = this.inForce(guildId).config
     target.status = 'applied'
     await this.parkNewlyLocked(guildId, before, target.config)
-    await this.parking.quests?.wakeRoutingWaits(guildId)
+    if (routingChanged(before, target.config)) {
+      await this.parking.quests?.wakeRoutingWaits(guildId)
+    }
   }
 
   async restore(guildId: string, version: number): Promise<ProposeResult> {
@@ -142,7 +144,9 @@ export class MemoryConfigStore implements ConfigStore {
     })
     if (status === 'applied') {
       await this.parkNewlyLocked(guildId, base.config, config)
-      await this.parking.quests?.wakeRoutingWaits(guildId)
+      if (routingChanged(base.config, config)) {
+        await this.parking.quests?.wakeRoutingWaits(guildId)
+      }
     }
     return { version, status, change }
   }

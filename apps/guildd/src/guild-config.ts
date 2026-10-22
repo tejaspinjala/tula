@@ -523,6 +523,18 @@ const RANKS = memberRank.options
 
 const same = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b)
 
+/**
+ * Whether going from `prev` to `next` can change what routing does for a waiting Quest: the
+ * providers or routing profiles differ, or a Hall was unlocked. Other changes leave its wait alone.
+ */
+export function routingChanged(prev: GuildConfig, next: GuildConfig): boolean {
+  return (
+    !same(prev.providers, next.providers) ||
+    !same(prev.routingProfiles, next.routingProfiles) ||
+    next.halls.some((h) => !h.locked && prev.halls.find((p) => p.id === h.id)?.locked === true)
+  )
+}
+
 const entriesOf = (o: object): Map<string, unknown> => new Map(Object.entries(o))
 
 /** Whether every key outside `handled` is identical in both objects (unknown keys never change silently). */
