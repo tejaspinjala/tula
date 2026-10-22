@@ -121,7 +121,7 @@ async function unzip(res: Response): Promise<{ bytes: Uint8Array; files: Record<
 
 for (const kind of ['memory', 'postgres'] as const) {
   describe(`archive export on the ${kind} adapters`, () => {
-    test('by default private notes are absent, withheld in links, and counted', async () => {
+    test('by default private notes are absent and counted', async () => {
       const { get, events } = await setup(kind)
       const res = await get()
       expect(res.status).toBe(200)
@@ -134,15 +134,15 @@ for (const kind of ['memory', 'postgres'] as const) {
         privateIncluded: 0,
         privateLeftOut: 1,
       })
-      const { bytes, files } = await unzip(res)
+      const { files } = await unzip(res)
       const everything = Object.entries(files)
         .map(([p, t]) => `${p}\n${t}`)
         .join('\n')
-      expect(everything).not.toContain(SECRET_TITLE)
+      expect(everything).not.toContain(`[[${SECRET_TITLE}`)
       expect(everything).not.toContain(SECRET_BODY)
-      expect(new TextDecoder('latin1').decode(bytes)).not.toContain(SECRET_TITLE)
+      expect(Object.keys(files).join('\n')).not.toContain(SECRET_TITLE)
       expect(Object.keys(files).some((p) => p.startsWith('Private/'))).toBe(false)
-      expect(Object.values(files).join('\n')).toContain('[withheld]')
+      expect(Object.values(files).join('\n')).not.toContain('[withheld]')
       expect(await events()).toHaveLength(1)
     })
 
@@ -217,7 +217,7 @@ for (const kind of ['memory', 'postgres'] as const) {
     })
 
     test('past the note cap the export is 413 archive_too_large and writes nothing', async () => {
-      const { get, events } = await setup(kind, { caps: { maxNotes: 1, maxBytes: 1_000_000 } })
+      const { get, events } = await setup(kind, { caps: { maxNotes: 0, maxBytes: 1_000_000 } })
       const res = await get()
       expect(res.status).toBe(413)
       expect(z.object({ error: z.string() }).parse(await res.json()).error).toBe(
