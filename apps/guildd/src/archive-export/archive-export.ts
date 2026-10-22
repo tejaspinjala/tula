@@ -1,4 +1,4 @@
-import { type Note, titleKey } from '../ports/note-store'
+import { type Note, parseWikiLinks, titleKey } from '../ports/note-store'
 
 /** A note to export; its `hallId` is the Hall it is filed under (null: the Guild Master's own). */
 export type ExportNote = Note
@@ -24,7 +24,6 @@ export interface ArchiveExportInput {
 const MAX_NAME = 120
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 const FORBIDDEN = new Set([...'/\\:*?"<>|#^[]'])
-const LINK = /\[\[([^[\]]+)\]\]/g
 const GUILD_MASTER = 'Guild Master'
 
 function isControl(ch: string): boolean {
@@ -100,19 +99,31 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
     }
   }
   const withheld = new Set((input.withheldTitles ?? []).map(titleKey))
-  const rewrite = (body: string): string =>
-    body.replace(LINK, (_m, inner: string) => {
-      const key = titleKey(inner)
-      if (withheld.has(key)) {
-        return '[withheld]'
-      }
+  // Order: a target in the export links; else a withheld title is "[withheld]" (neither title nor
+  // alias shown); else plain text, never a [[link]].
+  const rewrite = (body: string): string => {
+    let out = ''
+    let at = 0
+    for (const link of parseWikiLinks(body)) {
+      out += body.slice(at, link.start)
+      at = link.end
+      const key = titleKey(link.target)
       const target = byKey.get(key)
       const path = target ? pathOf.get(target.id) : undefined
-      if (!target || path === undefined) {
-        return oneLine(inner)
+      if (target && path !== undefined) {
+        const label = link.alias === null ? '' : aliasOf(link.alias)
+        const heading = link.heading === null ? '' : `#${oneLine(link.heading)}`
+        out += `[[${path}${heading}|${label || aliasOf(target.title)}]]`
+      } else if (withheld.has(key)) {
+        out += '[withheld]'
+      } else {
+        out += oneLine(link.alias ?? link.target)
+          .replaceAll('[[', '[')
+          .replaceAll(']]', ']')
       }
-      return `[[${path}|${aliasOf(target.title)}]]`
-    })
+    }
+    return out + body.slice(at)
+  }
 
   const files: ExportFile[] = notes.map((n) => {
     const quarantined = n.trust === 'quarantined'

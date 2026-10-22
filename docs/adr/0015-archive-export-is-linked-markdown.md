@@ -10,6 +10,10 @@ An **Archive export** lets a Guild Master take the Archive out of Guildhall as p
 
 **Links are rewritten, never invented.** `[[Title]]` (matched as `titleKey` does: trimmed, lower-cased) becomes `[[<path>|Title]]` when the target is in the export, so links resolve by path. Otherwise it becomes plain text. A link to a private note that was left out shows `[withheld]`, never the title.
 
+**Link resolution order.** One parser (`parseWikiLinks`, shared with backlinks) takes everything between `[[` and the next `]]`, splits off `|alias` and then `#heading` / `#^block`, and matches the target with `titleKey`; titles may contain single brackets. (1) A target in the export becomes `[[<path>#heading|alias-or-Title]]`, with `|`, `[` and `]` stripped from the alias. (2) Otherwise a target among the withheld titles becomes the literal `[withheld]`: neither the title nor the alias appears, since the alias may name the private note. (3) Otherwise it is plain text of the alias or target, never a `[[link]]`. A public note that shares a title with a withheld private one therefore still resolves.
+
+**Caps and the event.** An export is capped at 10,000 notes and 50 MB uncompressed; beyond that the route answers 413 `archive_too_large`. The passkey proof is spent before the caps are checked, so a 413 costs the Guild Master that re-auth. A successful export appends `archive.exported` with counts only (exported, privateIncluded, privateLeftOut), never titles or bodies.
+
 **Private notes leave only on request and with re-auth.** The default export contains no private note; asking for them is a passkey-confirmed action, like unlocking a private Hall (ADR-0012). The index only counts what was left out.
 
 We rejected a single JSON dump (not readable or linkable outside Guildhall) and exporting quarantined assumptions as plain notes (it would blur them with facts once outside the Archive).

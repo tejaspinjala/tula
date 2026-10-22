@@ -231,6 +231,9 @@ A note was added to the Archive (version 1) / a new note version was written (pa
 **learning.accepted** / **learning.dismissed**:
 The Guild Master accepted or dismissed a suggested learning (payload: suggestion id and a keyed hash of its source id only, never its text, repo name or ADR title).
 
+**archive.exported**:
+The Guild Master exported the Archive (payload: exported, privateIncluded, privateLeftOut; counts and a flag only, never titles or bodies).
+
 **config.seeded**:
 The guild's first config version was seeded at founding (payload: version).
 
