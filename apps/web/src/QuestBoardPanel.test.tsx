@@ -35,6 +35,14 @@ const privateWaiting = {
   blockReason: 'hall_locked',
 }
 
+const noProvider = {
+  ...quest,
+  id: 'q-noprov',
+  title: 'Needs a provider',
+  lastError: 'routing_blocked',
+  blockReason: 'no_provider_available',
+}
+
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
   globalThis.fetch = Object.assign(
@@ -45,7 +53,7 @@ beforeAll(() => {
         return Response.json({ ...quest, id: 'q2' }, { status: 201 })
       }
       if (url.includes('/quests')) {
-        return Response.json({ quests: [quest, privateWaiting], next: null })
+        return Response.json({ quests: [quest, privateWaiting, noProvider], next: null })
       }
       return Response.json({ error: 'down' }, { status: 503 })
     },
@@ -165,5 +173,26 @@ test('a private Quest wears a Private badge and a waiting one shows its real rea
   expect(privateCard?.textContent).toContain('Waiting: Hall locked')
   expect(plainCard?.textContent).not.toContain('Private')
   expect(plainCard?.textContent).not.toContain('Waiting')
+  await act(async () => root.unmount())
+})
+
+test('a Quest waiting for a provider offers a "Set up routing" action that opens Settings; other waits do not', async () => {
+  let opened = 0
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(<QuestBoardPanel session={session} onSetupRouting={() => (opened += 1)} />)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const actions = [...host.querySelectorAll('button')].filter((b) =>
+    b.textContent?.includes('Set up routing')
+  )
+  expect(actions).toHaveLength(1)
+  expect(actions[0]?.closest('li')?.textContent).toContain('Needs a provider')
+  await act(async () => {
+    actions[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  expect(opened).toBe(1)
   await act(async () => root.unmount())
 })

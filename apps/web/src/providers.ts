@@ -82,13 +82,7 @@ export async function setProviderPrivate(
   fetcher: Fetcher,
   browser: PasskeyBrowser
 ): Promise<'applied' | 'confirmed'> {
-  const { version, config } = await loadCurrent(session, fetcher)
-  const saved = await saveConfig(session, withPrivateEligible(config, id, on), fetcher, version)
-  if (saved.status === 'applied') {
-    return 'applied'
-  }
-  await confirmVersion(session, saved.version, fetcher, browser)
-  return 'confirmed'
+  return changeRouting(session, (config) => withPrivateEligible(config, id, on), fetcher, browser)
 }
 
 /** A routing profile as the Settings page shows it. */
@@ -99,37 +93,82 @@ export interface ProfileRow {
   model?: string | undefined
 }
 
+const profileRows = z.array(
+  z.object({
+    id: z.string(),
+    provider: z.string(),
+    tier: z.enum(['cheap', 'mid', 'deep']),
+    model: z.string().optional(),
+  })
+)
+
 /** The routing profiles in a config document, in order (the first is the default Summon uses). */
-export function profilesOf(_config: BuilderConfig): ProfileRow[] {
-  return []
+export function profilesOf(config: BuilderConfig): ProfileRow[] {
+  return profileRows.parse(config.routingProfiles ?? [])
 }
+
+const looseRows = z.array(z.looseObject({ id: z.string() }))
+const looseProfiles = z.array(z.looseObject({ id: z.string(), provider: z.string() }))
 
 /** The config with a provider added; the Vault secret it uses is named by the same id. */
 export function withProvider(
   config: BuilderConfig,
-  _provider: { id: string; auth: ProviderRow['auth'] }
+  provider: { id: string; auth: ProviderRow['auth'] }
 ): BuilderConfig {
-  return config
+  const rows = looseRows.parse(config.providers ?? [])
+  if (rows.some((p) => p.id === provider.id)) {
+    return config
+  }
+  return {
+    ...config,
+    providers: [...rows, { id: provider.id, auth: provider.auth, privateEligible: false }],
+  }
 }
 
 /** The config with a routing profile added (or replaced, by id). */
-export function withProfile(config: BuilderConfig, _profile: ProfileRow): BuilderConfig {
-  return config
+export function withProfile(config: BuilderConfig, profile: ProfileRow): BuilderConfig {
+  const rows = looseProfiles.parse(config.routingProfiles ?? [])
+  const entry = {
+    id: profile.id,
+    provider: profile.provider,
+    tier: profile.tier,
+    ...(profile.model === undefined ? {} : { model: profile.model }),
+  }
+  return {
+    ...config,
+    routingProfiles: rows.some((p) => p.id === profile.id)
+      ? rows.map((p) => (p.id === profile.id ? { ...p, ...entry } : p))
+      : [...rows, entry],
+  }
 }
 
 /** The config without the routing profile. */
-export function withoutProfile(config: BuilderConfig, _id: string): BuilderConfig {
-  return config
+export function withoutProfile(config: BuilderConfig, id: string): BuilderConfig {
+  return {
+    ...config,
+    routingProfiles: looseProfiles.parse(config.routingProfiles ?? []).filter((p) => p.id !== id),
+  }
 }
 
 /** The config without the provider and the profiles that named it. */
-export function withoutProvider(config: BuilderConfig, _id: string): BuilderConfig {
-  return config
+export function withoutProvider(config: BuilderConfig, id: string): BuilderConfig {
+  return {
+    ...config,
+    providers: looseRows.parse(config.providers ?? []).filter((p) => p.id !== id),
+    routingProfiles: looseProfiles
+      .parse(config.routingProfiles ?? [])
+      .filter((p) => p.provider !== id),
+  }
 }
 
 /** The config with the profile moved first, so Summon preselects it. */
-export function withDefaultProfile(config: BuilderConfig, _id: string): BuilderConfig {
-  return config
+export function withDefaultProfile(config: BuilderConfig, id: string): BuilderConfig {
+  const rows = looseProfiles.parse(config.routingProfiles ?? [])
+  const chosen = rows.find((p) => p.id === id)
+  if (!chosen) {
+    return config
+  }
+  return { ...config, routingProfiles: [chosen, ...rows.filter((p) => p.id !== id)] }
 }
 
 /** How a routing change ended: applied at once, or confirmed with a passkey. */
@@ -141,10 +180,16 @@ export type RoutingChange = 'applied' | 'confirmed'
  * applies at once. The server classifies the change, never this code.
  */
 export async function changeRouting(
-  _session: Session,
-  _edit: (config: BuilderConfig) => BuilderConfig,
-  _fetcher: Fetcher,
-  _browser: PasskeyBrowser
+  session: Session,
+  edit: (config: BuilderConfig) => BuilderConfig,
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<RoutingChange> {
-  return 'applied'
+  const { version, config } = await loadCurrent(session, fetcher)
+  const saved = await saveConfig(session, edit(config), fetcher, version)
+  if (saved.status === 'applied') {
+    return 'applied'
+  }
+  await confirmVersion(session, saved.version, fetcher, browser)
+  return 'confirmed'
 }

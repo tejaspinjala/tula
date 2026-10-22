@@ -25,7 +25,10 @@ export const STEP_LABELS = {
 export function SummonPanel({
   session,
   pollMs = 3000,
+  onSetupRouting: _onSetupRouting,
 }: {
+  /** Opens Settings, where providers and routing profiles are added. */
+  onSetupRouting?: (() => void) | undefined
   session: Session | null
   /** How often the status is re-read while the test Quest runs. */
   pollMs?: number
