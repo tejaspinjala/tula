@@ -48,6 +48,10 @@ interface Options {
   save?: { status: number; body: unknown }
   /** The publish reply; defaults to an internal version going live. */
   publish?: { status: number; body: unknown }
+  /** The versions list the history shows, newest first; defaults to the newest version alone. */
+  history?: Record<string, unknown>[]
+  /** Lists a second Rite, `v`, besides `w`. */
+  second?: boolean
 }
 
 function world(options: Options = {}) {
@@ -62,15 +66,27 @@ function world(options: Options = {}) {
     urls.push(`${method} ${url}`)
     if (url === `${base}?limit=50`) {
       return Response.json({
-        rites: [{ id: 'w', name: 'W', latestVersion: 1, activeVersion }],
+        rites: [
+          { id: 'w', name: 'W', latestVersion: 1, activeVersion },
+          ...(options.second ? [{ id: 'v', name: 'V', latestVersion: 1, activeVersion: 1 }] : []),
+        ],
         next: null,
       })
     }
     if (url === `${base}/w`) {
       return Response.json({ version: latest, activeVersion })
     }
+    if (url === `${base}/w?version=1`) {
+      return Response.json({ version: stored, activeVersion })
+    }
+    if (url === `${base}/v`) {
+      return Response.json({ version: stored, activeVersion: 1 })
+    }
+    if (url === `${base}/v/versions?limit=20`) {
+      return Response.json({ versions: options.history ?? [stored], next: null })
+    }
     if (url === `${base}/w/versions?limit=20`) {
-      return Response.json({ versions: [latest], next: null })
+      return Response.json({ versions: options.history ?? [latest], next: null })
     }
     if (url === `${base}/w/validate`) {
       const errors = options.errors ?? []
@@ -334,4 +350,80 @@ test('the run stream reconnects on the shared jittered backoff and says so in-wo
     timers.restore()
     globalThis.fetch = realFetch
   }
+})
+
+const wider = {
+  version: 2,
+  name: 'W',
+  graph: {
+    nodes: [
+      { id: 'start', type: 'trigger.manual' },
+      { id: 'out', type: 'post', of: 'start' },
+    ],
+    edges: [{ from: 'start', to: 'out' }],
+  },
+  status: 'draft',
+  classification: 'widening',
+  createdAt: 'now',
+}
+
+test('each history row shows its status and classification; expanding shows the diff against the active version', async () => {
+  const host = await mount(world({ history: [wider, stored] }), true)
+  const rows = [...host.querySelectorAll('[aria-label="Versions"] > li')]
+  expect(rows[0]?.textContent).toContain('Version 2')
+  expect(rows[0]?.textContent).toContain('widening')
+  expect(rows[0]?.textContent).toContain('draft')
+  expect(rows[1]?.textContent).toContain('internal')
+  expect(rows[1]?.textContent).toContain('active')
+  expect(host.textContent).not.toContain('Added node out')
+  await click(host, 'Show changes in version 2')
+  expect(host.textContent).toContain('Added node out')
+  expect(host.textContent).toContain('Added edge start to out')
+  await click(host, 'Hide changes in version 2')
+  expect(host.textContent).not.toContain('Added node out')
+})
+
+test('the active version has no diff against itself', async () => {
+  const host = await mount(world({ history: [wider, stored] }), true)
+  await click(host, 'Show changes in version 1')
+  expect(host.textContent).toContain('This is the version in force.')
+})
+
+test('restoring an old version saves its graph as a new draft and never makes it live', async () => {
+  const w = world({ history: [wider, stored] })
+  const host = await mount(w, true)
+  await click(host, 'Restore version 2')
+  expect(w.puts).toHaveLength(1)
+  expect(w.puts[0]?.graph.nodes.map((n) => n.id)).toEqual(['start', 'out'])
+  expect(w.publishes).toEqual([])
+  expect(chip(host)).toBe('Draft')
+  expect(host.textContent).toContain('Saved as draft version 2')
+  expect(host.textContent).toContain('Publish it to put it in force')
+})
+
+test('when the active version is outside the loaded page its graph is fetched, so the diff is real', async () => {
+  const filler = Array.from({ length: 20 }, (_, i) => ({ ...wider, version: i + 3 }))
+  const host = await mount(world({ history: [{ ...wider, version: 23 }, ...filler] }), true)
+  await click(host, 'Show changes in version 23')
+  expect(host.textContent).toContain('Added node out')
+  expect(host.textContent).not.toContain('No version is in force yet')
+})
+
+test('switching to another Rite collapses every expanded history row', async () => {
+  const host = await mount(world({ history: [wider, stored], second: true }), true)
+  await click(host, 'Show changes in version 2')
+  expect(host.textContent).toContain('Added node out')
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Rite"]')
+  if (!select) {
+    throw new Error('no Rite select')
+  }
+  await act(async () => {
+    select.value = 'v'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30))
+  })
+  expect(host.querySelector('[aria-label="Versions"] [aria-expanded="true"]')).toBeNull()
+  expect(host.textContent).not.toContain('Added node out')
 })

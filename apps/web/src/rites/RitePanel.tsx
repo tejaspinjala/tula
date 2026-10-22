@@ -32,6 +32,7 @@ import {
   validateGraph,
 } from './api'
 import { Canvas, NODE_PIECE } from './Canvas'
+import { describeDiff, diffGraphs } from './diff'
 import { Inspector } from './Inspector'
 import { layout, type Place } from './layout'
 import { addNode, connect, paletteTypes, riteChip, saveBody, versionLine } from './model'
@@ -206,6 +207,8 @@ export function RitePanel({
   const [status, setStatus] = useState<VersionDoc['status'] | null>(null)
   const [activeVersion, setActiveVersion] = useState<number | null>(null)
   const [versions, setVersions] = useState<VersionDoc[]>([])
+  const [expanded, setExpanded] = useState<number[]>([])
+  const [fetchedActive, setFetchedActive] = useState<VersionDoc | null>(null)
   const [halls, setHalls] = useState<{ id: string; name: string }[]>([])
   const [positions, setPositions] = useState<ReadonlyMap<string, Place>>(noPlaces)
   const [selected, setSelected] = useState<string | null>(null)
@@ -227,6 +230,8 @@ export function RitePanel({
       setIssues([])
       setPending(null)
       setMessage(null)
+      setExpanded([])
+      setFetchedActive(null)
       setRunId(null)
       setRun(null)
       setOverlay(noOverlay)
@@ -253,7 +258,14 @@ export function RitePanel({
       setDraft(loaded.version.graph)
       setVersion(loaded.version.version)
       setActiveVersion(loaded.activeVersion)
-      setVersions(await loadVersions(session, riteId, fetcher).catch(() => []))
+      const page = await loadVersions(session, riteId, fetcher).catch(() => [])
+      setVersions(page)
+      if (loaded.activeVersion !== null && !page.some((v) => v.version === loaded.activeVersion)) {
+        const found = await loadRite(session, riteId, fetcher, loaded.activeVersion).catch(
+          () => null
+        )
+        setFetchedActive(found?.version ?? null)
+      }
       // Coming back to a Rite shows its newest run, so leaving the view does not lose the overlay.
       const runs = await listRuns(session, riteId, fetcher).catch(() => [])
       const newest = runs.reduce<(typeof runs)[number] | null>(
@@ -461,6 +473,8 @@ export function RitePanel({
       setStatus(null)
       setActiveVersion(null)
       setVersions([])
+      setExpanded([])
+      setFetchedActive(null)
       setPositions(noPlaces)
       setSelected(null)
       setNewId('')
@@ -638,16 +652,48 @@ export function RitePanel({
           Version history
         </h3>
         <ul aria-label="Versions">
-          {versions.map((row) => (
-            <li key={row.version} className="item">
-              Version {row.version}: {row.classification}, {row.status}{' '}
-              {wide && (
-                <button type="button" onClick={() => restore(row)}>
-                  {`Restore version ${row.version}`}
-                </button>
-              )}
-            </li>
-          ))}
+          {versions.map((row) => {
+            const open = expanded.includes(row.version)
+            const active = versions.find((v) => v.version === activeVersion) ?? fetchedActive
+            const lines =
+              active && active.version !== row.version
+                ? describeDiff(diffGraphs(active.graph, row.graph))
+                : []
+            return (
+              <li key={row.version} className="item">
+                Version {row.version}: {row.classification}, {row.status}{' '}
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() =>
+                    setExpanded(
+                      open ? expanded.filter((v) => v !== row.version) : [...expanded, row.version]
+                    )
+                  }
+                >
+                  {`${open ? 'Hide' : 'Show'} changes in version ${row.version}`}
+                </button>{' '}
+                {wide && (
+                  <button type="button" onClick={() => restore(row)}>
+                    {`Restore version ${row.version}`}
+                  </button>
+                )}
+                {open && (
+                  <ul aria-label={`Changes in version ${row.version}`} className="muted">
+                    {row.version === activeVersion ? (
+                      <li>This is the version in force.</li>
+                    ) : !active ? (
+                      <li>No version is in force yet, so there is nothing to compare.</li>
+                    ) : lines.length === 0 ? (
+                      <li>No changes from the version in force.</li>
+                    ) : (
+                      lines.map((line) => <li key={line}>{line}</li>)
+                    )}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
         </ul>
       </section>
     </section>
