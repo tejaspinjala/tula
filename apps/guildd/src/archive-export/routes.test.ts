@@ -121,7 +121,7 @@ async function unzip(res: Response): Promise<{ bytes: Uint8Array; files: Record<
 
 for (const kind of ['memory', 'postgres'] as const) {
   describe(`archive export on the ${kind} adapters`, () => {
-    test('by default private notes are absent, withheld in links, and counted', async () => {
+    test('by default private notes are absent and counted', async () => {
       const { get, events } = await setup(kind)
       const res = await get()
       expect(res.status).toBe(200)
@@ -134,16 +134,45 @@ for (const kind of ['memory', 'postgres'] as const) {
         privateIncluded: 0,
         privateLeftOut: 1,
       })
-      const { bytes, files } = await unzip(res)
+      const { files } = await unzip(res)
       const everything = Object.entries(files)
         .map(([p, t]) => `${p}\n${t}`)
         .join('\n')
-      expect(everything).not.toContain(SECRET_TITLE)
+      expect(everything).not.toContain(`[[${SECRET_TITLE}`)
       expect(everything).not.toContain(SECRET_BODY)
-      expect(new TextDecoder('latin1').decode(bytes)).not.toContain(SECRET_TITLE)
+      expect(Object.keys(files).join('\n')).not.toContain(SECRET_TITLE)
       expect(Object.keys(files).some((p) => p.startsWith('Private/'))).toBe(false)
-      expect(Object.values(files).join('\n')).toContain('[withheld]')
+      expect(Object.values(files).join('\n')).not.toContain('[withheld]')
       expect(await events()).toHaveLength(1)
+    })
+
+    test('the default export is identical before and after private notes are added', async () => {
+      const { guild, notes, get } = await setup(kind)
+      const fact = { kind: 'text', claim: 'fact', evidence: 'seen' } as const
+      await notes.add(
+        guild,
+        {
+          ...fact,
+          title: 'Linker',
+          body: '[[Diary [2026]]] [[Plan|the plan]] [[Plan#Part]] [[Tail]]] [[Notes ]]]]',
+        },
+        HALL
+      )
+      const before = await unzip(await get())
+      for (const title of ['Diary [2026]', 'Plan', 'Tail]', 'Notes ]]']) {
+        await notes.add(guild, { ...fact, title, body: 'hidden' }, HALL, undefined, 'private')
+      }
+      const res = await get()
+      const after = await unzip(res)
+      expect(after.files).toEqual(before.files)
+      expect(after.files['Archive.md']).toContain('Private notes are not included in this export.')
+      expect(after.bytes).toEqual(before.bytes)
+      expect(JSON.stringify(after.files)).not.toContain('[withheld]')
+      expect(counts.parse(JSON.parse(res.headers.get('x-archive-counts') ?? 'null'))).toEqual({
+        exported: 2,
+        privateIncluded: 0,
+        privateLeftOut: 5,
+      })
     })
 
     test('the zip round-trips: each note file has parseable front matter', async () => {
@@ -178,6 +207,7 @@ for (const kind of ['memory', 'postgres'] as const) {
         privateLeftOut: 0,
       })
       const { files } = await unzip(res)
+      expect(files['Archive.md']).toContain('Private notes are included, under Private/.')
       const secret = Object.entries(files).find(([p]) => p.startsWith('Private/'))
       expect(secret?.[1]).toContain(SECRET_BODY)
       expect(await events()).toEqual([{ exported: 2, privateIncluded: 1, privateLeftOut: 0 }])
@@ -190,7 +220,7 @@ for (const kind of ['memory', 'postgres'] as const) {
     })
 
     test('past the note cap the export is 413 archive_too_large and writes nothing', async () => {
-      const { get, events } = await setup(kind, { caps: { maxNotes: 1, maxBytes: 1_000_000 } })
+      const { get, events } = await setup(kind, { caps: { maxNotes: 0, maxBytes: 1_000_000 } })
       const res = await get()
       expect(res.status).toBe(413)
       expect(z.object({ error: z.string() }).parse(await res.json()).error).toBe(
@@ -241,6 +271,7 @@ for (const kind of ['memory', 'postgres'] as const) {
             edit: store.edit.bind(store),
             get: store.get.bind(store),
             search: store.search.bind(store),
+            countPrivate: store.countPrivate.bind(store),
             list: (g, page) => {
               calls.list++
               return store.list(g, page)

@@ -271,6 +271,8 @@ export interface NoteStore {
   ): Promise<NoteDetail | null>
   /** Notes in id order, strictly after `after`, at most `limit`. */
   list(guildId: string, page: NotePaging): Promise<NotePage>
+  /** How many private notes the guild holds; a count only, never a title or body. */
+  countPrivate(guildId: string): Promise<number>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */
   search(guildId: string, query: string, page: NotePaging): Promise<NotePage>
 }

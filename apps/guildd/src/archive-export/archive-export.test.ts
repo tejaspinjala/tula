@@ -33,7 +33,7 @@ function run(notes: ExportNote[], extra: Partial<ArchiveExportInput> = {}) {
     halls,
     guildName: 'Tula',
     now: NOW,
-    privateLeftOut: 0,
+    includePrivate: false,
     ...extra,
   })
 }
@@ -174,17 +174,6 @@ describe('wiki links', () => {
     expect(c).toContain('see Ghost')
     expect(c).not.toContain('[[Ghost')
   })
-  test('withheld private targets never show their title', () => {
-    const c = file(
-      run([note({ id: '1', title: 'S', body: 'see [[Secret Plan]]' })], {
-        privateLeftOut: 1,
-        withheldTitles: ['secret plan'],
-      }),
-      'Engineering/S.md'
-    )
-    expect(c).not.toMatch(/secret plan/i)
-    expect(c).toContain('[withheld]')
-  })
   test('private targets are linked when exported', () => {
     const files = run([
       note({ id: '1', title: 'S', body: '[[P]]' }),
@@ -195,186 +184,128 @@ describe('wiki links', () => {
 })
 
 describe('link resolution (ADR-0015)', () => {
-  const withheldTitles = ['Knee [left] pain', 'Health diary']
-  const bodyOf = (body: string) =>
-    file(
-      run([note({ id: '1', title: 'S', body })], { privateLeftOut: 2, withheldTitles }),
-      'Engineering/S.md'
-    )
+  const bodyOf = (body: string, extra: ExportNote[] = []) =>
+    file(run([note({ id: '1', title: 'S', body }), ...extra]), 'Engineering/S.md')
   test.each([
-    '[[Knee [left] pain]]',
-    '[[Health diary|my diary]]',
-    '[[Health diary#2024]]',
-    '[[Health diary#^b1|x]]',
-  ])('%s becomes [withheld] without the title', (link) => {
-    const c = bodyOf(`see ${link} end`)
-    expect(c).toContain('see [withheld] end')
-    expect(c).not.toContain('Knee [left]')
-    expect(c).not.toContain('Health diary')
-    expect(c).not.toContain('my diary')
+    ['[[Knee [left] pain]]', 'Knee [left] pain'],
+    ['[[Health diary|my diary]]', 'my diary'],
+    ['[[Health diary#2024]]', 'Health diary#2024'],
+    ['[[Diary [2026]]]', 'Diary [2026]'],
+    ['[[Diary [2026]]]]', 'Diary [2026]'],
+  ])('an unexported %s is the plain text the author wrote', (link, shown) => {
+    expect(bodyOf(`see ${link} end`)).toContain(`see ${shown} end`)
   })
-  test('a public note sharing a private title still resolves to the public file', () => {
-    const c = file(
-      run(
-        [
-          note({ id: '1', title: 'S', body: '[[Twin]]' }),
-          note({ id: '2', title: 'Twin', body: 'pub' }),
-        ],
-        { privateLeftOut: 1, withheldTitles: ['Twin'] }
-      ),
-      'Engineering/S.md'
-    )
+  test('no [withheld] marker exists', () => {
+    expect(bodyOf('[[Secret]]')).not.toContain('[withheld]')
+  })
+  test('a public note sharing a title resolves to the public file', () => {
+    const c = bodyOf('[[Twin]]', [note({ id: '2', title: 'Twin', body: 'pub' })])
     expect(c).toContain('[[Engineering/Twin|Twin]]')
-    expect(c).not.toContain('[withheld]')
   })
   test('an exported bracketed title resolves to a working link', () => {
-    const files = run([
-      note({ id: '1', title: 'S', body: '[[Market [stalls] "list"]]' }),
+    const c = bodyOf('[[Market [stalls] "list"]]', [
       note({ id: '2', title: 'Market [stalls] "list"' }),
     ])
-    expect(file(files, 'Engineering/S.md')).toContain(
-      '[[Engineering/Market stalls list|Market stalls "list"]]'
+    expect(c).toContain('[[Engineering/Market stalls list|Market stalls "list"]]')
+  })
+  test('a title ending in a bracket resolves when exported, next to a longer exported title', () => {
+    const c = bodyOf('[[Diary [2026]]] and [[Diary [2026] public]]', [
+      note({ id: '2', title: 'Diary [2026]' }),
+      note({ id: '3', title: 'Diary [2026] public' }),
+    ])
+    expect(c).toContain(
+      '[[Engineering/Diary 2026|Diary 2026]] and [[Engineering/Diary 2026 public|Diary 2026 public]]'
     )
   })
   test('an alias and a heading to an exported note are kept', () => {
-    const files = run([
-      note({ id: '1', title: 'S', body: '[[P#Part two|see this]] and [[P#^b1]]' }),
-      note({ id: '2', title: 'P' }),
-    ])
-    const c = file(files, 'Engineering/S.md')
+    const c = bodyOf('[[P#Part two|see this]] and [[P#^b1]]', [note({ id: '2', title: 'P' })])
     expect(c).toContain('[[Engineering/P#Part two|see this]]')
     expect(c).toContain('[[Engineering/P#^b1|P]]')
   })
-  test('unresolved alias or target is plain text, never a link', () => {
-    const c = bodyOf('[[Ghost|spooky]] [[Ghost#h]]')
-    expect(c).toContain('spooky Ghost')
-    expect(c).not.toContain('[[Ghost')
-  })
-  test.each([
-    '[[a [[Secret]] b]]',
-    '[[x|[[Secret]]',
-    '[[ [[Secret]]',
-    '[[[Secret]]]',
-    '[[Secret|[[x]]',
-    '[[[[Secret]]]]',
-  ])('nested %s leaks no title and leaves no stray brackets', (body) => {
-    const files = run([note({ id: '1', title: 'S', body })], {
-      privateLeftOut: 1,
-      withheldTitles: ['Secret'],
-    })
-    for (const f of files) {
-      expect(f.content).not.toContain('Secret')
-    }
-    const c = file(files, 'Engineering/S.md')
+  test('a nested [[ resolves the innermost link and leaves no stray brackets', () => {
+    const c = bodyOf('[[a [[P]] b]] [[[[P]]]]', [note({ id: '2', title: 'P' })])
     const text = c.slice(c.indexOf('# S'))
-    expect(text).not.toContain('[[')
-    expect(text).not.toContain(']]')
+    expect(text.match(/\[\[/g)?.length).toBe(text.match(/\]\]/g)?.length)
+    expect(text).toContain('[[Engineering/P|P]]')
   })
-  test.each(['[[Diary [2026]]]', '[[Diary [2026]]]]', 'a [[Diary [2026]]] b'])(
-    'a withheld title ending in a bracket does not leak via %s',
-    (body) => {
-      const files = run([note({ id: '1', title: 'S', body })], {
-        privateLeftOut: 1,
-        withheldTitles: ['Diary [2026]'],
-      })
-      for (const f of files) {
-        expect(f.content.toLowerCase()).not.toContain('diary')
-      }
-      expect(file(files, 'Engineering/S.md')).toContain('[withheld]')
+  test('unresolved nested or dangling brackets leave no wiki brackets', () => {
+    for (const body of [
+      '[[a [[Gone]] b]]',
+      '[[x|[[Gone]]',
+      '[[ [[Gone]]',
+      '[[[Gone]]]',
+      '[[Gone',
+    ]) {
+      const c = bodyOf(body)
+      expect(c.slice(c.indexOf('# S'))).not.toMatch(/\[\[|\]\]/)
     }
-  )
-  test('a withheld title ending in ]] does not leak', () => {
-    const files = run([note({ id: '1', title: 'S', body: 'x [[Notes ]]]] y' })], {
-      privateLeftOut: 1,
-      withheldTitles: ['Notes ]]'],
-    })
-    expect(file(files, 'Engineering/S.md')).toContain('x [withheld] y')
   })
-  test('a bracketed withheld title next to an exported longer title resolves each correctly', () => {
-    const files = run(
-      [
-        note({ id: '1', title: 'S', body: '[[Diary [2026]]] and [[Diary [2026] public]]' }),
-        note({ id: '2', title: 'Diary [2026] public' }),
-      ],
-      { privateLeftOut: 1, withheldTitles: ['Diary [2026]'] }
+  test('ordinary prose is untouched', () => {
+    expect(bodyOf('I keep a diary. Plain [[Ghost]] text.')).toContain(
+      'I keep a diary. Plain Ghost text.'
     )
-    const c = file(files, 'Engineering/S.md')
-    expect(c).toContain('[withheld] and [[Engineering/Diary 2026 public|Diary 2026 public]]')
   })
-  test.each(['[[Diary [2026', 'see [[diary [20', 'x]] Diary [2026]] y'])(
-    'fail closed: text from link syntax containing or truncating a withheld title is withheld (%s)',
-    (body) => {
-      const files = run([note({ id: '1', title: 'S', body })], {
-        privateLeftOut: 1,
-        withheldTitles: ['Diary [2026]'],
-      })
-      expect(file(files, 'Engineering/S.md').toLowerCase()).not.toContain('diary')
-    }
-  )
-  test('ordinary prose is never withheld', () => {
-    const c = bodyOf('I keep a diary. Plain [[Ghost]] text.')
-    expect(c).toContain('I keep a diary.')
+  test('index says private notes are not included, with no count, in default mode', () => {
+    const idx = file(run([note({ id: '1', title: 'S' })]), 'Archive.md')
+    expect(idx).toContain('Private notes are not included in this export.')
+    expect(idx).not.toMatch(/left out|\d private/i)
   })
-  test('random nesting of [[ and ]] around withheld titles never leaks', () => {
-    let seed = 7
-    const rnd = (n: number) => {
-      seed = (seed * 1103515245 + 12345) % 2147483648
-      return seed % n
+  test('index says private notes are included under Private/ in private mode', () => {
+    const idx = file(run([note({ id: '1', title: 'S' })], { includePrivate: true }), 'Archive.md')
+    expect(idx).toContain('Private notes are included, under Private/.')
+  })
+})
+
+describe('indistinguishability property (ADR-0015)', () => {
+  const titles = [
+    'Plain',
+    'Diary [2026]',
+    'Notes ]]',
+    'Tail]',
+    'a|b',
+    'h#x',
+    'Café',
+    'Café',
+    'zero​width',
+    'Knee [left] pain',
+  ]
+  const pieces = ['[[', ']]', '[', ']', '|', '#', '^', ' ', 'x', ...titles]
+  function seeded(seed: number) {
+    let s = seed
+    return (n: number): number => {
+      s = (s * 1103515245 + 12345) % 2147483648
+      return s % n
     }
-    const titles = ['Secret', 'Diary [2026]', 'Notes ]]', 'Tail]']
-    const pieces = [
-      '[[',
-      ']]',
-      '[',
-      ']',
-      '|',
-      '#',
-      ' ',
-      'x',
-      ...titles.map((t) => `[[${t}]]`),
-      '[[SECRET|a]]',
-    ]
-    for (let i = 0; i < 500; i++) {
-      const body = Array.from({ length: 4 + rnd(12) }, () => pieces[rnd(pieces.length)]).join('')
-      const files = run([note({ id: '1', title: 'S', body })], {
-        privateLeftOut: 1,
-        withheldTitles: titles,
-      })
-      for (const f of files) {
-        for (const t of titles) {
-          expect(f.content.toLowerCase()).not.toContain(t.toLowerCase())
+  }
+  test('the export depends only on exported notes, and every [[link]] points at an exported file', () => {
+    const rnd = seeded(11)
+    const pick = <T>(xs: readonly T[]): T => xs[rnd(xs.length)] as T
+    for (let i = 0; i < 1200; i++) {
+      const body = () => Array.from({ length: 2 + rnd(14) }, () => pick(pieces)).join('')
+      const pub = Array.from({ length: 1 + rnd(4) }, (_, k) =>
+        note({ id: `p${k}`, title: pick(titles), body: body() })
+      )
+      const first = run(pub)
+      expect(run(pub)).toEqual(first)
+      const paths = new Set(first.map((f) => f.path.replace(/\.md$/, '')))
+      for (const f of first) {
+        const links = f.content.match(/\[\[[^\]]*\]\]/g) ?? []
+        for (const l of links) {
+          const path = (l.slice(2, -2).split('|')[0] ?? '').split('#')[0] ?? ''
+          expect(paths.has(path)).toBe(true)
         }
-      }
-    }
-  })
-  test('no withheld title appears in any output file for varied bodies', () => {
-    const forms = (t: string) => [
-      `[[${t}]]`,
-      `[[${t}|alias]]`,
-      `[[${t}#h]]`,
-      `[[${t}#^b|${t}]]`,
-      `[[ ${t.toUpperCase()} ]]`,
-    ]
-    const body = withheldTitles.flatMap(forms).join('\n')
-    const files = run([note({ id: '1', title: 'S', body })], { privateLeftOut: 2, withheldTitles })
-    for (const f of files) {
-      for (const t of withheldTitles) {
-        expect(f.content.toLowerCase()).not.toContain(t.toLowerCase())
       }
     }
   })
 })
 
 describe('index', () => {
-  test('Archive.md has separate sections, counts and the private count', () => {
-    const files = run(
-      [
-        note({ id: '1', title: 'Fact one' }),
-        note({ id: '2', title: 'Guess', trust: 'quarantined', evidence: null }),
-        note({ id: '3', title: 'Fact two' }),
-      ],
-      { privateLeftOut: 4 }
-    )
+  test('Archive.md has separate sections and counts', () => {
+    const files = run([
+      note({ id: '1', title: 'Fact one' }),
+      note({ id: '2', title: 'Guess', trust: 'quarantined', evidence: null }),
+      note({ id: '3', title: 'Fact two' }),
+    ])
     const idx = file(files, 'Archive.md')
     expect(idx).toContain('# Tula Archive')
     expect(idx).toContain('2026-01-02')
@@ -385,6 +316,5 @@ describe('index', () => {
     expect(idx.slice(facts, quar)).toContain('[[Engineering/Fact one|Fact one]]')
     expect(idx.slice(facts, quar)).not.toContain('Guess')
     expect(idx.slice(quar)).toContain('[[Engineering/Guess|Guess]]')
-    expect(idx).toContain('Private notes left out: 4')
   })
 })

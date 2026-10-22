@@ -15,10 +15,8 @@ export interface ArchiveExportInput {
   halls: readonly { id: string; name: string }[]
   guildName: string
   now: Date
-  /** How many private notes the caller left out of `notes`. */
-  privateLeftOut: number
-  /** Titles of notes withheld from `notes`; links to them render as "[withheld]", never the title. */
-  withheldTitles?: readonly string[]
+  /** Whether private notes are among `notes`; only changes the constant partial-export line of the index. */
+  includePrivate: boolean
 }
 
 const MAX_NAME = 120
@@ -107,44 +105,18 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
       byKey.set(key, n)
     }
   }
-  const withheld = new Set((input.withheldTitles ?? []).map(titleKey))
-  // Fail closed: text that came from link syntax must not contain a withheld title or a prefix of one.
-  const leaks = (text: string): boolean => {
-    const n = titleKey(text)
-    if (!n) {
-      return false
-    }
-    for (const key of withheld) {
-      if (n.includes(key) || (n.length >= 4 && key.startsWith(n))) {
-        return true
-      }
-    }
-    return false
-  }
-  // Order: a target in the export links; else a withheld title is "[withheld]" (neither title nor
-  // alias shown); else plain text, never a [[link]].
+  // Only exported titles are `known`, so nothing here can depend on a private note. A link whose
+  // target is not exported (private or missing alike) becomes the plain text the author wrote.
   const rewrite = (body: string): string => {
     let out = ''
     let at = 0
     let fenced = false
-    // A gap is text between links. If the scan touched it (stray `[[` or `]]`), every part beside
-    // a bracket pair that leaks is withheld; after a withheld or plain replacement, edge brackets
-    // are dropped so none can pair into `[[`.
-    const gap = (text: string): string => {
-      const t = fenced ? text.replace(/^\]+/, '') : text
-      if (!t.includes('[[') && !t.includes(']]')) {
-        return t
-      }
-      const parts = t.split(/(\[\[|\]\])/)
-      return plain(
-        parts.map((p) => (p === '[[' || p === ']]' || !leaks(p) ? p : '[withheld]')).join('')
-      )
-    }
-    for (const link of parseWikiLinks(body, (k) => byKey.has(k) || withheld.has(k))) {
+    // Edge brackets beside a plain replacement are dropped so none can pair into `[[`.
+    const gap = (text: string): string => plain(fenced ? text.replace(/^\]+/, '') : text)
+    for (const link of parseWikiLinks(body, (k) => byKey.has(k))) {
       out += gap(body.slice(at, link.start))
       at = link.end
-      const key = titleKey(link.target)
-      const target = byKey.get(key)
+      const target = byKey.get(titleKey(link.target))
       const path = target ? pathOf.get(target.id) : undefined
       if (target && path !== undefined) {
         const label = link.alias === null ? '' : aliasOf(link.alias)
@@ -153,10 +125,9 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
         fenced = false
       } else {
         out = out.replace(/\[+$/, '')
-        const shown = link.alias ?? link.target
-        const hit =
-          withheld.has(key) || [link.target, link.alias ?? '', link.heading ?? ''].some(leaks)
-        out += hit ? '[withheld]' : plain(oneLine(shown))
+        const shown =
+          link.alias ?? (link.heading === null ? link.target : `${link.target}#${link.heading}`)
+        out += plain(oneLine(shown))
         fenced = true
       }
     }
@@ -195,7 +166,9 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
     `Exported ${input.now.toISOString().slice(0, 10)}.`,
     '',
     `Notes exported: ${notes.length}`,
-    `Private notes left out: ${input.privateLeftOut}`,
+    input.includePrivate
+      ? 'Private notes are included, under Private/.'
+      : 'Private notes are not included in this export.',
     '',
     `## Facts (${facts.length})`,
     '',

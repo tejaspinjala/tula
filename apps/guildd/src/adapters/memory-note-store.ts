@@ -127,6 +127,16 @@ export class MemoryNoteStore implements NoteStore {
     return this.page(guildId, page, () => true)
   }
 
+  async countPrivate(guildId: string): Promise<number> {
+    let count = 0
+    for (const stored of this.notes(guildId).values()) {
+      if (stored.dataClass === 'private') {
+        count++
+      }
+    }
+    return count
+  }
+
   async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
     const terms = searchTerms(query)
     if (terms.length === 0) {

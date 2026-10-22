@@ -182,6 +182,15 @@ export class PgNoteStore implements NoteStore {
     )
   }
 
+  async countPrivate(guildId: string): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const rows = await tx`
+        select count(*)::int as n from notes
+        where guild_id = ${guildId} and data_class = 'private'`
+      return Number(rows[0]?.n ?? 0)
+    })
+  }
+
   async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
     const terms = searchTerms(query)
     if (terms.length === 0) {

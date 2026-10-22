@@ -81,10 +81,10 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
       }
     }
 
-    // Private notes are always read so links to them can be withheld; they are only exported
-    // (title and body) when the caller proved a fresh re-authentication.
+    // The default export never reads a private note: the builder sees only what the non-private
+    // Archive read model shows, so the files cannot depend on private notes (ADR-0015). Private
+    // notes are read only when the caller proved a fresh re-authentication.
     const exported: ExportNote[] = []
-    const withheldTitles: string[] = []
     let privateIncluded = 0
     let seen = 0
     let bodyBytes = 0
@@ -92,15 +92,11 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
     do {
       const page = await deps.notes.list(who.guild, {
         limit: MAX_NOTE_PAGE,
-        includePrivate: true,
+        includePrivate: wantPrivate,
         ...(after === undefined ? {} : { after }),
       })
       for (const n of page.notes) {
         seen++
-        if (n.dataClass === 'private' && !wantPrivate) {
-          withheldTitles.push(n.title)
-          continue
-        }
         bodyBytes += byteLength(n.title) + byteLength(n.body) + byteLength(n.evidence ?? '')
         if (n.dataClass === 'private') {
           privateIncluded++
@@ -113,14 +109,15 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
       after = page.next ?? undefined
     } while (after !== undefined)
 
+    const privateLeftOut = wantPrivate ? 0 : await deps.notes.countPrivate(who.guild)
     const { config } = await deps.config.current(who.guild)
+    const now = deps.clock.now()
     const files = buildArchiveExport({
       notes: exported,
       halls: config.halls.map((h) => ({ id: h.id, name: h.name })),
       guildName: name,
-      now: deps.clock.now(),
-      privateLeftOut: withheldTitles.length,
-      withheldTitles,
+      now,
+      includePrivate: wantPrivate,
     })
     const encoded = files.map((f) => [f.path, strToU8(f.content)] as const)
     if (encoded.reduce((sum, [, data]) => sum + data.length, 0) > caps.maxBytes) {
@@ -129,9 +126,9 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
     const fact: ArchiveExportedFact = {
       exported: exported.length,
       privateIncluded,
-      privateLeftOut: withheldTitles.length,
+      privateLeftOut,
     }
-    const zip = (deps.zip ?? zipSync)(Object.fromEntries(encoded))
+    const zip = (deps.zip ?? ((f) => zipSync(f, { mtime: now })))(Object.fromEntries(encoded))
     await deps.recordExported(who.guild, fact)
     return new Response(zip, {
       headers: {

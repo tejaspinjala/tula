@@ -86,6 +86,19 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.get(g, target.id))?.backlinks).toEqual([])
     })
 
+    test('countPrivate counts the private notes of one guild', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      expect(await store.countPrivate(g)).toBe(0)
+      await store.add(g, { ...fact, title: 'Open', body: 'x' })
+      await store.add(g, { ...fact, title: 'P1', body: 'x' }, undefined, undefined, 'private')
+      await store.add(g, { ...fact, title: 'P2', body: 'x' }, 'a', undefined, 'private')
+      await store.add(other, { ...fact, title: 'P3', body: 'x' }, undefined, undefined, 'private')
+      expect(await store.countPrivate(g)).toBe(2)
+      expect(await store.countPrivate(other)).toBe(1)
+    })
+
     test('a note stored as [[T|alias]] or [[T#heading]] backlinks the target', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
