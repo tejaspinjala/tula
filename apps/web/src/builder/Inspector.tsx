@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Badge } from '../Badge'
 import { LookPicker, LookPreview } from '../game/LookPicker'
 import { choiceFor } from '../game/look'
+import { defaultStyle, ROOM_STYLES } from '../game/room'
+import { RoomPreview } from './RoomPreview'
 import { type Deployment, describePrivateDestination, providersOf } from '../providers'
 import { GUILD_CAPS, guildCapValue, HALL_CAP, setGuildCap, setHallCap, widenedCaps } from './caps'
 import {
@@ -17,6 +19,7 @@ import {
   setHallSettings,
   setLook,
   setRank,
+  setRoomStyle,
 } from './model'
 
 const RANKS: BuilderMember['rank'][] = ['apprentice', 'journeyman', 'adept']
@@ -154,6 +157,7 @@ function HallEditor({
   onSelect,
   deployment = null,
 }: InspectorProps & { hall: BuilderHall }) {
+  const chosenStyle = hall.roomStyle ?? defaultStyle(hall)
   return (
     <>
       <label>
@@ -181,6 +185,28 @@ function HallEditor({
         />{' '}
         Private routing eligible
       </label>
+      <fieldset className="room-style-editor">
+        <legend>Room</legend>
+        <RoomPreview style={chosenStyle} />
+        <label>
+          Room style
+          <select
+            aria-label="Room style"
+            value={hall.roomStyle ?? ''}
+            onChange={(e) => {
+              const picked = ROOM_STYLES.find((style) => style === e.target.value) ?? null
+              onChange(setRoomStyle(config, hall.id, picked))
+            }}
+          >
+            <option value="">Automatic ({defaultStyle(hall)})</option>
+            {ROOM_STYLES.map((style) => (
+              <option key={style} value={style}>
+                {style}
+              </option>
+            ))}
+          </select>
+        </label>
+      </fieldset>
       {hall.kind === 'private' && !hall.locked && (
         <PrivateDisclosure config={config} deployment={deployment} />
       )}

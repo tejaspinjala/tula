@@ -400,6 +400,49 @@ ul[aria-label] {
   border: 0;
   padding: 0;
 }
+.room-style-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  border: 0;
+  padding: 0;
+}
+/* The room style preview: one hard-edged square per tile, tokens only. */
+.room-preview {
+  display: grid;
+  grid-auto-rows: var(--px);
+  border: var(--px) solid var(--px-edge);
+  background: var(--px-wood-900);
+  width: max-content;
+}
+.room-preview-wall {
+  background: var(--px-stone-700);
+}
+.room-preview-floor {
+  background: var(--px-wood-300);
+}
+.room-preview-furniture {
+  background: var(--px-wood-700);
+}
+.room-preview[data-style='library'] .room-preview-furniture {
+  background: var(--px-plum-700);
+}
+.room-preview[data-style='studio'] .room-preview-furniture {
+  background: var(--px-berry-500);
+}
+.room-preview[data-style='infirmary'] .room-preview-floor {
+  background: var(--px-linen-300);
+}
+.room-preview[data-style='garden-room'] .room-preview-floor {
+  background: var(--px-grass-300);
+}
+.room-preview[data-style='quiet-room'] .room-preview-floor {
+  background: var(--px-sky-300);
+}
+.room-preview[data-style='writing-room'] .room-preview-floor {
+  background: var(--px-paper-400);
+}
 .character-panel {
   margin-block: 0.75rem;
 }

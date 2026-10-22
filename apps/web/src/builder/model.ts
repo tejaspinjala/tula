@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { type LookChoice, lookChoice } from '../game/look'
+import { ROOM_STYLES, type RoomStyle } from '../game/room'
 
 const agent = z.object({ id: z.string(), name: z.string() })
 const member = agent.extend({
@@ -14,6 +15,7 @@ const hall = z.looseObject({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member),
+  roomStyle: z.enum(ROOM_STYLES).optional(),
   maxConcurrentMembers: z.number().int().optional(),
 })
 const guildCaps = z.looseObject({
@@ -211,5 +213,23 @@ export function setCaptain(c: BuilderConfig, hallId: string, name: string | null
         ? { ...h, captain: name === null ? null : { id: h.captain?.id ?? fresh, name } }
         : h
     ),
+  }
+}
+
+/** Sets a Hall's room style, or clears it with null (back to the style its kind and name pick). */
+export function setRoomStyle(
+  c: BuilderConfig,
+  hallId: string,
+  style: RoomStyle | null
+): BuilderConfig {
+  return {
+    ...c,
+    halls: c.halls.map((h) => {
+      if (h.id !== hallId) {
+        return h
+      }
+      const { roomStyle: _previous, ...rest } = h
+      return style ? { ...rest, roomStyle: style } : rest
+    }),
   }
 }

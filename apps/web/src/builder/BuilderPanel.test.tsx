@@ -64,6 +64,7 @@ interface Put {
         members: { id: string; look?: unknown }[]
         captain: unknown
         maxConcurrentMembers?: number
+        roomStyle?: string
       }[]
       caps?: Record<string, number>
     }
@@ -323,6 +324,20 @@ test('the Hall inspector edits the member cap, shows its bounds, and saves it in
   expect(host.textContent).not.toContain('Widening')
   await click(host, 'Save')
   expect(w.puts[0]?.body.config.halls[0]?.maxConcurrentMembers).toBe(1)
+})
+
+test('picking a room style in the Hall inspector previews it and saves a neutral roomStyle change', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Heralds Hall')
+  await choose(host, 'Room style', 'library')
+  expect(host.querySelector('[data-testid="room-preview"]')?.getAttribute('data-style')).toBe(
+    'library'
+  )
+  expect(host.textContent).not.toContain('Widening')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.config.halls[0]?.roomStyle).toBe('library')
+  expect(host.textContent).not.toContain('Confirm with passkey')
 })
 
 test('raising a cap is marked widening before save; the server answer decides the passkey prompt', async () => {
