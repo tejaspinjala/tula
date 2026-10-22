@@ -1,6 +1,8 @@
 import { afterAll, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { createHarness } from './testing/harness'
+import { MemoryClock } from './adapters/memory-clock'
+import { MemoryRateLimiter } from './adapters/memory-rate-limiter'
+import { createHarness, UNLIMITED_RATE_LIMITS } from './testing/harness'
 import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const ORIGIN = 'http://localhost:5173'
@@ -87,5 +89,34 @@ test('the legacy POST /guilds, which can leave a guild with no passkey, is refus
     expect(res.status).toBe(404)
   } finally {
     await prod.close()
+  }
+})
+
+test('one founding costs one hit on the founding bucket, not one per request', async () => {
+  const one = { limit: 1, windowMs: 60_000 }
+  const h = await createHarness({
+    app: {
+      rateLimiter: new MemoryRateLimiter(new MemoryClock(new Date('2026-01-01T00:00:00.000Z'))),
+      rateLimits: { ...UNLIMITED_RATE_LIMITS, founding: { client: one, unknown: one } },
+    },
+  })
+  try {
+    const send = (path: string, body: unknown) =>
+      h.request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
+    const begun = ceremony.parse(await (await send('/founding/begin', {})).json())
+    const finished = await send('/founding/finish', {
+      challengeId: begun.challengeId,
+      response: await key.register(begun.options),
+      name: `Ratey ${crypto.randomUUID()}`,
+      goal: 'g',
+    })
+    expect(finished.status).toBe(201)
+  } finally {
+    await h.close()
   }
 })
