@@ -146,6 +146,33 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(await events()).toHaveLength(1)
     })
 
+    test('the default export is identical before and after private notes are added', async () => {
+      const { guild, notes, get } = await setup(kind)
+      const fact = { kind: 'text', claim: 'fact', evidence: 'seen' } as const
+      await notes.add(
+        guild,
+        {
+          ...fact,
+          title: 'Linker',
+          body: '[[Diary [2026]]] [[Plan|the plan]] [[Plan#Part]] [[Tail]]] [[Notes ]]]]',
+        },
+        HALL
+      )
+      const before = await unzip(await get())
+      for (const title of ['Diary [2026]', 'Plan', 'Tail]', 'Notes ]]']) {
+        await notes.add(guild, { ...fact, title, body: 'hidden' }, HALL, undefined, 'private')
+      }
+      const res = await get()
+      const after = await unzip(res)
+      expect(after.files).toEqual(before.files)
+      expect(JSON.stringify(after.files)).not.toContain('[withheld]')
+      expect(counts.parse(JSON.parse(res.headers.get('x-archive-counts') ?? 'null'))).toEqual({
+        exported: 2,
+        privateIncluded: 0,
+        privateLeftOut: 5,
+      })
+    })
+
     test('the zip round-trips: each note file has parseable front matter', async () => {
       const { get } = await setup(kind)
       const { files } = await unzip(await get())
@@ -241,6 +268,7 @@ for (const kind of ['memory', 'postgres'] as const) {
             edit: store.edit.bind(store),
             get: store.get.bind(store),
             search: store.search.bind(store),
+            countPrivate: store.countPrivate.bind(store),
             list: (g, page) => {
               calls.list++
               return store.list(g, page)
