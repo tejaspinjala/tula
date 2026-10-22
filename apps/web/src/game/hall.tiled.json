@@ -506,8 +506,8 @@
         },
         {
           "id": 16,
-          "name": "coins",
-          "type": "coins",
+          "name": "treasury-chest",
+          "type": "treasury-chest",
           "x": 240,
           "y": 192,
           "width": 80,

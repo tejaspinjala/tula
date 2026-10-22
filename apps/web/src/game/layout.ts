@@ -25,7 +25,7 @@ export interface HallLayout {
   stewardDesk: TileRect
   sealDesk: TileRect
   gate: TileRect
-  coins: TileRect
+  chest: TileRect
   /** The Council chamber: a blocked dais in the corridor where the five elders stand. */
   council: TileRect
   /** The Tiled JSON this layout reads, for the renderer. */
@@ -103,7 +103,7 @@ export function hallLayout(roomCount = 6): HallLayout {
     stewardDesk: one('steward-desk'),
     sealDesk: one('seal-desk'),
     gate: one('gate'),
-    coins: one('coins'),
+    chest: one('treasury-chest'),
     council: one('council'),
     source,
     walkable: (x, y) =>

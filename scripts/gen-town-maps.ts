@@ -1,5 +1,5 @@
 /**
- * Writes the town's Tiled maps (plaza, archive, vault, trail) as Tiled 1.10 JSON next to the
+ * Writes the town's Tiled maps (plaza, archive, counting house, trail) as Tiled 1.10 JSON next to the
  * hand-written hall map. The maps are drawn from the Kenney Roguelike/RPG sheet (CC0) that the
  * hall already uses; each is a few rectangles of tiles, so the layout is reviewable here and the
  * JSON is the output. Run `bun scripts/gen-town-maps.ts` after changing a map.
@@ -114,7 +114,7 @@ const plaza: MapSpec = {
     fill([29, 7, 2, 5], 'floor', T.dirt),
     fill([12, 9, 12, 6], 'floor', T.cobble),
     fill([24, 13, 12, 2], 'floor', T.dirt),
-    // The Guild Hall, the Archive and the Treasury vault: stone fronts with a door each.
+    // The Guild Hall, the Archive and the Counting House (Treasury): stone fronts with a door each.
     fill([1, 2, 10, 5], 'walls', T.wall, true),
     fill([13, 2, 10, 5], 'walls', T.wall, true),
     fill([25, 2, 10, 5], 'walls', T.wall, true),
@@ -162,7 +162,7 @@ const plaza: MapSpec = {
   doors: [
     { rect: [5, 6, 2, 1], to: 'hall', toX: 38, toY: 12 },
     { rect: [17, 6, 2, 1], to: 'archive', toX: 7, toY: 10 },
-    { rect: [29, 6, 2, 1], to: 'vault', toX: 6, toY: 8 },
+    { rect: [29, 6, 2, 1], to: 'counting-house', toX: 6, toY: 8 },
     { rect: [35, 13, 1, 2], to: 'trail', toX: 1, toY: 4 },
   ],
   lanterns: [...plazaLamps, [5, 7], [17, 7], [29, 7]],
@@ -202,8 +202,8 @@ const archive: MapSpec = {
   lanterns: [...archiveLamps, [4, 4], [11, 4]],
 }
 
-const vault: MapSpec = {
-  file: 'vault.tiled.json',
+const countingHouse: MapSpec = {
+  file: 'counting-house.tiled.json',
   width: 14,
   height: 10,
   floor: T.stone,
@@ -228,7 +228,7 @@ const vault: MapSpec = {
     fill([12, 3, 1, 1], 'furniture', T.candles, true),
   ],
   clears: [[6, 9, 2, 1]],
-  places: [{ name: 'treasury-vault', rect: [3, 1, 8, 2], stand: [6, 4] }],
+  places: [{ name: 'counting-house', rect: [3, 1, 8, 2], stand: [6, 4] }],
   doors: [{ rect: [6, 9, 2, 1], to: 'plaza', toX: 29, toY: 7 }],
   lanterns: [
     [1, 3],
@@ -409,6 +409,6 @@ function tiled(spec: MapSpec) {
 }
 
 const dir = join(import.meta.dir, '..', 'apps', 'web', 'src', 'game')
-for (const spec of [plaza, archive, vault, trail]) {
+for (const spec of [plaza, archive, countingHouse, trail]) {
   await Bun.write(join(dir, spec.file), `${JSON.stringify(tiled(spec))}\n`)
 }

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { MAP_IDS, type MapId, mapData, PLACE_NAMES, placeNamed } from './world'
+import { MAP_IDS, type MapId, mapData, PLACE_NAMES, placeNamed, readSavedMapId } from './world'
 
 test('every named place resolves to a point on its map', () => {
   const expected: Record<string, string> = {
@@ -8,7 +8,7 @@ test('every named place resolves to a point on its map', () => {
     'treasury-counter': 'hall',
     'archive-shelves': 'archive',
     'quest-board': 'plaza',
-    'treasury-vault': 'vault',
+    'counting-house': 'counting-house',
     trail: 'plaza',
     wilds: 'trail',
   }
@@ -85,4 +85,12 @@ test('every named place can be reached on foot from the hall entrance, through t
     const place = placeNamed(name)
     expect(seen.has(key({ map: place.map, ...place.stand }))).toBe(true)
   }
+})
+
+test('a saved last location naming the old vault map reads as the Counting House', () => {
+  expect(readSavedMapId('vault')).toBe('counting-house')
+  expect(readSavedMapId('plaza')).toBe('plaza')
+  expect(readSavedMapId('nowhere')).toBeNull()
+  expect(readSavedMapId(null)).toBeNull()
+  expect<string[]>([...MAP_IDS]).not.toContain('vault')
 })

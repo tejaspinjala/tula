@@ -72,7 +72,7 @@ const OFFSETS: Record<MapId, Vec> = {
   hall: { x: 0, y: 0 },
   plaza: { x: 0, y: 30000 },
   archive: { x: 0, y: 60000 },
-  vault: { x: 0, y: 90000 },
+  'counting-house': { x: 0, y: 90000 },
   trail: { x: 0, y: 120000 },
 }
 /** Labels drawn over a map's named places and doors, at a tile. */
@@ -86,7 +86,7 @@ const MAP_LABELS: Record<MapId, { text: string; x: number; y: number }[]> = {
     { text: 'TRAIL', x: 32, y: 12 },
   ],
   archive: [{ text: 'ARCHIVE', x: 6, y: 3 }],
-  vault: [{ text: 'TREASURY', x: 5, y: 3 }],
+  'counting-house': [{ text: 'TREASURY', x: 5, y: 3 }],
   trail: [{ text: 'THE WILDS', x: 23, y: 6 }],
 }
 
@@ -1003,8 +1003,8 @@ export class HallScene extends Phaser.Scene {
     this.label(stew.x * s, (stew.y - 0.6) * s, 'STEWARD')
     const seal = this.layout.sealDesk
     this.label(seal.x * s, (seal.y - 0.6) * s, 'SEALS')
-    const coins = this.layout.coins
-    this.add.image(coins.x * s + 8, coins.y * s + 8, TILES, FRAME.coin).setDepth(5)
+    const chest = this.layout.chest
+    this.add.image(chest.x * s + 8, chest.y * s + 8, TILES, FRAME.coin).setDepth(5)
     this.drawCouncil()
   }
 
@@ -1314,10 +1314,12 @@ export class HallScene extends Phaser.Scene {
         return made
       }
     )
-    const coins = this.layout.coins
-    this.dynamic.group('coins', JSON.stringify([coins, formatCents(state.coinsCents)]), () => [
-      this.label((coins.x + 1.2) * s, coins.y * s + 3, formatCents(state.coinsCents)),
-    ])
+    const chest = this.layout.chest
+    this.dynamic.group(
+      'treasury-chest',
+      JSON.stringify([chest, formatCents(state.coinsCents)]),
+      () => [this.label((chest.x + 1.2) * s, chest.y * s + 3, formatCents(state.coinsCents))]
+    )
     this.dynamic.end()
   }
 

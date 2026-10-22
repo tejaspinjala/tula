@@ -19,7 +19,7 @@ export function MissivesPanel({
   onTalk,
 }: {
   session: Session | null
-  /** Addresses a Member through the talk path (the Guild chat page passes it). */
+  /** Addresses a Member through the talk path (the Missives page passes it). */
   onTalk?: ((memberId: string) => void) | undefined
 }) {
   const [roster, setRoster] = useState<Roster | null>(null)
@@ -104,7 +104,7 @@ export function MissivesPanel({
   const target = people.some((p) => p.id === addressee) ? addressee : (people[0]?.id ?? '')
 
   return (
-    <WorkSection id="missives" title="Guild chat">
+    <WorkSection id="missives" title="Missives">
       {!session && <p>Sign in with a passkey to read the Hall’s missives.</p>}
       {failed && <p role="alert">The missives could not be loaded.</p>}
       {session && halls.length > 0 && (

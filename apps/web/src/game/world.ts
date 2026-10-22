@@ -1,15 +1,30 @@
 import { z } from 'zod'
 import archiveMap from './archive.tiled.json'
+import countingHouseMap from './counting-house.tiled.json'
 import hallMap from './hall.tiled.json'
 import plazaMap from './plaza.tiled.json'
 import trailMap from './trail.tiled.json'
-import vaultMap from './vault.tiled.json'
 
-/** The maps of the guild town: the Guild Hall, the Archive, the Quest Board plaza, the Treasury vault and the trail. */
-export const MAP_IDS = ['hall', 'plaza', 'archive', 'vault', 'trail'] as const
+/** The maps of the guild town: the Guild Hall, the Archive, the Quest Board plaza, the Counting House (the Treasury) and the trail. */
+export const MAP_IDS = ['hall', 'plaza', 'archive', 'counting-house', 'trail'] as const
 
 /** One map of the town. */
 export type MapId = (typeof MAP_IDS)[number]
+
+/** Map ids that were renamed; a saved last location naming one is mapped once, on read. */
+const RENAMED_MAP_IDS: Readonly<Record<string, MapId>> = { vault: 'counting-house' }
+
+/**
+ * Reads a saved last-location map id: a current id is kept, a renamed one (`vault`, now the
+ * Counting House) is mapped, anything else (or nothing) is `null`.
+ */
+export function readSavedMapId(saved: string | null): MapId | null {
+  if (saved === null) {
+    return null
+  }
+  const known = MAP_IDS.find((id) => id === saved)
+  return known ?? RENAMED_MAP_IDS[saved] ?? null
+}
 
 /** A rectangle in tiles. */
 interface Rect {
@@ -61,7 +76,7 @@ export const PLACE_NAMES = [
   'hall-room-5',
   'archive-shelves',
   'quest-board',
-  'treasury-vault',
+  'counting-house',
   'trail',
   'wilds',
 ] as const
@@ -102,7 +117,7 @@ const SOURCES: Record<MapId, unknown> = {
   hall: hallMap,
   plaza: plazaMap,
   archive: archiveMap,
-  vault: vaultMap,
+  'counting-house': countingHouseMap,
   trail: trailMap,
 }
 
@@ -228,15 +243,15 @@ export function placeNamed(name: PlaceName): Place {
       return { name, map: 'hall', ...rectOf(o), stand: below(o) }
     }
     case 'treasury-counter': {
-      const o = find(hall, 'coins')
+      const o = find(hall, 'treasury-chest')
       return { name, map: 'hall', ...rectOf(o), stand: below(o) }
     }
     case 'archive-shelves':
       return tagged('archive', name)
     case 'quest-board':
       return tagged('plaza', name)
-    case 'treasury-vault':
-      return tagged('vault', name)
+    case 'counting-house':
+      return tagged('counting-house', name)
     case 'trail':
       return tagged('plaza', name)
     case 'wilds':
