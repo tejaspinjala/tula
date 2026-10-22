@@ -110,3 +110,21 @@ test('a publish writes the published event, and a stale one writes nothing', asy
     )
   ).toContain('immutable')
 })
+
+test('based_on is frozen once a version leaves draft, and a pending row with no base is stale over an active one', async () => {
+  const guild = await newGuild()
+  const store = make()
+  await store.saveVersion(guild, 'wf', input())
+  await store.saveVersion(guild, 'wf', { ...input('pending'), status: 'pending' })
+  expect(
+    await refused(
+      `update workflow_versions set based_on = 1 where guild_id = '${guild}' and version = 2`
+    )
+  ).toContain('immutable')
+  expect(
+    await refused(
+      `update workflow_versions set based_on = 1 where guild_id = '${guild}' and version = 1`
+    )
+  ).toContain('immutable')
+  expect(await store.activate(guild, 'wf', 2)).toEqual({ ok: false, error: 'stale' })
+})

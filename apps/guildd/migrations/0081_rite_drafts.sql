@@ -32,6 +32,9 @@ begin
 end;
 $$;
 
+-- A pending version left from before this migration with an active version beneath it keeps a
+-- null based_on on purpose (it is NOT backfilled: that would allow a rollback), so confirming it is
+-- refused stale. Recover by saving and publishing a new draft.
 -- Before this, a newer active version silently outranked older ones; now only one is active.
 -- This touches every guild, so it runs with row security off: a migrator subject to RLS fails
 -- loudly instead of updating no rows (see 0034 and .claude/rules/tenancy.md).
