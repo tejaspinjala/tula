@@ -535,12 +535,16 @@ export function RitePanel({
       await open(first.id)
       return
     }
+    if (archived) {
+      // No archived Rites: the empty state shows, and the selected Rite and editor stay as they are.
+      return
+    }
     // Nothing left to show: fall back to the blank starter, as a guild with no Rites does.
-    setId(archived ? id : 'my-rite')
-    setName(archived ? name : 'My Rite')
+    setId('my-rite')
+    setName('My Rite')
     setSaved(null)
     setSavedName(null)
-    setEmpty(!archived)
+    setEmpty(true)
     setDraft(STARTER)
     setVersion(0)
     setStatus(null)
@@ -592,6 +596,7 @@ export function RitePanel({
     }
   }
 
+  const archivedEmpty = showArchived && list.length === 0
   const archivedView = showArchived && list.some((w) => w.id === id)
   const canRun =
     activeVersion !== null && !dirty && !pending && status === 'active' && !archivedView
@@ -604,7 +609,7 @@ export function RitePanel({
       </h2>
       {streamNotice(streamFailures) !== null && <p role="status">{streamNotice(streamFailures)}</p>}
       <div className="actions">
-        {!empty && (
+        {!empty && !archivedEmpty && (
           <label>
             Rite
             <select
@@ -636,7 +641,12 @@ export function RitePanel({
             </button>
           </>
         )}
-        <button type="button" className="btn-primary" disabled={!canRun} onClick={startRun}>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!canRun || archivedEmpty}
+          onClick={startRun}
+        >
           Run
         </button>
         <PixelButton onClick={() => toggleArchived(!showArchived)}>
@@ -650,7 +660,7 @@ export function RitePanel({
             Unarchive
           </button>
         )}
-        {wide && !archivedView && version > 0 && !confirmingArchive && (
+        {wide && !archivedView && !archivedEmpty && version > 0 && !confirmingArchive && (
           <button ref={archiveButton} type="button" onClick={() => setConfirmingArchive(true)}>
             Archive
           </button>
@@ -680,7 +690,14 @@ export function RitePanel({
           />
         </fieldset>
       )}
-      {empty ? (
+      {archivedEmpty ? (
+        <EmptyState
+          member="steward"
+          line="No archived Rites. Everything is in the list."
+          actionLabel="Back to Rites"
+          onAction={() => toggleArchived(false)}
+        />
+      ) : empty ? (
         <EmptyState member="steward" line="No Rites yet. Name a new Rite id above to start one." />
       ) : (
         <>
