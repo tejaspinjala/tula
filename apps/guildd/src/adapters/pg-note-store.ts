@@ -32,12 +32,13 @@ const noteRow = versionRow.extend({
   note_id: z.string(),
   kind: z.enum(['text', 'link']),
   data_class: z.enum(['public', 'internal', 'private']),
+  hall_id: z.string().nullable(),
 })
 const backlinkRow = z.object({ note_id: z.string(), title: z.string() })
 
 function toNote(row: z.infer<typeof noteRow>): Note {
-  const { note_id, kind, data_class, ...version } = row
-  return { id: note_id, kind, dataClass: data_class, ...version }
+  const { note_id, kind, data_class, hall_id, ...version } = row
+  return { id: note_id, kind, dataClass: data_class, hallId: hall_id, ...version }
 }
 
 /**
@@ -68,7 +69,7 @@ export class PgNoteStore implements NoteStore {
         returning note_id`
       if (!row) {
         const [existing] = await tx`
-          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, n.hall_id, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId} and n.idempotency_key = ${idempotencyKey ?? null}`
@@ -77,7 +78,7 @@ export class PgNoteStore implements NoteStore {
       const id = z.object({ note_id: z.string() }).parse(row).note_id
       await this.writeVersion(tx, guildId, id, version)
       await appendEvent(tx, this.keys, 'note.added', { noteId: id, version: 1, kind: input.kind })
-      return { id, kind: input.kind, dataClass, ...version }
+      return { id, kind: input.kind, dataClass, hallId: hallId ?? null, ...version }
     })
   }
 
@@ -90,7 +91,7 @@ export class PgNoteStore implements NoteStore {
         select note_id from notes where guild_id = ${guildId} and note_id = ${id} for update`
       const [row] = locked
         ? await tx`
-            select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
+            select n.note_id, n.kind, n.data_class, n.hall_id, v.version, v.title, v.body, v.trust, v.evidence
             from notes n join note_versions v
               on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
             where n.guild_id = ${guildId} and n.note_id = ${id}`
@@ -109,7 +110,13 @@ export class PgNoteStore implements NoteStore {
         version: version.version,
         kind: current.kind,
       })
-      return { id, kind: current.kind, dataClass: current.data_class, ...version }
+      return {
+        id,
+        kind: current.kind,
+        dataClass: current.data_class,
+        hallId: current.hall_id,
+        ...version,
+      }
     })
   }
 
@@ -122,7 +129,7 @@ export class PgNoteStore implements NoteStore {
     const includePrivate = options?.includePrivate === true
     return this.db.withGuild(guildId, async (tx) => {
       const [row] = await tx`
-        select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
+        select n.note_id, n.kind, n.data_class, n.hall_id, v.version, v.title, v.body, v.trust, v.evidence
         from notes n join note_versions v
           on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
         where n.guild_id = ${guildId} and n.note_id = ${id}
@@ -162,7 +169,7 @@ export class PgNoteStore implements NoteStore {
     return this.db.withGuild(guildId, async (tx) =>
       this.toPage(
         await tx`
-          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, n.hall_id, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId}
@@ -184,7 +191,7 @@ export class PgNoteStore implements NoteStore {
     return this.db.withGuild(guildId, async (tx) =>
       this.toPage(
         await tx`
-          select n.note_id, n.kind, n.data_class, v.version, v.title, v.body, v.trust, v.evidence
+          select n.note_id, n.kind, n.data_class, n.hall_id, v.version, v.title, v.body, v.trust, v.evidence
           from notes n join note_versions v
             on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
           where n.guild_id = ${guildId}

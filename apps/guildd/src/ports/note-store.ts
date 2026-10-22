@@ -53,6 +53,8 @@ export interface Note extends NoteVersion {
   kind: NoteKind
   /** How sensitive the note is; `private` for a note filed by a private-class Quest. */
   dataClass: DataClass
+  /** The Hall the note is filed under; null for the Guild Master's own. */
+  hallId: string | null
 }
 
 /** A NoteLink seen from its target: the note that links in with `[[title]]`. */

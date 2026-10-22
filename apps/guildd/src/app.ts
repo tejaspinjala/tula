@@ -1,6 +1,8 @@
 import { type Context, Hono } from 'hono'
 import { createBunWebSocket } from 'hono/bun'
 import { z } from 'zod'
+import { ARCHIVE_EVENT } from './archive-export/events'
+import { mountArchiveExportRoutes } from './archive-export/routes'
 import {
   checkpointHash,
   InvalidCursorError,
@@ -588,6 +590,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/charter', limited('rite-read'))
   app.post('/guilds/:id/charter/preview', limited('rite-read'))
   app.post('/guilds/:id/charter/import', limited('rite-write'))
+  app.get('/guilds/:id/archive/export', limited('archive-export'))
   app.get('/guilds/:id/rites', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId/versions', limited('rite-read'))
@@ -2107,6 +2110,25 @@ export function createApp(deps: AppDeps): Hono {
     },
     recordExported: async (id, fact) => {
       await deps.db.withGuild(id, (tx) => appendEvent(tx, deps.keys, CHARTER_EVENT.exported, fact))
+    },
+    guildMasterSessionFor,
+  })
+
+  mountArchiveExportRoutes(app, {
+    notes: deps.notes,
+    config: deps.config,
+    clock: deps.clock,
+    guildName: async (id) => {
+      const rows = await deps.db.withGuild(
+        id,
+        (tx) => tx`select name from guilds where guild_id = ${id}`
+      )
+      const name = rows[0]?.name
+      return typeof name === 'string' ? name : null
+    },
+    checkSensitive: (c) => checkSensitive(deps.identity, sessionHeaders(c)),
+    recordExported: async (id, fact) => {
+      await deps.db.withGuild(id, (tx) => appendEvent(tx, deps.keys, ARCHIVE_EVENT.exported, fact))
     },
     guildMasterSessionFor,
   })

@@ -31,6 +31,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'rite-read': { client: NO_LIMIT, guild: NO_LIMIT },
   'rite-write': { client: NO_LIMIT, guild: NO_LIMIT },
   'rite-run': { client: NO_LIMIT, guild: NO_LIMIT },
+  'archive-export': { client: NO_LIMIT, guild: NO_LIMIT },
   summon: { client: NO_LIMIT, guild: NO_LIMIT },
   'summon-status': { client: NO_LIMIT, guild: NO_LIMIT },
   dispatch: { client: NO_LIMIT, guild: NO_LIMIT },

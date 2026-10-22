@@ -1,9 +1,7 @@
 import { type Note, titleKey } from '../ports/note-store'
 
-/** A note to export, with the Hall it is filed under (null: the Guild Master's own). */
-export interface ExportNote extends Note {
-  hallId: string | null
-}
+/** A note to export; its `hallId` is the Hall it is filed under (null: the Guild Master's own). */
+export type ExportNote = Note
 
 /** One file of the export, at a relative POSIX path. */
 export interface ExportFile {
