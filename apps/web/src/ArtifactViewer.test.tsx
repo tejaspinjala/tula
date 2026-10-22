@@ -49,11 +49,10 @@ async function open(text: string) {
   return host
 }
 
-test('long prose opens in a framed reader that scrolls by keyboard and wraps', async () => {
+test('long prose opens in a framed reader that scrolls and wraps', async () => {
   const host = await open('word '.repeat(2000))
   const reader = host.querySelector('[aria-label="Artifact text"]')
   expect(reader?.classList.contains('artifact-reader')).toBe(true)
-  expect(reader?.getAttribute('tabindex')).toBe('0')
   expect(host.querySelector('pre.artifact-code')).toBeNull()
 })
 

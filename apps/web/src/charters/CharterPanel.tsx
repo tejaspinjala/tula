@@ -13,6 +13,7 @@ import {
   previewImpact,
 } from './api'
 import './charter.css'
+import { changeGroups } from './change-lines'
 import { type CharterPreview, previewCharter } from './diff'
 import { type Charter, CharterFileError, parseCharter } from './schema'
 
@@ -118,17 +119,14 @@ function Preview({ preview, impact }: { preview: CharterPreview; impact: ImportI
     <div className="charter-preview">
       <h3 className="sub-title">What this Charter will change</h3>
       {none && <p className="muted">Nothing: this guild already matches.</p>}
-      <List label="Halls added" items={preview.hallsAdded} />
-      <List label="Halls removed" items={preview.hallsRemoved} />
-      <List
-        label="Caps, Seal Policy and other settings"
-        items={preview.settings.map((s) => `${s.label}: ${s.from} -> ${s.to}`)}
-      />
-      <List
-        label="Rites added as drafts (they run only once published)"
-        items={preview.ritesAdded}
-      />
-      <List label="Kept from this guild" items={preview.kept} />
+      {changeGroups(preview).map((group) => (
+        <div key={group.title}>
+          <List label={group.title} items={group.lines} />
+          {group.title === 'Rites' && (
+            <p className="muted">Rites come in as drafts and run only once published.</p>
+          )}
+        </div>
+      ))}
       {impact && (
         <p className={`charter-badge charter-badge-${impact.change}`}>
           {IMPACT_TEXT[impact.change]}
