@@ -4,8 +4,15 @@ import { type RoomStyle, roomFor } from '../game/room'
 /** What one tile of the preview is. */
 export type PreviewCell = 'wall' | 'furniture' | 'floor'
 
+/** One tile of the preview, at its column and row. */
+export interface PreviewTile {
+  x: number
+  y: number
+  cell: PreviewCell
+}
+
 /** The tiles of a style's smallest room as a flat grid, row-major, for the picker's preview. */
-export function previewCells(style: RoomStyle): { width: number; cells: PreviewCell[] } {
+export function previewCells(style: RoomStyle): { width: number; cells: PreviewTile[] } {
   const room = roomFor(
     { id: 'preview', name: 'Preview', kind: 'work', locked: false },
     [{ id: 'preview-member' }],
@@ -19,11 +26,9 @@ export function previewCells(style: RoomStyle): { width: number; cells: PreviewC
       }
     }
   }
-  const cells = room.collision.map((blocked, i): PreviewCell => {
-    if (furnished.has(i)) {
-      return 'furniture'
-    }
-    return blocked ? 'wall' : 'floor'
+  const cells = room.collision.map((blocked, i): PreviewTile => {
+    const cell: PreviewCell = furnished.has(i) ? 'furniture' : blocked ? 'wall' : 'floor'
+    return { x: i % room.width, y: Math.floor(i / room.width), cell }
   })
   return { width: room.width, cells }
 }
@@ -41,8 +46,11 @@ export function RoomPreview({ style }: { style: RoomStyle }) {
       className="room-preview"
       style={grid}
     >
-      {cells.map((cell, i) => (
-        <span key={`${i}-${cell}`} className={`room-preview-cell room-preview-${cell}`} />
+      {cells.map((tile) => (
+        <span
+          key={`${tile.x},${tile.y}`}
+          className={`room-preview-cell room-preview-${tile.cell}`}
+        />
       ))}
     </div>
   )

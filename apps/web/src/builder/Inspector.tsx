@@ -3,7 +3,6 @@ import { Badge } from '../Badge'
 import { LookPicker, LookPreview } from '../game/LookPicker'
 import { choiceFor } from '../game/look'
 import { defaultStyle, ROOM_STYLES } from '../game/room'
-import { RoomPreview } from './RoomPreview'
 import { type Deployment, describePrivateDestination, providersOf } from '../providers'
 import { GUILD_CAPS, guildCapValue, HALL_CAP, setGuildCap, setHallCap, widenedCaps } from './caps'
 import {
@@ -21,6 +20,7 @@ import {
   setRank,
   setRoomStyle,
 } from './model'
+import { RoomPreview } from './RoomPreview'
 
 const RANKS: BuilderMember['rank'][] = ['apprentice', 'journeyman', 'adept']
 

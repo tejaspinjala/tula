@@ -425,22 +425,22 @@ ul[aria-label] {
 .room-preview-furniture {
   background: var(--px-wood-700);
 }
-.room-preview[data-style='library'] .room-preview-furniture {
+.room-preview[data-style="library"] .room-preview-furniture {
   background: var(--px-plum-700);
 }
-.room-preview[data-style='studio'] .room-preview-furniture {
+.room-preview[data-style="studio"] .room-preview-furniture {
   background: var(--px-berry-500);
 }
-.room-preview[data-style='infirmary'] .room-preview-floor {
+.room-preview[data-style="infirmary"] .room-preview-floor {
   background: var(--px-linen-300);
 }
-.room-preview[data-style='garden-room'] .room-preview-floor {
+.room-preview[data-style="garden-room"] .room-preview-floor {
   background: var(--px-grass-300);
 }
-.room-preview[data-style='quiet-room'] .room-preview-floor {
+.room-preview[data-style="quiet-room"] .room-preview-floor {
   background: var(--px-sky-300);
 }
-.room-preview[data-style='writing-room'] .room-preview-floor {
+.room-preview[data-style="writing-room"] .room-preview-floor {
   background: var(--px-paper-400);
 }
 .character-panel {
