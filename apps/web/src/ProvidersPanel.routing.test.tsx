@@ -34,7 +34,11 @@ beforeAll(() => {
           return Response.json({ error: putError }, { status: 409 })
         }
         return Response.json(
-          { version: 3, status: putStatus === 202 ? 'pending' : 'applied', change: 'x' },
+          {
+            version: 3,
+            status: putStatus === 202 ? 'pending' : 'applied',
+            change: putStatus === 202 ? 'widening' : 'tightening',
+          },
           { status: putStatus }
         )
       }
@@ -119,8 +123,8 @@ test('adding a provider saves it pending, asks for the passkey, and names the Va
   const sent = puts[0]?.config as { providers: { id: string }[] }
   expect(sent.providers.map((p) => p.id)).toEqual(['anthropic', 'openrouter'])
   expect(puts[0]?.baseVersion).toBe(2)
-  expect(calls).toContain('POST /session/reauth/begin')
-  expect(calls.at(-2)).toBe('POST /config/versions/3/confirm')
+  expect(calls).toContain('POST /api/session/reauth/begin')
+  expect(calls).toContain('POST /config/versions/3/confirm')
   expect(JSON.stringify(puts)).not.toMatch(/sk-|apiKey|secret/i)
   await unmount()
 })
@@ -143,7 +147,7 @@ test('removing a profile applies at once with no passkey prompt', async () => {
   await press(host, 'Remove profile big')
   const sent = puts[0]?.config as { routingProfiles: { id: string }[] }
   expect(sent.routingProfiles.map((p) => p.id)).toEqual(['main'])
-  expect(calls).not.toContain('POST /session/reauth/begin')
+  expect(calls).not.toContain('POST /api/session/reauth/begin')
   await unmount()
 })
 
