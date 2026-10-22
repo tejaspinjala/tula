@@ -91,6 +91,17 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       expect(await store.activate(g, 'wf', 9)).toEqual({ ok: false, error: 'not_found' })
     })
 
+    test('an archived Rite refuses activation and the pending version stays pending', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'wf', version())
+      await pendingOver(store, g, 'wf', 1)
+      await store.archive(g, 'wf')
+      expect(await store.activate(g, 'wf', 2)).toEqual({ ok: false, error: 'rite_archived' })
+      expect((await store.getVersion(g, 'wf', 2))?.status).toBe('pending')
+      expect((await store.latestActive(g, 'wf'))?.version).toBe(1)
+    })
+
     test('rites list in id order, paged, with their latest and active versions', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
