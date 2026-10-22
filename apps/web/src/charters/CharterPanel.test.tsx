@@ -199,7 +199,50 @@ test('a 422 shows the reason and nothing changed', async () => {
   await pick(w.host, JSON.stringify(sampleCharter))
   await click(w.host, 'Import this Charter')
   await click(w.host, 'Yes')
-  expect(w.host.querySelector('[role="alert"]')?.textContent).toContain('invalid_charter')
+  expect(w.host.querySelector('[role="alert"]')?.textContent).toContain(
+    'is not a Charter this guild can read'
+  )
+})
+
+test.each([
+  ['invalid_charter', 422, 'is not a Charter this guild can read'],
+  ['subscription_disabled', 403, 'Subscription is off'],
+  ['seal_policy_locked', 403, 'Seal Policy is locked'],
+  ['invalid_request', 400, 'could not be understood'],
+])('the refusal %s shows its own plain message', async (code, status, words) => {
+  const w = await mount({ status, body: { error: code } })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  const text = w.host.querySelector('[role="alert"]')?.textContent ?? ''
+  expect(text).toContain(words)
+  expect(text).not.toContain(code)
+})
+
+test('two same-named Rites render without a duplicate-key warning', async () => {
+  const rite = sampleCharter.rites[0]
+  if (!rite) {
+    throw new Error('fixture has no Rite')
+  }
+  const errors: unknown[][] = []
+  const original = console.error
+  console.error = (...args: unknown[]) => {
+    errors.push(args)
+  }
+  try {
+    const w = await mount(applied)
+    await pick(w.host, JSON.stringify({ ...sampleCharter, rites: [rite, rite] }))
+    expect(w.host.textContent?.split('Morning digest').length).toBe(3)
+  } finally {
+    console.error = original
+  }
+  expect(errors.filter((a) => String(a[0]).includes('same key'))).toEqual([])
+})
+
+test('Export downloads compact JSON', async () => {
+  const w = await mount(applied)
+  await click(w.host, 'Export Charter')
+  expect(w.downloads[0]?.text).toBe(JSON.stringify(sampleCharter))
 })
 
 test('a reused import id shows a plain message and not the raw code', async () => {
