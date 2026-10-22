@@ -108,30 +108,39 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
     }
   }
   const withheld = new Set((input.withheldTitles ?? []).map(titleKey))
+  // Fail closed: text that came from link syntax must not contain a withheld title or a prefix of one.
+  const leaks = (text: string): boolean => {
+    const n = titleKey(text)
+    if (!n) {
+      return false
+    }
+    for (const key of withheld) {
+      if (n.includes(key) || (n.length >= 4 && key.startsWith(n))) {
+        return true
+      }
+    }
+    return false
+  }
   // Order: a target in the export links; else a withheld title is "[withheld]" (neither title nor
   // alias shown); else plain text, never a [[link]].
   const rewrite = (body: string): string => {
     let out = ''
     let at = 0
     let fenced = false
-    // A gap is text between links. A dangling `[[Title|` naming a withheld title is withheld too;
-    // after a withheld or plain replacement, edge brackets are dropped so none can pair into `[[`.
+    // A gap is text between links. If the scan touched it (stray `[[` or `]]`), every part beside
+    // a bracket pair that leaks is withheld; after a withheld or plain replacement, edge brackets
+    // are dropped so none can pair into `[[`.
     const gap = (text: string): string => {
-      let t = fenced ? text.replace(/^\]+/, '') : text
-      for (let i = t.indexOf('[['); i >= 0; i = t.indexOf('[[', i + 2)) {
-        const name =
-          t
-            .slice(i + 2)
-            .split('|')[0]
-            ?.split('#')[0] ?? ''
-        if (withheld.has(titleKey(name))) {
-          t = `${t.slice(0, i)}[withheld]`
-          break
-        }
+      const t = fenced ? text.replace(/^\]+/, '') : text
+      if (!t.includes('[[') && !t.includes(']]')) {
+        return t
       }
-      return plain(t)
+      const parts = t.split(/(\[\[|\]\])/)
+      return plain(
+        parts.map((p) => (p === '[[' || p === ']]' || !leaks(p) ? p : '[withheld]')).join('')
+      )
     }
-    for (const link of parseWikiLinks(body)) {
+    for (const link of parseWikiLinks(body, (k) => byKey.has(k) || withheld.has(k))) {
       out += gap(body.slice(at, link.start))
       at = link.end
       const key = titleKey(link.target)
@@ -144,7 +153,10 @@ export function buildArchiveExport(input: ArchiveExportInput): ExportFile[] {
         fenced = false
       } else {
         out = out.replace(/\[+$/, '')
-        out += withheld.has(key) ? '[withheld]' : plain(oneLine(link.alias ?? link.target))
+        const shown = link.alias ?? link.target
+        const hit =
+          withheld.has(key) || [link.target, link.alias ?? '', link.heading ?? ''].some(leaks)
+        out += hit ? '[withheld]' : plain(oneLine(shown))
         fenced = true
       }
     }
