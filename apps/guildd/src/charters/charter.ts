@@ -241,12 +241,24 @@ export function exportCharter(input: {
     .map(([k]) => ({ kind: 'config', id: k, reason: 'local' }))
   const hallKind = new Map(input.config.halls.map((h) => [h.id, h.kind]))
   const rites: { name: string; graph: RiteGraph }[] = []
+  const exportable: { id: string; name: string; graph: RiteGraph }[] = []
   for (const r of input.rites) {
     const reason = omitReason(r, hallKind)
     if (reason !== null || r.activeGraph === null) {
       omitted.push({ kind: 'rite', id: r.id, reason: reason ?? 'unpublished' })
     } else {
-      rites.push({ name: r.name, graph: r.activeGraph })
+      exportable.push({ id: r.id, name: r.name, graph: r.activeGraph })
+    }
+  }
+  // A stable order (name, then id) makes the cut at the limit deterministic.
+  const byNameThenId = (a: { id: string; name: string }, b: { id: string; name: string }) =>
+    a.name === b.name ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.name < b.name ? -1 : 1
+  exportable.sort(byNameThenId)
+  for (const [i, r] of exportable.entries()) {
+    if (i < CHARTER_MAX_RITES) {
+      rites.push({ name: r.name, graph: r.graph })
+    } else {
+      omitted.push({ kind: 'rite', id: r.id, reason: 'over_limit' })
     }
   }
   return charterSchema.parse({

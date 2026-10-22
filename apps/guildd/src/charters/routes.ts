@@ -3,7 +3,7 @@ import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import { MAX_RITE_PAGE } from '../ports/rite-store'
 import type { RiteEngine } from '../rites/engine'
-import { type ExportRite, exportCharter } from './charter'
+import { CHARTER_MAX_BYTES, type ExportRite, exportCharter } from './charter'
 
 /** What a `charter.exported` event records: counts only, never the document. */
 export type CharterExportedFact = { rites: number; omitted: number }
@@ -68,6 +68,12 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
       rites: await collectRites(who.guild),
       now: deps.clock.now(),
     })
+    if (
+      new TextEncoder().encode(JSON.stringify(charter)).length >
+      (deps.maxBytes ?? CHARTER_MAX_BYTES)
+    ) {
+      return c.json({ error: 'charter_too_large' }, 413)
+    }
     await deps.recordExported(who.guild, {
       rites: charter.rites.length,
       omitted: charter.omitted.length,
