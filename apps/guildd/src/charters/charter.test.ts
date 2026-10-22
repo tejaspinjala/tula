@@ -226,6 +226,22 @@ describe('field classification', () => {
   })
 })
 
+describe('roomStyle in a Charter', () => {
+  test('round-trips through export and import', () => {
+    const styled: GuildConfig = {
+      ...config,
+      halls: config.halls.map((h, i) => (i === 0 ? { ...h, roomStyle: 'library' } : h)),
+    }
+    const c = exportCharter({ name: 'n', config: styled, rites: [], now })
+    expect(c.config.halls[0]?.roomStyle).toBe('library')
+    const parsed = parseCharter(JSON.stringify(c))
+    if (!parsed.ok) {
+      throw new Error('expected ok')
+    }
+    expect(parsed.charter.config.halls[0]?.roomStyle).toBe('library')
+  })
+})
+
 describe('parseCharter', () => {
   test('round-trips an exported Charter', () => {
     const c = exportCharter({ name: 'n', config, rites: [rite('ok')], now })

@@ -615,6 +615,26 @@ describe('Member look overrides', () => {
   })
 })
 
+describe('Hall room styles', () => {
+  const base = defaultConfig()
+  const withStyle = (value: unknown): unknown => ({
+    ...base,
+    halls: base.halls.map((h, i) => (i === 0 ? { ...h, roomStyle: value } : h)),
+  })
+
+  test('setting or changing a roomStyle is neutral, not widening', () => {
+    const set = guildConfig.parse(withStyle('library'))
+    expect(set.halls[0]?.roomStyle).toBe('library')
+    expect(classifyChange(base, set)).toBe('neutral')
+    expect(classifyChange(set, guildConfig.parse(withStyle('studio')))).toBe('neutral')
+    expect(classifyChange(set, base)).toBe('neutral')
+  })
+
+  test('a style outside the enum is refused', () => {
+    expect(guildConfig.safeParse(withStyle('dungeon')).success).toBe(false)
+  })
+})
+
 describe('strict on write, tolerant on read', () => {
   const stray = { ...defaultConfig(), caps: { ...defaultConfig().caps, legacyCap: 1 }, extra: 1 }
 
