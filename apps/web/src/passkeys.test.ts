@@ -3,7 +3,7 @@ import { WEBAUTHN_CEREMONY_TIMEOUT_MS } from '../../guildd/src/webauthn-timeout'
 import {
   CEREMONY_TIMEOUT_MS,
   fetchGuild,
-  foundGuild,
+  foundGuildWithPasskey,
   foundingOpen,
   type PasskeyBrowser,
   PasskeyRequestError,
@@ -74,11 +74,20 @@ test('re-authenticating sends the session token and returns the proof', async ()
   expect(seen.every((s) => s.auth === 'Bearer t')).toBe(true)
 })
 
-test('founding a guild posts name and goal and returns the id and one-time founding token', async () => {
-  const { seen, fetcher } = fakes({ '/api/guilds': { id: guild, foundingToken: 'ft' } })
-  expect(await foundGuild('Ember', 'Ship it', fetcher)).toEqual({ id: guild, foundingToken: 'ft' })
-  expect(seen[0]?.url).toBe('/api/guilds')
-  expect(seen[0]?.body).toEqual({ name: 'Ember', goal: 'Ship it' })
+test('founding creates the passkey first and sends name and goal only with the finished ceremony', async () => {
+  const { seen, fetcher, browser } = fakes({
+    '/api/founding/begin': { challengeId: 'f1', options },
+    '/api/founding/finish': { id: guild },
+  })
+  expect(await foundGuildWithPasskey('Ember', 'Ship it', fetcher, browser)).toEqual({ id: guild })
+  expect(seen.map((s) => s.url)).toEqual(['/api/founding/begin', '/api/founding/finish'])
+  expect(seen[0]?.body).toEqual({})
+  expect(seen[1]?.body).toEqual({
+    challengeId: 'f1',
+    response: { created: 'abc' },
+    name: 'Ember',
+    goal: 'Ship it',
+  })
 })
 
 test('the first passkey sends the founding token as x-founding-token on begin only', async () => {
@@ -96,7 +105,10 @@ test('the first passkey sends the founding token as x-founding-token on begin on
 
 test('a refused founding surfaces the status so the screen can say rate limited', async () => {
   const fetcher = async () => Response.json({ error: 'rate_limited' }, { status: 429 })
-  const error = await foundGuild('Ember', 'Ship it', fetcher).catch((e: unknown) => e)
+  const { browser } = fakes({})
+  const error = await foundGuildWithPasskey('Ember', 'Ship it', fetcher, browser).catch(
+    (e: unknown) => e
+  )
   expect(error).toBeInstanceOf(PasskeyRequestError)
   expect(error instanceof PasskeyRequestError && error.status).toBe(429)
 })
