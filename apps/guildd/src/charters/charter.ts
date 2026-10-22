@@ -240,10 +240,11 @@ export function exportCharter(input: {
     )
     .map(([k]) => ({ kind: 'config', id: k, reason: 'local' }))
   const hallKind = new Map(input.config.halls.map((h) => [h.id, h.kind]))
+  const scheduleIds = new Set(input.config.schedules.map((x) => x.id))
   const rites: { name: string; graph: RiteGraph }[] = []
   const exportable: { id: string; name: string; graph: RiteGraph }[] = []
   for (const r of input.rites) {
-    const reason = omitReason(r, hallKind)
+    const reason = omitReason(r, hallKind, scheduleIds)
     if (reason !== null || r.activeGraph === null) {
       omitted.push({ kind: 'rite', id: r.id, reason: reason ?? 'unpublished' })
     } else {
@@ -271,7 +272,11 @@ export function exportCharter(input: {
   })
 }
 
-function omitReason(r: ExportRite, hallKind: Map<string, 'work' | 'private'>): string | null {
+function omitReason(
+  r: ExportRite,
+  hallKind: Map<string, 'work' | 'private'>,
+  scheduleIds: Set<string>
+): string | null {
   if (r.archivedAt !== null) {
     return 'archived'
   }
@@ -282,7 +287,13 @@ function omitReason(r: ExportRite, hallKind: Map<string, 'work' | 'private'>): s
   if (kinds.includes('private')) {
     return 'private_hall'
   }
-  return kinds.includes(undefined) ? 'unknown_hall' : null
+  if (kinds.includes(undefined)) {
+    return 'unknown_hall'
+  }
+  const unknownSchedule = r.activeGraph.nodes.some(
+    (n) => n.type === 'trigger.schedule' && !scheduleIds.has(n.scheduleId)
+  )
+  return unknownSchedule ? 'unknown_schedule' : null
 }
 
 /** The outcome of {@link applyCharter}. */
