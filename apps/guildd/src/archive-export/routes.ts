@@ -28,6 +28,8 @@ export interface ArchiveExportDeps {
   checkSensitive: (c: Context) => Promise<SensitiveCheck>
   /** Writes the `archive.exported` event to the guild's ledger. */
   recordExported: (guildId: string, fact: ArchiveExportedFact) => Promise<void>
+  /** Zips the files by path; defaults to fflate's `zipSync`. Injectable so a test can make it fail. */
+  zip?: (files: Record<string, Uint8Array>) => Uint8Array
   /** Overrides {@link ARCHIVE_EXPORT_CAPS}. */
   caps?: { maxNotes: number; maxBytes: number }
   /** The calling session when it is the Guild Master of `:id`, else a ready response (401/403/404). */
@@ -36,10 +38,16 @@ export interface ArchiveExportDeps {
 
 const query = z.object({ private: z.enum(['true', 'false']).optional() })
 
+const byteLength = (text: string): number => new TextEncoder().encode(text).length
+
 /** The file name for the download: ASCII only, so the header needs no encoding. */
 function downloadName(guildName: string): string {
-  const ascii = [...sanitiseFileName(guildName)].filter((ch) => ch >= ' ' && ch <= '~').join('')
-  return `${ascii.trim() === '' ? 'guild' : ascii}-archive.zip`
+  const ascii = [...guildName]
+    .filter((ch) => ch >= ' ' && ch <= '~')
+    .join('')
+    .trim()
+  const safe = ascii === '' ? '' : sanitiseFileName(ascii)
+  return `${safe === '' || safe === 'untitled' ? 'guild' : safe}-archive.zip`
 }
 
 /** Mounts `GET /guilds/:id/archive/export` (Guild Master only). */
@@ -56,8 +64,14 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
     if (!parsed.success) {
       return c.json({ error: 'invalid_query' }, 400)
     }
+    const name = await deps.guildName(who.guild)
+    if (name === null) {
+      return c.json({ error: 'not_found' }, 404)
+    }
     const wantPrivate = parsed.data.private === 'true'
     if (wantPrivate) {
+      // Every refusal that can be known up front comes before this line: the check spends the
+      // one-use proof. The 413s below happen after the spend and cost the Guild Master a re-auth.
       const check = await deps.checkSensitive(c)
       if (!check.ok) {
         return c.json({ error: check.error }, check.status)
@@ -65,10 +79,6 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
       if (check.guildId !== who.guild) {
         return c.json({ error: 'not_found' }, 404)
       }
-    }
-    const name = await deps.guildName(who.guild)
-    if (name === null) {
-      return c.json({ error: 'not_found' }, 404)
     }
 
     // Private notes are always read so links to them can be withheld; they are only exported
@@ -91,7 +101,7 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
           withheldTitles.push(n.title)
           continue
         }
-        bodyBytes += new TextEncoder().encode(n.body).length
+        bodyBytes += byteLength(n.title) + byteLength(n.body) + byteLength(n.evidence ?? '')
         if (n.dataClass === 'private') {
           privateIncluded++
         }
@@ -121,8 +131,8 @@ export function mountArchiveExportRoutes(app: Hono, deps: ArchiveExportDeps): vo
       privateIncluded,
       privateLeftOut: withheldTitles.length,
     }
+    const zip = (deps.zip ?? zipSync)(Object.fromEntries(encoded))
     await deps.recordExported(who.guild, fact)
-    const zip = zipSync(Object.fromEntries(encoded))
     return new Response(zip, {
       headers: {
         'content-type': 'application/zip',

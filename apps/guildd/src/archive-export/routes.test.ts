@@ -278,10 +278,13 @@ for (const kind of ['memory', 'postgres'] as const) {
 
     test.each([
       ['a"b', 'ab-archive.zip'],
-      ['x\r\nSet-Cookie: y', 'x Set-Cookie y-archive.zip'],
+      ['x\r\nSet-Cookie: y', 'xSet-Cookie y-archive.zip'],
       ['\u65e5\u672c', 'guild-archive.zip'],
       ['', 'guild-archive.zip'],
     ])('the download name for guild %j is one clean filename', async (guildName, expected) => {
+      if (kind === 'postgres' && guildName === '') {
+        return // guilds.name is check-constrained non-empty, so the case only exists in memory
+      }
       const { get } = await setup(kind, { guildName })
       const res = await get()
       expect(res.status).toBe(200)
