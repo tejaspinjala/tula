@@ -194,6 +194,80 @@ describe('wiki links', () => {
   })
 })
 
+describe('link resolution (ADR-0015)', () => {
+  const withheldTitles = ['Knee [left] pain', 'Health diary']
+  const bodyOf = (body: string) =>
+    file(
+      run([note({ id: '1', title: 'S', body })], { privateLeftOut: 2, withheldTitles }),
+      'Engineering/S.md'
+    )
+  test.each([
+    '[[Knee [left] pain]]',
+    '[[Health diary|my diary]]',
+    '[[Health diary#2024]]',
+    '[[Health diary#^b1|x]]',
+  ])('%s becomes [withheld] without the title', (link) => {
+    const c = bodyOf(`see ${link} end`)
+    expect(c).toContain('see [withheld] end')
+    expect(c).not.toContain('Knee [left]')
+    expect(c).not.toContain('Health diary')
+    expect(c).not.toContain('my diary')
+  })
+  test('a public note sharing a private title still resolves to the public file', () => {
+    const c = file(
+      run(
+        [
+          note({ id: '1', title: 'S', body: '[[Twin]]' }),
+          note({ id: '2', title: 'Twin', body: 'pub' }),
+        ],
+        { privateLeftOut: 1, withheldTitles: ['Twin'] }
+      ),
+      'Engineering/S.md'
+    )
+    expect(c).toContain('[[Engineering/Twin|Twin]]')
+    expect(c).not.toContain('[withheld]')
+  })
+  test('an exported bracketed title resolves to a working link', () => {
+    const files = run([
+      note({ id: '1', title: 'S', body: '[[Market [stalls] "list"]]' }),
+      note({ id: '2', title: 'Market [stalls] "list"' }),
+    ])
+    expect(file(files, 'Engineering/S.md')).toContain(
+      '[[Engineering/Market stalls list|Market stalls "list"]]'
+    )
+  })
+  test('an alias and a heading to an exported note are kept', () => {
+    const files = run([
+      note({ id: '1', title: 'S', body: '[[P#Part two|see this]] and [[P#^b1]]' }),
+      note({ id: '2', title: 'P' }),
+    ])
+    const c = file(files, 'Engineering/S.md')
+    expect(c).toContain('[[Engineering/P#Part two|see this]]')
+    expect(c).toContain('[[Engineering/P#^b1|P]]')
+  })
+  test('unresolved alias or target is plain text, never a link', () => {
+    const c = bodyOf('[[Ghost|spooky]] [[Ghost#h]]')
+    expect(c).toContain('spooky Ghost')
+    expect(c).not.toContain('[[Ghost')
+  })
+  test('no withheld title appears in any output file for varied bodies', () => {
+    const forms = (t: string) => [
+      `[[${t}]]`,
+      `[[${t}|alias]]`,
+      `[[${t}#h]]`,
+      `[[${t}#^b|${t}]]`,
+      `[[ ${t.toUpperCase()} ]]`,
+    ]
+    const body = withheldTitles.flatMap(forms).join('\n')
+    const files = run([note({ id: '1', title: 'S', body })], { privateLeftOut: 2, withheldTitles })
+    for (const f of files) {
+      for (const t of withheldTitles) {
+        expect(f.content.toLowerCase()).not.toContain(t.toLowerCase())
+      }
+    }
+  })
+})
+
 describe('index', () => {
   test('Archive.md has separate sections, counts and the private count', () => {
     const files = run(

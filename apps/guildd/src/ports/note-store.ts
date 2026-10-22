@@ -102,16 +102,56 @@ export class NoteError extends Error {
   }
 }
 
-/** The `[[wiki link]]` targets in `text`, as normalised keys (trimmed, lower-cased, de-duplicated). */
-export function wikiLinks(text: string): string[] {
-  const keys = new Set<string>()
-  for (const m of text.matchAll(/\[\[([^[\]]+)\]\]/g)) {
-    const key = titleKey(m[1] ?? '')
-    if (key) {
-      keys.add(key)
+/** One `[[target#heading|alias]]` occurrence in a text; `start`/`end` are the source offsets of the whole link. */
+export interface WikiLink {
+  start: number
+  end: number
+  target: string
+  heading: string | null
+  alias: string | null
+}
+
+/**
+ * The single wiki-link parser: finds each `[[`, takes everything up to the next `]]`, splits off
+ * `|alias` and then `#heading` / `#^block`. Titles may contain single brackets. Links with an
+ * empty target are skipped.
+ */
+export function parseWikiLinks(text: string): WikiLink[] {
+  const links: WikiLink[] = []
+  let from = 0
+  for (;;) {
+    const open = text.indexOf('[[', from)
+    if (open < 0) {
+      break
     }
+    const close = text.indexOf(']]', open + 2)
+    if (close < 0) {
+      break
+    }
+    from = close + 2
+    const inner = text.slice(open + 2, close)
+    const bar = inner.indexOf('|')
+    const alias = bar < 0 ? null : inner.slice(bar + 1)
+    const head = bar < 0 ? inner : inner.slice(0, bar)
+    const hash = head.indexOf('#')
+    const target = hash < 0 ? head : head.slice(0, hash)
+    if (!target.trim()) {
+      continue
+    }
+    links.push({
+      start: open,
+      end: close + 2,
+      target,
+      heading: hash < 0 ? null : head.slice(hash + 1),
+      alias,
+    })
   }
-  return [...keys]
+  return links
+}
+
+/** The `[[wiki link]]` target titles in `text`, as normalised keys (no alias or heading; trimmed, lower-cased, de-duplicated). */
+export function wikiLinks(text: string): string[] {
+  return [...new Set(parseWikiLinks(text).map((l) => titleKey(l.target)))]
 }
 
 /** The normalised key a note's title is linked by. */
