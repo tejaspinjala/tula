@@ -3,7 +3,8 @@
 -- p_min_age with no passkey whose only events are the ones founding itself writes. A guild with a
 -- passkey, or with any other event, is never an orphan.
 --
--- Nothing is deleted by this migration. The operator counts first, then removes:
+-- Nothing is deleted by this migration. The operator stops guildd (removal briefly lifts the
+-- append-only guards and locks every tenant table), counts first, then removes:
 --   bun scripts/orphan-guilds.ts            (dry run: prints the count)
 --   bun scripts/orphan-guilds.ts --apply    (removes them)
 -- Caveat: with DEV_GUILD_HEADER on, a guild can be driven by its x-guild-id header with no
