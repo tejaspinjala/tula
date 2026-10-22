@@ -10,11 +10,12 @@ const noteBody = z.object({
   body: z.string(),
   trust: z.enum(['fact', 'quarantined']),
   evidence: z.string().nullable(),
+  dataClass: z.enum(['public', 'internal', 'private']).default('internal'),
 })
 const pageBody = z.object({ notes: z.array(noteBody), next: z.string().nullable() })
 const detailBody = z.object({
   note: noteBody,
-  versions: z.array(noteBody.omit({ id: true, kind: true })),
+  versions: z.array(noteBody.omit({ id: true, kind: true, dataClass: true })),
   backlinks: z.array(z.object({ id: z.string(), title: z.string() })),
 })
 
