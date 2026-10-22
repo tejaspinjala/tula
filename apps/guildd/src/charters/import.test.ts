@@ -120,7 +120,19 @@ async function setup(kind: 'memory' | 'postgres') {
     const page = await engine.list(id, { limit: 100 })
     return page.rites.length
   }
-  return { guild, other, config, store, engine, failing, post, importedEvents, riteCount, keys }
+  return {
+    guild,
+    other,
+    config,
+    store,
+    engine,
+    failing,
+    app,
+    post,
+    importedEvents,
+    riteCount,
+    keys,
+  }
 }
 
 /** A Charter over `config` carrying the named Rites (each with an active manual-trigger graph). */
@@ -279,6 +291,50 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(await riteCount(other)).toBe(1)
     })
 
+    test('reusing an importId with a different input is 409 import_id_reused and writes nothing', async () => {
+      const { guild, config, post, importedEvents, riteCount } = await setup(kind)
+      await post(guild, {
+        charter: charterOf(tightened(), ['One']),
+        baseVersion: 1,
+        importId: 'reuse',
+      })
+      const res = await post(guild, {
+        charter: charterOf(tightened(), ['One', 'Two']),
+        baseVersion: 1,
+        importId: 'reuse',
+      })
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: 'import_id_reused' })
+      expect(await riteCount(guild)).toBe(1)
+      expect((await config.current(guild)).version).toBe(2)
+      expect(await importedEvents(guild)).toBe(1)
+    })
+
+    test('a chunked body over the cap with no content-length is 413 and is not read to the end', async () => {
+      const { guild, app } = await setup(kind)
+      let pulled = 0
+      const chunk = new Uint8Array(64 * 1024)
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled += 1
+          if (pulled > 200) {
+            controller.close()
+            return
+          }
+          controller.enqueue(chunk)
+        },
+      })
+      const init: RequestInit & { duplex: 'half' } = {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        duplex: 'half',
+      }
+      const res = await app.request(`/guilds/${guild}/charter/import`, init)
+      expect(res.status).toBe(413)
+      expect(pulled).toBeLessThan(20)
+    })
+
     test('imported Rites are drafts that never run', async () => {
       const { guild, engine, post } = await setup(kind)
       const res = await post(guild, {
@@ -325,6 +381,21 @@ describe('charter import atomicity on Postgres', () => {
       importId: 'boom',
     })
     expect(retry.status).toBe(200)
+  })
+})
+
+describe('charter import double submit on Postgres', () => {
+  test('two concurrent posts with one importId both get 200 with equal riteIds and write once', async () => {
+    const { guild, post, importedEvents, riteCount } = await setup('postgres')
+    const body = { charter: charterOf(tightened(), ['One']), baseVersion: 1, importId: 'twice' }
+    const [a, b] = await Promise.all([post(guild, body), post(guild, body)])
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(resultBody.parse(await a.json()).riteIds).toEqual(
+      resultBody.parse(await b.json()).riteIds
+    )
+    expect(await riteCount(guild)).toBe(1)
+    expect(await importedEvents(guild)).toBe(1)
   })
 })
 
