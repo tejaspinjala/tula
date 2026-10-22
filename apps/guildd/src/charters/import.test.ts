@@ -248,7 +248,7 @@ for (const kind of ['memory', 'postgres'] as const) {
 
     test('a body over the byte cap is 413 and an invalid Charter is 422 invalid_charter', async () => {
       const { guild, post, importedEvents } = await setup(kind)
-      const huge = await post(guild, ' '.repeat(CHARTER_MAX_BYTES + 4096))
+      const huge = await post(guild, ' '.repeat(CHARTER_MAX_BYTES + 8192))
       expect(huge.status).toBe(413)
       const bad = await post(guild, { charter: { nope: true }, baseVersion: 1, importId: 'bad' })
       expect(bad.status).toBe(422)

@@ -70,12 +70,30 @@ export class PgConfigStore implements ConfigStore {
     config: GuildConfig,
     options?: { baseVersion?: number }
   ): Promise<ProposeResult> {
+    return this.db.withGuild(guildId, (tx) => this.proposeIn(tx, guildId, config, options))
+  }
+
+  /** {@link ConfigStore.propose} on a transaction the caller owns, so it commits with other writes. */
+  async proposeIn(
+    tx: TenantTx,
+    guildId: string,
+    config: GuildConfig,
+    options?: { baseVersion?: number }
+  ): Promise<ProposeResult> {
     if (config.sealPolicy === 'autonomous') {
       throw new ConfigError('seal_policy_locked', 0)
     }
-    return this.db.withGuild(guildId, (tx) =>
-      this.write(tx, guildId, config, 'change', options?.baseVersion)
-    )
+    return this.write(tx, guildId, config, 'change', options?.baseVersion)
+  }
+
+  /** The config in force, read on a transaction the caller owns (under the guild's config lock). */
+  async currentIn(
+    tx: TenantTx,
+    guildId: string
+  ): Promise<{ version: number; config: GuildConfig }> {
+    await this.lock(tx, guildId)
+    const top = await this.inForce(tx, guildId)
+    return { version: top.version, config: top.config }
   }
 
   async confirm(guildId: string, version: number): Promise<void> {
