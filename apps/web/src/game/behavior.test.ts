@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test'
+import { memberSpot } from './actors'
 import { type Anim, CHATTER, type PlanInput, planFor } from './behavior'
+import { routeBetween } from './route'
 import { ACTIVITIES, type Activity, deriveScene, type SceneMember } from './scene'
-import { mapData, type PlaceName, placeNamed } from './world'
+import { hallRoomOf, mapData, type PlaceName, placeNamed, setHalls } from './world'
 
 const home = { map: 'hall', x: 10, y: 10 } as const
 const desk = { map: 'hall', x: 10, y: 8 } as const
@@ -200,4 +202,28 @@ test('replaying the log to any seq plans the same as a fresh fold to that seq', 
   const backward = [6, 5, 4, 3, 2, 1].map(planAt).reverse()
   expect(backward).toEqual(forward)
   expect(new Set(forward.map((p) => p?.key)).size).toBe(6)
+})
+
+test('a Seal-waiting Member leaves their Hall room by its doorway and ends at the Great Hall Seal desk', () => {
+  setHalls([
+    {
+      hall: { id: 'a', name: 'a', kind: 'work', locked: false },
+      members: [{ id: 'a-m0', captain: true }],
+    },
+  ])
+  const room = hallRoomOf('hall:a')
+  if (!room) {
+    throw new Error('no room')
+  }
+  const seat = memberSpot(room, 'hall:a', 'a-m0')
+  const plan = planFor(input({ home: seat, desk: seat, member: member({ awaitingSeal: true }) }))
+  const target = plan.stops.at(-1)?.spot
+  expect(target).toEqual(stand('seal-desk'))
+  if (!target) {
+    return
+  }
+  const legs = routeBetween(seat, target)
+  expect(legs?.map((l) => l.map)).toEqual(['hall:a', 'hall'])
+  expect(legs?.at(-1)?.path.at(-1)).toEqual({ x: target.x, y: target.y })
+  setHalls([])
 })
