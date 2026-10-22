@@ -31,6 +31,7 @@ import {
   withClosedDoors,
 } from './layout'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
+import { Retained } from './retained'
 import type { Spot } from './route'
 import type { SceneBubble, SceneMember, SceneState } from './scene'
 import {
@@ -199,7 +200,10 @@ export class HallScene extends Phaser.Scene {
   private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
-  private dynamic: Phaser.GameObjects.GameObject[] = []
+  /** Rooms, gate, scrolls and the coin counter, kept by key and redrawn only when their inputs change. */
+  private readonly dynamic = new Retained<Phaser.GameObjects.GameObject>((o) => {
+    o.destroy()
+  })
   private pending: SceneState | null = null
   private ready = false
   private readonly apprentices = new Map<string, ApprenticeView>()
@@ -1113,144 +1117,152 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** Rooms, gate, scrolls and the coin counter: redrawn whenever the state changes. */
+  /** Rooms, gate, scrolls and the coin counter: each keyed group is rebuilt only when its inputs change. */
   private drawDynamic(state: SceneState): void {
-    for (const object of this.dynamic) {
-      object.destroy()
-    }
-    this.dynamic = []
-    this.gateSprites = []
-    const add = <T extends Phaser.GameObjects.GameObject>(object: T): T => {
-      this.dynamic.push(object)
-      return object
-    }
+    this.dynamic.begin()
     const s = this.layout.tileSize
     const tags = roomTags(state.rooms, this.layout.rooms.length)
     this.layout.rooms.forEach((room, index) => {
       const hall = state.rooms[index]
       const door = this.layout.doorways[index]
       const tag = tags[index]
-      if (tag && tag.veil > 0) {
-        add(
-          this.add
-            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0x101018, tag.veil)
-            .setOrigin(0, 0)
-            .setDepth(10)
-        )
-      }
-      if (tag && tag.warmth > 0) {
-        // A lived-in private room: warm lamplight over the floor, a worn rug and a small lamp.
-        add(
-          this.add
-            .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0xf2c14e, tag.warmth)
-            .setOrigin(0, 0)
-            .setDepth(9)
-        )
-        const rugW = Math.max(2, room.w - 4) * s
-        const rugH = 2 * s
-        const rugX = (room.x + room.w / 2) * s
-        const rugY = (room.y + room.h - 3) * s
-        const edge = (w: number, h: number, color: number, alpha: number) =>
-          add(this.add.rectangle(rugX, rugY, w, h, color, alpha).setDepth(2))
-        edge(rugW, rugH, 0x5a3a22, 1)
-        edge(rugW - 4, rugH - 4, 0xb06a5a, 1)
-        edge(rugW - 10, rugH - 10, 0xd9a066, 1)
-        edge(rugW - 14, rugH - 14, 0x8e4a8a, 1)
-        // Fringe at both short ends and a row of diamonds down the middle.
-        for (let f = 0; f < 4; f++) {
-          const fy = rugY - rugH / 2 + 4 + f * ((rugH - 8) / 3)
-          add(this.add.rectangle(rugX - rugW / 2 - 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
-          add(this.add.rectangle(rugX + rugW / 2 + 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
+      const sig = JSON.stringify([
+        room,
+        door,
+        tag,
+        hall ? [hall.hallId, hall.locked, hall.board] : null,
+      ])
+      this.dynamic.group(`room:${index}`, sig, () => {
+        const made: Phaser.GameObjects.GameObject[] = []
+        const add = <T extends Phaser.GameObjects.GameObject>(object: T): T => {
+          made.push(object)
+          return object
         }
-        for (let d = -3; d <= 3; d++) {
+        if (tag && tag.veil > 0) {
           add(
             this.add
-              .rectangle(rugX + d * 14, rugY, 4, 4, 0xf6e7c1, 1)
-              .setDepth(2)
-              .setAngle(45)
+              .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0x101018, tag.veil)
+              .setOrigin(0, 0)
+              .setDepth(10)
           )
         }
-        add(
-          this.add
-            .rectangle((room.x + 1) * s + 8, (room.y + 2) * s + 8, 6, 8, 0xf2c14e, 1)
-            .setStrokeStyle(1, 0x5a3a22)
-            .setDepth(4)
-        )
-        if (hall) {
-          for (const prop of roomProps(hall.hallId, room)) {
-            for (const part of this.propParts(prop.kind, prop.x * s, prop.y * s)) {
-              add(part)
+        if (tag && tag.warmth > 0) {
+          // A lived-in private room: warm lamplight over the floor, a worn rug and a small lamp.
+          add(
+            this.add
+              .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0xf2c14e, tag.warmth)
+              .setOrigin(0, 0)
+              .setDepth(9)
+          )
+          const rugW = Math.max(2, room.w - 4) * s
+          const rugH = 2 * s
+          const rugX = (room.x + room.w / 2) * s
+          const rugY = (room.y + room.h - 3) * s
+          const edge = (w: number, h: number, color: number, alpha: number) =>
+            add(this.add.rectangle(rugX, rugY, w, h, color, alpha).setDepth(2))
+          edge(rugW, rugH, 0x5a3a22, 1)
+          edge(rugW - 4, rugH - 4, 0xb06a5a, 1)
+          edge(rugW - 10, rugH - 10, 0xd9a066, 1)
+          edge(rugW - 14, rugH - 14, 0x8e4a8a, 1)
+          // Fringe at both short ends and a row of diamonds down the middle.
+          for (let f = 0; f < 4; f++) {
+            const fy = rugY - rugH / 2 + 4 + f * ((rugH - 8) / 3)
+            add(this.add.rectangle(rugX - rugW / 2 - 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
+            add(this.add.rectangle(rugX + rugW / 2 + 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
+          }
+          for (let d = -3; d <= 3; d++) {
+            add(
+              this.add
+                .rectangle(rugX + d * 14, rugY, 4, 4, 0xf6e7c1, 1)
+                .setDepth(2)
+                .setAngle(45)
+            )
+          }
+          add(
+            this.add
+              .rectangle((room.x + 1) * s + 8, (room.y + 2) * s + 8, 6, 8, 0xf2c14e, 1)
+              .setStrokeStyle(1, 0x5a3a22)
+              .setDepth(4)
+          )
+          if (hall) {
+            for (const prop of roomProps(hall.hallId, room)) {
+              for (const part of this.propParts(prop.kind, prop.x * s, prop.y * s)) {
+                add(part)
+              }
             }
           }
         }
-      }
-      if (tag?.privateMark) {
-        // The privacy mark: a small folding screen (three panels, a darker top rail), not a lock.
-        const mx = (room.x + room.w) * s - 20
-        const my = room.y * s + 4
-        for (let panel = 0; panel < 3; panel++) {
+        if (tag?.privateMark) {
+          // The privacy mark: a small folding screen (three panels, a darker top rail), not a lock.
+          const mx = (room.x + room.w) * s - 20
+          const my = room.y * s + 4
+          for (let panel = 0; panel < 3; panel++) {
+            add(
+              this.add
+                .rectangle(
+                  mx + panel * 5,
+                  my + 6 + (panel % 2),
+                  5,
+                  12,
+                  panel === 1 ? 0xd9a066 : 0xb77a45,
+                  1
+                )
+                .setStrokeStyle(1, 0x3e2716)
+                .setDepth(12)
+            )
+          }
+          add(this.add.rectangle(mx + 5, my + 1, 16, 2, 0x3e2716, 1).setDepth(12))
+        }
+        if (tag) {
+          add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))
+        }
+        if (hall && !hall.locked) {
+          // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
+          const spot = questBoardIn(this.layout, room)
           add(
             this.add
-              .rectangle(
-                mx + panel * 5,
-                my + 6 + (panel % 2),
-                5,
-                12,
-                panel === 1 ? 0xd9a066 : 0xb77a45,
-                1
-              )
-              .setStrokeStyle(1, 0x3e2716)
-              .setDepth(12)
+              .rectangle(spot.x * s + 8, spot.y * s + 8, s, s, 0x7a4b24, 1)
+              .setStrokeStyle(1, 0x3b2410)
+              .setDepth(4)
           )
+          const box = mailboxIn(this.layout, room)
+          add(this.add.image(box.x * s + 8, box.y * s + 8, MAILBOX).setDepth(4))
+          const shown = Math.min(hall.board, BOARD_SCROLLS)
+          for (let i = 0; i < shown; i++) {
+            add(
+              this.add
+                .image(
+                  spot.x * s + 3 + (i % 2) * 7,
+                  spot.y * s + 4 + Math.floor(i / 2) * 7,
+                  TILES,
+                  FRAME.scroll
+                )
+                .setScale(0.45)
+                .setDepth(5)
+            )
+          }
+          if (hall.board > BOARD_SCROLLS) {
+            add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
+          }
         }
-        add(this.add.rectangle(mx + 5, my + 1, 16, 2, 0x3e2716, 1).setDepth(12))
-      }
-      if (tag) {
-        add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))
-      }
-      if (hall && !hall.locked) {
-        // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
-        const spot = questBoardIn(this.layout, room)
-        add(
-          this.add
-            .rectangle(spot.x * s + 8, spot.y * s + 8, s, s, 0x7a4b24, 1)
-            .setStrokeStyle(1, 0x3b2410)
-            .setDepth(4)
-        )
-        const box = mailboxIn(this.layout, room)
-        add(this.add.image(box.x * s + 8, box.y * s + 8, MAILBOX).setDepth(4))
-        const shown = Math.min(hall.board, BOARD_SCROLLS)
-        for (let i = 0; i < shown; i++) {
-          add(
-            this.add
-              .image(
-                spot.x * s + 3 + (i % 2) * 7,
-                spot.y * s + 4 + Math.floor(i / 2) * 7,
-                TILES,
-                FRAME.scroll
-              )
-              .setScale(0.45)
-              .setDepth(5)
-          )
+        if (door && tag?.closed) {
+          for (let dx = 0; dx < door.w; dx++) {
+            add(
+              this.add
+                .image((door.x + dx) * s + 8, door.y * s + 8, TILES, FRAME.doorClosed)
+                .setDepth(11)
+            )
+          }
         }
-        if (hall.board > BOARD_SCROLLS) {
-          add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
-        }
-      }
-      if (door && tag?.closed) {
-        for (let dx = 0; dx < door.w; dx++) {
-          add(
-            this.add
-              .image((door.x + dx) * s + 8, door.y * s + 8, TILES, FRAME.doorClosed)
-              .setDepth(11)
-          )
-        }
-      }
+        return made
+      })
     })
     const gate = this.layout.gate
-    for (let dy = 0; dy < gate.h; dy++) {
-      const image = add(
-        this.add
+    this.dynamic.group('gate', JSON.stringify([gate, state.gateClosed]), () => {
+      const made: Phaser.GameObjects.GameObject[] = []
+      this.gateSprites = []
+      for (let dy = 0; dy < gate.h; dy++) {
+        const image = this.add
           .image(
             gate.x * s + 8,
             (gate.y + dy) * s + 8,
@@ -1258,44 +1270,55 @@ export class HallScene extends Phaser.Scene {
             state.gateClosed ? FRAME.doorClosed : FRAME.doorOpen
           )
           .setDepth(11)
-      )
-      if (state.gateClosed) {
-        image.setTint(0xff5555)
+        if (state.gateClosed) {
+          image.setTint(0xff5555)
+        }
+        made.push(image)
+        this.gateSprites.push(image)
       }
-      this.gateSprites.push(image)
-    }
-    add(
-      this.label(
-        (gate.x - 5) * s,
-        (gate.y + gate.h + 0.2) * s,
-        state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
-        16,
-        state.gateClosed ? 0xff6666 : 0x99ff99
-      )
-    )
-    const seal = this.layout.sealDesk
-    state.scrolls.slice(0, MAX_SCROLLS).forEach((scroll, i) => {
-      const scrollSprite = add(
-        this.add
-          .image((seal.x + i) * s + 8, seal.y * s + 8, TILES, FRAME.scroll)
-
-          .setScale(1.5)
-          .setDepth(12)
-          .setInteractive({ useHandCursor: true })
-      )
-      scrollSprite.on('pointerdown', () => this.options.onOpenSeal(scroll.questId))
-    })
-    if (state.scrolls.length > MAX_SCROLLS) {
-      add(
+      made.push(
         this.label(
-          (seal.x + MAX_SCROLLS) * s,
-          seal.y * s + 4,
-          `+${state.scrolls.length - MAX_SCROLLS}`
+          (gate.x - 5) * s,
+          (gate.y + gate.h + 0.2) * s,
+          state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
+          16,
+          state.gateClosed ? 0xff6666 : 0x99ff99
         )
       )
-    }
+      return made
+    })
+    const seal = this.layout.sealDesk
+    this.dynamic.group(
+      'scrolls',
+      JSON.stringify([seal, state.scrolls.map((c) => c.questId)]),
+      () => {
+        const made: Phaser.GameObjects.GameObject[] = []
+        state.scrolls.slice(0, MAX_SCROLLS).forEach((scroll, i) => {
+          const scrollSprite = this.add
+            .image((seal.x + i) * s + 8, seal.y * s + 8, TILES, FRAME.scroll)
+            .setScale(1.5)
+            .setDepth(12)
+            .setInteractive({ useHandCursor: true })
+          scrollSprite.on('pointerdown', () => this.options.onOpenSeal(scroll.questId))
+          made.push(scrollSprite)
+        })
+        if (state.scrolls.length > MAX_SCROLLS) {
+          made.push(
+            this.label(
+              (seal.x + MAX_SCROLLS) * s,
+              seal.y * s + 4,
+              `+${state.scrolls.length - MAX_SCROLLS}`
+            )
+          )
+        }
+        return made
+      }
+    )
     const coins = this.layout.coins
-    add(this.label((coins.x + 1.2) * s, coins.y * s + 3, formatCents(state.coinsCents)))
+    this.dynamic.group('coins', JSON.stringify([coins, formatCents(state.coinsCents)]), () => [
+      this.label((coins.x + 1.2) * s, coins.y * s + 3, formatCents(state.coinsCents)),
+    ])
+    this.dynamic.end()
   }
 
   private drawMembers(state: SceneState): void {
