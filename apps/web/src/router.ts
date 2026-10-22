@@ -5,19 +5,19 @@ export type PageSize = 'menu' | 'workbench'
 
 /** The Bag's pages, in menu order. Each opens over the world at its path. */
 export const BAG_PAGES = [
-  { id: 'quests', path: '/quests', label: 'Quest Board', size: 'menu' as PageSize },
-  { id: 'seals', path: '/seals', label: 'Seals', size: 'menu' as PageSize },
-  { id: 'treasury', path: '/treasury', label: 'Treasury', size: 'menu' as PageSize },
-  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds', size: 'menu' as PageSize },
-  { id: 'guild', path: '/guild', label: 'Guild builder', size: 'menu' as PageSize },
-  { id: 'rites', path: '/rites', label: 'Rites', size: 'menu' as PageSize },
-  { id: 'charter', path: '/charter', label: 'Charter', size: 'menu' as PageSize },
-  { id: 'missives', path: '/missives', label: 'Missives', size: 'menu' as PageSize },
-  { id: 'mailbox', path: '/mailbox', label: 'Mailbox', size: 'menu' as PageSize },
-  { id: 'council', path: '/council', label: 'Council', size: 'menu' as PageSize },
-  { id: 'gates', path: '/gates', label: 'Gates', size: 'menu' as PageSize },
-  { id: 'settings', path: '/vault', label: 'Settings', size: 'menu' as PageSize },
-] as const
+  { id: 'quests', path: '/quests', label: 'Quest Board', size: 'menu' },
+  { id: 'seals', path: '/seals', label: 'Seals', size: 'menu' },
+  { id: 'treasury', path: '/treasury', label: 'Treasury', size: 'menu' },
+  { id: 'ledger', path: '/timeline', label: 'Ledger of Deeds', size: 'workbench' },
+  { id: 'guild', path: '/guild', label: 'Guild builder', size: 'workbench' },
+  { id: 'rites', path: '/rites', label: 'Rites', size: 'workbench' },
+  { id: 'charter', path: '/charter', label: 'Charter', size: 'menu' },
+  { id: 'missives', path: '/missives', label: 'Missives', size: 'menu' },
+  { id: 'mailbox', path: '/mailbox', label: 'Mailbox', size: 'menu' },
+  { id: 'council', path: '/council', label: 'Council', size: 'menu' },
+  { id: 'gates', path: '/gates', label: 'Gates', size: 'menu' },
+  { id: 'settings', path: '/vault', label: 'Settings', size: 'menu' },
+] as const satisfies readonly { id: string; path: string; label: string; size: PageSize }[]
 
 /** The id of one Bag page. */
 export type PageId = (typeof BAG_PAGES)[number]['id']

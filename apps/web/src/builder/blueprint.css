@@ -7,6 +7,23 @@
   min-width: 0;
 }
 
+/* Palette tiles are wide enough to wrap a whole name, never a cut one. */
+.palette .px-slotgrid {
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--px) * 40), 1fr));
+}
+.palette .px-slot {
+  width: auto;
+  height: auto;
+  min-height: calc(var(--px) * 32);
+}
+.palette .px-slot-glyph {
+  position: static;
+  min-height: calc(var(--px) * 32);
+  padding: calc(var(--px) * 2);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .palette-caption {
   margin: calc(var(--px) * 4) 0 0;
   min-height: 1.5em;

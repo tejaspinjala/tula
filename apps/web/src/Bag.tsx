@@ -181,6 +181,7 @@ export function Bag({
   const heading = useRef<HTMLHeadingElement>(null)
   const title = hall ? 'Hall tools' : (BAG_PAGES.find((p) => p.id === page)?.label ?? 'Bag')
   const inMenu = page === null && !hall
+  const size = BAG_PAGES.find((p) => p.id === page)?.size ?? 'menu'
 
   // Choosing a page replaces the menu the cursor was on: keyboard focus follows to the page title.
   useEffect(() => {
@@ -216,6 +217,7 @@ export function Bag({
     <dialog
       ref={dialog}
       className="bag"
+      data-size={size}
       aria-labelledby={page ? `${page}-title` : 'bag-title'}
       onKeyDown={onKeyDown}
       onCancel={(event) => {
