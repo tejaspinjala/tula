@@ -64,7 +64,10 @@ beforeEach(() => {
   config = {
     steward: { id: 's', name: 'S' },
     halls: [],
-    providers: [{ id: 'anthropic', auth: 'api_key', privateEligible: false }],
+    providers: [
+      { id: 'anthropic', auth: 'api_key', privateEligible: false },
+      { id: 'spare', auth: 'api_key', privateEligible: false },
+    ],
     routingProfiles: [
       { id: 'main', provider: 'anthropic', tier: 'mid' },
       { id: 'big', provider: 'anthropic', tier: 'deep' },
@@ -121,7 +124,7 @@ test('adding a provider saves it pending, asks for the passkey, and names the Va
   await press(host, 'Add provider')
   expect(puts).toHaveLength(1)
   const sent = puts[0]?.config as { providers: { id: string }[] }
-  expect(sent.providers.map((p) => p.id)).toEqual(['anthropic', 'openrouter'])
+  expect(sent.providers.map((p) => p.id)).toEqual(['anthropic', 'spare', 'openrouter'])
   expect(puts[0]?.baseVersion).toBe(2)
   expect(calls).toContain('POST /api/session/reauth/begin')
   expect(calls).toContain('POST /config/versions/3/confirm')
@@ -151,13 +154,27 @@ test('removing a profile applies at once with no passkey prompt', async () => {
   await unmount()
 })
 
-test('the first profile is marked the default and another can be made the default', async () => {
-  putStatus = 200
+test('the first profile is marked the default; making another the default asks for the passkey', async () => {
   const { host, unmount } = await mount()
   expect(host.textContent).toContain('Default')
   await press(host, 'Make big the default profile')
   const sent = puts[0]?.config as { routingProfiles: { id: string }[] }
   expect(sent.routingProfiles.map((p) => p.id)).toEqual(['big', 'main'])
+  expect(calls).toContain('POST /config/versions/3/confirm')
+  await unmount()
+})
+
+test('a provider no profile names can be removed; one a profile names cannot', async () => {
+  putStatus = 200
+  const { host, unmount } = await mount()
+  const named = [...host.querySelectorAll('button')].find(
+    (b) => b.getAttribute('aria-label') === 'Remove provider anthropic'
+  )
+  expect(named?.hasAttribute('disabled')).toBe(true)
+  expect(host.textContent).toContain('Remove its profiles first')
+  await press(host, 'Remove provider spare')
+  const sent = puts[0]?.config as { providers: { id: string }[] }
+  expect(sent.providers.map((p) => p.id)).toEqual(['anthropic'])
   await unmount()
 })
 
