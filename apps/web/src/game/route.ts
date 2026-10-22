@@ -1,50 +1,50 @@
 import { findPath, type Vec, type Walkable } from './walk'
-import { type Door, MAP_IDS, type MapId, mapData } from './world'
+import { type Door, type MapKey, mapData } from './world'
 
 /** A tile on a map of the town. */
 export interface Spot {
-  map: MapId
+  map: MapKey
   x: number
   y: number
 }
 
 /** One stretch of a route inside a single map: where it starts and the tiles walked after that. */
 export interface Leg {
-  map: MapId
+  map: MapKey
   start: Vec
   path: Vec[]
 }
 
 /** The walkable test of a map (the hall's has the closed doors of locked rooms shut). */
-export type WalkableOf = (map: MapId) => Walkable
+export type WalkableOf = (map: MapKey) => Walkable
 
 const defaultWalkable: WalkableOf = (map) => mapData(map).walkable
 
 /** The doors of `from` that lead straight to `to`. */
-function doorsTo(from: MapId, to: MapId): Door[] {
+function doorsTo(from: MapKey, to: MapKey): Door[] {
   return mapData(from).doors.filter((d) => d.to === to)
 }
 
 /** The maps to cross to get from one map to another (breadth-first over doors), or null. */
-function mapsBetween(from: MapId, to: MapId): MapId[] | null {
-  const before = new Map<MapId, MapId | null>([[from, null]])
-  const queue: MapId[] = [from]
+function mapsBetween(from: MapKey, to: MapKey): MapKey[] | null {
+  const before = new Map<MapKey, MapKey | null>([[from, null]])
+  const queue: MapKey[] = [from]
   for (let head = 0; head < queue.length; head++) {
     const here = queue[head]
     if (here === undefined) {
       break
     }
     if (here === to) {
-      const chain: MapId[] = []
-      for (let at: MapId | null | undefined = here; at; at = before.get(at)) {
+      const chain: MapKey[] = []
+      for (let at: MapKey | null | undefined = here; at; at = before.get(at)) {
         chain.unshift(at)
       }
       return chain
     }
-    for (const next of MAP_IDS) {
-      if (!before.has(next) && doorsTo(here, next).length > 0) {
-        before.set(next, here)
-        queue.push(next)
+    for (const door of mapData(here).doors) {
+      if (!before.has(door.to)) {
+        before.set(door.to, here)
+        queue.push(door.to)
       }
     }
   }

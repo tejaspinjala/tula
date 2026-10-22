@@ -87,7 +87,7 @@ export interface Light {
 }
 /** A landmark for the Guild Map. */
 export interface Poi {
-  kind: 'steward-desk' | 'seal-desk' | 'quest-board' | 'mailbox' | 'gate'
+  kind: 'steward-desk' | 'seal-desk' | 'quest-board' | 'mailbox' | 'gate' | 'council-table'
   tile: Rect
   /** The tile a Member waits on, or the Guild Master stands on to use it. */
   stand: Point
@@ -295,6 +295,29 @@ function hallDoorTile(index: number, mainWidth: number): Rect {
 }
 
 /**
+ * Stands a mailbox on the floor row in front of the doorway, a couple of tiles to the side, with its
+ * reach tile just north of it. Keeps clear of every station and of the doorway's own front tile.
+ */
+function addMailbox(
+  room: Omit<Room, 'stations' | 'doorways'>,
+  door: Rect,
+  taken: ReadonlySet<string>
+): void {
+  const y = door.y - 1
+  for (const dx of [2, -2, 3, -3, 4, -4, 1, -1]) {
+    const x = door.x + dx
+    const free = (px: number, py: number) => room.walkable(px, py) && !taken.has(`${px},${py}`)
+    if (free(x, y) && free(x, y - 1)) {
+      const tile = { x, y, w: 1, h: 1 }
+      room.furniture.push({ frame: 'mailbox', tile, top: true, depth: y + 1, tall: true })
+      room.pois.push({ kind: 'mailbox', tile, stand: { x, y: y - 1 } })
+      room.collision[y * room.width + x] = true
+      return
+    }
+  }
+}
+
+/**
  * The room for a Hall: the smallest template that holds a station per Member, the Captain at the
  * head desk. Members past the largest template stand on free floor tiles.
  */
@@ -310,6 +333,7 @@ export function roomFor(hall: RoomHall, members: readonly RoomMember[], style: R
   const door = objects.find((o) => o.type === 'doorway')
   const doorTile = door ? tileRect(door, t.tileSize) : { x: 0, y: t.height - 1, w: 1, h: 1 }
   const front = `${doorTile.x},${doorTile.y - 1}`
+  addMailbox(room, doorTile, new Set([...used, front]))
   const spare = Array.from({ length: t.width * t.height }, (_v, i) => ({
     x: i % t.width,
     y: Math.floor(i / t.width),
@@ -426,10 +450,27 @@ export function greatHall(halls: readonly RoomHall[]): Room {
     layers.wallFace[at(tile.x, 2)] = wall('face-2')
     collision[at(tile.x, 2)] = true
   }
+  // The Council of Elders sits at a table in the middle of the floor; its footprint is solid.
+  const council: Rect = { x: 14, y: 8, w: 2, h: 1 }
+  for (let i = 0; i < council.w; i++) {
+    collision[at(council.x + i, council.y)] = true
+  }
   const exit = doors.find((o) => prop(o, 'target') === 'plaza')
   const exitTile = exit ? tileRect(exit, t.tileSize) : { x: 0, y: t.height - 1, w: 1, h: 1 }
   const base = assemble('great-hall', 'great-hall', 'great', t)
   const { objects: _objects, ...room } = base
+  room.furniture.push({
+    frame: 'reading-table',
+    tile: council,
+    top: true,
+    depth: council.y + council.h,
+    tall: false,
+  })
+  room.pois.push({
+    kind: 'council-table',
+    tile: council,
+    stand: { x: council.x, y: council.y + 1 },
+  })
   const walkable = (x: number, y: number) =>
     Number.isInteger(x) &&
     Number.isInteger(y) &&

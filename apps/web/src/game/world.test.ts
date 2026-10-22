@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { MAP_IDS, type MapId, mapData, PLACE_NAMES, placeNamed, readSavedMapId } from './world'
+import { MAP_IDS, type MapKey, mapData, PLACE_NAMES, placeNamed, readSavedMapId } from './world'
 
 test('every named place resolves to a point on its map', () => {
   const expected: Record<string, string> = {
@@ -40,7 +40,7 @@ test('every door leads to a walkable tile of an existing map', () => {
     const map = mapData(id)
     expect(map.doors.length).toBeGreaterThan(0)
     for (const door of map.doors) {
-      expect(MAP_IDS).toContain(door.to)
+      expect<string[]>([...MAP_IDS]).toContain(door.to)
       expect(mapData(door.to).walkable(door.toX, door.toY)).toBe(true)
     }
   }
@@ -48,7 +48,7 @@ test('every door leads to a walkable tile of an existing map', () => {
 
 test('every named place can be reached on foot from the hall entrance, through the doors', () => {
   interface Spot {
-    map: MapId
+    map: MapKey
     x: number
     y: number
   }

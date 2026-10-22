@@ -11,12 +11,12 @@ import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
 import { initialTalk, talkReducer } from './game/interact'
+import { announceLocation } from './game/location'
 import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
-import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
@@ -85,7 +85,9 @@ export function GamePanel({
   const [loadError, setLoadError] = useState(false)
   // Failed connect or load attempts in a row; after a few the Hall says so in-world.
   const [streamFailures, setStreamFailures] = useState(0)
-  const [roomSlot, setRoomSlot] = useState<number | null>(null)
+  // The room the Guild Master is in (the live region says it on entering) and why a doorway at hand is shut.
+  const [location, setLocation] = useState('Great Hall')
+  const [notice, setNotice] = useState('')
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
   const [customizing, setCustomizing] = useState(false)
@@ -306,7 +308,8 @@ export function GamePanel({
           onHandIn: () => setBanner({ verb: 'Quest', noun: 'complete', danger: false }),
           onOpenSeal: () => open.current('/seals'),
           onOpenCouncil: () => open.current('/council'),
-          onRoom: setRoomSlot,
+          onLocation: setLocation,
+          onNotice: setNotice,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
           onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
           onInspect: (id) => {
@@ -462,7 +465,10 @@ export function GamePanel({
         {summary}
       </p>
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
-        {announceRoom(roomSlot === null ? null : scene?.rooms[roomSlot]?.name, roomSlot !== null)}
+        {announceLocation(location)}
+      </p>
+      <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
+        {notice}
       </p>
       {/* The talk prompt floats above the walk controls, so on a phone it is never under them. */}
       <p aria-live="polite" className="talk-prompt" data-testid="game-prompt">

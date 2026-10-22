@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
-import { memberSeats, stewardStand } from './actors'
+import { apprenticeSeats, memberSpot, stewardStand } from './actors'
 import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
 import {
@@ -15,24 +15,44 @@ import {
 import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './interact'
 import { bubbleCentreX, roomTags } from './layout'
 import { lightIsOn } from './lighting'
+import {
+  browserStore,
+  FADE_FRAME_MS,
+  fadeInAlphas,
+  fadeOutAlphas,
+  locationName,
+  rememberLocation,
+  restoreLocation,
+  signLines,
+} from './location'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import { type Atlases, actorDepth, roomZoom, viewportFor } from './render'
 import { Retained } from './retained'
-import { DEPTH, greatHall, type Room } from './room'
+import { DEPTH, type Room } from './room'
 import { drawRoom, makeShadow, moveShadow, preloadAtlases, registerAtlases } from './roomView'
 import type { Spot } from './route'
 import type { SceneBubble, SceneMember, SceneState } from './scene'
 import { direction, findPath, followPath, type Keys, moveBy, SPEED, type Vec } from './walk'
 import { replan, standing, stepWalker, type Walker } from './walker'
 import {
-  doorAt,
+  barrierNear,
+  greatRoom,
+  hallRoomOf,
+  isRoomMapId,
+  landingFor,
   MAP_IDS,
   type MapData,
   type MapId,
+  type MapKey,
   mapData,
   mapSource,
   type PlaceName,
   placeNamed,
+  roomKeys,
+  roomOffset,
+  type Step,
+  setHalls,
+  stepThrough,
 } from './world'
 
 /** Texture keys of the loaded art. */
@@ -42,6 +62,7 @@ const FONT = 'font'
 const GLOW = 'glow'
 const COURIER = 'courier'
 const MAILBOX = 'mailbox'
+const DOOR = 'door-closed'
 const ENVELOPE = 'envelope'
 /** The courier is drawn this much larger than a Member so it reads at any zoom. */
 const COURIER_SCALE = 1.5
@@ -53,6 +74,16 @@ const OFFSETS: Record<MapId, Vec> = {
   'counting-house': { x: 0, y: 90000 },
   trail: { x: 0, y: 120000 },
 }
+/** Where a map sits in the one Phaser world: a town map at its fixed offset, a Hall room at its own. */
+function offsetOf(map: MapKey): Vec {
+  return isRoomMapId(map) ? roomOffset(map) : OFFSETS[map]
+}
+
+/** The room model of the Great Hall or a Hall room (null for a town map). */
+function roomModel(map: MapKey): Room | null {
+  return map === 'hall' ? greatRoom() : hallRoomOf(map)
+}
+
 /** Labels drawn over a map's named places and doors, at a tile. */
 const MAP_LABELS: Record<MapId, { text: string; x: number; y: number }[]> = {
   hall: [],
@@ -90,8 +121,10 @@ export interface HallOptions {
   reducedMotion: boolean
   /** Opens a Quest's Seal in the ledger (navigation only). */
   onOpenSeal: (questId: string) => void
-  /** Called when the Guild Master enters a room (its slot) or leaves to the hallway (null). */
-  onRoom: (slot: number | null) => void
+  /** Called with the name of the room the Guild Master has entered (the page announces it). */
+  onLocation?: ((name: string) => void) | undefined
+  /** Called with why a doorway is barred when the Guild Master stands at it, and with '' when they step away. */
+  onNotice?: ((text: string) => void) | undefined
   /** Called when who the Guild Master could talk to changes (null: nobody in reach). */
   onNear: (target: Target | null) => void
   /** Called when a Member is clicked or tapped (inspect them). */
@@ -103,7 +136,7 @@ export interface HallOptions {
   /** Called when a Member hands a finished Quest in at the Quest Board (the page earns the banner). */
   onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
-  onMap?: ((map: MapId) => void) | undefined
+  onMap?: ((map: MapKey) => void) | undefined
   /** The height in px of the reserved HUD strip at the top of the canvas (the camera never draws under it). */
   hudHeight?: (() => number) | undefined
   /** Opens the Council panel (navigation only): a tap on the Council chamber. */
@@ -167,15 +200,25 @@ const px = (tiles: number, size: number) => tiles * size
  */
 export class HallScene extends Phaser.Scene {
   /** The Great Hall as last drawn, and what it was drawn from. */
-  private hall: Room = greatHall([])
+  private hall: Room = greatRoom()
   private hallSig = ''
-  private hallCount = 0
-  private hallSprites: Phaser.GameObjects.GameObject[] = []
+  /** Every room's sprites (the Great Hall under `hall`), destroyed and redrawn when the Halls change. */
+  private roomSprites = new Map<MapKey, Phaser.GameObjects.GameObject[]>()
+  /** Closed doors over Great Hall doorways: private ones open as the Guild Master nears, locked ones stay shut. */
+  private doors: {
+    sprite: Phaser.GameObjects.Image
+    tile: { x: number; y: number }
+    locked: boolean
+  }[] = []
+  /** The black the doorway fade draws over the view, and whether a fade is running. */
+  private curtain: Phaser.GameObjects.Rectangle | null = null
+  private fading = false
+  /** True once the saved room was restored (or skipped) on the first state. */
+  private restored = false
+  /** The reason last announced for a barred doorway at hand ('' when none). */
+  private notice = ''
   private atlases: Atlases = { interiors: {}, furniture: {} }
   private hudHeight = 0
-  /** The map's walkable test with the doorways of Halls shut (they open in their own rooms later); refreshed on every render. */
-  private walkable: (x: number, y: number) => boolean = this.hall.walkable
-  private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
   /** Rooms, gate, scrolls and the coin counter, kept by key and redrawn only when their inputs change. */
@@ -201,9 +244,9 @@ export class HallScene extends Phaser.Scene {
   private path: Vec[] = []
   private chasing = false
   /** The map of the town the Guild Master is in. */
-  private current: MapId = 'hall'
+  private current: MapKey = 'hall'
   /** The map the camera shows: the Guild Master's, unless the camera follows a Member elsewhere. */
-  private viewMap: MapId = 'hall'
+  private viewMap: MapKey = 'hall'
   private phase: Phase = phaseAt(new Date().getHours())
   private phaseForced = false
   private veil: Phaser.GameObjects.Rectangle | null = null
@@ -239,6 +282,7 @@ export class HallScene extends Phaser.Scene {
       this.drawMap(id)
     }
     this.makeGlow()
+    this.makeDoor()
     this.makeCourier()
     this.makeMailbox()
     // The routine moves on with the clock: re-plan the Members every ten seconds.
@@ -256,6 +300,10 @@ export class HallScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(DEPTH.top)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
+    this.curtain = this.add
+      .rectangle(0, 0, 1, 1, 0x000000, 0)
+      .setOrigin(0, 0)
+      .setDepth(DEPTH.top + 50)
     this.time.addEvent({
       delay: 60_000,
       loop: true,
@@ -306,24 +354,15 @@ export class HallScene extends Phaser.Scene {
     hair?.setFrame(frames.hair)
   }
 
-  /** Moves the Guild Master to the middle of a room (slot) or back to the entrance (null). */
+  /** Moves the Guild Master into a Hall's room (its slot) or back to the Great Hall entrance (null). */
   teleport(slot: number | null): void {
-    if (slot !== null && this.lockedSlots.has(slot)) {
+    const key = slot === null ? 'hall' : roomKeys()[slot]
+    const spot = key === undefined ? null : landingFor(key)
+    if (key === undefined || spot === null) {
       return
     }
-    // A Hall's door is in the Great Hall's back wall; stand in front of it.
-    const door =
-      slot === null ? undefined : this.hall.doorways.filter((d) => d.hallId !== undefined)[slot]
-    const tile = door ? { x: door.tile.x, y: door.tile.y + 1 } : this.hall.spawn
-    this.at = { x: tile.x + 0.5, y: tile.y + 0.5 }
-    this.path = []
     this.chasing = true
-    if (this.current !== 'hall') {
-      this.enter('hall', this.at)
-      return
-    }
-    this.syncPlayer()
-    this.chase(true)
+    this.enter(key, { x: spot.x + 0.5, y: spot.y + 0.5 })
   }
 
   /** Walks the Guild Master to a named place in whatever map it is in (a point for behaviour code to target). */
@@ -332,8 +371,8 @@ export class HallScene extends Phaser.Scene {
     this.enter(place.map, { x: place.stand.x + 0.5, y: place.stand.y + 0.5 })
   }
 
-  /** The map of the town the Guild Master is in. */
-  currentMap(): MapId {
+  /** The map of the town (or Hall room) the Guild Master is in. */
+  currentMap(): MapKey {
     return this.current
   }
 
@@ -348,7 +387,7 @@ export class HallScene extends Phaser.Scene {
   }
 
   /** Moves the Guild Master into a map at a tile position, framing the camera on it. */
-  private enter(id: MapId, at: Vec): void {
+  private enter(id: MapKey, at: Vec): void {
     this.current = id
     this.viewMap = id
     this.at = { ...at }
@@ -359,6 +398,67 @@ export class HallScene extends Phaser.Scene {
     this.syncPlayer()
     this.chase(true)
     this.options.onMap?.(id)
+    const rooms = this.pending?.rooms ?? []
+    this.options.onLocation?.(
+      locationName(id, (hallId) => rooms.find((r) => r.hallId === hallId)?.name)
+    )
+    if (this.options.seed) {
+      rememberLocation(browserStore(), this.options.seed, id)
+    }
+  }
+
+  /**
+   * Walks through a doorway: four stepped frames to black, the Guild Master appears at the entry of
+   * the next map facing in, four frames back. Reduced motion cuts instantly. Nothing else moves the
+   * Guild Master while it runs.
+   */
+  private travel(step: Step): void {
+    if (this.fading) {
+      return
+    }
+    this.fading = true
+    this.path = []
+    this.releaseKeys()
+    const reduced = this.options.reducedMotion
+    this.runFade(fadeOutAlphas(reduced), () => {
+      this.enter(step.to, { x: step.at.x + 0.5, y: step.at.y + 0.5 })
+      this.facingLeft = false
+      this.runFade(fadeInAlphas(reduced), () => {
+        this.fading = false
+      })
+    })
+  }
+
+  /** Plays the stepped black opacities one frame at a time, then calls `done` (at once when there are none). */
+  private runFade(alphas: readonly number[], done: () => void): void {
+    if (alphas.length === 0) {
+      this.setCurtain(0)
+      done()
+      return
+    }
+    let frame = 0
+    const tick = () => {
+      this.setCurtain(alphas[frame] ?? 0)
+      frame++
+      this.time.delayedCall(FADE_FRAME_MS, frame < alphas.length ? tick : done)
+    }
+    tick()
+  }
+
+  /** Sets how black the view is, covering whatever the camera shows. */
+  private setCurtain(alpha: number): void {
+    this.curtainAlpha = alpha
+    this.fitCurtain()
+  }
+
+  private curtainAlpha = 0
+
+  private fitCurtain(): void {
+    const view = this.cameras.main.worldView
+    this.curtain
+      ?.setPosition(view.x - 4, view.y - 4)
+      .setSize(view.width + 8, view.height + 8)
+      .setFillStyle(0x000000, this.curtainAlpha)
   }
 
   /** The canvas area the camera draws in: everything below the reserved HUD strip. */
@@ -371,14 +471,16 @@ export class HallScene extends Phaser.Scene {
   /** Bounds the camera to the current map, opens at a whole zoom and centres on the Guild Master. */
   private frameMap(): void {
     const cam = this.cameras.main
-    const { x, y } = OFFSETS[this.viewMap]
+    const { x, y } = offsetOf(this.viewMap)
     const map = this.mapOf(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
     const view = this.viewport()
     // A room opens at the largest whole zoom that shows all of it; a town map fills the frame.
     this.zoomLevel =
-      this.viewMap === 'hall' ? roomZoom(view, { w, h }) : openZoomWhole(view.w, view.h, w, h)
+      roomModel(this.viewMap) !== null
+        ? roomZoom(view, { w, h })
+        : openZoomWhole(view.w, view.h, w, h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
     if (this.viewMap === this.current) {
@@ -392,7 +494,7 @@ export class HallScene extends Phaser.Scene {
    */
   private boundCamera(): void {
     const cam = this.cameras.main
-    const { x, y } = OFFSETS[this.viewMap]
+    const { x, y } = offsetOf(this.viewMap)
     const map = this.mapOf(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
@@ -408,8 +510,9 @@ export class HallScene extends Phaser.Scene {
       return
     }
     const tint = tintFor(this.phase)
-    const { x, y } = OFFSETS[this.viewMap]
+    const { x, y } = offsetOf(this.viewMap)
     const map = this.mapOf(this.viewMap)
+    const model = roomModel(this.viewMap)
     this.veil
       .setPosition(x, y)
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
@@ -419,8 +522,8 @@ export class HallScene extends Phaser.Scene {
     }
     this.lanterns = []
     const lit =
-      this.viewMap === 'hall'
-        ? this.hall.lights.filter((l) => lightIsOn(this.phase, l)).map((l) => l.tile)
+      model !== null
+        ? model.lights.filter((l) => lightIsOn(this.phase, l)).map((l) => l.tile)
         : tint.lanterns
           ? map.lanterns
           : []
@@ -434,52 +537,75 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** A map's data; the hall's size follows the Great Hall as drawn (a corridor grows it past six Halls). */
-  private mapOf(id: MapId): MapData {
-    const data = mapData(id)
-    return id === 'hall' ? { ...data, width: this.hall.width, height: this.hall.height } : data
+  /** A map's data (the Great Hall's size follows the Halls it has doorways for). */
+  private mapOf(id: MapKey): MapData {
+    return mapData(id)
   }
 
-  /** Redraws the Great Hall when its Halls change: a doorway and a sign per Hall, a corridor past six. */
+  /**
+   * Rebuilds the Great Hall and every Hall's room when the Halls or their Members change: a doorway
+   * and a sign per Hall, a room sized to its Members, a corridor past six Halls. A Hall added in the
+   * Guild builder gets its room here.
+   */
   private fitHall(state: SceneState): void {
-    const halls = state.rooms.map((r, index) => ({
-      id: r.hallId,
-      name: r.name,
-      kind: r.kind,
-      locked: r.locked,
-      index,
+    const specs = state.rooms.map((r, index) => ({
+      hall: { id: r.hallId, name: r.name, kind: r.kind, locked: r.locked, index },
+      members: r.memberIds.map((id) => ({ id, captain: state.members[id]?.rank === 'captain' })),
     }))
-    const sig = JSON.stringify(halls)
+    const sig = JSON.stringify(specs)
     if (sig === this.hallSig || !this.ready) {
       return
     }
-    const grew = halls.length !== this.hallCount
-    this.hallCount = halls.length
     this.hallSig = sig
-    this.hall = greatHall(halls)
-    for (const object of this.hallSprites) {
-      object.destroy()
+    setHalls(specs)
+    this.hall = greatRoom()
+    for (const objects of this.roomSprites.values()) {
+      for (const object of objects) {
+        object.destroy()
+      }
     }
-    this.hallSprites = drawRoom(this, this.hall, this.atlases, OFFSETS.hall)
-    // A shrunk room can leave the Guild Master off it: back to the spawn.
-    if (
-      this.current === 'hall' &&
-      !this.hall.walkable(Math.floor(this.at.x), Math.floor(this.at.y))
-    ) {
-      this.at = { x: this.hall.spawn.x + 0.5, y: this.hall.spawn.y + 0.5 }
+    this.roomSprites = new Map()
+    this.roomSprites.set('hall', drawRoom(this, this.hall, this.atlases, OFFSETS.hall))
+    for (const key of roomKeys()) {
+      const room = hallRoomOf(key)
+      if (room) {
+        this.roomSprites.set(key, drawRoom(this, room, this.atlases, roomOffset(key)))
+      }
     }
-    if (grew && this.viewMap === 'hall') {
+    // A Hall that is gone or locked sends the Guild Master back to the Great Hall; a shrunk room can leave them off the floor.
+    if (this.current !== 'hall' && landingFor(this.current) === null) {
+      const spot = this.hall.spawn
+      this.enter('hall', { x: spot.x + 0.5, y: spot.y + 0.5 })
+    } else if (!mapData(this.current).walkable(Math.floor(this.at.x), Math.floor(this.at.y))) {
+      const spot = roomModel(this.current)?.spawn ?? this.hall.spawn
+      this.at = { x: spot.x + 0.5, y: spot.y + 0.5 }
+    }
+    if (roomModel(this.viewMap) !== null) {
       this.frameMap()
-    } else if (this.viewMap === 'hall') {
-      this.boundCamera()
     }
     this.applyTint()
+  }
+
+  /** Opens the room the guild last stood in, once, on the first state (the Great Hall when it is gone or storage is blocked). */
+  private restoreRoom(): void {
+    if (this.restored) {
+      return
+    }
+    this.restored = true
+    if (this.startPlace || !this.options.seed) {
+      return
+    }
+    const key = restoreLocation(browserStore(), this.options.seed, (k) => landingFor(k) !== null)
+    const spot = key === 'hall' ? null : landingFor(key)
+    if (spot) {
+      this.enter(key, { x: spot.x + 0.5, y: spot.y + 0.5 })
+    }
   }
 
   /** One of the town's maps as tile layers at its offset; the Great Hall is drawn by `fitHall`. */
   private drawMap(id: MapId): void {
     if (id === 'hall') {
-      this.hallSprites = drawRoom(this, this.hall, this.atlases, OFFSETS.hall)
+      this.roomSprites.set('hall', drawRoom(this, this.hall, this.atlases, OFFSETS.hall))
       return
     }
     const source = mapSource(id)
@@ -512,6 +638,22 @@ export class HallScene extends Phaser.Scene {
     paint(0x3b2410, 4, 6, 6, 1) // slot
     paint(0xb8453a, 12, 0, 2, 4) // flag
     g.generateTexture(MAILBOX, 16, 16)
+    g.destroy()
+  }
+
+  /** A closed wooden door, drawn in code: planks, a frame and a brass handle, filling one tile. */
+  private makeDoor(): void {
+    const g = this.add.graphics()
+    const paint = (colour: number, x: number, y: number, w: number, h: number) => {
+      g.fillStyle(colour, 1)
+      g.fillRect(x, y, w, h)
+    }
+    paint(0x3b2410, 1, 0, 14, 16) // frame
+    paint(0x7a4b24, 2, 1, 12, 15) // planks
+    paint(0x5e3a1c, 5, 1, 1, 15) // plank seams
+    paint(0x5e3a1c, 10, 1, 1, 15)
+    paint(0xd9b24a, 11, 8, 2, 2) // handle
+    g.generateTexture(DOOR, 16, 16)
     g.destroy()
   }
 
@@ -658,6 +800,11 @@ export class HallScene extends Phaser.Scene {
       return
     }
     this.sortActors()
+    if (this.fading) {
+      this.fitCurtain()
+      this.syncPlayer()
+      return
+    }
     const seconds = Math.min(delta, 100) / 1000
     const dir = direction(this.keys)
     const walkable = this.canWalk()
@@ -687,18 +834,34 @@ export class HallScene extends Phaser.Scene {
       const walking = view.walker.path.length > 0 || view.walker.legs.length > 0
       this.pose(view.root, walkPose(this.time.now, walking), view.walker.facingLeft)
     }
-    const door = doorAt(mapData(this.current), Math.floor(this.at.x), Math.floor(this.at.y))
-    if (door) {
-      this.enter(door.to, { x: door.toX + 0.5, y: door.toY + 0.5 })
+    const tile = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
+    const step = stepThrough(this.current, tile)
+    if (step) {
+      this.travel(step)
       return
     }
     this.syncPlayer()
     this.updateNear()
+    this.updateDoors(tile)
   }
 
-  /** The walkable test of the map the Guild Master is in (the hall's has closed doors shut). */
+  /** The walkable test of the map the Guild Master is in (the Great Hall's has locked doorways shut). */
   private canWalk(): (x: number, y: number) => boolean {
-    return this.current === 'hall' ? this.walkable : mapData(this.current).walkable
+    return mapData(this.current).walkable
+  }
+
+  /** Opens a private door as the Guild Master nears it, and announces why a barred doorway at hand is shut. */
+  private updateDoors(tile: { x: number; y: number }): void {
+    for (const door of this.doors) {
+      const near =
+        this.current === 'hall' && Math.hypot(door.tile.x - tile.x, door.tile.y - tile.y) < 2.5
+      door.sprite.setVisible(door.locked || !near)
+    }
+    const reason = barrierNear(this.current, tile) ?? ''
+    if (reason !== this.notice) {
+      this.notice = reason
+      this.options.onNotice?.(reason)
+    }
   }
 
   /** Applies a walk-cycle pose to a character's layers: a lift and a lean per frame, flipped when facing left. */
@@ -720,34 +883,31 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** Reports who is in reach (a Member, the Seal desk or a Hall's mailbox) whenever that changes. */
+  /** Reports who is in reach (a Member, the Seal desk, the Council table or this Hall's mailbox) whenever that changes. */
   private updateNear(): void {
     const s = this.hall.tileSize
     const targets: { target: Target; at: Vec }[] = []
-    if (this.current !== 'hall') {
-      if (this.near !== null) {
-        this.near = null
-        this.options.onNear(null)
-      }
-      return
-    }
+    const room = roomModel(this.current)
+    const { x: ox, y: oy } = offsetOf(this.current)
     for (const id of this.talkable) {
-      const root = this.members.get(id)?.root
-      if (root) {
-        targets.push({ target: { kind: 'member', id }, at: { x: root.x / s, y: root.y / s } })
+      const view = this.members.get(id)
+      if (view && view.walker.map === this.current) {
+        targets.push({
+          target: { kind: 'member', id },
+          at: { x: (view.root.x - ox) / s, y: (view.root.y - oy) / s },
+        })
       }
     }
-    const desk = this.hall.pois.find((p) => p.kind === 'seal-desk')
-    if (desk) {
-      targets.push({ target: { kind: 'sealDesk' }, at: reachPoint(desk.tile, this.at) })
-    }
-    // Until a Hall has its own room (#204) its mailbox is reached at its doorway in the back wall.
-    for (const hall of this.pending?.rooms ?? []) {
-      const door = this.hall.doorways.find((d) => d.hallId === hall.hallId)
-      if (door && !hall.locked) {
+    for (const poi of room?.pois ?? []) {
+      if (poi.kind === 'seal-desk') {
+        targets.push({ target: { kind: 'sealDesk' }, at: reachPoint(poi.tile, this.at) })
+      } else if (poi.kind === 'council-table') {
+        targets.push({ target: { kind: 'council' }, at: reachPoint(poi.tile, this.at) })
+      } else if (poi.kind === 'mailbox' && isRoomMapId(this.current)) {
+        // A Hall's mailbox stands in its own room.
         targets.push({
-          target: { kind: 'mailbox', hallId: hall.hallId },
-          at: { x: door.tile.x + 0.5, y: door.tile.y + 1.5 },
+          target: { kind: 'mailbox', hallId: this.current.slice('hall:'.length) },
+          at: reachPoint(poi.tile, this.at),
         })
       }
     }
@@ -837,7 +997,7 @@ export class HallScene extends Phaser.Scene {
         return
       }
       const s = this.hall.tileSize
-      const { x: ox, y: oy } = OFFSETS[this.current]
+      const { x: ox, y: oy } = offsetOf(this.current)
       const to = {
         x: Math.floor((pointer.worldX - ox) / s),
         y: Math.floor((pointer.worldY - oy) / s),
@@ -893,7 +1053,7 @@ export class HallScene extends Phaser.Scene {
   /** Puts the sprite on the Guild Master's position. */
   private syncPlayer(): void {
     const s = this.hall.tileSize
-    const { x: ox, y: oy } = OFFSETS[this.current]
+    const { x: ox, y: oy } = offsetOf(this.current)
     this.player?.setPosition(ox + this.at.x * s, oy + this.at.y * s)
     this.sortActors()
   }
@@ -935,12 +1095,7 @@ export class HallScene extends Phaser.Scene {
       return
     }
     this.fitHall(state)
-    const hall = this.hall
-    // A Hall's doorway is a way into its own room, not yet walkable here (#204).
-    this.walkable = (x, y) =>
-      hall.walkable(x, y) &&
-      !hall.doorways.some((d) => d.hallId !== undefined && x === d.tile.x && y === d.tile.y)
-    this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
+    this.restoreRoom()
     this.drawDynamic(state)
     this.drawCouriers(state)
     this.drawMembers(state)
@@ -972,7 +1127,7 @@ export class HallScene extends Phaser.Scene {
     const map = this.mapOf(this.viewMap)
     const world = { w: px(map.width, map.tileSize), h: px(map.height, map.tileSize) }
     this.zoomLevel =
-      this.viewMap === 'hall'
+      roomModel(this.viewMap) !== null
         ? roomZoom(view, world)
         : (keepFollow ? zoomAfterResize : integerZoom)(view.w, view.h, world.w, world.h)
     cam.setZoom(this.zoomLevel)
@@ -1010,7 +1165,7 @@ export class HallScene extends Phaser.Scene {
   private centre(): void {
     if (this.followed === null) {
       const map = this.mapOf(this.viewMap)
-      const { x, y } = OFFSETS[this.viewMap]
+      const { x, y } = offsetOf(this.viewMap)
       this.cameras.main.centerOn(
         x + px(map.width, map.tileSize) / 2,
         y + px(map.height, map.tileSize) / 2
@@ -1035,9 +1190,12 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** Records whether a Council session is open (the Great Hall has no chamber to draw it in yet). */
+  /** Records whether a Council session is open and shows it at the Council table. */
   setCouncilState(state: 'idle' | 'conferring' | 'halted'): void {
     this.councilState = state
+    if (this.pending && this.ready) {
+      this.drawDynamic(this.pending)
+    }
   }
 
   /** Hall signs, the Quest Board, the Seal desk, the gate and the Treasury chest: each keyed group is rebuilt only when its inputs change. */
@@ -1047,35 +1205,71 @@ export class HallScene extends Phaser.Scene {
     const tags = roomTags(state.rooms, state.rooms.length)
     this.dynamic.group('signs', JSON.stringify([this.hallSig, tags]), () => {
       const made: Phaser.GameObjects.GameObject[] = []
+      this.doors = []
       state.rooms.forEach((hall, index) => {
         const door = this.hall.doorways.find((d) => d.hallId === hall.hallId)
         const tag = tags[index]
         if (!door || !tag) {
           return
         }
-        const sign = this.add
-          .bitmapText(
-            (door.tile.x + 0.5) * s,
-            (door.tile.y - 0.5) * s,
-            FONT,
-            tag.text.slice(0, 7),
-            8
-          )
-          .setOrigin(0.5, 0.5)
+        // The whole name on the sign, wrapped; locked and paused say so on a last line.
+        const lines = [
+          ...signLines(hall.name),
+          ...(hall.locked ? ['LOCKED'] : hall.paused ? ['PAUSED'] : []),
+        ]
+        const x = (door.tile.x + 0.5) * s
+        const bottom = (door.tile.y - 0.5) * s
+        const text = this.add
+          .bitmapText(x, bottom - 1, FONT, lines.join('\n'), 8)
+          .setOrigin(0.5, 1)
+          .setCenterAlign()
           .setTint(tag.closed ? 0xff9a8a : 0xffffff)
+          .setDepth(DEPTH.top + 3)
+        const plate = this.add
+          .rectangle(x, bottom, text.width + 4, text.height + 3, 0x1a1a2a, 0.8)
+          .setOrigin(0.5, 1)
           .setDepth(DEPTH.top + 2)
-        made.push(sign)
-        if (tag.closed) {
-          made.push(
-            this.add
-              .rectangle(door.tile.x * s, door.tile.y * s, s, s, 0x101018, 0.6)
-              .setOrigin(0, 0)
-              .setDepth(DEPTH.wall + 2)
-          )
+        made.push(plate, text)
+        // A locked Hall's doorway is a shut door with a bar across it; a Private Hall's door looks closed until the Guild Master nears.
+        if (hall.locked || hall.kind === 'private') {
+          const sprite = this.add
+            .image(door.tile.x * s, door.tile.y * s, DOOR)
+            .setOrigin(0, 0)
+            .setDepth(DEPTH.wall + 2)
+          made.push(sprite)
+          this.doors.push({ sprite, tile: door.tile, locked: hall.locked })
+          if (hall.locked) {
+            made.push(
+              this.add
+                .rectangle(door.tile.x * s, door.tile.y * s + 6, s, 4, 0xb8453a, 1)
+                .setOrigin(0, 0)
+                .setStrokeStyle(1, 0x3b2410)
+                .setDepth(DEPTH.wall + 3)
+            )
+          }
         }
       })
       return made
     })
+    const table = this.hall.pois.find((p) => p.kind === 'council-table')
+    if (table) {
+      this.dynamic.group('council', JSON.stringify([table.tile, this.councilState]), () => {
+        const sitting = this.councilState === 'conferring'
+        const halted = this.councilState === 'halted'
+        const tint = halted ? 0xff6666 : sitting ? 0x99ff99 : 0xffffff
+        const say = halted ? 'HALTED' : sitting ? 'IN SESSION' : 'IN RECESS'
+        const zone = this.add
+          .zone(table.tile.x * s, table.tile.y * s, table.tile.w * s, table.tile.h * s)
+          .setOrigin(0, 0)
+          .setInteractive({ useHandCursor: true })
+        zone.on('pointerdown', () => this.options.onOpenCouncil?.())
+        return [
+          zone,
+          this.label(table.tile.x * s, (table.tile.y - 1) * s, 'COUNCIL', 8),
+          this.label(table.tile.x * s, table.tile.y * s + s, say, 8, tint),
+        ]
+      })
+    }
     const board = this.hall.pois.find((p) => p.kind === 'quest-board')
     const queued = state.rooms.reduce((sum, r) => sum + (r.locked ? 0 : r.board), 0)
     if (board) {
@@ -1191,24 +1385,21 @@ export class HallScene extends Phaser.Scene {
     const idleIds = Object.values(state.members)
       .filter((m) => m.status === 'idle' && !m.awaitingSeal)
       .map((m) => m.id)
-    // Until a Hall has its own room (#204), every Member stands on the Great Hall floor.
-    const seats = memberSeats(
-      this.hall,
-      state.rooms.reduce((sum, r) => sum + r.memberIds.length, 0)
-    )
     const board = this.hall.pois.find((p) => p.kind === 'quest-board')?.stand ?? this.hall.spawn
-    let next = 0
+    // Each Member stands at their station in their own Hall's room.
     for (const room of state.rooms) {
+      const key: MapKey = `hall:${room.hallId}`
+      const model = hallRoomOf(key)
       for (const id of room.memberIds) {
         const member = state.members[id]
-        const seat = seats[next++]
-        if (!member || !seat) {
+        if (!member || !model) {
           continue
         }
         live.add(id)
+        const spot = memberSpot(model, key, id)
         this.placeMember(member, {
-          home: { map: 'hall', ...seat },
-          desk: { map: 'hall', ...seat },
+          home: spot,
+          desk: spot,
           board: { map: 'hall', ...board },
           idleIds,
         })
@@ -1256,18 +1447,18 @@ export class HallScene extends Phaser.Scene {
     const live = new Set<string>()
     for (const room of state.rooms) {
       const crew = state.apprentices.filter((a) => a.hallId === room.hallId)
-      const door = this.hall.doorways.find((d) => d.hallId === room.hallId)
-      if (!door || crew.length === 0) {
+      const key: MapKey = `hall:${room.hallId}`
+      const model = hallRoomOf(key)
+      if (!model || !isRoomMapId(key) || crew.length === 0) {
         continue
       }
+      const seats = apprenticeSeats(model, crew.length)
+      const offset = roomOffset(key)
       crew.forEach((apprentice, n) => {
-        const seat = {
-          x: Math.min(this.hall.width - 2, Math.max(1, door.tile.x - 1 + (n % 3))),
-          y: door.tile.y + 2 + Math.floor(n / 3),
-        }
+        const seat = seats[n] ?? model.spawn
         live.add(apprentice.childId)
-        const x = seat.x * s + s / 2
-        const y = seat.y * s + s / 2
+        const x = offset.x + seat.x * s + s / 2
+        const y = offset.y + seat.y * s + s / 2
         const found = this.apprentices.get(apprentice.childId)
         if (found) {
           if (!this.tweens.isTweening(found.root)) {
@@ -1282,7 +1473,7 @@ export class HallScene extends Phaser.Scene {
         // The parent Quest's owner is the Member working it; the apprentice walks in from them.
         const owner = Object.values(state.members).find((m) => m.questId === apprentice.parentId)
         const ownerView = owner ? this.members.get(owner.id) : undefined
-        const parent = ownerView?.walker.map === 'hall' ? ownerView.root : undefined
+        const parent = ownerView?.walker.map === key ? ownerView.root : undefined
         const animate = !this.options.reducedMotion && !this.seeding
         const root = this.add
           .container(animate && parent ? parent.x : x, animate && parent ? parent.y : y, layers)
@@ -1345,8 +1536,8 @@ export class HallScene extends Phaser.Scene {
   }
 
   /** The walkable test of any map for a walking Member (the hall's keeps closed rooms shut). */
-  private readonly walkableOf = (map: MapId): ((x: number, y: number) => boolean) =>
-    map === 'hall' ? this.walkable : mapData(map).walkable
+  private readonly walkableOf = (map: MapKey): ((x: number, y: number) => boolean) =>
+    mapData(map).walkable
 
   /**
    * Plans what a Member should be doing (a pure function of state, seed and time) and, when the
@@ -1446,7 +1637,7 @@ export class HallScene extends Phaser.Scene {
   private syncMember(view: MemberView): void {
     const { walker } = view
     const s = this.hall.tileSize
-    const { x: ox, y: oy } = OFFSETS[walker.map]
+    const { x: ox, y: oy } = offsetOf(walker.map)
     const spot = { x: Math.round(ox + walker.pos.x * s), y: Math.round(oy + walker.pos.y * s) }
     // Never stand on the Guild Master: step aside when sharing their map and tile.
     const gm = this.player
@@ -1490,6 +1681,7 @@ export class HallScene extends Phaser.Scene {
     }
     // Run-check hooks: the map the camera shows, and where every Member is (map, tile, doing what).
     this.game.canvas.dataset.view = this.viewMap
+    this.game.canvas.dataset.player = `${this.current}:${Math.floor(this.at.x)},${Math.floor(this.at.y)}`
     const view = this.cameras.main.worldView
     this.game.canvas.dataset.camera = `${Math.round(view.x)},${Math.round(view.y)},${this.cameras.main.zoom}`
     this.game.canvas.dataset.members = [...this.members]
@@ -1501,7 +1693,7 @@ export class HallScene extends Phaser.Scene {
   }
 
   /** The map a Member is in (null when none is drawn): Members are tracked on every map. */
-  memberMap(id: string): MapId | null {
+  memberMap(id: string): MapKey | null {
     return this.members.get(id)?.walker.map ?? null
   }
 
