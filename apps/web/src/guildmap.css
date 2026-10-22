@@ -26,7 +26,7 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
-  stroke: var(--px-wood-700);
+  stroke: var(--px-text-muted);
   stroke-width: calc(var(--px) * 2);
 }
 .gmap-lines line {
@@ -49,7 +49,7 @@
   justify-content: center;
   gap: calc(var(--px) * 1);
   margin: 0 calc(var(--px) * 2);
-  padding: calc(var(--px) * 2) calc(var(--px) * 3) calc(var(--px) * 2) calc(var(--px) * 10);
+  padding: calc(var(--px) * 2) calc(var(--px) * 3) calc(var(--px) * 2) calc(var(--px) * 14);
   font-family: var(--font-body);
   font-size: var(--text-md);
   text-align: left;
@@ -95,4 +95,11 @@
   align-self: center;
   background: var(--px-paper);
   color: var(--px-text);
+}
+
+/* On a phone the mini map is a Map button in the lower-left corner; a world alert rides above it. */
+@media (max-width: 599px) {
+  .world .world-alert {
+    bottom: calc(var(--px) * 50);
+  }
 }

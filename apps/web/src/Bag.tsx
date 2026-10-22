@@ -201,9 +201,14 @@ export function Bag({
   // Choosing a page replaces the menu the cursor was on: keyboard focus follows to the page title.
   useEffect(() => {
     if (visible && !inMenu) {
-      heading.current?.focus()
+      // The Guild Map is a cursor widget: its ▶ cursor takes focus so the arrow keys work at once.
+      const cursor =
+        page === 'map'
+          ? dialog.current?.querySelector<HTMLElement>('[data-room][tabindex="0"]')
+          : null
+      ;(cursor ?? heading.current)?.focus()
     }
-  }, [visible, inMenu])
+  }, [visible, inMenu, page])
 
   const select = (id: string) => {
     if (id === SIGN_OUT) {

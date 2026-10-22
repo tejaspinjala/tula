@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { ReactNode } from 'react'
+import type { GuildMap } from './game/guildmap'
 
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { Bag } = await import('./Bag')
@@ -23,7 +24,11 @@ afterAll(async () => {
 type Calls = { paths: string[]; menu: number; close: number; signOut: number; focus: number }
 
 function bag(
-  props: { visible?: boolean; page?: (typeof BAG_PAGES)[number]['id'] | null },
+  props: {
+    visible?: boolean
+    page?: (typeof BAG_PAGES)[number]['id'] | null
+    map?: GuildMap
+  },
   c: Calls
 ) {
   const element: ReactNode = (
@@ -46,6 +51,7 @@ function bag(
       focusWorld={() => {
         c.focus += 1
       }}
+      map={props.map}
     />
   )
   return element
@@ -193,6 +199,25 @@ test('opening a page from the menu moves keyboard focus to that page, not to the
   expect(document.activeElement?.getAttribute('role')).toBe('option')
   await m.rerender(bag({ page: 'treasury' }, c))
   expect(document.activeElement?.id).toBe('treasury-title')
+  await m.unmount()
+})
+
+test('the Guild Map page puts the ▶ cursor on the room you are in, so arrow keys work at once', async () => {
+  const room = {
+    id: 'hall' as const,
+    hallId: null,
+    name: 'Great Hall',
+    kind: 'great' as const,
+    locked: false,
+    private: false,
+    memberCount: 0,
+    bounds: { x: 0, y: 0, w: 10, h: 8 },
+    links: [],
+  }
+  const c = calls()
+  const m = await mount(bag({}, c))
+  await m.rerender(bag({ page: 'map', map: { current: 'hall', rooms: [room], marks: [] } }, c))
+  expect(document.activeElement?.getAttribute('data-room')).toBe('hall')
   await m.unmount()
 })
 
