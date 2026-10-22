@@ -210,6 +210,11 @@ export interface AppDeps {
   suggestions?: SuggestionStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
+  /**
+   * Whether the legacy `POST /guilds` is served. It writes the guild before any passkey exists, so
+   * production refuses it; it follows `devGuildHeader` unless composition overrides it.
+   */
+  legacyFounding?: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
   rateLimiter: RateLimiter
   /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
@@ -548,7 +553,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: 'rate_limited' }, 429)
   }
   app.post('/guilds', limited('founding'))
-  app.post('/founding/begin', limited('founding'))
+  app.post('/founding/begin', limited('founding-begin'))
   app.post('/founding/finish', limited('founding'))
   app.get('/founding', limited('founding-status'))
   app.post('/sign-in/begin', limited('signin-begin'))
@@ -633,7 +638,12 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ open })
   })
 
+  // The legacy founding writes the guild before any passkey exists, so an abandoned ceremony
+  // leaves an orphan. Only the dev/test switch (the one that enables x-guild-id) keeps it.
   app.post('/guilds', async (c) => {
+    if (!(deps.legacyFounding ?? deps.devGuildHeader)) {
+      return c.json({ error: 'not_found' }, 404)
+    }
     const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) {
       return c.json({ error: 'invalid_guild' }, 400)

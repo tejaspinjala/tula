@@ -79,7 +79,7 @@ test('a failure while writing the credential rolls the guild back', async () => 
 })
 
 test('the legacy POST /guilds, which can leave a guild with no passkey, is refused without the dev switch', async () => {
-  const prod = await createHarness({ devGuildHeader: false })
+  const prod = await createHarness({ devGuildHeader: false, app: { legacyFounding: false } })
   try {
     const res = await prod.request('/guilds', {
       method: 'POST',
