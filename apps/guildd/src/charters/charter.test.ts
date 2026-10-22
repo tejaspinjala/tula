@@ -414,12 +414,9 @@ describe('schedule triggers (F6)', () => {
       ],
       edges: [],
     }
-    const charter = exportCharter({
-      name: 'n',
-      config,
-      rites: [rite('s', { activeGraph: graph })],
-      now,
-    })
+    // Export now omits such a Rite, so a hand-edited document carries it.
+    const base = exportCharter({ name: 'n', config, rites: [], now })
+    const charter = { ...base, rites: [{ name: 's', graph }] }
     const r = applyCharter({ charter, current: config, existingRiteNames: [] })
     expect(r.ok).toBe(false)
     if (!r.ok) {
