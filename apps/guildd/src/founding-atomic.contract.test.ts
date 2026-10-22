@@ -78,18 +78,13 @@ test('a failure while writing the credential rolls the guild back', async () => 
   expect(await guildCount(name)).toBe(0)
 })
 
-test('the legacy POST /guilds, which can leave a guild with no passkey, is refused without the dev switch', async () => {
-  const prod = await createHarness({ devGuildHeader: false, app: { legacyFounding: false } })
-  try {
-    const res = await prod.request('/guilds', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Legacy', goal: 'g' }),
-    })
-    expect(res.status).toBe(404)
-  } finally {
-    await prod.close()
-  }
+test('the legacy POST /guilds is gone, even with the dev guild header on', async () => {
+  const res = await harness.request('/guilds', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Legacy', goal: 'g' }),
+  })
+  expect(res.status).toBe(404)
 })
 
 test('one founding costs one hit on the founding bucket, not one per request', async () => {
