@@ -53,6 +53,8 @@ interface Options {
   history?: Record<string, unknown>[]
   /** Lists a second Rite, `v`, besides `w`. */
   second?: boolean
+  /** Holds every save until it resolves, to test saves that overlap. */
+  gate?: Promise<void>
   /** The version in force; defaults to 1. */
   active?: number
   /** The version the panel loads first; defaults to the stored one. */
@@ -60,6 +62,7 @@ interface Options {
 }
 
 function world(options: Options = {}) {
+  const flight = { now: 0, peak: 0 }
   const puts: { name: string; graph: { nodes: { id: string; type: string }[] } }[] = []
   const publishes: unknown[] = []
   const urls: string[] = []
@@ -173,6 +176,10 @@ function world(options: Options = {}) {
     if (init?.method === 'PUT' && url === `${base}/w`) {
       urls.push(`PUT ${url}`)
       puts.push(JSON.parse(String(init.body)))
+      flight.now++
+      flight.peak = Math.max(flight.peak, flight.now)
+      await options.gate
+      flight.now--
       const body = JSON.parse(String(init.body))
       const reply = options.save ?? {
         status: 200,
@@ -205,7 +212,7 @@ function world(options: Options = {}) {
     return fetcher(url, init)
   }
   const browser = { create: async () => ({}), get: async () => ({ signed: 'abc' }) }
-  return { puts, publishes, urls, fetcher: wrapped, browser }
+  return { puts, publishes, urls, flight, fetcher: wrapped, browser }
 }
 
 const doc = globalThis.document
@@ -257,6 +264,58 @@ test('adding a node from the palette and saving a draft PUTs the edited graph', 
   await click(host, 'Save draft')
   expect(w.puts[0]?.name).toBe('W')
   expect(w.puts[0]?.graph.nodes.map((n) => n.id)).toEqual(['start', 'agent'])
+})
+
+test('two rapid saves send one request at a time and the latest graph wins', async () => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const w = world({ gate })
+  const host = await mount(w, true)
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  expect(w.puts).toHaveLength(1)
+  release()
+  await settle()
+  expect(w.flight.peak).toBe(1)
+  expect(w.puts).toHaveLength(2)
+  expect(w.puts[1]?.graph.nodes).toHaveLength(4)
+})
+
+test('a save after the session changes goes to the new guild path', async () => {
+  const w = world()
+  const host = doc.createElement('div')
+  doc.body.appendChild(host)
+  const root = createRoot(host)
+  const render = (sess: typeof session) =>
+    act(async () => {
+      root.render(
+        <RitePanel
+          session={sess}
+          fetcher={w.fetcher}
+          browser={w.browser}
+          desktop={true}
+          validateDelayMs={0}
+          live={false}
+        />
+      )
+    })
+  await render(session)
+  await settle()
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  const next = { token: 't2', guildId: '22222222-2222-4222-8222-222222222222' }
+  await render(next)
+  await settle()
+  await click(host, 'Add agent')
+  await click(host, 'Save draft')
+  const put = w.urls.filter((u) => u.startsWith('PUT '))
+  expect(put.at(-1)).toBe(`PUT /api/guilds/${next.guildId}/rites/w`)
 })
 
 test('the palette lists every node type of the shared schema', async () => {

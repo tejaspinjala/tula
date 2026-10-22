@@ -14,6 +14,7 @@ export type RateRoute =
   | 'desktop-begin'
   | 'desktop-exchange'
   | 'founding'
+  | 'founding-begin'
   | 'founding-status'
   | 'reauth'
   | 'stream-ticket'
@@ -76,6 +77,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
     unknown: { limit: 3, windowMs: MINUTE },
   },
   // A cheap boolean read the signed-out page makes once per load.
+  // Starting the founding ceremony writes nothing, so it is cheap; finishing is the costly step.
+  'founding-begin': ceremonyLimits(),
   'founding-status': {
     client: { limit: 30, windowMs: MINUTE },
     unknown: { limit: 10, windowMs: MINUTE },
@@ -253,6 +256,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'desktop-begin': 'unauthenticated',
   'desktop-exchange': 'unauthenticated',
   founding: 'unauthenticated',
+  'founding-begin': 'unauthenticated',
   'founding-status': 'unauthenticated',
   reauth: 'unauthenticated',
   'stream-ticket': 'session',

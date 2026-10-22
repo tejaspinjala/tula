@@ -198,7 +198,7 @@ test('the versions route returns status and classification per version, newest f
   await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
   await engine.publish(guild, 'wf', 1, null)
   await engine.confirm(guild, 'wf', 1)
-  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await engine.save(guild, 'wf', { name: 'y', graph: LEARNING_TO_LINKEDIN })
   const res = await app.request(`/guilds/${guild}/rites/wf/versions`)
   expect(res.status).toBe(200)
   const body = versionRows.parse(await res.json())

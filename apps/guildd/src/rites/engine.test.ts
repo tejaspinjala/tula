@@ -84,11 +84,12 @@ const mustSave = async (
   engine: RiteEngine,
   guild: string,
   id: string,
-  graph: unknown = chain()
+  graph: unknown = chain(),
+  name = 'Chain'
 ) => {
-  const saved = await engine.save(guild, id, { name: 'Chain', graph })
-  if (saved.status === 'invalid') {
-    throw new Error(`invalid: ${JSON.stringify(saved.errors)}`)
+  const saved = await engine.save(guild, id, { name, graph })
+  if (saved.status === 'invalid' || saved.status === 'save_id_reused') {
+    throw new Error(`invalid: ${JSON.stringify(saved)}`)
   }
   const basedOn = (await engine.get(guild, id))?.activeVersion ?? null
   const published = await engine.publish(guild, id, saved.version.version, basedOn)
@@ -162,8 +163,8 @@ test('publishing over a moved active version is stale; only drafts publish', asy
   const { engine, guild } = await setup()
   await mustSave(engine, guild, 'chain')
   await engine.confirm(guild, 'chain', 1)
-  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
-  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  await engine.save(guild, 'chain', { name: 'Chain 2', graph: chain() })
+  await engine.save(guild, 'chain', { name: 'Chain 3', graph: chain() })
   expect(await engine.publish(guild, 'chain', 2, 1)).toMatchObject({ ok: true })
   expect(await engine.publish(guild, 'chain', 3, 1)).toEqual({ ok: false, error: 'stale' })
   expect(await engine.publish(guild, 'chain', 2, 2)).toEqual({ ok: false, error: 'not_draft' })
@@ -371,7 +372,7 @@ test('a pending widening version is not a baseline: an equal follow-up save stay
   }
   research.maxUsd = 2
   const v2 = await mustSave(engine, guild, 'chain', wider)
-  const v3 = await mustSave(engine, guild, 'chain', wider)
+  const v3 = await mustSave(engine, guild, 'chain', wider, 'Chain again')
   expect(v2).toMatchObject({ status: 'pending', version: { version: 2 } })
   expect(v3).toMatchObject({
     status: 'pending',

@@ -22,6 +22,7 @@ export const UNLIMITED_RATE_LIMITS = {
   'desktop-exchange': { client: NO_LIMIT, guild: NO_LIMIT },
   'signin-finish': { client: NO_LIMIT, guild: NO_LIMIT },
   founding: { client: NO_LIMIT },
+  'founding-begin': { client: NO_LIMIT },
   'founding-status': { client: NO_LIMIT },
   reauth: { client: NO_LIMIT },
   'stream-ticket': { client: NO_LIMIT, guild: NO_LIMIT },
@@ -69,6 +70,7 @@ export interface HarnessOptions {
     Pick<
       AppDeps,
       | 'identity'
+      | 'legacyFounding'
       | 'secrets'
       | 'config'
       | 'notes'
@@ -144,6 +146,8 @@ export async function createHarness(options: HarnessOptions = {}) {
     keys,
     anchor,
     devGuildHeader: options.devGuildHeader ?? true,
+    // The legacy founding stays on under test whatever the header switch says (see AppDeps).
+    legacyFounding: options.app?.legacyFounding ?? true,
     eventPollMs: options.app?.eventPollMs ?? 25,
     // Tests found many guilds and sign in from one in-process address, so limits stay off unless a test sets them.
     rateLimits: options.app?.rateLimits ?? UNLIMITED_RATE_LIMITS,
