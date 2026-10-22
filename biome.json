@@ -6,7 +6,10 @@
     "useIgnoreFile": true,
     "defaultBranch": "develop"
   },
-  "files": { "ignoreUnknown": true, "includes": ["**", "!docs", "!.claude/worktrees"] },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "!docs", "!.claude/worktrees", "!apps/web/src/game/roomtemplates.tiled.json"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
