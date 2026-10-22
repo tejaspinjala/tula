@@ -267,3 +267,11 @@
 .card {
   box-shadow: calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--px-wood-900);
 }
+
+/* The archive confirm sits in a bare fieldset, so Esc can be caught without a role on a div. */
+.rite-confirm {
+  border: 0;
+  margin: calc(var(--px) * 4) 0 0;
+  padding: 0;
+  min-width: 0;
+}

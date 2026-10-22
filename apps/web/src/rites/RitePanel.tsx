@@ -625,9 +625,8 @@ export function RitePanel({
         )}
       </div>
       {confirmingArchive && (
-        <div
-          role="group"
-          aria-label="Archive this Rite"
+        <fieldset
+          className="rite-confirm"
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.stopPropagation()
@@ -647,7 +646,7 @@ export function RitePanel({
               }
             }}
           />
-        </div>
+        </fieldset>
       )}
       {empty ? (
         <EmptyState member="steward" line="No Rites yet. Name a new Rite id above to start one." />
