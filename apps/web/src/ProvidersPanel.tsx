@@ -13,6 +13,7 @@ import {
   setProviderPrivate,
   withDefaultProfile,
   withoutProfile,
+  withoutProvider,
   withProfile,
   withProvider,
 } from './providers'
@@ -121,6 +122,16 @@ export function ProvidersPanel({
                 >
                   {row.privateEligible ? 'Turn off' : 'Allow private work'}
                 </PixelButton>
+                <PixelButton
+                  disabled={busy || profiles.some((p) => p.provider === row.id)}
+                  onClick={() =>
+                    route(`Provider ${row.id} removed`, (c) => withoutProvider(c, row.id))
+                  }
+                  aria-label={`Remove provider ${row.id}`}
+                >
+                  Remove
+                </PixelButton>
+                {profiles.some((p) => p.provider === row.id) && <p>Remove its profiles first.</p>}
               </div>
             </li>
           ))}
