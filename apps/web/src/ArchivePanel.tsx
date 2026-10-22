@@ -11,6 +11,7 @@ import {
   searchNotes,
 } from './archive'
 import type { Fetcher } from './artifacts'
+import { Badge } from './Badge'
 import { type PasskeyBrowser, PasskeyRequestError, type Session, webAuthnBrowser } from './passkeys'
 import { PixelButton } from './ui/pixel'
 import { WorkSection } from './WorkSection'
@@ -32,7 +33,7 @@ function browserDownload(filename: string, blob: Blob): void {
 
 /** The badge a private note wears in the list and the header. */
 function PrivateBadge() {
-  return <span className="text-sm font-semibold">PRIVATE</span>
+  return <Badge tone="private">PRIVATE</Badge>
 }
 
 /** The body as text, with each `[[link]]` to a known note as a button that opens it. */
