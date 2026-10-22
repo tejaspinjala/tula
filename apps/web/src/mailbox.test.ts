@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import {
+  countOpenInquiries,
   fileBugReport,
   loadBugReports,
   loadDossiers,
@@ -147,4 +148,29 @@ test('every refusal the server can give reads as an in-world line', () => {
     'That Quest has not finished yet, so there is nothing to put in a Dossier.'
   )
   expect(mailboxRefusal(new Error('boom'))).toBe('The courier could not get through. Try again.')
+})
+
+test('countOpenInquiries counts the unanswered Inquiries across the given Halls', async () => {
+  const row = (id: string, status: string) => ({
+    seq: 1,
+    id,
+    fromHall: 'a',
+    toHall: 'b',
+    askQuestId: 'q',
+    answerQuestId: 'q2',
+    asker: 'm1',
+    question: '?',
+    status,
+    answer: null,
+    answeredBy: null,
+    noteId: null,
+    askedAt: '2026-10-20T10:00:00.000Z',
+    expiresAt: '2026-10-21T10:00:00.000Z',
+    answeredAt: null,
+  })
+  const { fetcher } = stub([
+    { status: 200, body: { inquiries: [row('1', 'open'), row('2', 'answered')], next: null } },
+    { status: 200, body: { inquiries: [row('3', 'open'), row('4', 'open')], next: null } },
+  ])
+  expect(await countOpenInquiries(session, fetcher, ['x', 'y'])).toBe(3)
 })

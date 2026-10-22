@@ -10,6 +10,7 @@ import {
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
+import { type GuildMap, guildMap, mapSummary } from './game/guildmap'
 import { initialTalk, talkReducer } from './game/interact'
 import { announceLocation } from './game/location'
 import type { LookChoice } from './game/look'
@@ -17,6 +18,7 @@ import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
+import { greatRoom, hallRoomOf, type MapKey } from './game/world'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
@@ -24,8 +26,11 @@ import {
   COUNCIL_REFETCH_DEBOUNCE_MS,
   councilCount,
   LiveEvents,
+  mailboxCount,
   useSettledCount,
 } from './live-events'
+import { MiniMap } from './MiniMap'
+import { countOpenInquiries } from './mailbox'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -88,6 +93,15 @@ export function GamePanel({
   // The room the Guild Master is in (the live region says it on entering) and why a doorway at hand is shut.
   const [location, setLocation] = useState('Great Hall')
   const [notice, setNotice] = useState('')
+  // Where the Guild Master stands (room and tile, set on entering a room) and the Mailbox's unread count: the mini map's inputs.
+  const [standing, setStanding] = useState<{ map: MapKey; tile: { x: number; y: number } }>({
+    map: 'hall',
+    tile: { x: 0, y: 0 },
+  })
+  const [unread, setUnread] = useState(0)
+  // Bumped whenever the game rebuilt its rooms, so the map reads them fresh.
+  const [roomsBuilt, setRoomsBuilt] = useState(0)
+  const [miniMap, setMiniMap] = useState<GuildMap | null>(null)
   // The Guild Master's saved look (from the server), and whether the customization screen is open.
   const [look, setLook] = useState<LookChoice | null>(null)
   const [customizing, setCustomizing] = useState(false)
@@ -309,6 +323,9 @@ export function GamePanel({
           onOpenSeal: () => open.current('/seals'),
           onOpenCouncil: () => open.current('/council'),
           onLocation: setLocation,
+          onMap: (map, tile) => setStanding({ map, tile }),
+          onRooms: () => setRoomsBuilt((n) => n + 1),
+          onStep: (tile) => setStanding((now) => ({ ...now, tile })),
           onNotice: setNotice,
           onNear: (target) => dispatchTalk({ type: 'near', target }),
           onInteract: () => speakingNow.current === null && dispatchTalk({ type: 'interact' }),
@@ -393,6 +410,39 @@ export function GamePanel({
     return () => clearTimeout(id)
   }, [banner])
 
+  // The mini map follows the scene state and where the Guild Master stands, never the frame.
+  // Rooms come from the world the game built from this same scene (it runs first, above).
+  const mailEvents = mailboxCount(events)
+  useEffect(() => {
+    if (!session || !roster || mailEvents < 0) {
+      return
+    }
+    let live = true
+    countOpenInquiries(
+      session,
+      fetch,
+      roster.halls.filter((h) => !h.locked).map((h) => h.id)
+    )
+      .then((count) => live && setUnread(count))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [session, roster, mailEvents])
+  useEffect(() => {
+    if (scene && roomsBuilt > 0) {
+      setMiniMap(
+        guildMap({
+          scene,
+          roomOf: (key) => (key === 'hall' ? greatRoom() : hallRoomOf(key)),
+          current: standing.map,
+          master: standing.tile,
+          unread,
+        })
+      )
+    }
+  }, [scene, standing, unread, roomsBuilt])
+
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
   const focusWorld = useCallback(() => frame.current?.focus(), [])
 
@@ -465,8 +515,11 @@ export function GamePanel({
         {summary}
       </p>
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
-        {announceLocation(location)}
+        {miniMap && miniMap.rooms.length > 0
+          ? `${announceLocation(location)} ${mapSummary(miniMap)}`
+          : announceLocation(location)}
       </p>
+      {miniMap && <MiniMap map={miniMap} />}
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
         {notice}
       </p>

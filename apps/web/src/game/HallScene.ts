@@ -136,7 +136,11 @@ export interface HallOptions {
   /** Called when a Member hands a finished Quest in at the Quest Board (the page earns the banner). */
   onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
-  onMap?: ((map: MapKey) => void) | undefined
+  onMap?: ((map: MapKey, tile: { x: number; y: number }) => void) | undefined
+  /** Called after the world's rooms were rebuilt from the Halls (the mini map redraws from them). */
+  onRooms?: (() => void) | undefined
+  /** Called when the Guild Master steps onto another tile of the room (a tile change, not every frame). */
+  onStep?: ((tile: { x: number; y: number }) => void) | undefined
   /** The height in px of the reserved HUD strip at the top of the canvas (the camera never draws under it). */
   hudHeight?: (() => number) | undefined
   /** Opens the Council panel (navigation only): a tap on the Council chamber. */
@@ -241,6 +245,8 @@ export class HallScene extends Phaser.Scene {
   private playerShadow: Phaser.GameObjects.Image | null = null
   private playerLook: LookChoice | null = null
   private at: Vec = { x: this.hall.spawn.x + 0.5, y: this.hall.spawn.y + 0.5 }
+  /** The last tile reported through `onStep`. */
+  private stepped = { x: -1, y: -1 }
   private path: Vec[] = []
   private chasing = false
   /** The map of the town the Guild Master is in. */
@@ -388,6 +394,7 @@ export class HallScene extends Phaser.Scene {
 
   /** Moves the Guild Master into a map at a tile position, framing the camera on it. */
   private enter(id: MapKey, at: Vec): void {
+    this.stepped = { x: Math.floor(at.x), y: Math.floor(at.y) }
     this.current = id
     this.viewMap = id
     this.at = { ...at }
@@ -397,7 +404,7 @@ export class HallScene extends Phaser.Scene {
     this.applyTint()
     this.syncPlayer()
     this.chase(true)
-    this.options.onMap?.(id)
+    this.options.onMap?.(id, { x: Math.floor(this.at.x), y: Math.floor(this.at.y) })
     const rooms = this.pending?.rooms ?? []
     this.options.onLocation?.(
       locationName(id, (hallId) => rooms.find((r) => r.hallId === hallId)?.name)
@@ -558,6 +565,7 @@ export class HallScene extends Phaser.Scene {
     }
     this.hallSig = sig
     setHalls(specs)
+    this.options.onRooms?.()
     this.hall = greatRoom()
     for (const objects of this.roomSprites.values()) {
       for (const object of objects) {
@@ -835,6 +843,10 @@ export class HallScene extends Phaser.Scene {
       this.pose(view.root, walkPose(this.time.now, walking), view.walker.facingLeft)
     }
     const tile = { x: Math.floor(this.at.x), y: Math.floor(this.at.y) }
+    if (tile.x !== this.stepped.x || tile.y !== this.stepped.y) {
+      this.stepped = tile
+      this.options.onStep?.(tile)
+    }
     const step = stepThrough(this.current, tile)
     if (step) {
       this.travel(step)
