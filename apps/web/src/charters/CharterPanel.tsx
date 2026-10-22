@@ -15,6 +15,8 @@ export interface CharterPanelProps {
   session: Session
   fetcher?: Fetcher
   browser?: PasskeyBrowser
+  /** Called when the guild config in force changed, so the Hall can reload it. */
+  onConfigChanged?: (() => void) | undefined
   /** Saves the exported file; defaults to a browser download. */
   download?: (filename: string, text: string) => void
 }

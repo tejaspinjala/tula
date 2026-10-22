@@ -49,7 +49,19 @@ async function settle() {
   })
 }
 
-async function mount(importResponse: { status: number; body: unknown }): Promise<World> {
+interface Options {
+  preview?: { status: number; body: unknown }
+  onConfigChanged?: () => void
+}
+
+async function mount(
+  importResponse: { status: number; body: unknown },
+  options: Options = {}
+): Promise<World> {
+  const previewResponse = options.preview ?? {
+    status: 200,
+    body: { change: 'widening', baseVersion: 3 },
+  }
   const world: World = {
     calls: [],
     imports: [],
@@ -64,6 +76,9 @@ async function mount(importResponse: { status: number; body: unknown }): Promise
     }
     if (url === charterUrl) {
       return Response.json(sampleCharter)
+    }
+    if (url === `${charterUrl}/preview`) {
+      return Response.json(previewResponse.body, { status: previewResponse.status })
     }
     if (url === `${charterUrl}/import`) {
       world.imports.push(JSON.parse(String(init?.body)))
@@ -87,6 +102,7 @@ async function mount(importResponse: { status: number; body: unknown }): Promise
         session={session}
         fetcher={fetcher}
         browser={browser}
+        onConfigChanged={options.onConfigChanged}
         download={(filename, text) => world.downloads.push({ filename, text })}
       />
     )
@@ -255,4 +271,78 @@ test('a reused import id shows a plain message and not the raw code', async () =
   const text = w.host.querySelector('[role="alert"]')?.textContent ?? ''
   expect(text).toContain('already used for a different Charter')
   expect(text).not.toContain('import_id_reused')
+})
+
+test('a widening preview shows the badge and the matching question', async () => {
+  const w = await mount(applied)
+  await pick(w.host, JSON.stringify(sampleCharter))
+  expect(w.host.textContent).toContain('Widens authority: waits for your passkey')
+  expect(w.host.textContent).not.toContain('A change that widens')
+  await click(w.host, 'Import this Charter')
+  expect(w.host.textContent).toContain('Widens authority: waits for your passkey')
+})
+
+test('an internal preview says it applies at once', async () => {
+  const w = await mount(applied, {
+    preview: { status: 200, body: { change: 'internal', baseVersion: 3 } },
+  })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  expect(w.host.textContent).toContain('Applies at once')
+})
+
+test('an unchanged preview says only Rites are added', async () => {
+  const w = await mount(applied, {
+    preview: { status: 200, body: { change: 'unchanged', baseVersion: 3 } },
+  })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  expect(w.host.textContent).toContain('Config already matches; only Rites are added')
+})
+
+test('a failed preview shows the reason and disables Import', async () => {
+  const w = await mount(applied, {
+    preview: { status: 422, body: { error: 'invalid_charter' } },
+  })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  expect(w.host.querySelector('[role="alert"]')?.textContent).toMatch(/not a Charter/i)
+  const button = [...w.host.querySelectorAll('button')].find(
+    (b) => b.textContent?.trim() === 'Import this Charter'
+  )
+  expect(button?.disabled).toBe(true)
+})
+
+test('an applied import refreshes the Hall', async () => {
+  let refreshed = 0
+  const w = await mount(applied, { onConfigChanged: () => void refreshed++ })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  expect(refreshed).toBe(1)
+})
+
+test('a confirmed pending import refreshes the Hall', async () => {
+  let refreshed = 0
+  const w = await mount(
+    { status: 200, body: { config: { outcome: 'pending', version: 4 }, riteIds: [] } },
+    { onConfigChanged: () => void refreshed++ }
+  )
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  expect(refreshed).toBe(0)
+  await click(w.host, 'Confirm with passkey')
+  expect(refreshed).toBe(1)
+})
+
+test('while stale, Import this Charter is disabled until Reload', async () => {
+  const w = await mount({ status: 409, body: { error: 'stale' } })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  const importButton = () =>
+    [...w.host.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Import this Charter'
+    )
+  expect(importButton()?.disabled).toBe(true)
+  await click(w.host, 'Reload')
+  expect(importButton()?.disabled).toBe(false)
 })

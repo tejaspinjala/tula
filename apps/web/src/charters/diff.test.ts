@@ -87,6 +87,18 @@ test('a Charter that only changes Members gives a non-empty preview', () => {
   expect(p.settings.map((s) => s.label)).toEqual(['halls.heralds.members'])
 })
 
+test('a rank-only Member change shows different from and to', () => {
+  const at = (rank: string) => ({
+    ...base,
+    halls: [{ ...hall('heralds', 'Heralds Hall'), members: [{ id: 'm', name: 'Mira', rank }] }],
+  })
+  const p = previewCharter(parseConfig(at('novice')), twin(at('adept')))
+  expect(p.settings).toHaveLength(1)
+  expect(p.settings[0]?.from).not.toBe(p.settings[0]?.to)
+  expect(p.settings[0]?.from).toContain('Mira (novice)')
+  expect(p.settings[0]?.to).toContain('Mira (adept)')
+})
+
 test('a Charter that only changes the Steward gives a non-empty preview', () => {
   const next = { ...base, steward: { id: 'steward', name: 'Elder' } }
   const p = previewCharter(parseConfig(base), twin(next))
