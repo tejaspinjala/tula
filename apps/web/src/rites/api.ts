@@ -10,6 +10,8 @@ export interface RiteSummary {
   name: string
   latestVersion: number
   activeVersion: number | null
+  /** When it was archived, or null while it is live. */
+  archivedAt: string | null
 }
 
 /** One stored version of a Rite. */
@@ -60,6 +62,7 @@ const summaryBody = z.object({
   name: z.string(),
   latestVersion: z.number(),
   activeVersion: z.number().nullable(),
+  archivedAt: z.string().nullable().default(null),
 })
 const listBody = z.object({ rites: z.array(summaryBody), next: z.string().nullable() })
 const versionBody = z.object({
@@ -139,12 +142,12 @@ async function call<T>(
   return schema.parse(data)
 }
 
-/** Lists the Rites, following the cursor. */
-export async function listRites(s: Session, f: Fetcher): Promise<RiteSummary[]> {
+/** Lists the live Rites, or only the archived ones, following the cursor. */
+export async function listRites(s: Session, f: Fetcher, archived = false): Promise<RiteSummary[]> {
   const all: RiteSummary[] = []
   let after: string | null = null
   for (let i = 0; i < MAX_PAGES; i++) {
-    const query: string = `limit=50${after === null ? '' : `&after=${encodeURIComponent(after)}`}`
+    const query: string = `limit=50${archived ? '&archived=true' : ''}${after === null ? '' : `&after=${encodeURIComponent(after)}`}`
     const page = await call(f, `${base(s)}?${query}`, { headers: auth(s) }, listBody)
     all.push(...page.rites)
     if (page.next === null) {
@@ -153,6 +156,26 @@ export async function listRites(s: Session, f: Fetcher): Promise<RiteSummary[]> 
     after = page.next
   }
   throw new Error('too many Rite pages')
+}
+
+/** Archives a Rite: it leaves the list and cannot run or publish until unarchived. */
+export async function archiveRite(s: Session, id: string, f: Fetcher): Promise<void> {
+  await call(
+    f,
+    `${base(s)}/${id}/archive`,
+    { method: 'POST', headers: json(s), body: '{}' },
+    z.unknown()
+  )
+}
+
+/** Unarchives a Rite; it comes back with no version in force, so it must be published again. */
+export async function unarchiveRite(s: Session, id: string, f: Fetcher): Promise<void> {
+  await call(
+    f,
+    `${base(s)}/${id}/unarchive`,
+    { method: 'POST', headers: json(s), body: '{}' },
+    z.unknown()
+  )
 }
 
 /** Loads one version (the latest unless `version` is given) and the active version number. */
