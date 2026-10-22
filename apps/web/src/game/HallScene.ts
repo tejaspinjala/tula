@@ -1681,6 +1681,7 @@ export class HallScene extends Phaser.Scene {
     }
     // Run-check hooks: the map the camera shows, and where every Member is (map, tile, doing what).
     this.game.canvas.dataset.view = this.viewMap
+    this.game.canvas.dataset.player = `${this.current}:${Math.floor(this.at.x)},${Math.floor(this.at.y)}`
     const view = this.cameras.main.worldView
     this.game.canvas.dataset.camera = `${Math.round(view.x)},${Math.round(view.y)},${this.cameras.main.zoom}`
     this.game.canvas.dataset.members = [...this.members]

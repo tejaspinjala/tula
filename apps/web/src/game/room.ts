@@ -451,7 +451,7 @@ export function greatHall(halls: readonly RoomHall[]): Room {
     collision[at(tile.x, 2)] = true
   }
   // The Council of Elders sits at a table in the middle of the floor; its footprint is solid.
-  const council: Rect = { x: 9, y: 7, w: 2, h: 1 }
+  const council: Rect = { x: 14, y: 8, w: 2, h: 1 }
   for (let i = 0; i < council.w; i++) {
     collision[at(council.x + i, council.y)] = true
   }
