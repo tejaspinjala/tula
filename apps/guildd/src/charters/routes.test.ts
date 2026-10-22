@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import postgres from 'postgres'
+import { MemoryCharterImporter } from '../adapters/memory-charter-importer'
 import { MemoryClock } from '../adapters/memory-clock'
 import { MemoryConfigStore } from '../adapters/memory-config-store'
 import { MemoryHandoffStore } from '../adapters/memory-handoff-store'
@@ -61,6 +62,8 @@ async function setup(kind: 'memory' | 'postgres', maxBytes?: number) {
     rites: engine,
     config,
     clock,
+    imports: new MemoryCharterImporter(config, store),
+    namesDisabledSubscription: () => false,
     guildName: async (id) => (id === guild ? 'Acme' : id === other ? 'Other' : null),
     recordExported: async (id, fact) => {
       if (kind === 'memory') {

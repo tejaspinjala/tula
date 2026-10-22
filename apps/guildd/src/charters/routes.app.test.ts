@@ -1,9 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { eventsAfter } from '../events'
+import { defaultConfig } from '../guild-config'
+import { LEARNING_TO_LINKEDIN } from '../rites/templates'
 import { createHarness } from '../testing/harness'
 import { SoftwareAuthenticator } from '../testing/software-authenticator'
-import { charterSchema } from './charter'
+import { charterSchema, exportCharter } from './charter'
 import { CHARTER_EVENT } from './events'
 
 const harness = await createHarness({ devGuildHeader: true })
@@ -79,5 +81,67 @@ describe('GET /guilds/:id/charter through the composed app', () => {
     expect(z.object({ error: z.string() }).parse(JSON.parse(body)).error).toBe('not_found')
     expect(await exported(b.guildId)).toHaveLength(0)
     expect(await exported(a.guildId)).toHaveLength(1)
+  })
+})
+
+describe('POST /guilds/:id/charter/import through the composed app', () => {
+  const body = (importId: string) =>
+    JSON.stringify({
+      charter: exportCharter({
+        name: 'Source',
+        config: defaultConfig(),
+        rites: [{ id: 's', name: 'Imported', archivedAt: null, activeGraph: LEARNING_TO_LINKEDIN }],
+        now: new Date('2030-01-01T00:00:00.000Z'),
+      }),
+      baseVersion: 1,
+      importId,
+    })
+  const post = (guildId: string, headers: Record<string, string>, importId: string) =>
+    harness.request(`/guilds/${guildId}/charter/import`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: body(importId),
+    })
+  const imported = (guildId: string) =>
+    harness.adapters.db.withGuild(guildId, async (tx) =>
+      (await eventsAfter(tx, 0, 1000)).filter((e) => e.type === CHARTER_EVENT.imported)
+    )
+
+  test('the Guild Master imports; the Rite is a draft that POST /runs refuses', async () => {
+    const a = await signedIn('Guild A')
+    const res = await post(a.guildId, a.auth, 'one')
+    expect(res.status).toBe(200)
+    const [riteId] = z.object({ riteIds: z.array(z.string()) }).parse(await res.json()).riteIds
+    expect(await imported(a.guildId)).toHaveLength(1)
+    const run = await harness.request(`/guilds/${a.guildId}/rites/${riteId}/runs`, {
+      method: 'POST',
+      headers: { ...a.auth, 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(run.status).toBeGreaterThanOrEqual(400)
+    expect(z.object({ error: z.string() }).parse(await run.json()).error).toBe('no_active_version')
+  })
+
+  test('anonymous, dev-header-only and bogus-token requests are 401 and import nothing', async () => {
+    const a = await signedIn('Guild A')
+    for (const headers of [
+      {},
+      { 'x-guild-id': a.guildId },
+      { authorization: 'Bearer not-a-session' },
+    ]) {
+      expect((await post(a.guildId, headers, 'anon')).status).toBe(401)
+    }
+    expect(await imported(a.guildId)).toHaveLength(0)
+  })
+
+  test('the Guild Master of A aiming at B is refused as at a missing guild and B is untouched', async () => {
+    const a = await signedIn('Guild A')
+    const b = await signedIn('Guild B-secret')
+    const atB = await post(b.guildId, a.auth, 'x')
+    const atGhost = await post(crypto.randomUUID(), a.auth, 'x')
+    expect(atB.status).toBe(404)
+    expect(atGhost.status).toBe(404)
+    expect(await atB.text()).not.toContain('B-secret')
+    expect(await imported(b.guildId)).toHaveLength(0)
   })
 })

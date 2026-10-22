@@ -49,6 +49,9 @@ function reasonFor(error: unknown): string {
     if (error.status === 413) {
       return 'The Charter is too large (256 KB at most). Nothing was changed.'
     }
+    if (error.status === 409 && error.code === 'import_id_reused') {
+      return 'This import was already used for a different Charter. Try the import again. Nothing was changed.'
+    }
     return `The server refused this Charter (${error.code}). Nothing was changed.`
   }
   return `The import failed (${error instanceof Error ? error.message : 'unknown'}). Nothing was changed.`

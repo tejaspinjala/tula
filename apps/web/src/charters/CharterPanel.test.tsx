@@ -201,3 +201,13 @@ test('a 422 shows the reason and nothing changed', async () => {
   await click(w.host, 'Yes')
   expect(w.host.querySelector('[role="alert"]')?.textContent).toContain('invalid_charter')
 })
+
+test('a reused import id shows a plain message and not the raw code', async () => {
+  const w = await mount({ status: 409, body: { error: 'import_id_reused' } })
+  await pick(w.host, JSON.stringify(sampleCharter))
+  await click(w.host, 'Import this Charter')
+  await click(w.host, 'Yes')
+  const text = w.host.querySelector('[role="alert"]')?.textContent ?? ''
+  expect(text).toContain('already used for a different Charter')
+  expect(text).not.toContain('import_id_reused')
+})
