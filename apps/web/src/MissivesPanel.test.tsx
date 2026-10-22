@@ -8,6 +8,7 @@ const realFetch = globalThis.fetch
 GlobalRegistrator.register({ url: 'http://localhost/' })
 const { createRoot } = await import('react-dom/client')
 const { MissivesPanel } = await import('./MissivesPanel')
+const { formatGameTime } = await import('./game-time')
 const { LiveEvents } = await import('./live-events')
 
 const urls: string[] = []
@@ -107,6 +108,14 @@ test('a Hall’s exchange is listed newest first with Member names, as plain tex
   expect(rows[2]).toContain('Warm and brief.')
   expect(m.host.querySelector('b')).toBeNull()
   expect(urls.some((u) => u.includes('/halls/heralds/missives?limit=20'))).toBe(true)
+  await m.unmount()
+})
+
+test('a Missive time is local, with the date when it was not sent today', async () => {
+  const m = await mount(<MissivesPanel session={session} />)
+  const time = m.host.querySelector('[data-testid="missive"] time')
+  expect(time?.textContent).toBe(formatGameTime('2026-01-01T00:00:00.000Z'))
+  expect(time?.textContent).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
   await m.unmount()
 })
 

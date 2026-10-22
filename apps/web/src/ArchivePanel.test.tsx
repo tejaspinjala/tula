@@ -209,3 +209,77 @@ test('the export outcome is a polite status line and is scrolled into view', asy
   expect(line?.textContent).toContain('Exported 2 notes')
   expect(scrolled.some((t) => t.includes('Exported 2 notes'))).toBe(true)
 })
+
+function noteOf(id: string, title: string, body: string, dataClass: string) {
+  return {
+    id,
+    kind: 'text',
+    version: 1,
+    title,
+    body,
+    trust: 'fact',
+    evidence: 'seen',
+    dataClass,
+  }
+}
+
+async function mountNotes() {
+  const all = [
+    noteOf('a', 'Alpha', 'See [[Beta]] and [[Ghost]].', 'internal'),
+    noteOf('b', 'Beta', 'Secret plans.', 'private'),
+  ]
+  const realFetch = globalThis.fetch
+  globalThis.fetch = Object.assign(
+    async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input)
+      const hit = all.find((n) => url.endsWith(`/notes/${n.id}`))
+      if (hit) {
+        const backlinks = hit.id === 'b' ? [{ id: 'a', title: 'Alpha' }] : []
+        return Response.json({ note: hit, versions: [], backlinks })
+      }
+      return Response.json({ notes: all, next: null })
+    },
+    { preconnect: realFetch.preconnect }
+  )
+  const w = await mount({ status: 200 })
+  await click(w.host, 'Search')
+  return { w, restore: () => (globalThis.fetch = realFetch) }
+}
+
+const detail = (host: HTMLElement) => host.querySelector('[aria-label="Note detail"]')
+
+test('a [[link]] to a known note opens it, and a backlink opens its note', async () => {
+  const { w, restore } = await mountNotes()
+  await click(w.host, 'Alpha')
+  expect(detail(w.host)?.querySelector('h3')?.textContent).toContain('Alpha')
+  await click(w.host, 'Beta')
+  expect(detail(w.host)?.querySelector('h3')?.textContent).toContain('Beta')
+  const backlink = detail(w.host)?.querySelector('[aria-label="Backlinks"] button')
+  expect(backlink?.textContent).toBe('Alpha')
+  await act(async () => (backlink as HTMLElement).click())
+  await settle()
+  expect(detail(w.host)?.querySelector('h3')?.textContent).toContain('Alpha')
+  restore()
+})
+
+test('a [[link]] to a missing note stays plain text', async () => {
+  const { w, restore } = await mountNotes()
+  await click(w.host, 'Alpha')
+  const body = detail(w.host)?.textContent ?? ''
+  expect(body).toContain('Ghost')
+  const buttons = [...(detail(w.host)?.querySelectorAll('button') ?? [])].map((b) => b.textContent)
+  expect(buttons).toContain('Beta')
+  expect(buttons).not.toContain('Ghost')
+  restore()
+})
+
+test('only a private note carries the PRIVATE badge, in the list and the header', async () => {
+  const { w, restore } = await mountNotes()
+  const items = [...w.host.querySelectorAll('[aria-label="Notes"] li')]
+  expect(items.map((li) => li.textContent?.includes('PRIVATE'))).toEqual([false, true])
+  await click(w.host, 'Alpha')
+  expect(detail(w.host)?.textContent).not.toContain('PRIVATE')
+  await click(w.host, 'Beta')
+  expect(detail(w.host)?.querySelector('h3')?.textContent).toContain('PRIVATE')
+  restore()
+})

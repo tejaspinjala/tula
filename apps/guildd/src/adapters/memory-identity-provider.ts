@@ -37,7 +37,13 @@ export class MemoryIdentityStore implements IdentityStore {
     return [...(this.credentials.get(guildId) ?? [])]
   }
 
-  async saveCredential(guildId: string, credential: StoredCredential, event: IdentityEvent) {
+  async saveCredential(
+    guildId: string,
+    credential: StoredCredential,
+    event: IdentityEvent,
+    _tx?: TenantTx
+  ) {
+    this.found(guildId)
     const list = this.credentials.get(guildId) ?? []
     if (!list.some((c) => c.id === credential.id)) {
       this.credentials.set(guildId, [...list, credential])

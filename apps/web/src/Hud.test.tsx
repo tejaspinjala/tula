@@ -170,6 +170,26 @@ test('guildd shows as an alert only while it is down', async () => {
   await down.unmount()
 })
 
+test('a Seal-requested stream event moves the waiting count without a poll', async () => {
+  const { LiveEvents } = await import('./live-events')
+  waiting = 0
+  const m = await mount(<LiveEvents.Provider value={[]}>{hud()}</LiveEvents.Provider>)
+  await tick(20)
+  expect(m.host.querySelector('[aria-label="Seals 0 waiting"]')).not.toBeNull()
+  waiting = 2
+  const requested = {
+    seq: 1,
+    type: 'seal.requested',
+    payload: { sealId: 's0', questId: 'q' },
+    occurredAt: '2026-10-20T10:00:00Z',
+  }
+  await m.rerender(<LiveEvents.Provider value={[requested]}>{hud()}</LiveEvents.Provider>)
+  await tick(20)
+  expect(m.host.querySelector('[aria-label="Seals 2 waiting"]')).not.toBeNull()
+  waiting = 0
+  await m.unmount()
+})
+
 test('the HUD tells the world how much room it takes from the document top, whatever the scroll', async () => {
   const proto = HTMLElement.prototype
   const top = Object.getOwnPropertyDescriptor(proto, 'offsetTop')

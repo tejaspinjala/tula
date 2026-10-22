@@ -48,6 +48,7 @@ import {
   versionLine,
 } from './model'
 import { errorsByNode, type NodeOverlay, type RiteIssue, readRunFrame, runOverlay } from './overlay'
+import { SaveQueue } from './saveQueue'
 
 /** Props of {@link RitePanel}. */
 export interface RitePanelProps {
@@ -244,6 +245,12 @@ export function RitePanel({
   const [empty, setEmpty] = useState(false)
   const [refocus, setRefocus] = useState(false)
   const archiveButton = useRef<HTMLButtonElement>(null)
+  const current = useRef({ session, fetcher })
+  current.current = { session, fetcher }
+  // One queue per Rite: its saves go one at a time and a queued save a newer one supersedes is dropped.
+  const saveQueues = useRef(
+    new Map<string, SaveQueue<{ name: string; graph: RiteGraph }, SaveOutcome>>()
+  )
 
   const open = useCallback(
     async (riteId: string) => {
@@ -445,19 +452,38 @@ export function RitePanel({
       }
     }
   }
-  const afterSave = async (outcome: SaveOutcome) => {
+  const afterSave = async (outcome: SaveOutcome, fromSave = false) => {
     setList(await listRites(session, fetcher).catch(() => list))
     await open(id)
     setMessage(
-      outcome.status === 'draft'
-        ? `Saved as draft version ${outcome.version} (${outcome.classification}). Publish it to put it in force.`
-        : outcome.status === 'pending'
-          ? null
-          : `Version ${outcome.version} is published and in force.`
+      fromSave && outcome.status === 'active'
+        ? `Version ${outcome.version} is already in force and unchanged.`
+        : fromSave && outcome.status === 'superseded'
+          ? `Version ${outcome.version} is unchanged.`
+          : outcome.status === 'draft'
+            ? `Saved as draft version ${outcome.version} (${outcome.classification}). Publish it to put it in force.`
+            : outcome.status === 'pending'
+              ? null
+              : `Version ${outcome.version} is published and in force.`
     )
   }
+  const queuedSave = (riteId: string, body: { name: string; graph: RiteGraph }) => {
+    let queue = saveQueues.current.get(riteId)
+    if (!queue) {
+      queue = new SaveQueue((input) =>
+        saveRite(
+          current.current.session,
+          riteId,
+          { ...input, saveId: crypto.randomUUID() },
+          current.current.fetcher
+        )
+      )
+      saveQueues.current.set(riteId, queue)
+    }
+    return queue.enqueue(body)
+  }
   const save = () =>
-    attempt(async () => afterSave(await saveRite(session, id, saveBody(name, draft), fetcher)))
+    attempt(async () => afterSave(await queuedSave(id, saveBody(name, draft)), true))
   const publish = () =>
     attempt(async () => {
       try {
@@ -483,9 +509,7 @@ export function RitePanel({
       }
     })
   const restore = (row: VersionDoc) =>
-    attempt(async () =>
-      afterSave(await saveRite(session, id, saveBody(row.name, row.graph), fetcher))
-    )
+    attempt(async () => afterSave(await queuedSave(id, saveBody(row.name, row.graph)), true))
   const startRun = () =>
     attempt(async () => {
       const outcome = await runRite(session, id, fetcher, crypto.randomUUID())
@@ -536,7 +560,7 @@ export function RitePanel({
     attempt(async () => {
       await unarchiveRite(session, id, fetcher)
       await reload(false)
-      setMessage('Rite restored. Publish a version to put it in force again.')
+      setMessage('Rite restored. It must be published again to be in force.')
     })
   const toggleArchived = (archived: boolean) =>
     attempt(async () => {
@@ -615,15 +639,11 @@ export function RitePanel({
         <button type="button" className="btn-primary" disabled={!canRun} onClick={startRun}>
           Run
         </button>
-        <PixelButton
-          aria-label="Show archived"
-          aria-pressed={showArchived}
-          onClick={() => toggleArchived(!showArchived)}
-        >
+        <PixelButton onClick={() => toggleArchived(!showArchived)}>
           <span className="px-cursor" aria-hidden="true">
             {showArchived ? '\u25B6' : '\u25B7'}
           </span>
-          Archived
+          {showArchived ? 'Hide archived' : 'Show archived'}
         </PixelButton>
         {wide && archivedView && (
           <button type="button" onClick={unarchive}>
@@ -757,7 +777,14 @@ export function RitePanel({
               <button
                 type="button"
                 disabled={!dirty || saved === null}
-                onClick={() => saved && edit(saved)}
+                onClick={() => {
+                  if (saved) {
+                    edit(saved)
+                  }
+                  if (savedName !== null) {
+                    setName(savedName)
+                  }
+                }}
               >
                 Discard
               </button>

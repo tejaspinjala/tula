@@ -242,6 +242,11 @@ export function waitingReason(quest: BoardQuest): string | null {
     : WAITING_TEXT[quest.blockReason]
 }
 
+/** Whether a waiting Quest is held for want of any provider or routing profile: setting one up releases it. */
+export function needsRoutingSetup(quest: BoardQuest): boolean {
+  return waitingReason(quest) !== null && quest.blockReason === 'no_provider_available'
+}
+
 /** Whether a Quest carries private text (its data class is private). */
 export function isPrivateQuest(quest: BoardQuest): boolean {
   return quest.dataClass === 'private'

@@ -151,6 +151,18 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(await events(guild)).toEqual([CHARTER_EVENT.exported])
     })
 
+    test('a Rite is named after its active version, not a newer draft', async () => {
+      const { engine, guild, get } = await setup(kind)
+      await engine.save(guild, 'wf', { name: 'Published', graph: LEARNING_TO_LINKEDIN })
+      await engine.publish(guild, 'wf', 1, null)
+      await engine.confirm(guild, 'wf', 1)
+      await engine.save(guild, 'wf', { name: 'Newer draft', graph: LEARNING_TO_LINKEDIN })
+      const res = await get(guild, 'master')
+      expect(res.status).toBe(200)
+      const charter = charterSchema.parse(await res.json())
+      expect(charter.rites.map((r) => r.name)).toEqual(['Published'])
+    })
+
     test('more than the Rite limit exports the first by name then id and omits the rest as over_limit', async () => {
       const { engine, guild, get } = await setup(kind)
       for (let i = 0; i < CHARTER_MAX_RITES + 1; i++) {

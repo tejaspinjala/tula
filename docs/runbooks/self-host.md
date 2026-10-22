@@ -101,11 +101,10 @@ and `MINIO_CONSOLE_PORT` (9001). `start:selfhost` itself reads `DATABASE_URL`, `
 
 Open `http://localhost:8787`. While you are signed out the page shows **Found your guild**: enter
 the guild name and goal and press **Found your guild**. The page asks the browser to create the
-Guild Master's first passkey (the one-time founding token is held in memory only and sent for you;
-only its hash is kept on the server), then signs you in. If you cancel the passkey prompt, press
-**Create passkey** to retry without founding a second guild; reloading the page loses the token,
-so finish founding before you close it. Too many attempts shows a rate-limit message; wait a
-minute. Later, sign in with the passkey (Passkey section, with the guild id). Sensitive actions (Vault writes, widening config, lifting Gates)
+Guild Master's first passkey (`POST /founding/begin`), and the guild is created only once the
+passkey verifies (`POST /founding/finish`, one transaction with the passkey), then you are
+signed in. If you cancel the passkey prompt nothing is written: press **Found your guild** again.
+Too many attempts shows a rate-limit message; wait a minute. Later, sign in with the passkey (Passkey section, with the guild id). Sensitive actions (Vault writes, widening config, lifting Gates)
 ask for re-authentication with the passkey.
 
 ## Signing in from a new device
@@ -151,8 +150,9 @@ first. Setup, in order:
 
 ## Exposing guildd
 
-guildd binds `127.0.0.1` (`HOST`), because `POST /guilds` and the other routes are unauthenticated
-until a guild exists. `start:selfhost` pins `HOST=127.0.0.1`. To reach it from other machines, do
+guildd binds `127.0.0.1` (`HOST`), because the founding routes (`/founding/begin` and
+`/founding/finish`) are unauthenticated until a guild exists. (The legacy `POST /guilds` answers
+404 unless `DEV_GUILD_HEADER` is on.) `start:selfhost` pins `HOST=127.0.0.1`. To reach it from other machines, do
 not set `HOST=0.0.0.0` bare: put a TLS reverse proxy in front, set `TRUST_PROXY=true` (exactly one
 proxy), and set production WebAuthn settings (`NODE_ENV=production`, `WEBAUTHN_RP_ID` and
 `WEBAUTHN_ORIGIN` for the public https origin).
@@ -174,7 +174,7 @@ Docker, and serving others through a subscription breaks Anthropic's terms (ADR-
    connects locally) and prints the URL. `TRUST_PROXY` is only safe because guildd listens on
    loopback: nothing but the tunnel can reach it to forge the last `X-Forwarded-For` hop.
 3. Found your guild right away, then leave `FOUNDING_MODE=once` (the `start:selfhost` default):
-   once any guild exists `POST /guilds` answers 403 `founding_closed`. Until then founding is open
+   once any guild exists founding (`/founding/finish`) answers 403 `founding_closed`. Until then founding is open
    to anyone who has the URL, and the first founder wins, so share the hostname with no one, found
    within minutes, and check that the guild you see is yours (or put Cloudflare Access in front
    first). `closed` refuses always. If you lose

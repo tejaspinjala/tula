@@ -221,15 +221,26 @@ export async function reauthenticate(
   return done.proof
 }
 
-const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+const foundedBody = z.object({ id: z.string() })
 
-/** Founds a guild; the one-time `foundingToken` it returns authorises the first passkey. */
-export async function foundGuild(
+/**
+ * Founds a guild with its first passkey as one ceremony: the passkey is created first and the
+ * guild is written only once guildd verifies it, so an abandoned prompt leaves nothing behind.
+ */
+export async function foundGuildWithPasskey(
   name: string,
   goal: string,
-  fetcher: Fetcher
+  fetcher: Fetcher,
+  browser: PasskeyBrowser
 ): Promise<z.infer<typeof foundedBody>> {
-  return send(fetcher, '/guilds', { name, goal }, foundedBody)
+  const begin = await send(fetcher, '/founding/begin', {}, creation)
+  const response = await browser.create(begin.options)
+  return send(
+    fetcher,
+    '/founding/finish',
+    { challengeId: begin.challengeId, response, name, goal },
+    foundedBody
+  )
 }
 
 /** Lets an abort signal cancel the library's pending ceremony, which takes no signal itself. */

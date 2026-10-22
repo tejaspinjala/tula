@@ -523,6 +523,27 @@ const RANKS = memberRank.options
 
 const same = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b)
 
+/**
+ * Whether going from `prev` to `next` can change what routing does for a waiting Quest: the
+ * providers or routing profiles differ, or a Hall was unlocked. Other changes leave its wait alone.
+ */
+export function routingChanged(prev: GuildConfig, next: GuildConfig): boolean {
+  return (
+    !same(prev.providers, next.providers) ||
+    !same(prev.routingProfiles, next.routingProfiles) ||
+    next.halls.length !== prev.halls.length ||
+    next.halls.some((h) => {
+      const before = prev.halls.find((p) => p.id === h.id)
+      return (
+        before === undefined ||
+        before.privateEligible !== h.privateEligible ||
+        before.kind !== h.kind ||
+        (before.locked && !h.locked)
+      )
+    })
+  )
+}
+
 const entriesOf = (o: object): Map<string, unknown> => new Map(Object.entries(o))
 
 /** Whether every key outside `handled` is identical in both objects (unknown keys never change silently). */
@@ -540,6 +561,19 @@ function subsetOf<T extends { id: string }>(prev: readonly T[], next: readonly T
     const p = before.get(n.id)
     return p !== undefined && same(p, n)
   })
+}
+
+/**
+ * The items of `next` appear in the same relative order as in `prev`. Routing profile order carries
+ * authority (the first fitting profile wins, and the first is the default), so a reorder is widening.
+ */
+function keepsRelativeOrder<T extends { id: string }>(
+  prev: readonly T[],
+  next: readonly T[]
+): boolean {
+  const at = new Map(prev.map((p, i) => [p.id, i]))
+  const positions = next.map((n) => at.get(n.id) ?? -1)
+  return positions.every((p, i) => i === 0 || p > (positions[i - 1] ?? -1))
 }
 
 type Provider = GuildConfig['providers'][number]
@@ -680,6 +714,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
     ]) &&
     providersNoWider(prev.providers, next.providers) &&
     subsetOf(prev.routingProfiles, next.routingProfiles) &&
+    keepsRelativeOrder(prev.routingProfiles, next.routingProfiles) &&
     subsetOf(prev.schedules, next.schedules) &&
     learningRepoAllowlist(next).every((r) => learningRepoAllowlist(prev).includes(r)) &&
     tripwiresNoWider(guildTripwires(prev), guildTripwires(next)) &&

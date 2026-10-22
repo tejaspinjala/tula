@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ConfigStore } from '../ports/config-store'
 import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
@@ -11,6 +12,7 @@ import type {
   RiteStore,
   RiteVersion,
   RiteVersionPage,
+  RiteVersionStatus,
   UnarchiveResult,
 } from '../ports/rite-store'
 import type { SealStore } from '../ports/seal-store'
@@ -39,7 +41,8 @@ export interface RiteEngineDeps {
 /** The outcome of {@link RiteEngine.save}. */
 export type SaveResult =
   | { status: 'invalid'; errors: RiteError[] }
-  | { status: 'draft'; version: RiteVersion }
+  | { status: RiteVersionStatus; version: RiteVersion }
+  | { status: 'save_id_reused' }
 
 /** The outcome of {@link RiteEngine.publish}. */
 export type PublishResult =
@@ -175,12 +178,13 @@ export class RiteEngine {
 
   /**
    * Saves the next version as a draft: invalid graphs are refused with coded errors. A draft
-   * never runs; {@link RiteEngine.publish} decides whether it goes live.
+   * never runs; {@link RiteEngine.publish} decides whether it goes live. A repeated `saveId`, or
+   * an input equal to the newest version, returns that version and writes nothing.
    */
   async save(
     guildId: string,
     riteId: string,
-    input: { name: string; graph: unknown }
+    input: { name: string; graph: unknown; saveId?: string | undefined }
   ): Promise<SaveResult> {
     const errors = await this.validate(guildId, input.graph)
     if (errors.length > 0) {
@@ -188,13 +192,27 @@ export class RiteEngine {
     }
     const graph = riteGraph.parse(input.graph)
     const previous = await this.deps.store.latestActive(guildId, riteId)
-    const version = await this.deps.store.saveVersion(guildId, riteId, {
-      name: input.name,
-      graph,
-      classification: classifyRiteChange(previous?.graph ?? null, graph),
-      status: 'draft',
-    })
-    return { status: 'draft', version }
+    const saved = await this.deps.store.saveDraft(
+      guildId,
+      riteId,
+      {
+        name: input.name,
+        graph,
+        classification: classifyRiteChange(previous?.graph ?? null, graph),
+        status: 'draft',
+      },
+      input.saveId === undefined
+        ? undefined
+        : {
+            id: input.saveId,
+            hash: createHash('sha256')
+              .update(JSON.stringify([input.name, graph]))
+              .digest('hex'),
+          }
+    )
+    return saved.ok
+      ? { status: saved.version.status, version: saved.version }
+      : { status: 'save_id_reused' }
   }
 
   /**

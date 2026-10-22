@@ -15,6 +15,7 @@ const steps = (done: boolean) => [
 ]
 let summonGets = 0
 let started = false
+let profiles: { id: string; provider: string; tier: string }[] | null = null
 
 beforeAll(() => {
   Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
@@ -43,7 +44,7 @@ beforeAll(() => {
         return Response.json({
           version: 1,
           config: {
-            routingProfiles: [
+            routingProfiles: profiles ?? [
               { id: 'sub-mid', provider: 'claude-subscription', tier: 'mid' },
               { id: 'api-cheap', provider: 'anthropic', tier: 'cheap' },
             ],
@@ -70,12 +71,12 @@ function field(host: HTMLElement): HTMLInputElement | HTMLSelectElement {
   return found
 }
 
-async function mount(pollMs: number) {
+async function mount(pollMs: number, onSetupRouting?: () => void) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
-    root.render(<SummonPanel session={session} pollMs={pollMs} />)
+    root.render(<SummonPanel session={session} pollMs={pollMs} onSetupRouting={onSetupRouting} />)
     await new Promise((resolve) => setTimeout(resolve, 20))
   })
   return { host, root }
@@ -107,5 +108,30 @@ test('summoning refreshes the panel to complete without navigating away', async 
     await new Promise((resolve) => setTimeout(resolve, 150))
   })
   expect(host.textContent).toContain('Your first member is summoned')
+  await act(async () => root.unmount())
+})
+
+test('with no routing profile the panel sends the Guild Master to Settings instead of an empty list', async () => {
+  profiles = []
+  let opened = 0
+  const { host, root } = await mount(10_000, () => {
+    opened += 1
+  })
+  expect(host.querySelector('select')).toBeNull()
+  const go = [...host.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('Set up routing')
+  )
+  expect(host.textContent).toContain('no routing profile')
+  await act(async () => {
+    go?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  expect(opened).toBe(1)
+  await act(async () => root.unmount())
+  profiles = null
+})
+
+test('the default profile (the first) is preselected', async () => {
+  const { host, root } = await mount(10_000)
+  expect(host.querySelector('select')?.value).toBe('sub-mid')
   await act(async () => root.unmount())
 })
