@@ -93,20 +93,46 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       expect(await otherRun.read()).toBe('active')
     })
 
-    test('an applied config change ends every routing wait at once; a pending one does not until confirmed', async () => {
+    test('an applied provider or routing profile change ends every routing wait at once; a pending one does not until confirmed', async () => {
       const { store, guild, make } = await seeded()
       const waiting = await make.routingWait(guild, 'heralds')
       const before = await waiting.read()
       expect(before.awake).toBe(false)
       const config = (await store.current(guild)).config
-      const proposed = await store.propose(guild, { ...config, sealPolicy: 'routine_alone' })
+      const withProvider = {
+        ...config,
+        providers: [{ id: 'home', auth: 'api_key' as const, privateEligible: false }],
+      }
+      const proposed = await store.propose(guild, withProvider)
       expect(proposed.status).toBe('pending')
       expect((await waiting.read()).awake).toBe(false)
       await store.confirm(guild, proposed.version)
       expect(await waiting.read()).toEqual({ ...before, awake: true })
       const second = await make.routingWait(guild, 'heralds')
-      await store.propose(guild, { ...config, caps: { dailyTokens: 5, dailySpendCents: 5 } })
+      await store.propose(guild, config)
       expect((await second.read()).awake).toBe(true)
+    })
+
+    test('a change to caps or Seal Policy leaves routing waits backed off; another guild is untouched', async () => {
+      const { store, guild, make } = await seeded()
+      const other = await make.newGuild()
+      await store.seed(other)
+      const waiting = await make.routingWait(guild, 'heralds')
+      const elsewhere = await make.routingWait(other, 'heralds')
+      const config = (await store.current(guild)).config
+      await store.propose(guild, { ...config, caps: { dailyTokens: 5, dailySpendCents: 5 } })
+      const looser = await store.propose(guild, {
+        ...config,
+        caps: { dailyTokens: 5, dailySpendCents: 5 },
+        sealPolicy: 'routine_alone',
+      })
+      await store.confirm(guild, looser.version)
+      expect((await waiting.read()).awake).toBe(false)
+      const providers = [{ id: 'home', auth: 'api_key' as const, privateEligible: false }]
+      const added = await store.propose(guild, { ...config, providers })
+      await store.confirm(guild, added.version)
+      expect((await waiting.read()).awake).toBe(true)
+      expect((await elsewhere.read()).awake).toBe(false)
     })
 
     test('a widening change that also locks a Hall releases its leases on confirm, not before', async () => {
