@@ -164,6 +164,10 @@ _Avoid_: wallet, bank
 The guild's brain of linked notes, verified facts kept apart from quarantined assumptions / the agent that keeps it tidy.
 _Avoid_: wiki, knowledge base
 
+**Archive export**:
+The Archive taken out as a folder of linked Markdown files, one per note, with an `Archive.md` index. Private notes are left out unless the Guild Master asks for them and re-authenticates (ADR-0015).
+_Avoid_: vault, backup, dump
+
 **Private Hall**:
 One of the three Halls every guild starts with (Health, Personal, Relationships). It is locked and has no Members until the Guild Master unlocks it from the Hall builder (a widening change, so a passkey confirm) and hires into it. Its Quests are private-class and file their notes to its own Archive; nothing in it reaches a work Hall (see Missive, Dossier, Inquiry). Locking it again pauses its Quests, never kills them.
 _Avoid_: secret Hall, hidden Hall

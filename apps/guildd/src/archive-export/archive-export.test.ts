@@ -93,7 +93,7 @@ describe('paths', () => {
   test('collisions get deterministic suffixes in id order', () => {
     const a = run([note({ id: '2', title: 'Same' }), note({ id: '1', title: 'same?' })])
     expect(file(a, 'Engineering/same.md')).toContain('id: "1"')
-    expect(file(a, 'Engineering/same (2).md')).toContain('id: "2"')
+    expect(file(a, 'Engineering/Same (2).md')).toContain('id: "2"')
   })
 })
 
