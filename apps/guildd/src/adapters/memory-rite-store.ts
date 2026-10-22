@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { Clock } from '../ports/clock'
 import type {
   ActivateResult,
@@ -11,6 +12,7 @@ import type {
   RiteSummary,
   RiteVersion,
   RiteVersionPage,
+  SaveDraftResult,
   UnarchiveResult,
 } from '../ports/rite-store'
 
@@ -20,6 +22,8 @@ interface GuildState {
   instances: Map<string, RiteRun>
   /** When each archived Rite was archived; a Rite absent here is live. */
   archived: Map<string, string>
+  /** The version each `[riteId, saveId]` first returned. */
+  saves: Map<string, { version: number; hash: string }>
 }
 
 /**
@@ -34,7 +38,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map(), archived: new Map() }
+      s = { rites: new Map(), instances: new Map(), archived: new Map(), saves: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -52,6 +56,33 @@ export class MemoryRiteStore implements RiteStore {
     }
     rites.set(riteId, [...list, saved])
     return structuredClone(saved)
+  }
+
+  async saveDraft(
+    guildId: string,
+    riteId: string,
+    input: NewRiteVersion,
+    save?: { id: string; hash: string }
+  ): Promise<SaveDraftResult> {
+    const { saves, rites } = this.state(guildId)
+    const key = JSON.stringify([riteId, save?.id])
+    const list = rites.get(riteId) ?? []
+    const earlier = save ? saves.get(key) : undefined
+    const seen = earlier ? list[earlier.version - 1] : undefined
+    if (earlier && seen) {
+      return earlier.hash === save?.hash
+        ? { ok: true, version: structuredClone(seen) }
+        : { ok: false, error: 'save_id_reused' }
+    }
+    const newest = list.at(-1)
+    const saved =
+      newest && newest.name === input.name && isDeepStrictEqual(newest.graph, input.graph)
+        ? structuredClone(newest)
+        : await this.saveVersion(guildId, riteId, input)
+    if (save) {
+      saves.set(key, { version: saved.version, hash: save.hash })
+    }
+    return { ok: true, version: saved }
   }
 
   async seedVersion(

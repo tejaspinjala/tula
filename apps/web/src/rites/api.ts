@@ -29,7 +29,7 @@ export interface VersionDoc {
 /** What a save or publish reports; a save is a `draft`, `pending` means a widening version awaits the passkey confirm. */
 export interface SaveOutcome {
   version: number
-  status: 'draft' | 'active' | 'pending'
+  status: 'draft' | 'active' | 'pending' | 'superseded'
   classification: string
 }
 
@@ -85,7 +85,7 @@ const issueBody = z.object({
 })
 const validateBody = z.object({ valid: z.boolean(), errors: z.array(issueBody) })
 const savedBody = z.object({
-  status: z.enum(['draft', 'active', 'pending']),
+  status: z.enum(['draft', 'active', 'pending', 'superseded']),
   version: z.object({ version: z.number(), classification: z.string() }),
 })
 const rejectedBody = z.object({
@@ -226,11 +226,11 @@ export async function validateGraph(
   return body.errors
 }
 
-/** Saves a graph as the next version (a draft that never runs) through `PUT`; throws {@link RiteRejected} when invalid. */
+/** Saves a graph as the next version (a draft that never runs) through `PUT`; a repeated `saveId` or an unchanged graph and name returns the existing version; throws {@link RiteRejected} when invalid. */
 export async function saveRite(
   s: Session,
   id: string,
-  body: { name: string; graph: RiteGraph },
+  body: { name: string; graph: RiteGraph; saveId?: string },
   f: Fetcher
 ): Promise<SaveOutcome> {
   const { res, data } = await send(f, `${base(s)}/${id}`, {

@@ -76,7 +76,8 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
               : await deps.rites.get(guildId, r.id, r.activeVersion)
           out.push({
             id: r.id,
-            name: r.name,
+            // The published name: a newer draft's name never pairs with the published graph.
+            name: active?.version.name ?? r.name,
             archivedAt: r.archivedAt,
             activeGraph: active?.version.graph ?? null,
           })
