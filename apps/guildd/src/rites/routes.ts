@@ -202,7 +202,10 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     if (check.guildId !== who.guild || !isGuildMaster(check.principal)) {
       return c.json({ error: 'forbidden' }, 403)
     }
-    await deps.rites.confirm(who.guild, id, version.data)
+    const confirmed = await deps.rites.confirm(who.guild, id, version.data)
+    if (!confirmed.ok) {
+      return confirmed.error === 'not_found' ? notFound(c) : c.json({ error: 'stale' }, 409)
+    }
     return c.json({ version: version.data, status: 'active' })
   })
 

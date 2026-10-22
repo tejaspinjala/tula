@@ -145,3 +145,26 @@ test('publish is scoped to the session guild: another guild cannot publish a dra
   expect((await publish(app, other, 1, { basedOn: null })).status).toBe(404)
   expect((await engine.get(guild, 'wf', 1))?.version.status).toBe('draft')
 })
+
+test('confirming a pending version is refused 409 stale once the active version moved', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  await pendingRite(engine, guild)
+  await engine.confirm(guild, 'wf', 1)
+  const wider = structuredClone(LEARNING_TO_LINKEDIN)
+  const agent = wider.nodes.find((n) => n.type === 'agent')
+  if (agent?.type !== 'agent') {
+    throw new Error('template changed')
+  }
+  agent.maxUsd = 9
+  await engine.save(guild, 'wf', { name: 'x', graph: wider })
+  await engine.publish(guild, 'wf', 2, 1)
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  await engine.publish(guild, 'wf', 3, 1)
+  const res = await app.request(`/guilds/${guild}/rites/wf/versions/2/confirm`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
+  })
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({ error: 'stale' })
+  expect((await engine.get(guild, 'wf'))?.activeVersion).toBe(3)
+})

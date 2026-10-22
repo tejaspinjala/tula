@@ -1,5 +1,6 @@
 import type { Clock } from '../ports/clock'
 import type {
+  ActivateResult,
   NewRiteVersion,
   PublishDraftResult,
   RitePage,
@@ -74,7 +75,12 @@ export class MemoryRiteStore implements RiteStore {
   async publishDraft(
     guildId: string,
     riteId: string,
-    input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+    input: {
+      version: number
+      basedOn: number | null
+      classifiedAgainst: number | null
+      outcome: 'active' | 'pending'
+    }
   ): Promise<PublishDraftResult> {
     const list = this.state(guildId).rites.get(riteId) ?? []
     const draft = list[input.version - 1]
@@ -95,11 +101,11 @@ export class MemoryRiteStore implements RiteStore {
     return { ok: true, version: structuredClone(draft) }
   }
 
-  async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
+  async activate(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
     const list = this.state(guildId).rites.get(riteId) ?? []
     const found = list[version - 1]
     if (!found) {
-      return null
+      return { ok: false, error: 'not_found' }
     }
     if (found.status === 'pending') {
       for (const v of list) {
@@ -109,7 +115,7 @@ export class MemoryRiteStore implements RiteStore {
       }
       found.status = 'active'
     }
-    return structuredClone(found)
+    return { ok: true, version: structuredClone(found) }
   }
 
   async list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {

@@ -4,6 +4,7 @@ import { appendEvent } from '../events'
 import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
+  ActivateResult,
   NewRiteVersion,
   PublishDraftResult,
   RitePage,
@@ -157,7 +158,12 @@ export class PgRiteStore implements RiteStore {
   async publishDraft(
     guildId: string,
     riteId: string,
-    input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+    input: {
+      version: number
+      basedOn: number | null
+      classifiedAgainst: number | null
+      outcome: 'active' | 'pending'
+    }
   ): Promise<PublishDraftResult> {
     return this.db.withGuild(guildId, async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
@@ -198,18 +204,18 @@ export class PgRiteStore implements RiteStore {
     })
   }
 
-  async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
+  async activate(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
     return this.db.withGuild(guildId, async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${`${guildId}:${riteId}`}, 0))`
       const [before] = await tx`
         select ${tx.unsafe(VERSION_COLUMNS)} from workflow_versions
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}`
       if (!before) {
-        return null
+        return { ok: false, error: 'not_found' }
       }
       const current = toVersion(versionRow.parse(before))
       if (current.status !== 'pending') {
-        return current
+        return { ok: true, version: current }
       }
       await tx`
         update workflow_versions set status = 'superseded'
@@ -219,7 +225,7 @@ export class PgRiteStore implements RiteStore {
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}
         returning ${tx.unsafe(VERSION_COLUMNS)}`
       await appendEvent(tx, this.keys, RITE_EVENT.versionConfirmed, { riteId, version })
-      return toVersion(versionRow.parse(row))
+      return { ok: true, version: toVersion(versionRow.parse(row)) }
     })
   }
 

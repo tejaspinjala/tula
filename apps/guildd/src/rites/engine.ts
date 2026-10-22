@@ -2,6 +2,7 @@ import type { ConfigStore } from '../ports/config-store'
 import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type {
+  ActivateResult,
   PublishDraftError,
   RitePage,
   RiteRun,
@@ -216,13 +217,17 @@ export class RiteEngine {
     const result = await this.deps.store.publishDraft(guildId, riteId, {
       version,
       basedOn,
+      classifiedAgainst: basedOn,
       outcome,
     })
     return result.ok ? { ok: true, status: outcome, version: result.version } : result
   }
 
-  /** Confirms a pending version (the caller has re-authenticated); null when absent. */
-  async confirm(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
+  /**
+   * Confirms a pending version (the caller has re-authenticated). `stale` when the active version
+   * moved since it was published, so a confirm never rolls a newer version back.
+   */
+  async confirm(guildId: string, riteId: string, version: number): Promise<ActivateResult> {
     return this.deps.store.activate(guildId, riteId, version)
   }
 

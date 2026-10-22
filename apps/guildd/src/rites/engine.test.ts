@@ -8,12 +8,13 @@ import { MemoryRiteStore } from '../adapters/memory-rite-store'
 import { MemorySealStore } from '../adapters/memory-seal-store'
 import { MemoryTripwireStore } from '../adapters/memory-tripwire-store'
 import { defaultConfig } from '../guild-config'
+import type { RiteStore } from '../ports/rite-store'
 import { ProposalEngine } from '../proposals'
 import { RiteEngine } from './engine'
 import type { RiteGraph } from './graph'
 import { LEARNING_TO_LINKEDIN } from './templates'
 
-async function setup() {
+async function setup(wrap: (store: RiteStore) => RiteStore = (store) => store) {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const config = new MemoryConfigStore(clock)
   const quests = new MemoryQuestQueue(clock, () => 0.5)
@@ -32,7 +33,7 @@ async function setup() {
   const seals = new MemorySealStore(clock)
   const proposals = new ProposalEngine({ store: new MemoryProposalStore(clock), config })
   const engine = new RiteEngine({
-    store: new MemoryRiteStore(clock),
+    store: wrap(new MemoryRiteStore(clock)),
     config,
     quests,
     tripwires,
@@ -153,7 +154,7 @@ test('publishing a widening draft is pending: the old version stays active until
     version: { version: 2, status: 'pending' },
   })
   expect(await engine.run(guild, 'chain', {})).toMatchObject({ ok: true, instance: { version: 1 } })
-  expect((await engine.confirm(guild, 'chain', 2))?.status).toBe('active')
+  expect(await engine.confirm(guild, 'chain', 2)).toMatchObject({ ok: true })
   expect((await engine.get(guild, 'chain', 1))?.version.status).toBe('superseded')
 })
 
@@ -194,7 +195,7 @@ test('a first version that can post is widening: pending until confirmed; a brie
     ok: false,
     error: 'no_active_version',
   })
-  expect((await engine.confirm(guild, 'chain', 1))?.status).toBe('active')
+  expect(await engine.confirm(guild, 'chain', 1)).toMatchObject({ ok: true })
   const edited = chain()
   const research = edited.nodes.find((n) => n.id === 'research')
   if (research?.type !== 'agent') {
@@ -206,7 +207,7 @@ test('a first version that can post is widening: pending until confirmed; a brie
     status: 'active',
     version: { version: 2, classification: 'internal' },
   })
-  expect(await engine.confirm(guild, 'chain', 9)).toBeNull()
+  expect(await engine.confirm(guild, 'chain', 9)).toEqual({ ok: false, error: 'not_found' })
 })
 
 test('a run pins a version and compiles agent nodes to Quests: blockedBy follows the edges, campaignId is the instance', async () => {
@@ -619,4 +620,29 @@ test('a fan-out node is widening: a new one, or a changed brief list, waits for 
   }
   node.briefs = ['Research something else']
   expect(await mustSave(engine, guild, 'fan', edited)).toMatchObject({ status: 'pending' })
+})
+
+test('a confirm landing between classification and the publish makes the publish stale, never active', async () => {
+  let beforePublish: () => Promise<unknown> = async () => undefined
+  const { engine, guild } = await setup((store) =>
+    Object.assign(Object.create(store), {
+      async publishDraft(...args: Parameters<RiteStore['publishDraft']>) {
+        await beforePublish()
+        return store.publishDraft(...args)
+      },
+    })
+  )
+  await mustSave(engine, guild, 'chain')
+  await engine.confirm(guild, 'chain', 1)
+  const wider = chain()
+  const research = wider.nodes.find((n) => n.id === 'research')
+  if (research?.type !== 'agent') {
+    throw new Error('graph changed')
+  }
+  research.maxUsd = 2
+  await mustSave(engine, guild, 'chain', wider)
+  await engine.save(guild, 'chain', { name: 'Chain', graph: chain() })
+  beforePublish = () => engine.confirm(guild, 'chain', 2)
+  expect(await engine.publish(guild, 'chain', 3, 2)).toEqual({ ok: false, error: 'stale' })
+  expect((await engine.get(guild, 'chain', 3))?.version.status).toBe('draft')
 })

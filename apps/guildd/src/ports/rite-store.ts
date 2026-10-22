@@ -14,6 +14,11 @@ export type RiteVersionStatus = 'draft' | 'pending' | 'active' | 'superseded'
 /** Why {@link RiteStore.publishDraft} refused. */
 export type PublishDraftError = 'not_found' | 'not_draft' | 'stale'
 
+/** The outcome of {@link RiteStore.activate}: `stale` when the active version moved since the publish. */
+export type ActivateResult =
+  | { ok: true; version: RiteVersion }
+  | { ok: false; error: 'not_found' | 'stale' }
+
 /** The outcome of {@link RiteStore.publishDraft}. */
 export type PublishDraftResult =
   | { ok: true; version: RiteVersion }
@@ -99,13 +104,20 @@ export interface RiteStore {
   publishDraft(
     guildId: string,
     riteId: string,
-    input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+    input: {
+      version: number
+      basedOn: number | null
+      /** The active version the caller classified the draft against; must still be the active one. */
+      classifiedAgainst: number | null
+      outcome: 'active' | 'pending'
+    }
   ): Promise<PublishDraftResult>
   /**
-   * Marks a pending version active and supersedes the old active one. Any other status is
-   * returned unchanged (a draft is never activated this way); null when absent.
+   * Marks a pending version active and supersedes the old active one. It is `stale` (nothing
+   * changes) when the active version is no longer the one the pending version was published over.
+   * Any other status is returned unchanged (a draft is never activated this way).
    */
-  activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null>
+  activate(guildId: string, riteId: string, version: number): Promise<ActivateResult>
   /** Rites in id order strictly after `after`. */
   list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage>
   /** Versions newest first, strictly below `before`. */
