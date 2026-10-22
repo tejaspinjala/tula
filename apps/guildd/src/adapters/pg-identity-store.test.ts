@@ -167,17 +167,22 @@ test('outstanding desktop codes per guild are capped, evicting the oldest', asyn
   expect(await store.spendDesktopCode(a, 'c1', 'state-c1', T0, note)).not.toBeNull()
 })
 
-test('a failure writing the first passkey rolls the whole guild back', async () => {
+test('a failure after the first passkey is written rolls back the guild, its events, chain and passkey', async () => {
   const name = `Founding ${crypto.randomUUID()}`
-  const keys = new MemoryKeyProvider()
-  const holder = await foundTestGuild(db, { name: 'Holder', goal: 'g' })
-  const taken = { ...cred, id: `taken-${crypto.randomUUID()}` }
-  await store.saveCredential(holder, taken, note)
+  const credential = { ...cred, id: `rollback-${crypto.randomUUID()}` }
   await expect(
-    db.foundGuildChained({ name, goal: 'g' }, keys, async (tx, id) => {
-      await store.saveCredential(id, taken, note, tx)
+    db.foundGuildChained({ name, goal: 'g' }, new MemoryKeyProvider(), async (tx, id) => {
+      await store.saveCredential(id, credential, note, tx)
+      throw new Error('seed failed after the passkey')
     })
-  ).rejects.toThrow()
-  const [row] = await owner`select count(*)::int as n from guilds where name = ${name}`
-  expect(Number(row?.n)).toBe(0)
+  ).rejects.toThrow('seed failed')
+  const [guilds] = await owner`select count(*)::int as n from guilds where name = ${name}`
+  expect(Number(guilds?.n)).toBe(0)
+  const [creds] =
+    await owner`select count(*)::int as n from identity_credentials where credential_id = ${credential.id}`
+  expect(Number(creds?.n)).toBe(0)
+  const [orphans] = await owner`select
+    (select count(*) from events where guild_id not in (select guild_id from guilds))::int as events,
+    (select count(*) from audit_chain where guild_id not in (select guild_id from guilds))::int as chain`
+  expect([orphans?.events, orphans?.chain]).toEqual([0, 0])
 })
