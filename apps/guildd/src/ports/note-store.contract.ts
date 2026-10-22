@@ -155,6 +155,20 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect((await store.get(g, n.id))?.versions.map((v) => v.version)).toEqual([1, 2, 3])
     })
 
+    test('a listed note names the Hall it is filed under, or null for the Guild Master\u2019s own', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const filed = await store.add(g, { ...fact, title: 'Filed', body: 'x' }, 'eng')
+      const own = await store.add(g, { ...fact, title: 'Own', body: 'x' })
+      expect(filed.hallId).toBe('eng')
+      const listed = new Map(
+        (await store.list(g, { limit: 10 })).notes.map((n) => [n.id, n.hallId])
+      )
+      expect(listed.get(filed.id)).toBe('eng')
+      expect(listed.get(own.id)).toBeNull()
+      expect((await store.get(g, filed.id))?.note.hallId).toBe('eng')
+    })
+
     test('a note filed under one Hall is invisible to another Hall\u2019s filter, whatever its title says', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
