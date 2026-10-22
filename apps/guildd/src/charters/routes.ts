@@ -108,6 +108,7 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
     })
     return c.json(charter)
   })
+  app.post('/guilds/:id/charter/preview', async (c) => c.json({ error: 'not_implemented' }, 501))
   app.post('/guilds/:id/charter/import', async (c) => {
     const who = await deps.guildMasterSessionFor(c)
     if ('res' in who) {

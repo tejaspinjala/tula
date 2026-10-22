@@ -85,6 +85,23 @@ describe('exportCharter', () => {
     expect(c.exportedAt).toBe('2026-01-01T00:00:00.000Z')
   })
 
+  test('lists each privateEligible flag it resets in omitted, and none already false', () => {
+    const c = exportCharter({ name: 'n', config, rites: [], now })
+    const flags = c.omitted.filter((o) => o.id.endsWith('.privateEligible'))
+    expect(flags).toEqual([
+      { kind: 'config', id: 'halls.work.privateEligible', reason: 'local' },
+      { kind: 'config', id: 'halls.health.privateEligible', reason: 'local' },
+      { kind: 'config', id: 'providers.claude.privateEligible', reason: 'local' },
+    ])
+    const off = guildConfig.parse({
+      ...config,
+      halls: config.halls.map((h) => ({ ...h, privateEligible: false })),
+      providers: config.providers.map((p) => ({ ...p, privateEligible: false })),
+    })
+    const quiet = exportCharter({ name: 'n', config: off, rites: [], now })
+    expect(quiet.omitted.filter((o) => o.id.endsWith('.privateEligible'))).toEqual([])
+  })
+
   test('drops archived, unpublished and private-Hall Rites, each listed in omitted', () => {
     const c = exportCharter({
       name: 'n',

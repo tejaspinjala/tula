@@ -146,6 +146,50 @@ describe('POST /guilds/:id/charter/import through the composed app', () => {
   })
 })
 
+describe('POST /guilds/:id/charter/preview through the composed app', () => {
+  const post = (guildId: string, headers: Record<string, string>) =>
+    harness.request(`/guilds/${guildId}/charter/preview`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        charter: exportCharter({
+          name: 'Source',
+          config: defaultConfig(),
+          rites: [],
+          now: new Date('2030-01-01T00:00:00.000Z'),
+        }),
+      }),
+    })
+
+  test('the Guild Master previews their own guild', async () => {
+    const a = await signedIn('Guild A')
+    const res = await post(a.guildId, a.auth)
+    expect(res.status).toBe(200)
+    expect(z.object({ change: z.string() }).parse(await res.json()).change).toBe('unchanged')
+  })
+
+  test('anonymous, dev-header-only and bogus-token requests are 401', async () => {
+    const a = await signedIn('Guild A')
+    for (const headers of [
+      {},
+      { 'x-guild-id': a.guildId },
+      { authorization: 'Bearer not-a-session' },
+    ]) {
+      expect((await post(a.guildId, headers)).status).toBe(401)
+    }
+  })
+
+  test('the Guild Master of A aiming at B is refused as at a missing guild', async () => {
+    const a = await signedIn('Guild A')
+    const b = await signedIn('Guild B-secret')
+    const atB = await post(b.guildId, a.auth)
+    const atGhost = await post(crypto.randomUUID(), a.auth)
+    expect(atB.status).toBe(404)
+    expect(atGhost.status).toBe(404)
+    expect(await atB.text()).not.toContain('B-secret')
+  })
+})
+
 describe('export then import round trip through the composed app', () => {
   test('a guild export imports into a guild with the same Hall ids as 200', async () => {
     const a = await signedIn('Guild A')
