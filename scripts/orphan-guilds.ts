@@ -1,7 +1,7 @@
 /**
  * Counts (default, a dry run) or removes (`--apply`) orphan guilds: guilds older than the grace
  * period with no passkey whose only events are the ones founding itself writes (ticket #197,
- * migration 0084 removes them once on upgrade). Run it as the database owner, which must be able to
+ * migration 0084 only adds the functions; nothing is removed until --apply). Run it as the database owner, which must be able to
  * bypass row level security. Usage: `bun scripts/orphan-guilds.ts [--apply]`
  * (`DATABASE_URL` selects the database).
  */
