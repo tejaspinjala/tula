@@ -18,7 +18,13 @@ afterAll(async () => {
 
 const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)))
 
-type Reply = { status: number; error?: string; counts?: unknown }
+type Reply = {
+  status: number
+  error?: string
+  counts?: unknown
+  gate?: Promise<void>
+  reauthFails?: boolean
+}
 
 async function mount(reply: Reply) {
   const host = document.createElement('div')
@@ -27,16 +33,24 @@ async function mount(reply: Reply) {
     host,
     urls: [] as string[],
     proofs: [] as Array<string | null>,
+    reauths: 0,
+    exports: 0,
     downloads: [] as Array<{ filename: string; size: number }>,
   }
   const fetcher = async (url: string, init?: RequestInit) => {
     if (url.endsWith('/session/reauth/begin')) {
+      world.reauths += 1
+      if (reply.reauthFails) {
+        return Response.json({ error: 'reauth_failed' }, { status: 500 })
+      }
       return Response.json({ challengeId: 'c1', options: { challenge: 'x' } })
     }
     if (url.endsWith('/session/reauth/finish')) {
       return Response.json({ proof: 'proof-1' })
     }
     if (url.includes('/archive/export')) {
+      world.exports += 1
+      await reply.gate
       world.urls.push(url)
       world.proofs.push(new Headers(init?.headers).get('x-reauth-proof'))
       if (reply.status !== 200) {
@@ -128,4 +142,70 @@ test('an expired sign-in and a rate limit each get a plain message', async () =>
   const slow = await mount({ status: 429, error: 'rate_limited' })
   await click(slow.host, 'Export archive')
   expect(slow.host.textContent).toContain('Too many exports')
+})
+
+const pressed = (host: HTMLElement) =>
+  [...host.querySelectorAll('button')]
+    .find((b) => b.textContent?.trim() === 'Include private notes')
+    ?.getAttribute('aria-pressed')
+
+test('a double click on Export runs one export, one re-auth and one download', async () => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const w = await mount({
+    status: 200,
+    counts: { exported: 1, privateIncluded: 1, privateLeftOut: 0 },
+    gate,
+  })
+  await click(w.host, 'Include private notes')
+  const button = [...w.host.querySelectorAll('button')].find(
+    (b) => b.textContent?.trim() === 'Export archive'
+  )
+  await act(async () => {
+    button?.click()
+    button?.click()
+  })
+  expect(button?.disabled).toBe(true)
+  release()
+  await settle()
+  expect(w.reauths).toBe(1)
+  expect(w.exports).toBe(1)
+  expect(w.downloads).toHaveLength(1)
+  expect(button?.disabled).toBe(false)
+})
+
+test('private notes go back to off after a failed re-auth and after a success', async () => {
+  const failed = await mount({ status: 200, reauthFails: true })
+  await click(failed.host, 'Include private notes')
+  expect(pressed(failed.host)).toBe('true')
+  await click(failed.host, 'Export archive')
+  expect(pressed(failed.host)).toBe('false')
+  expect(failed.downloads).toHaveLength(0)
+
+  const ok = await mount({
+    status: 200,
+    counts: { exported: 1, privateIncluded: 1, privateLeftOut: 0 },
+  })
+  await click(ok.host, 'Include private notes')
+  await click(ok.host, 'Export archive')
+  expect(ok.downloads).toHaveLength(1)
+  expect(pressed(ok.host)).toBe('false')
+})
+
+test('the export outcome is a polite status line and is scrolled into view', async () => {
+  const scrolled: string[] = []
+  Reflect.set(Element.prototype, 'scrollIntoView', function (this: Element) {
+    scrolled.push(this.textContent ?? '')
+  })
+  const w = await mount({
+    status: 200,
+    counts: { exported: 2, privateIncluded: 0, privateLeftOut: 0 },
+  })
+  await click(w.host, 'Export archive')
+  const line = w.host.querySelector('[role="status"]')
+  expect(line?.getAttribute('aria-live')).toBe('polite')
+  expect(line?.textContent).toContain('Exported 2 notes')
+  expect(scrolled.some((t) => t.includes('Exported 2 notes'))).toBe(true)
 })
