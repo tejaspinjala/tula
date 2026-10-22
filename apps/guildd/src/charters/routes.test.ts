@@ -56,10 +56,16 @@ async function setup(kind: 'memory' | 'postgres', maxBytes?: number) {
     seals: new MemorySealStore(clock),
     handoffs: new MemoryHandoffStore(),
   })
+  const gets = { count: 0 }
+  const counting: RiteEngine = Object.create(engine)
+  counting.get = (...args: Parameters<RiteEngine['get']>) => {
+    gets.count++
+    return engine.get(...args)
+  }
   const memoryEvents: { guild: string; fact: CharterExportedFact }[] = []
   const app = new Hono()
   mountCharterRoutes(app, {
-    rites: engine,
+    rites: counting,
     config,
     clock,
     imports: new MemoryCharterImporter(config, store),
@@ -89,7 +95,7 @@ async function setup(kind: 'memory' | 'postgres', maxBytes?: number) {
       `/guilds/${id}/charter`,
       token ? { headers: { authorization: `Bearer ${token}` } } : {}
     )
-  return { engine, guild, other, get, events }
+  return { engine, guild, other, get, events, gets }
 }
 
 for (const kind of ['memory', 'postgres'] as const) {
@@ -137,6 +143,26 @@ for (const kind of ['memory', 'postgres'] as const) {
       const charter = charterSchema.parse(await res.json())
       expect(charter.rites).toHaveLength(CHARTER_MAX_RITES)
       expect(charter.omitted).toContainEqual({ kind: 'rite', id: 'r050', reason: 'over_limit' })
+    })
+
+    test('collecting reads the active version only for live published Rites', async () => {
+      const { engine, guild, get, gets } = await setup(kind)
+      for (let i = 0; i < 5; i++) {
+        const id = `old${i}`
+        await engine.save(guild, id, { name: id, graph: LEARNING_TO_LINKEDIN })
+        await engine.publish(guild, id, 1, null)
+        await engine.confirm(guild, id, 1)
+        await engine.archive(guild, id)
+      }
+      await engine.save(guild, 'draft', { name: 'Draft', graph: LEARNING_TO_LINKEDIN })
+      for (const id of ['a', 'b']) {
+        await engine.save(guild, id, { name: id, graph: LEARNING_TO_LINKEDIN })
+        await engine.publish(guild, id, 1, null)
+        await engine.confirm(guild, id, 1)
+      }
+      const before = gets.count
+      expect((await get(guild, 'master')).status).toBe(200)
+      expect(gets.count - before).toBe(2)
     })
 
     test('a document over the byte limit is 413 charter_too_large and records no event', async () => {

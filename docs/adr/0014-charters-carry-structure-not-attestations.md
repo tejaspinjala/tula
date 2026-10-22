@@ -1,6 +1,6 @@
 # Charters carry structure, not attestations; importing one never grants authority
 
-A **Charter** is a guild template a Guild Master can export and import. It is only useful if sharing one is safe, so this settles what travels and what an import may do.
+A **Charter** is an exportable, importable description of a guild's structure that a Guild Master can share. It is only useful if sharing one is safe, so this settles what travels and what an import may do.
 
 **A Charter carries structure.** Halls, Members, Captains, Seal Policy, caps, providers, routing profiles, schedules, Tripwires, the Treasury envelope, the content policy, and the active version of each live Rite. It never carries an attestation or private data: `privateEligible` on every Hall and provider is exported as `false`, `learningRepos` is dropped, and Rites that are archived, have no active version, or touch a `private` Hall are left out. Every removal is listed in the Charter's `omitted` array, so the loss is visible. Every config key is classified `structure` or `local` in one table, and a test fails when the schema gains an unclassified key, so a new field can never leak by default.
 

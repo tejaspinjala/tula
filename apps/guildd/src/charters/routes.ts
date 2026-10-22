@@ -62,8 +62,11 @@ export function mountCharterRoutes(app: Hono, deps: CharterRouteDeps): void {
           ...(after === undefined ? {} : { after }),
         })
         for (const r of page.rites) {
+          // Archived Rites are omitted from the export, so their graph is never read.
           const active =
-            r.activeVersion === null ? null : await deps.rites.get(guildId, r.id, r.activeVersion)
+            archived || r.activeVersion === null
+              ? null
+              : await deps.rites.get(guildId, r.id, r.activeVersion)
           out.push({
             id: r.id,
             name: r.name,

@@ -382,10 +382,10 @@ describe('private-Hall Rite omission (F5)', () => {
 })
 
 describe('schedule triggers (F6)', () => {
-  test('apply rejects a Rite whose scheduleId is not in the config schedules', () => {
+  test('export omits a live Rite naming a removed schedule, and the export re-imports ok', () => {
     const graph: RiteGraph = {
       nodes: [
-        { id: 'tick', type: 'trigger.schedule', scheduleId: 'nightly' },
+        { id: 'tick', type: 'trigger.schedule', scheduleId: 'removed' },
         ...graphFor('work').nodes.slice(1),
       ],
       edges: [],
@@ -396,6 +396,27 @@ describe('schedule triggers (F6)', () => {
       rites: [rite('s', { activeGraph: graph })],
       now,
     })
+    expect(charter.rites).toEqual([])
+    expect(charter.omitted).toContainEqual({ kind: 'rite', id: 's', reason: 'unknown_schedule' })
+    const parsed = parseCharter(JSON.stringify(charter))
+    if (!parsed.ok) {
+      throw new Error('the export did not parse')
+    }
+    const again = applyCharter({ charter: parsed.charter, current: config, existingRiteNames: [] })
+    expect(again.ok).toBe(true)
+  })
+
+  test('apply rejects a Rite whose scheduleId is not in the config schedules', () => {
+    const graph: RiteGraph = {
+      nodes: [
+        { id: 'tick', type: 'trigger.schedule', scheduleId: 'nightly' },
+        ...graphFor('work').nodes.slice(1),
+      ],
+      edges: [],
+    }
+    // Export now omits such a Rite, so a hand-edited document carries it.
+    const base = exportCharter({ name: 'n', config, rites: [], now })
+    const charter = { ...base, rites: [{ name: 's', graph }] }
     const r = applyCharter({ charter, current: config, existingRiteNames: [] })
     expect(r.ok).toBe(false)
     if (!r.ok) {
