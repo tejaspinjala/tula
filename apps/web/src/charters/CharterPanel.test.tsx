@@ -303,7 +303,7 @@ test('a failed preview shows the reason and disables Import', async () => {
     preview: { status: 422, body: { error: 'invalid_charter' } },
   })
   await pick(w.host, JSON.stringify(sampleCharter))
-  expect(w.host.querySelector('[role="alert"]')?.textContent).toMatch(/not a Charter/i)
+  expect(w.host.querySelector('[role="alert"]')?.textContent).toMatch(/does not accept/i)
   const button = [...w.host.querySelectorAll('button')].find(
     (b) => b.textContent?.trim() === 'Import this Charter'
   )

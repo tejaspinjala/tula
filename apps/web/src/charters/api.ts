@@ -69,3 +69,32 @@ export function importCharter(
     resultBody
   )
 }
+
+/** What an import would do to the config in force. */
+export interface ImportImpact {
+  change: 'widening' | 'internal' | 'unchanged'
+  baseVersion: number
+}
+
+const impactBody = z.object({
+  change: z.enum(['widening', 'internal', 'unchanged']),
+  baseVersion: z.number(),
+})
+
+/** Asks what importing a Charter would do (`POST /guilds/:id/charter/preview`); changes nothing. */
+export function previewImpact(
+  session: Session,
+  charter: Charter,
+  fetcher: Fetcher
+): Promise<ImportImpact> {
+  return send(
+    fetcher,
+    `${base(session)}/preview`,
+    {
+      method: 'POST',
+      headers: { ...auth(session), 'content-type': 'application/json' },
+      body: JSON.stringify({ charter }),
+    },
+    impactBody
+  )
+}

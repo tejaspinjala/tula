@@ -34,3 +34,17 @@
   padding: 0;
   min-width: 0;
 }
+
+.charter-badge {
+  margin: 0;
+  padding: calc(var(--px) * 2) calc(var(--px) * 3);
+  border: var(--px) solid var(--px-line);
+  background: var(--px-paper);
+  color: var(--px-text);
+  overflow-wrap: anywhere;
+}
+
+.charter-badge-widening {
+  background: var(--px-warn-500);
+  color: var(--px-on-warn);
+}

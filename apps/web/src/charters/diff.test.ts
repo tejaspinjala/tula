@@ -92,10 +92,10 @@ test('a rank-only Member change shows different from and to', () => {
     ...base,
     halls: [{ ...hall('heralds', 'Heralds Hall'), members: [{ id: 'm', name: 'Mira', rank }] }],
   })
-  const p = previewCharter(parseConfig(at('novice')), twin(at('adept')))
+  const p = previewCharter(parseConfig(at('apprentice')), twin(at('adept')))
   expect(p.settings).toHaveLength(1)
   expect(p.settings[0]?.from).not.toBe(p.settings[0]?.to)
-  expect(p.settings[0]?.from).toContain('Mira (novice)')
+  expect(p.settings[0]?.from).toContain('Mira (apprentice)')
   expect(p.settings[0]?.to).toContain('Mira (adept)')
 })
 

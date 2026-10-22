@@ -49,6 +49,8 @@ export interface WorldSlots {
   focusWorld: () => void
   /** Opens the talk conversation with a Member (the Guild chat's way to address one). */
   talkTo: (memberId: string) => void
+  /** Reloads the guild's Halls and Members after the config in force changed (a Charter import). */
+  refreshHall: () => void
 }
 
 /**
@@ -91,6 +93,7 @@ export function GamePanel({
   const [speaking, setSpeaking] = useState<string | null>(null)
   const speakingNow = useRef<string | null>(null)
   speakingNow.current = speaking
+  const [hallEpoch, setHallEpoch] = useState(0)
   const known = useRef<SceneState | null>(null)
   const [missiveTexts, setMissiveTexts] = useState<Record<string, string>>({})
   const asked = useRef(new Set<string>())
@@ -233,6 +236,20 @@ export function GamePanel({
       socket?.close()
     }
   }, [session])
+
+  // A config change (a Charter import) redraws the Halls: reload the roster once per bump.
+  useEffect(() => {
+    if (!session || hallEpoch === 0) {
+      return
+    }
+    let closed = false
+    loadRoster(session, fetch)
+      .then((loaded) => !closed && setRoster(loaded))
+      .catch(() => undefined)
+    return () => {
+      closed = true
+    }
+  }, [session, hallEpoch])
 
   // Events carry Missive ids only: the real text is read through the session-guarded Hall route.
   useEffect(() => {
@@ -513,6 +530,7 @@ export function GamePanel({
         {children({
           hallControls,
           focusWorld,
+          refreshHall: () => setHallEpoch((n) => n + 1),
           talkTo: (id) => {
             dispatchTalk({ type: 'inspect', id })
             dispatchTalk({ type: 'talk' })
