@@ -27,7 +27,7 @@ const listBody = z.object({
   next: z.string().nullable(),
 })
 const saved = z.object({
-  status: z.enum(['active', 'pending']),
+  status: z.enum(['draft', 'active', 'pending']),
   version: z.object({ version: z.number(), classification: z.string() }),
 })
 const invalid = z.object({
@@ -162,11 +162,16 @@ describe('rite routes', () => {
     )
 
     const first = await send('PUT', `${who.base}/mine`, { name: 'Mine', graph: graph() }, who.auth)
-    expect(first.status).toBe(202)
+    expect(first.status).toBe(200)
     expect(saved.parse(await first.json())).toMatchObject({
-      status: 'pending',
+      status: 'draft',
       version: { version: 1, classification: 'widening' },
     })
+    expect((await send('POST', `${who.base}/mine/runs`, { version: 1 }, who.auth)).status).toBe(409)
+    const publish = `${who.base}/mine/versions/1/publish`
+    const waiting = await send('POST', publish, { basedOn: null }, who.auth)
+    expect(waiting.status).toBe(202)
+    expect(await waiting.json()).toMatchObject({ status: 'pending' })
     const run = await send('POST', `${who.base}/mine/runs`, {}, who.auth)
     expect(run.status).toBe(409)
 
@@ -184,9 +189,20 @@ describe('rite routes', () => {
     const second = await send('PUT', `${who.base}/mine`, { name: 'Mine', graph: edited }, who.auth)
     expect(second.status).toBe(200)
     expect(saved.parse(await second.json())).toMatchObject({
-      status: 'active',
+      status: 'draft',
       version: { version: 2, classification: 'internal' },
     })
+    const stale = await send(
+      'POST',
+      `${who.base}/mine/versions/2/publish`,
+      { basedOn: null },
+      who.auth
+    )
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'stale' })
+    const live = await send('POST', `${who.base}/mine/versions/2/publish`, { basedOn: 1 }, who.auth)
+    expect(live.status).toBe(200)
+    expect(await live.json()).toMatchObject({ status: 'active', version: { version: 2 } })
 
     const versions = z
       .object({
@@ -206,6 +222,7 @@ describe('rite routes', () => {
     const who = await signedIn()
     const other = await signedIn()
     await send('PUT', `${who.base}/mine`, { name: 'Mine', graph: graph() }, who.auth)
+    await send('POST', `${who.base}/mine/versions/1/publish`, { basedOn: null }, who.auth)
     const headers = { ...who.auth, 'x-reauth-proof': await who.proof() }
     const confirm = `${who.base}/mine/versions/1/confirm`
     const foreign = `/guilds/${other.guildId}/rites/mine/versions/1/confirm`
@@ -267,6 +284,7 @@ describe('rite routes', () => {
       ['POST', '/learning-to-linkedin/runs', {}],
       ['PUT', '/learning-to-linkedin', { name: 'x', graph: graph() }],
       ['POST', '/learning-to-linkedin/validate', { graph: graph() }],
+      ['POST', '/learning-to-linkedin/versions/1/publish', { basedOn: 1 }],
     ]
     for (const [method, tail, body] of probes) {
       const atB = await send(method, `/guilds/${b.guildId}/rites${tail}`, body, a.auth)

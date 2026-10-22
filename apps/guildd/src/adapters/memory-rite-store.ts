@@ -72,11 +72,27 @@ export class MemoryRiteStore implements RiteStore {
   }
 
   async publishDraft(
-    _guildId: string,
-    _riteId: string,
-    _input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
+    guildId: string,
+    riteId: string,
+    input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
   ): Promise<PublishDraftResult> {
-    throw new Error('not implemented')
+    const list = this.state(guildId).rites.get(riteId) ?? []
+    const draft = list[input.version - 1]
+    if (!draft) {
+      return { ok: false, error: 'not_found' }
+    }
+    if (draft.status !== 'draft') {
+      return { ok: false, error: 'not_draft' }
+    }
+    const current = list.findLast((v) => v.status === 'active')
+    if ((current?.version ?? null) !== input.basedOn) {
+      return { ok: false, error: 'stale' }
+    }
+    if (input.outcome === 'active' && current) {
+      current.status = 'superseded'
+    }
+    draft.status = input.outcome
+    return { ok: true, version: structuredClone(draft) }
   }
 
   async activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null> {
@@ -85,7 +101,14 @@ export class MemoryRiteStore implements RiteStore {
     if (!found) {
       return null
     }
-    found.status = 'active'
+    if (found.status === 'pending') {
+      for (const v of list) {
+        if (v.status === 'active') {
+          v.status = 'superseded'
+        }
+      }
+      found.status = 'active'
+    }
     return structuredClone(found)
   }
 

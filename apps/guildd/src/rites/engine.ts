@@ -36,7 +36,7 @@ export interface RiteEngineDeps {
 /** The outcome of {@link RiteEngine.save}. */
 export type SaveResult =
   | { status: 'invalid'; errors: RiteError[] }
-  | { status: 'active' | 'pending'; version: RiteVersion }
+  | { status: 'draft'; version: RiteVersion }
 
 /** The outcome of {@link RiteEngine.publish}. */
 export type PublishResult =
@@ -170,9 +170,8 @@ export class RiteEngine {
   }
 
   /**
-   * Saves the next version: invalid graphs are refused with coded errors; a save that is not
-   * provably no wider than the previous version (or any first version) is stored `pending` and
-   * runs only once confirmed.
+   * Saves the next version as a draft: invalid graphs are refused with coded errors. A draft
+   * never runs; {@link RiteEngine.publish} decides whether it goes live.
    */
   async save(
     guildId: string,
@@ -185,25 +184,41 @@ export class RiteEngine {
     }
     const graph = riteGraph.parse(input.graph)
     const previous = await this.deps.store.latestActive(guildId, riteId)
-    const classification = classifyRiteChange(previous?.graph ?? null, graph)
-    const status = classification === 'internal' ? 'active' : 'pending'
     const version = await this.deps.store.saveVersion(guildId, riteId, {
       name: input.name,
       graph,
-      classification,
-      status,
+      classification: classifyRiteChange(previous?.graph ?? null, graph),
+      status: 'draft',
     })
-    return { status, version }
+    return { status: 'draft', version }
   }
 
-  /** Publishes a draft over the active version it was based on. */
+  /**
+   * Publishes a draft over the active version it was based on (null for none). Classification is
+   * code: a draft not provably no wider than the active version (or a first version) becomes
+   * `pending` and goes live only through {@link RiteEngine.confirm}; an internal one is active at
+   * once. A moved active version is `stale`.
+   */
   async publish(
-    _guildId: string,
-    _riteId: string,
-    _version: number,
-    _basedOn: number | null
+    guildId: string,
+    riteId: string,
+    version: number,
+    basedOn: number | null
   ): Promise<PublishResult> {
-    throw new Error('not implemented')
+    const draft = await this.deps.store.getVersion(guildId, riteId, version)
+    if (!draft) {
+      return { ok: false, error: 'not_found' }
+    }
+    const active = await this.deps.store.latestActive(guildId, riteId)
+    const kind = classifyRiteChange(active?.graph ?? null, draft.graph)
+    const widening = kind === 'widening' || draft.classification === 'widening'
+    const outcome = widening ? 'pending' : 'active'
+    const result = await this.deps.store.publishDraft(guildId, riteId, {
+      version,
+      basedOn,
+      outcome,
+    })
+    return result.ok ? { ok: true, status: outcome, version: result.version } : result
   }
 
   /** Confirms a pending version (the caller has re-authenticated); null when absent. */

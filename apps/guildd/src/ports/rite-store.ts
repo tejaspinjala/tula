@@ -101,7 +101,10 @@ export interface RiteStore {
     riteId: string,
     input: { version: number; basedOn: number | null; outcome: 'active' | 'pending' }
   ): Promise<PublishDraftResult>
-  /** Marks a pending version active; idempotent for an active one; null when absent. */
+  /**
+   * Marks a pending version active and supersedes the old active one. Any other status is
+   * returned unchanged (a draft is never activated this way); null when absent.
+   */
   activate(guildId: string, riteId: string, version: number): Promise<RiteVersion | null>
   /** Rites in id order strictly after `after`. */
   list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage>

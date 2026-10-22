@@ -28,6 +28,7 @@ const versionPage = z.object({
 })
 const versionNumber = z.coerce.number().int().min(1).max(2_147_483_647)
 const saveBody = z.object({ name: z.string().trim().min(1).max(200), graph: z.unknown() })
+const publishBody = z.object({ basedOn: versionNumber.nullable() })
 const validateBody = z.object({ graph: z.unknown() })
 const runBody = z.object({
   version: versionNumber.optional(),
@@ -148,7 +149,31 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     if (result.status === 'invalid') {
       return c.json({ error: 'invalid_rite', errors: result.errors }, 422)
     }
-    return c.json(result, result.status === 'pending' ? 202 : 200)
+    return c.json(result)
+  })
+
+  app.post(`${base}/:wid/versions/:version/publish`, async (c) => {
+    const who = await deps.guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const id = wid(c)
+    const version = versionNumber.safeParse(c.req.param('version'))
+    const body = publishBody.safeParse(await c.req.json().catch(() => null))
+    if (!(id && version.success)) {
+      return notFound(c)
+    }
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const result = await deps.rites.publish(who.guild, id, version.data, body.data.basedOn)
+    if (!result.ok) {
+      return result.error === 'not_found' ? notFound(c) : c.json({ error: result.error }, 409)
+    }
+    return c.json(
+      { status: result.status, version: result.version },
+      result.status === 'pending' ? 202 : 200
+    )
   })
 
   app.post(`${base}/:wid/versions/:version/confirm`, async (c) => {
