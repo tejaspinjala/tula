@@ -22,6 +22,7 @@ export interface RiteRouteDeps {
 
 const limit = z.coerce.number().int().min(1).max(MAX_RITE_PAGE).default(50)
 const idPage = z.object({ after: z.string().max(64).optional(), limit })
+const listPage = idPage.extend({ archived: z.enum(['true', 'false']).optional() })
 const versionPage = z.object({
   before: z.coerce.number().int().min(1).max(2_147_483_647).optional(),
   limit,
@@ -39,6 +40,7 @@ const RUN_STATUS: Record<RunError, 404 | 409 | 422> = {
   not_found: 404,
   no_active_version: 409,
   version_not_active: 409,
+  rite_archived: 409,
   no_manual_trigger: 422,
   invalid_rite: 422,
   unknown_template: 422,
@@ -70,7 +72,11 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     if ('res' in who) {
       return who.res
     }
-    const page = idPage.safeParse({ after: c.req.query('after'), limit: c.req.query('limit') })
+    const page = listPage.safeParse({
+      after: c.req.query('after'),
+      limit: c.req.query('limit'),
+      archived: c.req.query('archived'),
+    })
     if (!page.success) {
       return c.json({ error: 'invalid_page' }, 400)
     }
@@ -80,6 +86,7 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     return c.json(
       await deps.rites.list(who.guild, {
         limit: page.data.limit,
+        ...(page.data.archived === 'true' ? { archived: true } : {}),
         ...(page.data.after === undefined ? {} : { after: page.data.after }),
       })
     )
@@ -208,6 +215,20 @@ export function mountRiteRoutes(app: Hono, deps: RiteRouteDeps): void {
     }
     return c.json({ version: version.data, status: 'active' })
   })
+
+  // Archive and unarchive are idempotent and need no passkey: they widen nothing (unarchive leaves
+  // no active version, so the Rite must be published, and confirmed if widening, again).
+  for (const action of ['archive', 'unarchive'] as const) {
+    app.post(`${base}/:wid/${action}`, async (c) => {
+      const who = await deps.guildMasterSessionFor(c)
+      if ('res' in who) {
+        return who.res
+      }
+      const id = wid(c)
+      const result = id ? await deps.rites[action](who.guild, id) : null
+      return result?.ok ? c.json({ riteId: id, archived: action === 'archive' }) : notFound(c)
+    })
+  }
 
   app.post(`${base}/:wid/runs`, async (c) => {
     const who = await deps.guildMasterSessionFor(c)

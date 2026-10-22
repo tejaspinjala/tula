@@ -15,6 +15,7 @@ import { fetchStreamTicket, loadQuests, questStreamUrl } from '../quests'
 import { createBackoff, streamHandlers, streamNotice } from '../stream-retry'
 import { WorkSection } from '../WorkSection'
 import {
+  archiveRite,
   confirmRiteVersion,
   listRites,
   listRuns,
@@ -28,6 +29,7 @@ import {
   runRite,
   type SaveOutcome,
   saveRite,
+  unarchiveRite,
   type VersionDoc,
   validateGraph,
 } from './api'
@@ -220,6 +222,8 @@ export function RitePanel({
   const [runId, setRunId] = useState<string | null>(null)
   const [run, setRun] = useState<RunState | null>(null)
   const [overlay, setOverlay] = useState<ReadonlyMap<string, NodeOverlay>>(noOverlay)
+  const [showArchived, setShowArchived] = useState(false)
+  const [confirmingArchive, setConfirmingArchive] = useState(false)
 
   const open = useCallback(
     async (riteId: string) => {
@@ -463,6 +467,45 @@ export function RitePanel({
         `The run was refused (${outcome.error}${outcome.nodeId ? ` at ${outcome.nodeId}` : ''}).`
       )
     })
+  const reload = async (archived: boolean) => {
+    const found = await listRites(session, fetcher, archived)
+    setList(found)
+    setShowArchived(archived)
+    setConfirmingArchive(false)
+    const first = found[0]
+    if (first) {
+      await open(first.id)
+      return
+    }
+    // Nothing left to show: fall back to the blank starter, as a guild with no Rites does.
+    setId(archived ? id : 'my-rite')
+    setName(archived ? name : 'My Rite')
+    setSaved(null)
+    setDraft(STARTER)
+    setVersion(0)
+    setStatus(null)
+    setActiveVersion(null)
+    setVersions([])
+    setRunId(null)
+    setRun(null)
+    setOverlay(noOverlay)
+  }
+  const archive = () =>
+    attempt(async () => {
+      await archiveRite(session, id, fetcher)
+      setMessage(null)
+      await reload(false)
+    })
+  const unarchive = () =>
+    attempt(async () => {
+      await unarchiveRite(session, id, fetcher)
+      await reload(false)
+      setMessage('Rite restored. Publish a version to put it in force again.')
+    })
+  const toggleArchived = (archived: boolean) =>
+    attempt(async () => {
+      await reload(archived)
+    })
   const create = () => {
     if (ID_SLUG.test(newId)) {
       setId(newId)
@@ -487,7 +530,9 @@ export function RitePanel({
     }
   }
 
-  const canRun = activeVersion !== null && !dirty && !pending && status === 'active'
+  const archivedView = showArchived && list.some((w) => w.id === id)
+  const canRun =
+    activeVersion !== null && !dirty && !pending && status === 'active' && !archivedView
   const labelOf = (nodeId: string) => draft.nodes.find((n) => n.id === nodeId)?.name ?? nodeId
 
   return (
@@ -530,7 +575,37 @@ export function RitePanel({
         <button type="button" className="btn-primary" disabled={!canRun} onClick={startRun}>
           Run
         </button>
+        <label>
+          <input
+            type="checkbox"
+            aria-label="Show archived"
+            checked={showArchived}
+            onChange={(e) => toggleArchived(e.target.checked)}
+          />{' '}
+          Archived
+        </label>
+        {wide && archivedView && (
+          <button type="button" onClick={unarchive}>
+            Unarchive
+          </button>
+        )}
+        {wide && !archivedView && version > 0 && !confirmingArchive && (
+          <button type="button" onClick={() => setConfirmingArchive(true)}>
+            Archive
+          </button>
+        )}
       </div>
+      {confirmingArchive && (
+        <p role="alert" className="builder-pending">
+          {`Archive ${name}? It leaves the list and cannot run until restored.`}{' '}
+          <button type="button" className="btn-primary" onClick={archive}>
+            {`Archive ${name}`}
+          </button>{' '}
+          <button type="button" onClick={() => setConfirmingArchive(false)}>
+            Cancel
+          </button>
+        </p>
+      )}
       <p className="muted">
         <span
           data-testid="rite-chip"

@@ -107,6 +107,66 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       expect(second.next).toBeNull()
     })
 
+    test('archiving hides a Rite from the default list and unarchiving brings it back superseded', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      await store.saveVersion(g, 'a-flow', version({ name: 'A' }))
+      await store.saveVersion(g, 'b-flow', version({ name: 'B' }))
+      expect(await store.archivedAt(g, 'a-flow')).toBeNull()
+      expect(await store.archive(g, 'a-flow')).toMatchObject({ ok: true, changed: true })
+      expect(await store.archivedAt(g, 'a-flow')).not.toBeNull()
+      expect((await store.list(g, { limit: 10 })).rites.map((r) => r.id)).toEqual(['b-flow'])
+      const only = await store.list(g, { limit: 10, archived: true })
+      expect(only.rites).toMatchObject([{ id: 'a-flow' }])
+      expect(only.rites[0]?.archivedAt).not.toBeNull()
+      // Archiving again changes nothing.
+      expect(await store.archive(g, 'a-flow')).toMatchObject({ ok: true, changed: false })
+      // The version stays active while archived (a run in flight is not touched).
+      expect((await store.latestActive(g, 'a-flow'))?.version).toBe(1)
+      expect(await store.unarchive(g, 'a-flow')).toEqual({ ok: true, changed: true, superseded: 1 })
+      expect(await store.archivedAt(g, 'a-flow')).toBeNull()
+      expect(await store.latestActive(g, 'a-flow')).toBeNull()
+      expect((await store.getVersion(g, 'a-flow', 1))?.status).toBe('superseded')
+      expect((await store.list(g, { limit: 10 })).rites.map((r) => r.id)).toEqual([
+        'a-flow',
+        'b-flow',
+      ])
+      expect(await store.unarchive(g, 'a-flow')).toEqual({
+        ok: true,
+        changed: false,
+        superseded: null,
+      })
+    })
+
+    test('the archived list stays paginated and a missing Rite cannot be archived', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      for (const id of ['a', 'b', 'c']) {
+        await store.saveVersion(g, id, version())
+        await store.archive(g, id)
+      }
+      const first = await store.list(g, { limit: 2, archived: true })
+      expect(first.rites.map((r) => r.id)).toEqual(['a', 'b'])
+      expect(first.next).toBe('b')
+      const rest = await store.list(g, { after: 'b', limit: 2, archived: true })
+      expect(rest.rites.map((r) => r.id)).toEqual(['c'])
+      expect(await store.archive(g, 'nope')).toEqual({ ok: false, error: 'not_found' })
+      expect(await store.unarchive(g, 'nope')).toEqual({ ok: false, error: 'not_found' })
+    })
+
+    test('an archived Rite is not re-seeded and another guild is unaffected', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      await store.seedVersion(g, 'tpl', version())
+      await store.seedVersion(other, 'tpl', version())
+      await store.archive(g, 'tpl')
+      expect(await store.seedVersion(g, 'tpl', version())).toBeNull()
+      expect((await store.list(g, { limit: 10 })).rites).toEqual([])
+      expect(await store.archivedAt(other, 'tpl')).toBeNull()
+      expect((await store.list(other, { limit: 10 })).rites).toHaveLength(1)
+    })
+
     test('seeding inserts only when no version exists, even for same-tick calls', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

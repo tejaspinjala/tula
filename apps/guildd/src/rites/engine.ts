@@ -3,6 +3,7 @@ import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type {
   ActivateResult,
+  ArchiveResult,
   PublishDraftError,
   RitePage,
   RiteRun,
@@ -10,6 +11,7 @@ import type {
   RiteStore,
   RiteVersion,
   RiteVersionPage,
+  UnarchiveResult,
 } from '../ports/rite-store'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
@@ -42,7 +44,7 @@ export type SaveResult =
 /** The outcome of {@link RiteEngine.publish}. */
 export type PublishResult =
   | { ok: true; status: 'active' | 'pending'; version: RiteVersion }
-  | { ok: false; error: PublishDraftError }
+  | { ok: false; error: PublishDraftError | 'rite_archived' }
 
 /** Why a run could not start or finish compiling. */
 export type RunError =
@@ -51,6 +53,7 @@ export type RunError =
   | 'version_not_active'
   | 'no_manual_trigger'
   | 'invalid_rite'
+  | 'rite_archived'
   | PostQuestError
   | StartTeamCampaignError
 
@@ -210,6 +213,9 @@ export class RiteEngine {
     if (!draft) {
       return { ok: false, error: 'not_found' }
     }
+    if ((await this.deps.store.archivedAt(guildId, riteId)) !== null) {
+      return { ok: false, error: 'rite_archived' }
+    }
     const active = await this.deps.store.latestActive(guildId, riteId)
     const kind = classifyRiteChange(active?.graph ?? null, draft.graph)
     const widening = kind === 'widening' || draft.classification === 'widening'
@@ -232,8 +238,24 @@ export class RiteEngine {
   }
 
   /** Rites in id order after `after`. */
-  list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {
+  list(
+    guildId: string,
+    page: { after?: string; limit: number; archived?: boolean }
+  ): Promise<RitePage> {
     return this.deps.store.list(guildId, page)
+  }
+
+  /**
+   * Archives a Rite: hidden from the list, no new run or publish. A run in flight completes, since
+   * its Quests are already on the queue.
+   */
+  archive(guildId: string, riteId: string): Promise<ArchiveResult> {
+    return this.deps.store.archive(guildId, riteId)
+  }
+
+  /** Unarchives a Rite; its active version is superseded, so it must be published again to run. */
+  unarchive(guildId: string, riteId: string): Promise<UnarchiveResult> {
+    return this.deps.store.unarchive(guildId, riteId)
   }
 
   /** A version (the latest of any status when `version` is omitted) and the newest runnable one. */
@@ -292,6 +314,9 @@ export class RiteEngine {
     const head = await this.deps.store.getVersion(guildId, riteId)
     if (!head) {
       return { ok: false, error: 'not_found' }
+    }
+    if ((await this.deps.store.archivedAt(guildId, riteId)) !== null) {
+      return { ok: false, error: 'rite_archived' }
     }
     const pinned =
       opts.version === undefined
