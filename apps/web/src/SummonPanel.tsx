@@ -25,7 +25,7 @@ export const STEP_LABELS = {
 export function SummonPanel({
   session,
   pollMs = 3000,
-  onSetupRouting: _onSetupRouting,
+  onSetupRouting,
 }: {
   /** Opens Settings, where providers and routing profiles are added. */
   onSetupRouting?: (() => void) | undefined
@@ -35,6 +35,7 @@ export function SummonPanel({
 }) {
   const [status, setStatus] = useState<SummonStatus | null>(null)
   const [profiles, setProfiles] = useState<RoutingProfileChoice[]>([])
+  const [profilesLoaded, setProfilesLoaded] = useState(false)
   const [profileId, setProfileId] = useState('')
   const [message, setMessage] = useState('')
 
@@ -57,7 +58,14 @@ export function SummonPanel({
     }
     let live = true
     loadRoutingProfiles(session, fetch)
-      .then((loaded) => live && setProfiles(loaded))
+      .then((loaded) => {
+        if (live) {
+          setProfiles(loaded)
+          setProfilesLoaded(true)
+          // The first profile is the default; keep a choice the Guild Master already made.
+          setProfileId((chosen) => chosen || loaded[0]?.id || '')
+        }
+      })
       .catch(() => live && setMessage('The routing profiles could not be loaded.'))
     return () => {
       live = false
@@ -86,7 +94,8 @@ export function SummonPanel({
     }
   }
 
-  const form = session && (
+  const noProfiles = session !== null && profilesLoaded && profiles.length === 0
+  const form = session && !noProfiles && (
     <form
       className="work-actions"
       onSubmit={(event) => {
@@ -124,6 +133,15 @@ export function SummonPanel({
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {noProfiles && (
+        <>
+          <p role="status">
+            You have no routing profile yet. Add a provider and a routing profile in Settings, then
+            summon.
+          </p>
+          {onSetupRouting && <PixelButton onClick={onSetupRouting}>▶ Set up routing</PixelButton>}
         </>
       )}
       {status?.complete ? (

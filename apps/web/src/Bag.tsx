@@ -65,16 +65,18 @@ function PageBody({
   onSession,
   onTalkTo,
   onConfigChanged,
+  onSetupRouting,
 }: {
   page: PageId
   session: Session
   onSession: (session: Session | null) => void
   onTalkTo?: ((memberId: string) => void) | undefined
   onConfigChanged?: (() => void) | undefined
+  onSetupRouting?: (() => void) | undefined
 }) {
   switch (page) {
     case 'quests':
-      return <QuestBoardPanel session={session} />
+      return <QuestBoardPanel session={session} onSetupRouting={onSetupRouting} />
     case 'seals':
       return <SealPanel session={session} />
     case 'treasury':
@@ -99,7 +101,7 @@ function PageBody({
         <>
           <BuilderPanel session={session} />
           <RosterPanel session={session} />
-          <SummonPanel session={session} />
+          <SummonPanel session={session} onSetupRouting={onSetupRouting} />
         </>
       )
     case 'rites':
@@ -247,6 +249,7 @@ export function Bag({
                 onSession={onSession}
                 onTalkTo={onTalkTo}
                 onConfigChanged={onConfigChanged}
+                onSetupRouting={() => onOpenPath('/vault')}
               />
             </FlatWorkContext.Provider>
           </div>

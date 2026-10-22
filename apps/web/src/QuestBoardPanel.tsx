@@ -12,6 +12,7 @@ import {
   inCampaign,
   isPrivateQuest,
   loadQuests,
+  needsRoutingSetup,
   postQuest,
   QUEST_TEMPLATES,
   questStreamUrl,
@@ -37,7 +38,7 @@ const COLUMN_NAMES: Record<BoardQuest['state'], string> = {
  */
 export function QuestBoardPanel({
   session,
-  onSetupRouting: _onSetupRouting,
+  onSetupRouting,
 }: {
   session: Session | null
   /** Opens Settings, where providers and routing profiles are added. */
@@ -273,6 +274,9 @@ export function QuestBoardPanel({
                     <strong>{quest.title}</strong>
                     {isPrivateQuest(quest) && <Badge tone="private">Private</Badge>}
                     {waitingReason(quest) && <div>{waitingReason(quest)}</div>}
+                    {onSetupRouting && needsRoutingSetup(quest) && (
+                      <PixelButton onClick={onSetupRouting}>▶ Set up routing</PixelButton>
+                    )}
                     <div>
                       {quest.hallId} / {quest.ownerId}
                     </div>
