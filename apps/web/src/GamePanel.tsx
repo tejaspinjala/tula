@@ -14,7 +14,7 @@ import { initialTalk, talkReducer } from './game/interact'
 import type { LookChoice } from './game/look'
 import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
-import type { GameHandle } from './game/start'
+import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
 import { announceRoom } from './game/walk'
 import { loadGuildMasterLook } from './guild-master-look'
@@ -38,6 +38,9 @@ import { DialogueBox, ItemGet, PixelButton } from './ui/pixel'
 
 const BANNER_MS = 4000
 
+/** Loads the game module that boots Phaser. */
+export type GameLoader = () => Promise<{ startGame: typeof startGame }>
+
 /** What the home hands to whatever draws over the world (the HUD and the Bag). */
 export interface WorldSlots {
   /** The zoom, teleport, replay and character controls, for the Bag's Hall page. */
@@ -58,10 +61,16 @@ export interface WorldSlots {
 export function GamePanel({
   session,
   navigate,
+  inputEnabled = true,
+  loadGame = () => import('./game/start'),
   children,
 }: {
+  /** Loads the game module on demand (a dynamic import by default; tests pass a fake). */
+  loadGame?: GameLoader | undefined
   session: Session
   navigate: (path: string) => void
+  /** False while a Bag page covers the Hall: the world then takes no pointer input. */
+  inputEnabled?: boolean
   children: (slots: WorldSlots) => ReactNode
 }) {
   const [banner, setBanner] = useState<Banner | null>(null)
@@ -88,6 +97,10 @@ export function GamePanel({
   const frame = useRef<HTMLDivElement | null>(null)
   const handle = useRef<GameHandle | null>(null)
   const lastSeq = useRef(0)
+  const inputNow = useRef(inputEnabled)
+  inputNow.current = inputEnabled
+  const loader = useRef(loadGame)
+  loader.current = loadGame
   const open = useRef(navigate)
   open.current = navigate
 
@@ -262,7 +275,8 @@ export function GamePanel({
     }
     let gone = false
     let started: GameHandle | null = null
-    import('./game/start')
+    loader
+      .current()
       .then(({ startGame }) => {
         if (gone) {
           return
@@ -285,6 +299,7 @@ export function GamePanel({
           },
         })
         handle.current = started
+        started.setInputEnabled(inputNow.current)
       })
       .catch(() => !gone && setLoadError(true))
     const onVisibility = () => started?.setPaused(document.hidden)
@@ -296,6 +311,10 @@ export function GamePanel({
       handle.current = null
     }
   }, [session])
+
+  useEffect(() => {
+    handle.current?.setInputEnabled(inputEnabled)
+  }, [inputEnabled])
 
   useEffect(() => {
     known.current = scene

@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act } from 'react'
+import type { GameLoader } from './GamePanel'
 
 const inputCalls: boolean[] = []
 const noop = () => {}
-mock.module('./game/start', () => ({
+const loadGame: GameLoader = async () => ({
   startGame: () => ({
     render: noop,
     zoomBy: noop,
@@ -19,7 +20,7 @@ mock.module('./game/start', () => ({
     setInputEnabled: (enabled: boolean) => inputCalls.push(enabled),
     destroy: noop,
   }),
-}))
+})
 
 // react-dom reads the DOM's capabilities when it loads, so the DOM is registered first.
 GlobalRegistrator.register({ url: 'http://localhost/' })
@@ -46,7 +47,15 @@ describe('the Hall behind the Bag', () => {
     document.body.appendChild(host)
     const root = createRoot(host)
     await act(async () => {
-      root.render(<Shell session={session} guildName="Ember" status="ok" onSession={noop} />)
+      root.render(
+        <Shell
+          session={session}
+          guildName="Ember"
+          status="ok"
+          onSession={noop}
+          loadGame={loadGame}
+        />
+      )
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))

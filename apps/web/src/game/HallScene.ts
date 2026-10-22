@@ -254,6 +254,7 @@ export class HallScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.input.enabled = this.inputOn
     for (const id of MAP_IDS) {
       this.drawMap(id)
     }
@@ -1042,6 +1043,16 @@ export class HallScene extends Phaser.Scene {
       .setDepth(20)
       .setVisible(false)
     this.applyConfer()
+  }
+
+  private inputOn = true
+
+  /** Turns the Hall's pointer input off (a Bag page covers it) or back on; safe before `create`. */
+  setInputEnabled(enabled: boolean): void {
+    this.inputOn = enabled
+    if (this.input) {
+      this.input.enabled = enabled
+    }
   }
 
   /** The elders confer (bob in turn, with a "..." above) while a Council session is open. */
