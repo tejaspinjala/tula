@@ -1,15 +1,35 @@
 import { describe, expect, test } from 'bun:test'
-import { type GuildConfig, guildConfig, hall, provider } from '../guild-config'
+import {
+  caps,
+  contentPolicy,
+  type GuildConfig,
+  guildConfig,
+  hall,
+  member,
+  provider,
+  routingProfile,
+  schedule,
+  treasuryLimits,
+  tripwireThresholds,
+} from '../guild-config'
 import type { RiteGraph } from '../rites/graph'
 import {
+  AGENT_FIELD_CLASS,
   applyCharter,
+  CAPS_FIELD_CLASS,
   CHARTER_MAX_BYTES,
   CONFIG_FIELD_CLASS,
+  CONTENT_POLICY_FIELD_CLASS,
   type ExportRite,
   exportCharter,
   HALL_FIELD_CLASS,
+  MEMBER_FIELD_CLASS,
   PROVIDER_FIELD_CLASS,
   parseCharter,
+  ROUTING_PROFILE_FIELD_CLASS,
+  SCHEDULE_FIELD_CLASS,
+  TREASURY_FIELD_CLASS,
+  TRIPWIRES_FIELD_CLASS,
 } from './charter'
 
 const baseHall = { locked: false, privateEligible: true, captain: null, members: [] }
@@ -171,5 +191,206 @@ describe('parseCharter', () => {
       rites: Array.from({ length: 51 }, () => ({ name: 'r', graph: graphFor('work') })),
     }
     expect(parseCharter(JSON.stringify(over)).ok).toBe(false)
+  })
+})
+
+const keys = (o: object) => Object.keys(o).sort()
+
+describe('nested field classification (F1)', () => {
+  test('classifies every nested object key', () => {
+    expect(keys(MEMBER_FIELD_CLASS)).toEqual(keys(member.shape))
+    expect(keys(AGENT_FIELD_CLASS)).toEqual(keys(guildConfig.shape.steward.shape))
+    expect(keys(CAPS_FIELD_CLASS)).toEqual(keys(caps.shape))
+    expect(keys(TREASURY_FIELD_CLASS)).toEqual(keys(treasuryLimits.shape))
+    expect(keys(TRIPWIRES_FIELD_CLASS)).toEqual(keys(tripwireThresholds.shape))
+    expect(keys(CONTENT_POLICY_FIELD_CLASS)).toEqual(keys(contentPolicy.shape))
+    expect(keys(ROUTING_PROFILE_FIELD_CLASS)).toEqual(keys(routingProfile.shape))
+    expect(keys(SCHEDULE_FIELD_CLASS)).toEqual(keys(schedule.shape))
+  })
+
+  test('every local key is absent or false after export', () => {
+    const c = exportCharter({ name: 'n', config, rites: [], now })
+    for (const [k, cls] of Object.entries(CONFIG_FIELD_CLASS)) {
+      if (cls === 'local') {
+        expect(c.config).not.toHaveProperty(k)
+      }
+    }
+    for (const h of c.config.halls) {
+      for (const [k, cls] of Object.entries(HALL_FIELD_CLASS)) {
+        if (cls === 'local') {
+          expect(h[k as keyof typeof h]).toBeFalsy()
+        }
+      }
+    }
+    for (const p of c.config.providers) {
+      for (const [k, cls] of Object.entries(PROVIDER_FIELD_CLASS)) {
+        if (cls === 'local') {
+          expect(p[k as keyof typeof p]).toBeFalsy()
+        }
+      }
+    }
+  })
+})
+
+describe('export fails closed (F2)', () => {
+  test('a Hall with an extra runtime key is not exported', () => {
+    const dirty = {
+      ...config,
+      halls: config.halls.map((h) => ({ ...h, secretNote: 'x' })),
+    }
+    expect(() => exportCharter({ name: 'n', config: dirty, rites: [], now })).toThrow()
+  })
+})
+
+describe('apply tamper cases (F3)', () => {
+  const charter = exportCharter({ name: 'n', config, rites: [], now })
+  const closed: GuildConfig = {
+    ...config,
+    halls: config.halls.map((h) => ({ ...h, privateEligible: false })),
+    providers: config.providers.map((p) => ({ ...p, privateEligible: false })),
+    learningRepos: undefined,
+  }
+  const tampered = {
+    ...charter,
+    config: {
+      ...charter.config,
+      halls: charter.config.halls.map((h) => ({ ...h, privateEligible: true })),
+      providers: charter.config.providers.map((p) => ({ ...p, privateEligible: true })),
+      learningRepos: ['evil/x'],
+    },
+  }
+
+  test('an existing Hall and provider false in current stay false, learningRepos not taken', () => {
+    const r = applyCharter({ charter: tampered, current: closed, existingRiteNames: [] })
+    if (!r.ok) {
+      throw new Error('expected ok')
+    }
+    expect(r.config.halls.every((h) => h.privateEligible === false)).toBe(true)
+    expect(r.config.providers.every((p) => p.privateEligible === false)).toBe(true)
+    expect(r.config.learningRepos).toBeUndefined()
+  })
+})
+
+describe('parseCharter byte cap (F4)', () => {
+  test('refuses multibyte text whose length is under the cap but bytes are over', () => {
+    const text = '€'.repeat(Math.ceil(CHARTER_MAX_BYTES / 3) + 1)
+    expect(text.length).toBeLessThan(CHARTER_MAX_BYTES)
+    const r = parseCharter(text)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.message).toContain('size')
+    }
+  })
+
+  test('accepts a document exactly at the cap', () => {
+    const json = JSON.stringify(exportCharter({ name: 'n', config, rites: [], now }))
+    const padded = json + ' '.repeat(CHARTER_MAX_BYTES - json.length)
+    expect(new TextEncoder().encode(padded).length).toBe(CHARTER_MAX_BYTES)
+    expect(parseCharter(padded).ok).toBe(true)
+  })
+})
+
+describe('private-Hall Rite omission (F5)', () => {
+  const sub: RiteGraph = {
+    nodes: [
+      { id: 'start', type: 'trigger.manual' },
+      {
+        id: 's',
+        type: 'subagents',
+        hallId: 'health',
+        templateId: 't',
+        briefs: ['b'],
+        join: 'all',
+        maxUsd: 1,
+      },
+    ],
+    edges: [{ from: 'start', to: 's' }],
+  }
+  const team: RiteGraph = {
+    nodes: [
+      { id: 'start', type: 'trigger.manual' },
+      {
+        id: 't',
+        type: 'team',
+        hallId: 'health',
+        goal: 'g',
+        maxMembers: 1,
+        maxQuests: 1,
+        maxUsd: 1,
+      },
+    ],
+    edges: [{ from: 'start', to: 't' }],
+  }
+  const mixed: RiteGraph = {
+    nodes: [...graphFor('work').nodes, ...team.nodes.slice(1)],
+    edges: [],
+  }
+
+  test('subagents, team, mixed and unknown-Hall Rites are omitted with the right reason', () => {
+    const c = exportCharter({
+      name: 'n',
+      config,
+      now,
+      rites: [
+        rite('sub', { activeGraph: sub }),
+        rite('team', { activeGraph: team }),
+        rite('mixed', { activeGraph: mixed }),
+        rite('ghost', { activeGraph: graphFor('nowhere') }),
+      ],
+    })
+    expect(c.rites).toEqual([])
+    expect(c.omitted.filter((o) => o.kind === 'rite')).toEqual([
+      { kind: 'rite', id: 'sub', reason: 'private_hall' },
+      { kind: 'rite', id: 'team', reason: 'private_hall' },
+      { kind: 'rite', id: 'mixed', reason: 'private_hall' },
+      { kind: 'rite', id: 'ghost', reason: 'unknown_hall' },
+    ])
+  })
+})
+
+describe('schedule triggers (F6)', () => {
+  test('apply rejects a Rite whose scheduleId is not in the config schedules', () => {
+    const graph: RiteGraph = {
+      nodes: [
+        { id: 'tick', type: 'trigger.schedule', scheduleId: 'nightly' },
+        ...graphFor('work').nodes.slice(1),
+      ],
+      edges: [],
+    }
+    const charter = exportCharter({
+      name: 'n',
+      config,
+      rites: [rite('s', { activeGraph: graph })],
+      now,
+    })
+    const r = applyCharter({ charter, current: config, existingRiteNames: [] })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toBe('invalid_charter')
+    }
+  })
+})
+
+describe('the tables drive behaviour (F1)', () => {
+  test('marking a key local removes it on export and restores it from current on apply', () => {
+    const withPolicy: GuildConfig = {
+      ...config,
+      contentPolicy: { maxLength: 100, bannedTerms: [], requiredTerms: [] },
+    }
+    const before = CONFIG_FIELD_CLASS.contentPolicy
+    CONFIG_FIELD_CLASS.contentPolicy = 'local'
+    try {
+      const c = exportCharter({ name: 'n', config: withPolicy, rites: [], now })
+      expect(c.config.contentPolicy).toBeUndefined()
+      const r = applyCharter({ charter: c, current: withPolicy, existingRiteNames: [] })
+      if (!r.ok) {
+        throw new Error('expected ok')
+      }
+      expect(r.config.contentPolicy).toEqual(withPolicy.contentPolicy)
+    } finally {
+      if (before !== undefined) {
+        CONFIG_FIELD_CLASS.contentPolicy = before
+      }
+    }
   })
 })

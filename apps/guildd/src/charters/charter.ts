@@ -45,6 +45,23 @@ export const PROVIDER_FIELD_CLASS: Record<string, FieldClass> = {
   privateEligible: 'local',
 }
 
+/** Nested objects hold only structure: every key is classified so a new one must be reviewed. */
+export const MEMBER_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of an agent (the Steward and every Captain). */
+export const AGENT_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of the guild caps. */
+export const CAPS_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of the Treasury envelope. */
+export const TREASURY_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of the Tripwire thresholds. */
+export const TRIPWIRES_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of the content policy. */
+export const CONTENT_POLICY_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of a routing profile. */
+export const ROUTING_PROFILE_FIELD_CLASS: Record<string, FieldClass> = {}
+/** Keys of a schedule. */
+export const SCHEDULE_FIELD_CLASS: Record<string, FieldClass> = {}
+
 /** The Charter document (ADR-0014): guild structure only, never attestations or private data. */
 export const charterSchema = z.strictObject({
   charter: z.literal(1),
