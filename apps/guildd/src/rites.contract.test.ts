@@ -22,7 +22,12 @@ const tokenBody = z.object({ token: z.string() })
 const proofBody = z.object({ proof: z.string() })
 const listBody = z.object({
   rites: z.array(
-    z.object({ id: z.string(), latestVersion: z.number(), activeVersion: z.number().nullable() })
+    z.object({
+      id: z.string(),
+      latestVersion: z.number(),
+      activeVersion: z.number().nullable(),
+      archivedAt: z.string().nullable(),
+    })
   ),
   next: z.string().nullable(),
 })
@@ -271,6 +276,33 @@ describe('rite routes', () => {
     expect((await send('POST', `${who.base}/nope/runs`, {}, who.auth)).status).toBe(404)
   })
 
+  test('archive hides a Rite, refuses runs, and unarchive needs a fresh publish; the Guild Master only, no passkey', async () => {
+    const who = await signedIn()
+    const id = 'learning-to-linkedin'
+    await send('GET', who.base, undefined, who.auth)
+    expect((await send('POST', `${who.base}/${id}/archive`, {})).status).toBe(401)
+    const archived = await send('POST', `${who.base}/${id}/archive`, {}, who.auth)
+    expect(archived.status).toBe(200)
+    // Reseeding on the list does not bring the template back.
+    const hidden = await send('GET', who.base, undefined, who.auth)
+    expect(listBody.parse(await hidden.json()).rites).toEqual([])
+    const only = listBody.parse(
+      await (await send('GET', `${who.base}?archived=true`, undefined, who.auth)).json()
+    )
+    expect(only.rites.map((r) => r.id)).toEqual([id])
+    expect(only.rites[0]?.archivedAt).not.toBeNull()
+    const refused = await send('POST', `${who.base}/${id}/runs`, {}, who.auth)
+    expect(refused.status).toBe(409)
+    expect(await refused.json()).toMatchObject({ error: 'rite_archived' })
+    const un = await send('POST', `${who.base}/${id}/unarchive`, {}, who.auth)
+    expect(un.status).toBe(200)
+    const after = listBody.parse(await (await send('GET', who.base, undefined, who.auth)).json())
+    expect(after.rites).toMatchObject([{ id, activeVersion: null }])
+    expect((await send('POST', `${who.base}/${id}/runs`, {}, who.auth)).status).toBe(409)
+    expect((await send('POST', `${who.base}/missing/archive`, {}, who.auth)).status).toBe(404)
+    expect((await send('GET', `${who.base}?archived=maybe`, undefined, who.auth)).status).toBe(400)
+  })
+
   test('a guild never reads or runs another guild`s rites', async () => {
     const a = await signedIn()
     const b = await signedIn()
@@ -285,6 +317,8 @@ describe('rite routes', () => {
       ['PUT', '/learning-to-linkedin', { name: 'x', graph: graph() }],
       ['POST', '/learning-to-linkedin/validate', { graph: graph() }],
       ['POST', '/learning-to-linkedin/versions/1/publish', { basedOn: 1 }],
+      ['POST', '/learning-to-linkedin/archive', {}],
+      ['POST', '/learning-to-linkedin/unarchive', {}],
     ]
     for (const [method, tail, body] of probes) {
       const atB = await send(method, `/guilds/${b.guildId}/rites${tail}`, body, a.auth)
@@ -297,6 +331,7 @@ describe('rite routes', () => {
     }
     const theirs = listBody.parse(await (await send('GET', b.base, undefined, b.auth)).json())
     expect(theirs.rites.map((w) => w.latestVersion)).toEqual([1])
+    expect(theirs.rites.map((w) => w.archivedAt)).toEqual([null])
     expect((await harness.adapters.quests.list(b.guildId, { limit: 10 })).quests).toEqual([])
     await expectGuildIsolation(devHarness, {
       build: (caller, target) => [`/guilds/${target}/rites`, { headers: { 'x-guild-id': caller } }],

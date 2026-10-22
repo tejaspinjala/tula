@@ -39,6 +39,7 @@ const RUN_STATUS: Record<RunError, 404 | 409 | 422> = {
   not_found: 404,
   no_active_version: 409,
   version_not_active: 409,
+  rite_archived: 409,
   no_manual_trigger: 422,
   invalid_rite: 422,
   unknown_template: 422,

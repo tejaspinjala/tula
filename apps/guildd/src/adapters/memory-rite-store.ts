@@ -1,6 +1,7 @@
 import type { Clock } from '../ports/clock'
 import type {
   ActivateResult,
+  ArchiveResult,
   NewRiteVersion,
   PublishDraftResult,
   RitePage,
@@ -10,6 +11,7 @@ import type {
   RiteSummary,
   RiteVersion,
   RiteVersionPage,
+  UnarchiveResult,
 } from '../ports/rite-store'
 
 interface GuildState {
@@ -125,7 +127,10 @@ export class MemoryRiteStore implements RiteStore {
     return { ok: true, version: structuredClone(found) }
   }
 
-  async list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {
+  async list(
+    guildId: string,
+    page: { after?: string; limit: number; archived?: boolean }
+  ): Promise<RitePage> {
     const summaries: RiteSummary[] = []
     for (const [id, list] of this.state(guildId).rites) {
       const latest = list.at(-1)
@@ -138,12 +143,25 @@ export class MemoryRiteStore implements RiteStore {
         latestVersion: latest.version,
         activeVersion: list.findLast((v) => v.status === 'active')?.version ?? null,
         updatedAt: latest.createdAt,
+        archivedAt: null,
       })
     }
     summaries.sort((a, b) => (a.id < b.id ? -1 : 1))
     const rites = summaries.slice(0, page.limit)
     const last = rites.at(-1)
     return { rites, next: summaries.length > page.limit && last ? last.id : null }
+  }
+
+  async archivedAt(_guildId: string, _riteId: string): Promise<string | null> {
+    throw new Error('not implemented')
+  }
+
+  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
+    throw new Error('not implemented')
+  }
+
+  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
+    throw new Error('not implemented')
   }
 
   async versions(

@@ -7,6 +7,8 @@ export const RITE_EVENT = {
   versionConfirmed: 'workflow.version_confirmed',
   versionPublished: 'workflow.version_published',
   runStarted: 'workflow.run_started',
+  archived: 'workflow.archived',
+  unarchived: 'workflow.unarchived',
 } as const
 
 /** The prefix every persisted Rite event type shares. */

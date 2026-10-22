@@ -646,3 +646,42 @@ test('a confirm landing between classification and the publish makes the publish
   expect(await engine.publish(guild, 'chain', 3, 2)).toEqual({ ok: false, error: 'stale' })
   expect((await engine.get(guild, 'chain', 3))?.version.status).toBe('draft')
 })
+
+test('an archived Rite refuses new runs and publishes; a run in flight is untouched', async () => {
+  const { engine, guild, quests } = await setup()
+  await engine.seedTemplates(guild)
+  const inFlight = await engine.run(guild, 'learning-to-linkedin', { runKey: 'live' })
+  expect(inFlight).toMatchObject({ ok: true })
+  await engine.save(guild, 'learning-to-linkedin', { name: 'T', graph: LEARNING_TO_LINKEDIN })
+  expect(await engine.archive(guild, 'learning-to-linkedin')).toMatchObject({ ok: true })
+  expect(await engine.run(guild, 'learning-to-linkedin', {})).toMatchObject({
+    ok: false,
+    error: 'rite_archived',
+  })
+  // A retry of the run already in flight still resumes it.
+  expect(await engine.run(guild, 'learning-to-linkedin', { runKey: 'live' })).toMatchObject({
+    ok: true,
+    created: false,
+  })
+  expect(await engine.publish(guild, 'learning-to-linkedin', 2, 1)).toEqual({
+    ok: false,
+    error: 'rite_archived',
+  })
+  expect((await quests.list(guild, { limit: 10 })).quests.every((q) => q.state === 'queued')).toBe(
+    true
+  )
+})
+
+test('unarchiving supersedes the active version, so the Rite must be published again; reseeding keeps an archived template archived', async () => {
+  const { engine, guild } = await setup()
+  await engine.seedTemplates(guild)
+  await engine.archive(guild, 'learning-to-linkedin')
+  await engine.seedTemplates(guild)
+  expect((await engine.list(guild, { limit: 10 })).rites).toEqual([])
+  expect((await engine.list(guild, { limit: 10, archived: true })).rites).toHaveLength(1)
+  expect(await engine.unarchive(guild, 'learning-to-linkedin')).toMatchObject({ ok: true })
+  expect(await engine.run(guild, 'learning-to-linkedin', {})).toMatchObject({
+    ok: false,
+    error: 'no_active_version',
+  })
+})

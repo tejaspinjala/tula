@@ -48,7 +48,22 @@ export interface RiteSummary {
   /** The newest `active` version, or null while every version is pending. */
   activeVersion: number | null
   updatedAt: string
+  /** When the Rite was archived, or null while it is live. */
+  archivedAt: string | null
 }
+
+/** The outcome of {@link RiteStore.archive}; `changed` is false when it was already archived. */
+export type ArchiveResult =
+  | { ok: true; changed: boolean; archivedAt: string }
+  | { ok: false; error: 'not_found' }
+
+/**
+ * The outcome of {@link RiteStore.unarchive}; `superseded` is the active version it superseded
+ * (null when none), and `changed` is false when the Rite was not archived.
+ */
+export type UnarchiveResult =
+  | { ok: true; changed: boolean; superseded: number | null }
+  | { ok: false; error: 'not_found' }
 
 /** One page of Rites in id order; `next` is the cursor for the following page. */
 export interface RitePage {
@@ -118,8 +133,26 @@ export interface RiteStore {
    * Any other status is returned unchanged (a draft is never activated this way).
    */
   activate(guildId: string, riteId: string, version: number): Promise<ActivateResult>
-  /** Rites in id order strictly after `after`. */
-  list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage>
+  /**
+   * Rites in id order strictly after `after`. Archived Rites are hidden unless `archived` is true,
+   * which lists only them.
+   */
+  list(
+    guildId: string,
+    page: { after?: string; limit: number; archived?: boolean }
+  ): Promise<RitePage>
+  /** When the Rite was archived, or null when it is live or unknown. */
+  archivedAt(guildId: string, riteId: string): Promise<string | null>
+  /**
+   * Archives a Rite (idempotent), appending the `archived` event in the same transaction. Versions
+   * are untouched, so a run in flight completes.
+   */
+  archive(guildId: string, riteId: string): Promise<ArchiveResult>
+  /**
+   * Clears the archive and supersedes the active version in the same transaction (with the
+   * `unarchived` event), so the Rite must be published again before it can run.
+   */
+  unarchive(guildId: string, riteId: string): Promise<UnarchiveResult>
   /** Versions newest first, strictly below `before`. */
   versions(
     guildId: string,

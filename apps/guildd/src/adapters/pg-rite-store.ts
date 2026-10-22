@@ -5,6 +5,7 @@ import type { Clock } from '../ports/clock'
 import type { KeyProvider } from '../ports/key-provider'
 import type {
   ActivateResult,
+  ArchiveResult,
   NewRiteVersion,
   PublishDraftResult,
   RitePage,
@@ -13,6 +14,7 @@ import type {
   RiteStore,
   RiteVersion,
   RiteVersionPage,
+  UnarchiveResult,
 } from '../ports/rite-store'
 import { RITE_EVENT } from '../rites/events'
 import { riteGraph } from '../rites/graph'
@@ -243,7 +245,10 @@ export class PgRiteStore implements RiteStore {
     })
   }
 
-  async list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {
+  async list(
+    guildId: string,
+    page: { after?: string; limit: number; archived?: boolean }
+  ): Promise<RitePage> {
     const after = page.after ?? null
     return this.db.withGuild(guildId, async (tx) => {
       const rows = await tx`
@@ -264,12 +269,25 @@ export class PgRiteStore implements RiteStore {
           latestVersion: s.latest_version,
           activeVersion: s.active_version,
           updatedAt: s.updated_at,
+          archivedAt: null,
         }
       })
       const rites = all.slice(0, page.limit)
       const last = rites.at(-1)
       return { rites, next: all.length > page.limit && last ? last.id : null }
     })
+  }
+
+  async archivedAt(_guildId: string, _riteId: string): Promise<string | null> {
+    throw new Error('not implemented')
+  }
+
+  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
+    throw new Error('not implemented')
+  }
+
+  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
+    throw new Error('not implemented')
   }
 
   async versions(

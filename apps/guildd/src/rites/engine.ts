@@ -3,6 +3,7 @@ import type { HandoffStore } from '../ports/handoff-store'
 import type { Quest, QuestQueue } from '../ports/quest-queue'
 import type {
   ActivateResult,
+  ArchiveResult,
   PublishDraftError,
   RitePage,
   RiteRun,
@@ -10,6 +11,7 @@ import type {
   RiteStore,
   RiteVersion,
   RiteVersionPage,
+  UnarchiveResult,
 } from '../ports/rite-store'
 import type { SealStore } from '../ports/seal-store'
 import type { TripwireStore } from '../ports/tripwire-store'
@@ -42,7 +44,7 @@ export type SaveResult =
 /** The outcome of {@link RiteEngine.publish}. */
 export type PublishResult =
   | { ok: true; status: 'active' | 'pending'; version: RiteVersion }
-  | { ok: false; error: PublishDraftError }
+  | { ok: false; error: PublishDraftError | 'rite_archived' }
 
 /** Why a run could not start or finish compiling. */
 export type RunError =
@@ -51,6 +53,7 @@ export type RunError =
   | 'version_not_active'
   | 'no_manual_trigger'
   | 'invalid_rite'
+  | 'rite_archived'
   | PostQuestError
   | StartTeamCampaignError
 
@@ -232,8 +235,21 @@ export class RiteEngine {
   }
 
   /** Rites in id order after `after`. */
-  list(guildId: string, page: { after?: string; limit: number }): Promise<RitePage> {
+  list(
+    guildId: string,
+    page: { after?: string; limit: number; archived?: boolean }
+  ): Promise<RitePage> {
     return this.deps.store.list(guildId, page)
+  }
+
+  /** Archives a Rite. */
+  async archive(_guildId: string, _riteId: string): Promise<ArchiveResult> {
+    throw new Error('not implemented')
+  }
+
+  /** Unarchives a Rite. */
+  async unarchive(_guildId: string, _riteId: string): Promise<UnarchiveResult> {
+    throw new Error('not implemented')
   }
 
   /** A version (the latest of any status when `version` is omitted) and the newest runnable one. */

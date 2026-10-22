@@ -128,3 +128,18 @@ test('based_on is frozen once a version leaves draft, and a pending row with no 
   ).toContain('immutable')
   expect(await store.activate(guild, 'wf', 2)).toEqual({ ok: false, error: 'stale' })
 })
+
+test('archive and unarchive append their events in the same transaction, only when they change something', async () => {
+  const guild = await newGuild()
+  const store = make()
+  await store.saveVersion(guild, 'wf', input())
+  await store.archive(guild, 'wf')
+  await store.archive(guild, 'wf')
+  await store.unarchive(guild, 'wf')
+  await store.unarchive(guild, 'wf')
+  const events = await owner`
+    select type, payload from events where guild_id = ${guild}
+      and type in (${RITE_EVENT.archived}, ${RITE_EVENT.unarchived}) order by seq`
+  expect(events.map((e) => e.type)).toEqual([RITE_EVENT.archived, RITE_EVENT.unarchived])
+  expect(events[1]?.payload).toMatchObject({ riteId: 'wf', superseded: 1 })
+})
