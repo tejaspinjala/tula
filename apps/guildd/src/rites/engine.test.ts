@@ -666,6 +666,28 @@ test('an archived Rite refuses new runs and publishes; a run in flight is untouc
   expect((await quests.list(guild, { limit: 10 })).quests).toHaveLength(1)
 })
 
+test('confirming a pending version on an archived Rite is refused and the version stays pending', async () => {
+  const { engine, guild } = await setup()
+  await engine.save(guild, 'wf', { name: 'x', graph: LEARNING_TO_LINKEDIN })
+  expect(await engine.publish(guild, 'wf', 1, null)).toMatchObject({ ok: true, status: 'pending' })
+  await engine.archive(guild, 'wf')
+  expect(await engine.confirm(guild, 'wf', 1)).toEqual({ ok: false, error: 'rite_archived' })
+  expect((await engine.get(guild, 'wf', 1))?.version.status).toBe('pending')
+})
+
+test('an archived Rite refuses a retry of an existing runKey too', async () => {
+  const { engine, guild } = await setup()
+  await engine.seedTemplates(guild)
+  expect(await engine.run(guild, 'learning-to-linkedin', { runKey: 'k' })).toMatchObject({
+    ok: true,
+  })
+  await engine.archive(guild, 'learning-to-linkedin')
+  expect(await engine.run(guild, 'learning-to-linkedin', { runKey: 'k' })).toMatchObject({
+    ok: false,
+    error: 'rite_archived',
+  })
+})
+
 test('unarchiving supersedes the active version, so the Rite must be published again; reseeding keeps an archived template archived', async () => {
   const { engine, guild } = await setup()
   await engine.seedTemplates(guild)

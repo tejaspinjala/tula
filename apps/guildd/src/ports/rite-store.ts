@@ -17,7 +17,7 @@ export type PublishDraftError = 'not_found' | 'not_draft' | 'stale'
 /** The outcome of {@link RiteStore.activate}: `stale` when the active version moved since the publish. */
 export type ActivateResult =
   | { ok: true; version: RiteVersion }
-  | { ok: false; error: 'not_found' | 'stale' }
+  | { ok: false; error: 'not_found' | 'stale' | 'rite_archived' }
 
 /** The outcome of {@link RiteStore.publishDraft}. */
 export type PublishDraftResult =
