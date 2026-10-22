@@ -5,7 +5,13 @@ import type { BuilderConfig } from '../builder/model'
 import { type PasskeyBrowser, type Session, webAuthnBrowser } from '../passkeys'
 import { EmptyState, PixelButton, YesNo } from '../ui/pixel'
 import { WorkSection } from '../WorkSection'
-import { CharterRefused, exportCharter, importCharter } from './api'
+import {
+  CharterRefused,
+  exportCharter,
+  type ImportImpact,
+  importCharter,
+  previewImpact,
+} from './api'
 import './charter.css'
 import { type CharterPreview, previewCharter } from './diff'
 import { type Charter, CharterFileError, parseCharter } from './schema'
@@ -15,6 +21,8 @@ export interface CharterPanelProps {
   session: Session
   fetcher?: Fetcher
   browser?: PasskeyBrowser
+  /** Called when the guild config in force changed, so the Hall can reload it. */
+  onConfigChanged?: (() => void) | undefined
   /** Saves the exported file; defaults to a browser download. */
   download?: (filename: string, text: string) => void
 }
@@ -93,7 +101,13 @@ function List({ label, items }: { label: string; items: string[] }) {
   )
 }
 
-function Preview({ preview }: { preview: CharterPreview }) {
+const IMPACT_TEXT: Record<ImportImpact['change'], string> = {
+  widening: 'Widens authority: waits for your passkey',
+  internal: 'Applies at once',
+  unchanged: 'Config already matches; only Rites are added',
+}
+
+function Preview({ preview, impact }: { preview: CharterPreview; impact: ImportImpact | null }) {
   const none =
     preview.hallsAdded.length +
       preview.hallsRemoved.length +
@@ -115,9 +129,11 @@ function Preview({ preview }: { preview: CharterPreview }) {
         items={preview.ritesAdded}
       />
       <List label="Kept from this guild" items={preview.kept} />
-      <p className="muted">
-        A change that widens what your agents may do waits for your passkey before it takes effect.
-      </p>
+      {impact && (
+        <p className={`charter-badge charter-badge-${impact.change}`}>
+          {IMPACT_TEXT[impact.change]}
+        </p>
+      )}
     </div>
   )
 }
@@ -127,6 +143,7 @@ export function CharterPanel({
   session,
   fetcher = liveFetch,
   browser = webAuthnBrowser,
+  onConfigChanged,
   download = browserDownload,
 }: CharterPanelProps) {
   const [current, setCurrent] = useState<{ version: number; config: BuilderConfig } | null>(null)
@@ -140,6 +157,8 @@ export function CharterPanel({
   const [stale, setStale] = useState(false)
   const [pendingVersion, setPendingVersion] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
+  const [impact, setImpact] = useState<ImportImpact | null>(null)
+  const [impactFailed, setImpactFailed] = useState<string | null>(null)
   const importId = useRef<string>(crypto.randomUUID())
 
   const reload = useCallback(async () => {
@@ -153,6 +172,30 @@ export function CharterPanel({
       live = false
     }
   }, [reload])
+
+  useEffect(() => {
+    setImpact(null)
+    setImpactFailed(null)
+    if (!charter) {
+      return
+    }
+    let live = true
+    previewImpact(session, charter, fetcher).then(
+      (found) => live && setImpact(found),
+      (error) =>
+        live &&
+        setImpactFailed(
+          error instanceof CharterRefused && error.code === 'invalid_charter'
+            ? 'The server does not accept this file as a Charter. Nothing was changed.'
+            : error instanceof CharterRefused && error.status === 413
+              ? 'The Charter is too large (256 KB at most). Nothing was changed.'
+              : `The server could not check this Charter (${error instanceof Error ? error.message : 'unknown'}). Nothing was changed.`
+        )
+    )
+    return () => {
+      live = false
+    }
+  }, [charter, session, fetcher])
 
   const doExport = async () => {
     setFailed(null)
@@ -220,6 +263,9 @@ export function CharterPanel({
             : `Imported. The config already matched. ${made}`
         )
         await reload()
+        if (result.config.outcome === 'applied') {
+          onConfigChanged?.()
+        }
       }
       setCharter(null)
       importId.current = crypto.randomUUID()
@@ -247,6 +293,7 @@ export function CharterPanel({
       setMessage(`Version ${pendingVersion} is confirmed and in force.`)
       setPendingVersion(null)
       await reload()
+      onConfigChanged?.()
     } catch (error) {
       setFailed(
         `The change was not confirmed (${error instanceof Error ? error.message : 'unknown'}).`
@@ -321,18 +368,23 @@ export function CharterPanel({
         )}
         {charter && preview && (
           <>
-            <Preview preview={preview} />
+            <Preview preview={preview} impact={impact} />
+            {impactFailed && (
+              <p role="alert" className="error-text">
+                {impactFailed}
+              </p>
+            )}
             {asking ? (
               <fieldset className="charter-confirm">
                 <YesNo
                   safe="no"
                   safeFirst
-                  question={`Import ${charter.name} into this guild? Rites arrive as drafts.`}
+                  question={`Import ${charter.name} into this guild? ${impact ? `${IMPACT_TEXT[impact.change]}. ` : ''}Rites arrive as drafts.`}
                   onAnswer={answer}
                 />
               </fieldset>
             ) : (
-              <PixelButton disabled={busy} onClick={() => setAsking(true)}>
+              <PixelButton disabled={busy || stale || !impact} onClick={() => setAsking(true)}>
                 Import this Charter
               </PixelButton>
             )}

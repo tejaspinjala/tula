@@ -30,10 +30,10 @@ function show(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-const memberList = z.array(z.object({ name: z.string() })).catch([])
+const memberList = z.array(z.object({ name: z.string(), rank: z.string().optional() })).catch([])
 
 function memberNames(value: unknown): string {
-  const names = memberList.parse(value).map((m) => m.name)
+  const names = memberList.parse(value).map((m) => (m.rank ? `${m.name} (${m.rank})` : m.name))
   return names.length > 0 ? names.join(', ') : '(none)'
 }
 

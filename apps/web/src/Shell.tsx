@@ -85,7 +85,7 @@ export function Shell({
   return (
     <main id="main" tabIndex={-1} className="shell">
       <GamePanel session={session} navigate={openPath} inputEnabled={!visible} loadGame={loadGame}>
-        {({ hallControls, focusWorld, talkTo }) => (
+        {({ hallControls, focusWorld, talkTo, refreshHall }) => (
           <>
             <Hud
               session={session}
@@ -111,6 +111,7 @@ export function Shell({
               onClose={close}
               onSignOut={signOut}
               focusWorld={focusWorld}
+              onConfigChanged={refreshHall}
               onTalkTo={(id) => {
                 close()
                 talkTo(id)

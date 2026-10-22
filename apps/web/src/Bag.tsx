@@ -46,6 +46,8 @@ export interface BagProps {
   focusWorld: () => void
   /** Closes the Bag and opens the talk conversation with a Member (the Guild chat's Talk). */
   onTalkTo?: ((memberId: string) => void) | undefined
+  /** Reloads the Hall after the guild config changed (a Charter import). */
+  onConfigChanged?: (() => void) | undefined
 }
 
 const HALL_TOOLS = 'hall-tools'
@@ -62,11 +64,13 @@ function PageBody({
   session,
   onSession,
   onTalkTo,
+  onConfigChanged,
 }: {
   page: PageId
   session: Session
   onSession: (session: Session | null) => void
   onTalkTo?: ((memberId: string) => void) | undefined
+  onConfigChanged?: (() => void) | undefined
 }) {
   switch (page) {
     case 'quests':
@@ -101,7 +105,7 @@ function PageBody({
     case 'rites':
       return <RitePanel session={session} />
     case 'charter':
-      return <CharterPanel session={session} />
+      return <CharterPanel session={session} onConfigChanged={onConfigChanged} />
     case 'missives':
       return <MissivesPanel session={session} onTalk={onTalkTo} />
     case 'mailbox':
@@ -145,6 +149,7 @@ export function Bag({
   onSignOut,
   focusWorld,
   onTalkTo,
+  onConfigChanged,
 }: BagProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const wasVisible = useRef(false)
@@ -236,7 +241,13 @@ export function Bag({
         {page !== null && (
           <div className="bag-body">
             <FlatWorkContext.Provider value>
-              <PageBody page={page} session={session} onSession={onSession} onTalkTo={onTalkTo} />
+              <PageBody
+                page={page}
+                session={session}
+                onSession={onSession}
+                onTalkTo={onTalkTo}
+                onConfigChanged={onConfigChanged}
+              />
             </FlatWorkContext.Provider>
           </div>
         )}
