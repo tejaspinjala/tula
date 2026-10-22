@@ -75,3 +75,17 @@ test('a failure while writing the credential rolls the guild back', async () => 
   expect(again.status).toBeGreaterThanOrEqual(400)
   expect(await guildCount(name)).toBe(0)
 })
+
+test('the legacy POST /guilds, which can leave a guild with no passkey, is refused without the dev switch', async () => {
+  const prod = await createHarness({ devGuildHeader: false })
+  try {
+    const res = await prod.request('/guilds', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Legacy', goal: 'g' }),
+    })
+    expect(res.status).toBe(404)
+  } finally {
+    await prod.close()
+  }
+})
