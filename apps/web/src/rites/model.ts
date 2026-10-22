@@ -164,6 +164,17 @@ export function versionLine(version: number, activeVersion: number | null): stri
         : `Viewing v${version} \u00b7 v${activeVersion} in force`
 }
 
+/**
+ * Whether a pending version can no longer be confirmed. The server refuses a confirm unless the
+ * version was based on the version now in force (none counts as null), so anything else is stale.
+ */
+export function isStalePending(
+  row: { status: string; basedOn: number | null },
+  activeVersion: number | null
+): boolean {
+  return row.status === 'pending' && row.basedOn !== activeVersion
+}
+
 /** What the editor chip says about the version on screen: unsaved edits and drafts are a Draft. */
 export function riteChip(status: string | null, dirty: boolean): 'Draft' | 'Pending' | 'Live' {
   if (dirty || status === 'draft' || status === null) {

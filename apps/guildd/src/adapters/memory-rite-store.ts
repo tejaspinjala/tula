@@ -18,8 +18,6 @@ interface GuildState {
   /** Versions per rite id, in version order (index + 1 is the version number). */
   rites: Map<string, RiteVersion[]>
   instances: Map<string, RiteRun>
-  /** The active version each published-pending version was published over, keyed `rite:version`. */
-  basedOn: Map<string, number | null>
   /** When each archived Rite was archived; a Rite absent here is live. */
   archived: Map<string, string>
 }
@@ -36,7 +34,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map(), basedOn: new Map(), archived: new Map() }
+      s = { rites: new Map(), instances: new Map(), archived: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -49,6 +47,7 @@ export class MemoryRiteStore implements RiteStore {
       ...structuredClone(input),
       riteId,
       version: list.length + 1,
+      basedOn: null,
       createdAt: this.clock.now().toISOString(),
     }
     rites.set(riteId, [...list, saved])
@@ -104,7 +103,7 @@ export class MemoryRiteStore implements RiteStore {
       current.status = 'superseded'
     }
     draft.status = input.outcome
-    this.state(guildId).basedOn.set(`${riteId}:${draft.version}`, current?.version ?? null)
+    draft.basedOn = input.outcome === 'pending' ? (current?.version ?? null) : null
     return { ok: true, version: structuredClone(draft) }
   }
 
@@ -118,8 +117,7 @@ export class MemoryRiteStore implements RiteStore {
       if (this.state(guildId).archived.has(riteId)) {
         return { ok: false, error: 'rite_archived' }
       }
-      const over = this.state(guildId).basedOn.get(`${riteId}:${version}`) ?? null
-      if ((list.findLast((v) => v.status === 'active')?.version ?? null) !== over) {
+      if ((list.findLast((v) => v.status === 'active')?.version ?? null) !== found.basedOn) {
         return { ok: false, error: 'stale' }
       }
       for (const v of list) {

@@ -27,6 +27,7 @@ const versionRow = z.object({
   graph: riteGraph,
   classification: z.enum(['internal', 'widening']),
   status: z.enum(['draft', 'pending', 'active', 'superseded']),
+  based_on: z.number().nullable(),
   created_at: date,
 })
 const summaryRow = z.object({
@@ -45,7 +46,8 @@ const instanceRow = z.object({
   created_at: date,
 })
 
-const VERSION_COLUMNS = 'workflow_id, version, name, graph, classification, status, created_at'
+const VERSION_COLUMNS =
+  'workflow_id, version, name, graph, classification, status, based_on, created_at'
 const INSTANCE_COLUMNS = 'instance_id, workflow_id, version, run_key, created_at'
 
 function toVersion(r: z.infer<typeof versionRow>): RiteVersion {
@@ -56,6 +58,7 @@ function toVersion(r: z.infer<typeof versionRow>): RiteVersion {
     graph: r.graph,
     classification: r.classification,
     status: r.status,
+    basedOn: r.based_on,
     createdAt: r.created_at,
   }
 }

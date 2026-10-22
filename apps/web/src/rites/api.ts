@@ -21,6 +21,8 @@ export interface VersionDoc {
   graph: RiteGraph
   status: 'draft' | 'pending' | 'active' | 'superseded'
   classification: string
+  /** The active version a pending one waits on (null: none). */
+  basedOn: number | null
   createdAt: string
 }
 
@@ -71,6 +73,7 @@ const versionBody = z.object({
   graph: riteGraph,
   status: z.enum(['draft', 'pending', 'active', 'superseded']),
   classification: z.string(),
+  basedOn: z.number().nullable(),
   createdAt: z.string(),
 })
 const loadedBody = z.object({ version: versionBody, activeVersion: z.number().nullable() })

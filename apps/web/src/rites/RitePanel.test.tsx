@@ -26,6 +26,7 @@ const stored = {
   graph,
   status: 'active',
   classification: 'internal',
+  basedOn: null,
   createdAt: 'now',
 }
 const config = {
@@ -54,6 +55,8 @@ interface Options {
   second?: boolean
   /** The version in force; defaults to 1. */
   active?: number
+  /** The version the panel loads first; defaults to the stored one. */
+  latest?: Record<string, unknown>
 }
 
 function world(options: Options = {}) {
@@ -61,7 +64,7 @@ function world(options: Options = {}) {
   const publishes: unknown[] = []
   const urls: string[] = []
   // The newest version and the active one, as the server would report them after each write.
-  let latest: Record<string, unknown> = stored
+  let latest: Record<string, unknown> = options.latest ?? stored
   let activeVersion = options.active ?? 1
   let archived = false
   const fetcher = async (url: string, init?: RequestInit) => {
@@ -193,6 +196,7 @@ function world(options: Options = {}) {
           ...latest,
           status: body.data.status,
           classification: body.data.version.classification,
+          basedOn: body.data.status === 'pending' ? activeVersion : null,
         }
         activeVersion = body.data.status === 'active' ? 2 : activeVersion
       }
@@ -390,6 +394,7 @@ const wider = {
   },
   status: 'draft',
   classification: 'widening',
+  basedOn: null,
   createdAt: 'now',
 }
 
@@ -587,4 +592,13 @@ test('a pending version left under a newer active reads as stale', async () => {
   const host = await mount(w, true)
   expect(host.textContent).toContain('stale')
   expect(host.textContent).not.toContain('widening, pending')
+})
+
+test('a legacy pending version above the active one is stale: no Pending chip, no Confirm button', async () => {
+  const legacy = { ...stored, version: 3, status: 'pending', classification: 'widening' }
+  const history = [legacy, { ...stored, version: 2, status: 'active' }]
+  const host = await mount(world({ history, active: 2, latest: legacy }), true)
+  expect(host.textContent).toContain('stale')
+  expect(host.textContent).not.toContain('Confirm with passkey')
+  expect(host.textContent).not.toContain('Pending')
 })

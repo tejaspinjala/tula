@@ -5,6 +5,7 @@ import {
   addNode,
   connect,
   fieldsFor,
+  isStalePending,
   paletteTypes,
   removeNode,
   saveBody,
@@ -112,4 +113,12 @@ test('a new Rite reads plainly, not as "of none in force"', () => {
   expect(versionLine(3, 3)).toBe('Viewing v3, in force')
   expect(versionLine(2, 3)).toBe('Viewing v2 \u00b7 v3 in force')
   expect(versionLine(0, null)).toBe('Not saved yet.')
+})
+
+test('a pending version is stale unless it is based on the version in force', () => {
+  expect(isStalePending({ status: 'pending', basedOn: null }, 2)).toBe(true)
+  expect(isStalePending({ status: 'pending', basedOn: 1 }, 2)).toBe(true)
+  expect(isStalePending({ status: 'pending', basedOn: 2 }, 2)).toBe(false)
+  expect(isStalePending({ status: 'pending', basedOn: null }, null)).toBe(false)
+  expect(isStalePending({ status: 'active', basedOn: null }, 2)).toBe(false)
 })

@@ -38,7 +38,15 @@ import { Canvas, NODE_PIECE } from './Canvas'
 import { describeDiff, diffGraphs } from './diff'
 import { Inspector } from './Inspector'
 import { layout, type Place } from './layout'
-import { addNode, connect, paletteTypes, riteChip, saveBody, versionLine } from './model'
+import {
+  addNode,
+  connect,
+  isStalePending,
+  paletteTypes,
+  riteChip,
+  saveBody,
+  versionLine,
+} from './model'
 import { errorsByNode, type NodeOverlay, type RiteIssue, readRunFrame, runOverlay } from './overlay'
 
 /** Props of {@link RitePanel}. */
@@ -213,6 +221,8 @@ export function RitePanel({
   const [draft, setDraft] = useState<RiteGraph | null>(null)
   const [version, setVersion] = useState(0)
   const [status, setStatus] = useState<VersionDoc['status'] | null>(null)
+  // The viewed version waits on a version that is no longer in force, so no confirm can succeed.
+  const [staleView, setStaleView] = useState(false)
   const [activeVersion, setActiveVersion] = useState<number | null>(null)
   const [versions, setVersions] = useState<VersionDoc[]>([])
   const [expanded, setExpanded] = useState<number[]>([])
@@ -261,7 +271,9 @@ export function RitePanel({
         return
       }
       setStatus(loaded.version.status)
-      if (loaded.version.status === 'pending') {
+      const stale = isStalePending(loaded.version, loaded.activeVersion)
+      setStaleView(stale)
+      if (loaded.version.status === 'pending' && !stale) {
         setPending({
           version: loaded.version.version,
           status: 'pending',
@@ -655,9 +667,9 @@ export function RitePanel({
           <p className="muted">
             <span
               data-testid="rite-chip"
-              className={`badge ${riteChip(status, dirty) === 'Live' ? 'badge-ok' : 'badge-warn'}`}
+              className={`badge ${riteChip(staleView ? 'draft' : status, dirty) === 'Live' ? 'badge-ok' : 'badge-warn'}`}
             >
-              {riteChip(status, dirty)}
+              {riteChip(staleView ? 'draft' : status, dirty)}
             </span>{' '}
             {version === 0 ? 'Not saved yet.' : versionLine(version, activeVersion)}
           </p>
@@ -783,9 +795,7 @@ export function RitePanel({
                 return (
                   <li key={row.version} className="item">
                     Version {row.version}:{' '}
-                    {row.status === 'pending' &&
-                    activeVersion !== null &&
-                    row.version < activeVersion
+                    {isStalePending(row, activeVersion)
                       ? 'stale \u2014 save and publish a new draft to change this Rite'
                       : `${row.classification}, ${row.status}`}{' '}
                     <button

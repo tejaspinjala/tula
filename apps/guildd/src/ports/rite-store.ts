@@ -37,6 +37,8 @@ export interface RiteVersion extends NewRiteVersion {
   riteId: string
   /** 1-based, gap-free per Rite. */
   version: number
+  /** The active version a pending one waits on (null: none, or not pending). */
+  basedOn: number | null
   createdAt: string
 }
 

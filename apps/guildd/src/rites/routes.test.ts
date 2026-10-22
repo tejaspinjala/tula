@@ -224,3 +224,30 @@ test('the versions route lists only the session guild: another guild sees none',
   const res = await app.request(`/guilds/${other}/rites/wf/versions`)
   expect(versionRows.parse(await res.json()).versions).toEqual([])
 })
+
+test('the versions route and a version read carry basedOn: the active version a pending one waits on', async () => {
+  const { app, engine, guild } = await setup('guild_master')
+  await pendingRite(engine, guild)
+  await engine.confirm(guild, 'wf', 1)
+  const wider = structuredClone(LEARNING_TO_LINKEDIN)
+  const agent = wider.nodes.find((n) => n.type === 'agent')
+  if (agent?.type !== 'agent') {
+    throw new Error('template changed')
+  }
+  agent.maxUsd = 9
+  await engine.save(guild, 'wf', { name: 'x', graph: wider })
+  await engine.publish(guild, 'wf', 2, 1)
+  const list = z
+    .object({
+      versions: z.array(z.object({ version: z.number(), basedOn: z.number().nullable() })),
+    })
+    .parse(await (await app.request(`/guilds/${guild}/rites/wf/versions`)).json())
+  expect(list.versions.map((v) => [v.version, v.basedOn])).toEqual([
+    [2, 1],
+    [1, null],
+  ])
+  const one = z
+    .object({ version: z.object({ basedOn: z.number().nullable() }) })
+    .parse(await (await app.request(`/guilds/${guild}/rites/wf?version=2`)).json())
+  expect(one.version.basedOn).toBe(1)
+})

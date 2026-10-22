@@ -73,6 +73,7 @@ test('loading a Rite parses its graph with the shared schema', async () => {
     graph,
     classification: 'internal',
     status: 'active',
+    basedOn: null,
     createdAt: 'x',
   }
   const { fetcher } = fakes({ [`GET ${base}/w`]: { body: { version: doc, activeVersion: 2 } } })
