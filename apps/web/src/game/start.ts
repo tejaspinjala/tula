@@ -31,6 +31,9 @@ export interface GameHandle {
   destroy: () => void
 }
 
+/** A little wood between the HUD and the world, in px. */
+const HUD_GAP = 4
+
 /** The phase for the clock right now. */
 const phaseNow = () => phaseAt(new Date().getHours())
 
@@ -40,7 +43,18 @@ const phaseNow = () => phaseAt(new Date().getHours())
  * a resize-aware canvas, WebGL/Canvas only: no DOMElement, no CSS loader, no HTML text, no audio.
  */
 export function startGame(parent: HTMLElement, options: HallOptions): GameHandle {
-  const scene = new HallScene(options)
+  // The HUD strip is the page's `.hud` element; the camera draws only below it.
+  const hudHeight = () => {
+    const hud = document.querySelector('.hud')
+    return hud
+      ? Math.max(
+          0,
+          Math.ceil(hud.getBoundingClientRect().bottom - parent.getBoundingClientRect().top) +
+            HUD_GAP
+        )
+      : 0
+  }
+  const scene = new HallScene({ hudHeight, ...options })
   // `?time=dusk` (or day, night) lights the world for that time of day instead of the clock.
   const forced = z
     .enum(['day', 'dusk', 'night'])

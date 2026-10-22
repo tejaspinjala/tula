@@ -177,11 +177,9 @@ ul[aria-label] {
 
 .game-frame {
   position: absolute;
-  /* The map is framed under the HUD (Hud.tsx sets --hud-inset), never beneath it. */
-  inset: calc(var(--hud-inset, 0px) + var(--px) * 2) 0 0 0;
+  /* The frame fills the world; the camera's viewport starts below the HUD strip (game/render.ts). */
+  inset: 0;
   background: var(--px-wood-900);
-  /* A hard, blur-free copy of the frame, lifted into the strip above it, so the HUD sits on wood. */
-  box-shadow: 0 calc(-1 * (var(--hud-inset, 0px) + var(--px) * 2)) 0 0 var(--px-wood-900);
   overflow: hidden;
   touch-action: none;
 }

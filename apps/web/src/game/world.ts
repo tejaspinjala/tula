@@ -3,6 +3,7 @@ import archiveMap from './archive.tiled.json'
 import countingHouseMap from './counting-house.tiled.json'
 import hallMap from './hall.tiled.json'
 import plazaMap from './plaza.tiled.json'
+import { greatHall, type Room } from './room'
 import trailMap from './trail.tiled.json'
 
 /** The maps of the guild town: the Guild Hall, the Archive, the Quest Board plaza, the Counting House (the Treasury) and the trail. */
@@ -126,7 +127,57 @@ export function mapSource(id: MapId): unknown {
   return SOURCES[id]
 }
 
+/** The Great Hall's seal desk, steward desk and mailbox rectangles, named for the place lookup. */
+function greatHallObjects(room: Room): MapObject[] {
+  const poi = (kind: string, name: string): MapObject[] =>
+    room.pois
+      .filter((p) => p.kind === kind)
+      .map((p) => ({ name, type: name, ...p.tile, properties: {} }))
+  return [
+    ...poi('seal-desk', 'seal-desk'),
+    ...poi('steward-desk', 'steward-desk'),
+    // The Treasury is read at the mailbox side of the hall until the chest has a place of its own.
+    ...poi('mailbox', 'treasury-chest'),
+    ...Array.from({ length: 6 }, (_v, slot) => ({
+      name: `room-${slot}`,
+      type: 'room',
+      x: 1 + 3 * slot,
+      y: 2,
+      w: 1,
+      h: 1,
+      properties: { slot },
+    })),
+  ]
+}
+
+/** The hall map is the Great Hall room: its size, its walls and its way out to the plaza. */
+function parseHall(): MapData {
+  const room = greatHall([])
+  const old = tiledMap.parse(SOURCES.hall)
+  const gate = old.layers
+    .flatMap((l) => (l.type === 'objectgroup' ? l.objects : []))
+    .find(
+      (o) => o.type === 'door' && o.properties?.some((p) => p.name === 'to' && p.value === 'plaza')
+    )
+  const prop = (name: string) =>
+    z.number().parse(gate?.properties?.find((p) => p.name === name)?.value)
+  const exit = room.doorways.find((d) => d.target === 'plaza')
+  return {
+    id: 'hall',
+    width: room.width,
+    height: room.height,
+    tileSize: room.tileSize,
+    doors: exit ? [{ ...exit.tile, to: 'plaza', toX: prop('toX'), toY: prop('toY') }] : [],
+    lanterns: room.lights.filter((l) => l.kind !== 'window').map((l) => l.tile),
+    objects: greatHallObjects(room),
+    walkable: room.walkable,
+  }
+}
+
 function parse(id: MapId): MapData {
+  if (id === 'hall') {
+    return parseHall()
+  }
   const map = tiledMap.parse(SOURCES[id])
   const size = map.tilewidth
   let collision: number[] = []
@@ -156,8 +207,9 @@ function parse(id: MapId): MapData {
       w: o.w,
       h: o.h,
       to: mapId.parse(o.properties.to),
-      toX: z.number().parse(o.properties.toX),
-      toY: z.number().parse(o.properties.toY),
+      // Arriving in the hall puts you at the Great Hall's spawn, inside its plaza doorway.
+      toX: o.properties.to === 'hall' ? greatHall([]).spawn.x : z.number().parse(o.properties.toX),
+      toY: o.properties.to === 'hall' ? greatHall([]).spawn.y : z.number().parse(o.properties.toY),
     }))
   return {
     id,
@@ -231,7 +283,7 @@ export function placeNamed(name: PlaceName): Place {
     if (!o) {
       throw new Error(`hall has no room ${slot}`)
     }
-    return { name, map: 'hall', ...rectOf(o), stand: { x: o.x + 5, y: o.y + 5 } }
+    return { name, map: 'hall', ...rectOf(o), stand: { x: o.x, y: o.y + 1 } }
   }
   switch (name) {
     case 'seal-desk': {
