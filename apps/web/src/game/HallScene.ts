@@ -136,7 +136,7 @@ export interface HallOptions {
   /** Called when a Member hands a finished Quest in at the Quest Board (the page earns the banner). */
   onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
-  onMap?: ((map: MapKey) => void) | undefined
+  onMap?: ((map: MapKey, tile: { x: number; y: number }) => void) | undefined
   /** The height in px of the reserved HUD strip at the top of the canvas (the camera never draws under it). */
   hudHeight?: (() => number) | undefined
   /** Opens the Council panel (navigation only): a tap on the Council chamber. */
@@ -397,7 +397,7 @@ export class HallScene extends Phaser.Scene {
     this.applyTint()
     this.syncPlayer()
     this.chase(true)
-    this.options.onMap?.(id)
+    this.options.onMap?.(id, { x: Math.floor(this.at.x), y: Math.floor(this.at.y) })
     const rooms = this.pending?.rooms ?? []
     this.options.onLocation?.(
       locationName(id, (hallId) => rooms.find((r) => r.hallId === hallId)?.name)
