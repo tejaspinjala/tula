@@ -208,6 +208,7 @@ export function RitePanel({
   const [activeVersion, setActiveVersion] = useState<number | null>(null)
   const [versions, setVersions] = useState<VersionDoc[]>([])
   const [expanded, setExpanded] = useState<number[]>([])
+  const [fetchedActive, setFetchedActive] = useState<VersionDoc | null>(null)
   const [halls, setHalls] = useState<{ id: string; name: string }[]>([])
   const [positions, setPositions] = useState<ReadonlyMap<string, Place>>(noPlaces)
   const [selected, setSelected] = useState<string | null>(null)
@@ -229,6 +230,8 @@ export function RitePanel({
       setIssues([])
       setPending(null)
       setMessage(null)
+      setExpanded([])
+      setFetchedActive(null)
       setRunId(null)
       setRun(null)
       setOverlay(noOverlay)
@@ -255,7 +258,14 @@ export function RitePanel({
       setDraft(loaded.version.graph)
       setVersion(loaded.version.version)
       setActiveVersion(loaded.activeVersion)
-      setVersions(await loadVersions(session, riteId, fetcher).catch(() => []))
+      const page = await loadVersions(session, riteId, fetcher).catch(() => [])
+      setVersions(page)
+      if (loaded.activeVersion !== null && !page.some((v) => v.version === loaded.activeVersion)) {
+        const found = await loadRite(session, riteId, fetcher, loaded.activeVersion).catch(
+          () => null
+        )
+        setFetchedActive(found?.version ?? null)
+      }
       // Coming back to a Rite shows its newest run, so leaving the view does not lose the overlay.
       const runs = await listRuns(session, riteId, fetcher).catch(() => [])
       const newest = runs.reduce<(typeof runs)[number] | null>(
@@ -463,6 +473,8 @@ export function RitePanel({
       setStatus(null)
       setActiveVersion(null)
       setVersions([])
+      setExpanded([])
+      setFetchedActive(null)
       setPositions(noPlaces)
       setSelected(null)
       setNewId('')
@@ -642,7 +654,7 @@ export function RitePanel({
         <ul aria-label="Versions">
           {versions.map((row) => {
             const open = expanded.includes(row.version)
-            const active = versions.find((v) => v.version === activeVersion)
+            const active = versions.find((v) => v.version === activeVersion) ?? fetchedActive
             const lines =
               active && active.version !== row.version
                 ? describeDiff(diffGraphs(active.graph, row.graph))
