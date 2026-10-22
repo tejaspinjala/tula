@@ -318,6 +318,23 @@ test('a save after the session changes goes to the new guild path', async () => 
   expect(put.at(-1)).toBe(`PUT /api/guilds/${next.guildId}/rites/w`)
 })
 
+test('palette tiles carry whole names, never a four letter cut', async () => {
+  const host = await mount(world(), true)
+  const glyphs = [...host.querySelectorAll('.palette .px-slot-glyph')].map((g) =>
+    g.getAttribute('data-glyph')
+  )
+  expect(glyphs).toEqual([
+    'manual',
+    'schedule',
+    'agent',
+    'subagents',
+    'team',
+    'verify',
+    'approval',
+    'post',
+  ])
+})
+
 test('the palette lists every node type of the shared schema', async () => {
   const host = await mount(world(), true)
   const labels = [...host.querySelectorAll('.palette [role="option"]')].map((b) =>
@@ -664,6 +681,26 @@ test('archiving the only Rite shows an empty state, not an unsaved my-rite draft
   expect(host.textContent).toContain('No Rites yet')
   expect(host.textContent).not.toContain('my-rite')
   expect(host.textContent).not.toContain('Unsaved changes')
+})
+
+test('Show archived with no archived Rites shows an empty state and leaves the selected Rite untouched', async () => {
+  const host = await mount(world(), true)
+  const toggle = () =>
+    [...host.querySelectorAll('button')].find((b) =>
+      /(Show|Hide) archived/.test(b.textContent ?? '')
+    )
+  await act(async () => {
+    toggle()?.click()
+  })
+  await settle()
+  expect(host.textContent).toContain('No archived Rites')
+  expect(host.textContent).not.toContain('(unsaved)')
+  expect(host.textContent).not.toContain('Unsaved changes')
+  await click(host, '▶Back to Rites')
+  expect(host.textContent).not.toContain('No archived Rites')
+  expect(host.querySelector<HTMLInputElement>('.builder-save input')?.value).toBe('W')
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Rite"]')?.value).toBe('w')
+  expect(host.textContent).toContain('Live')
 })
 
 test('outline buttons are named as steps so they differ from the action buttons', async () => {

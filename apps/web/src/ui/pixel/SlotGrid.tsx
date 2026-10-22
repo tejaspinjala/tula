@@ -5,7 +5,7 @@ export interface Slot {
   id: string
   label: string
   count?: number
-  /** A short UPPERCASE mark drawn in the slot in place of the stock icon. */
+  /** A short mark (a whole name that wraps, never cut) drawn in the slot in place of the stock icon. */
   glyph?: string
 }
 
