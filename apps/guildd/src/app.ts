@@ -11,6 +11,8 @@ import {
 } from './audit-chain'
 import { awayDigest, MAX_DIGEST_PAGE } from './away-digest'
 import type { BugReportService } from './bug-reports'
+import { CHARTER_EVENT } from './charters/events'
+import { mountCharterRoutes } from './charters/routes'
 import { costPerPost } from './cost-per-post'
 import type { CouncilEngine } from './council'
 import { type Db, FoundingClosedError } from './db/client'
@@ -607,6 +609,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/guild-master/presence', limited('presence-read'))
   app.post('/guilds/:id/guild-master/away', limited('presence-write'))
   app.post('/guilds/:id/guild-master/return', limited('presence-write'))
+  app.get('/guilds/:id/charter', limited('rite-read'))
   app.get('/guilds/:id/rites', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId/versions', limited('rite-read'))
@@ -2107,6 +2110,24 @@ export function createApp(deps: AppDeps): Hono {
     rites: deps.rites,
     identity: deps.identity,
     sessionGuildFor,
+    guildMasterSessionFor,
+  })
+
+  mountCharterRoutes(app, {
+    rites: deps.rites,
+    config: deps.config,
+    clock: deps.clock,
+    guildName: async (id) => {
+      const rows = await deps.db.withGuild(
+        id,
+        (tx) => tx`select name from guilds where guild_id = ${id}`
+      )
+      const name = rows[0]?.name
+      return typeof name === 'string' ? name : null
+    },
+    recordExported: async (id, fact) => {
+      await deps.db.withGuild(id, (tx) => appendEvent(tx, deps.keys, CHARTER_EVENT.exported, fact))
+    },
     guildMasterSessionFor,
   })
 
