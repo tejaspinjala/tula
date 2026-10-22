@@ -12,7 +12,7 @@ export const CHARTER_MAX_RITES = 50
 export type FieldClass = 'structure' | 'local'
 
 /** Classification of every top-level `guildConfig` key; a test fails when a key is missing here. */
-export const CONFIG_FIELD_CLASS: Record<string, FieldClass> = {
+export const CONFIG_FIELD_CLASS = {
   steward: 'structure',
   halls: 'structure',
   sealPolicy: 'structure',
@@ -24,10 +24,10 @@ export const CONFIG_FIELD_CLASS: Record<string, FieldClass> = {
   treasury: 'structure',
   learningRepos: 'local',
   contentPolicy: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 
 /** Classification of every Hall key; `privateEligible` is an attestation and stays local. */
-export const HALL_FIELD_CLASS: Record<string, FieldClass> = {
+export const HALL_FIELD_CLASS = {
   id: 'structure',
   name: 'structure',
   kind: 'structure',
@@ -36,29 +36,29 @@ export const HALL_FIELD_CLASS: Record<string, FieldClass> = {
   captain: 'structure',
   members: 'structure',
   maxConcurrentMembers: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 
 /** Classification of every provider key; `privateEligible` is an attestation and stays local. */
-export const PROVIDER_FIELD_CLASS: Record<string, FieldClass> = {
+export const PROVIDER_FIELD_CLASS = {
   id: 'structure',
   auth: 'structure',
   privateEligible: 'local',
-}
+} as const satisfies Record<string, FieldClass>
 
 /** Nested objects hold only structure: every key is classified so a new one must be reviewed. */
-export const MEMBER_FIELD_CLASS: Record<string, FieldClass> = {
+export const MEMBER_FIELD_CLASS = {
   id: 'structure',
   name: 'structure',
   rank: 'structure',
   look: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of an agent (the Steward and every Captain). */
-export const AGENT_FIELD_CLASS: Record<string, FieldClass> = {
+export const AGENT_FIELD_CLASS = {
   id: 'structure',
   name: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of the guild caps. */
-export const CAPS_FIELD_CLASS: Record<string, FieldClass> = {
+export const CAPS_FIELD_CLASS = {
   dailyTokens: 'structure',
   dailySpendCents: 'structure',
   concurrentQuests: 'structure',
@@ -73,40 +73,40 @@ export const CAPS_FIELD_CLASS: Record<string, FieldClass> = {
   maxDossiersPerQuest: 'structure',
   maxCouncilApprovalsPerDay: 'structure',
   maxCouncilSessionsPerDay: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of the Treasury envelope. */
-export const TREASURY_FIELD_CLASS: Record<string, FieldClass> = {
+export const TREASURY_FIELD_CLASS = {
   dailyCapCents: 'structure',
   treasurerLimitCents: 'structure',
   reservePercent: 'structure',
   reinvestPercent: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of the Tripwire thresholds. */
-export const TRIPWIRES_FIELD_CLASS: Record<string, FieldClass> = {
+export const TRIPWIRES_FIELD_CLASS = {
   tokenBurnMultiple: 'structure',
   gateDenialsPerHour: 'structure',
   loopRepeats: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of the content policy. */
-export const CONTENT_POLICY_FIELD_CLASS: Record<string, FieldClass> = {
+export const CONTENT_POLICY_FIELD_CLASS = {
   maxLength: 'structure',
   bannedTerms: 'structure',
   requiredTerms: 'structure',
   allowMetaDrafts: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of a routing profile. */
-export const ROUTING_PROFILE_FIELD_CLASS: Record<string, FieldClass> = {
+export const ROUTING_PROFILE_FIELD_CLASS = {
   id: 'structure',
   provider: 'structure',
   tier: 'structure',
   model: 'structure',
   price: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 /** Keys of a schedule. */
-export const SCHEDULE_FIELD_CLASS: Record<string, FieldClass> = {
+export const SCHEDULE_FIELD_CLASS = {
   id: 'structure',
   cron: 'structure',
-}
+} as const satisfies Record<string, FieldClass>
 
 /** The Charter document (ADR-0014): guild structure only, never attestations or private data. */
 export const charterSchema = z.strictObject({
@@ -167,8 +167,22 @@ function nodeHallIds(graph: RiteGraph): string[] {
 
 type Plain = Record<string, unknown>
 
+/** The three tables that drive export and apply. */
+export interface FieldTables {
+  config: Readonly<Record<string, FieldClass>>
+  hall: Readonly<Record<string, FieldClass>>
+  provider: Readonly<Record<string, FieldClass>>
+}
+
+/** The tables export and apply use unless the caller passes its own. */
+export const DEFAULT_FIELD_TABLES: FieldTables = {
+  config: CONFIG_FIELD_CLASS,
+  hall: HALL_FIELD_CLASS,
+  provider: PROVIDER_FIELD_CLASS,
+}
+
 /** Export side of a table: a `local` boolean becomes false, any other `local` key is dropped. */
-function resetLocal(obj: Plain, table: Record<string, FieldClass>): Plain {
+function resetLocal(obj: Plain, table: Readonly<Record<string, FieldClass>>): Plain {
   return Object.fromEntries(
     Object.entries(obj).flatMap(([k, v]): [string, unknown][] => {
       if (table[k] !== 'local') {
@@ -180,7 +194,11 @@ function resetLocal(obj: Plain, table: Record<string, FieldClass>): Plain {
 }
 
 /** Apply side of a table: every `local` key comes from `held` (the current object); a missing boolean is false. */
-function takeLocal(obj: Plain, table: Record<string, FieldClass>, held: Plain | undefined): Plain {
+function takeLocal(
+  obj: Plain,
+  table: Readonly<Record<string, FieldClass>>,
+  held: Plain | undefined
+): Plain {
   const out: Plain = Object.fromEntries(Object.entries(obj).filter(([k]) => table[k] !== 'local'))
   for (const [k, cls] of Object.entries(table)) {
     if (cls !== 'local') {
@@ -206,14 +224,17 @@ export function exportCharter(input: {
   config: GuildConfig
   rites: ExportRite[]
   now: Date
+  /** Defaults to {@link DEFAULT_FIELD_TABLES}. */
+  tables?: FieldTables
 }): Charter {
+  const t = DEFAULT_FIELD_TABLES
   const source: Plain = input.config
   const config = {
-    ...resetLocal(source, CONFIG_FIELD_CLASS),
-    halls: input.config.halls.map((h) => resetLocal(h, HALL_FIELD_CLASS)),
-    providers: input.config.providers.map((p) => resetLocal(p, PROVIDER_FIELD_CLASS)),
+    ...resetLocal(source, t.config),
+    halls: input.config.halls.map((h) => resetLocal(h, t.hall)),
+    providers: input.config.providers.map((p) => resetLocal(p, t.provider)),
   }
-  const omitted: Charter['omitted'] = Object.entries(CONFIG_FIELD_CLASS)
+  const omitted: Charter['omitted'] = Object.entries(t.config)
     .filter(
       ([k, cls]) => cls === 'local' && source[k] !== undefined && typeof source[k] !== 'boolean'
     )
@@ -281,7 +302,10 @@ export function applyCharter(input: {
   charter: Charter
   current: GuildConfig
   existingRiteNames: string[]
+  /** Defaults to {@link DEFAULT_FIELD_TABLES}. */
+  tables?: FieldTables
 }): ApplyResult {
+  const t = DEFAULT_FIELD_TABLES
   const valid = charterSchema.safeParse(input.charter)
   if (!valid.success) {
     return { ok: false, error: 'invalid_charter', message: valid.error.message }
@@ -292,10 +316,10 @@ export function applyCharter(input: {
   const heldHalls = byId(input.current.halls)
   const heldProviders = byId(input.current.providers)
   const candidate = guildConfig.safeParse({
-    ...takeLocal(charter.config, CONFIG_FIELD_CLASS, heldConfig),
-    halls: charter.config.halls.map((h) => takeLocal(h, HALL_FIELD_CLASS, heldHalls.get(h.id))),
+    ...takeLocal(charter.config, t.config, heldConfig),
+    halls: charter.config.halls.map((h) => takeLocal(h, t.hall, heldHalls.get(h.id))),
     providers: charter.config.providers.map((p) =>
-      takeLocal(p, PROVIDER_FIELD_CLASS, heldProviders.get(p.id))
+      takeLocal(p, t.provider, heldProviders.get(p.id))
     ),
   })
   if (!candidate.success) {

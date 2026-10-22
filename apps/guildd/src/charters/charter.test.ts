@@ -370,27 +370,67 @@ describe('schedule triggers (F6)', () => {
     }
   })
 })
-
 describe('the tables drive behaviour (F1)', () => {
-  test('marking a key local removes it on export and restores it from current on apply', () => {
+  test('a table passed in marks a key local: removed on export, restored from current on apply', () => {
     const withPolicy: GuildConfig = {
       ...config,
       contentPolicy: { maxLength: 100, bannedTerms: [], requiredTerms: [] },
     }
-    const before = CONFIG_FIELD_CLASS.contentPolicy
-    CONFIG_FIELD_CLASS.contentPolicy = 'local'
-    try {
-      const c = exportCharter({ name: 'n', config: withPolicy, rites: [], now })
-      expect(c.config.contentPolicy).toBeUndefined()
-      const r = applyCharter({ charter: c, current: withPolicy, existingRiteNames: [] })
-      if (!r.ok) {
-        throw new Error('expected ok')
-      }
-      expect(r.config.contentPolicy).toEqual(withPolicy.contentPolicy)
-    } finally {
-      if (before !== undefined) {
-        CONFIG_FIELD_CLASS.contentPolicy = before
-      }
+    const tables = {
+      config: { ...CONFIG_FIELD_CLASS, contentPolicy: 'local' as const },
+      hall: HALL_FIELD_CLASS,
+      provider: PROVIDER_FIELD_CLASS,
     }
+    const c = exportCharter({ name: 'n', config: withPolicy, rites: [], now, tables })
+    expect(c.config.contentPolicy).toBeUndefined()
+    const r = applyCharter({ charter: c, current: withPolicy, existingRiteNames: [], tables })
+    if (!r.ok) {
+      throw new Error('expected ok')
+    }
+    expect(r.config.contentPolicy).toEqual(withPolicy.contentPolicy)
+  })
+})
+
+describe('nested tables are structure-only', () => {
+  // These tables exist only to force a classification decision when a nested key is added.
+  // A nested `local` key needs export support first, so every value must be `structure`.
+  test('every value in the eight nested tables is structure', () => {
+    const nested = [
+      MEMBER_FIELD_CLASS,
+      AGENT_FIELD_CLASS,
+      CAPS_FIELD_CLASS,
+      TREASURY_FIELD_CLASS,
+      TRIPWIRES_FIELD_CLASS,
+      CONTENT_POLICY_FIELD_CLASS,
+      ROUTING_PROFILE_FIELD_CLASS,
+      SCHEDULE_FIELD_CLASS,
+    ]
+    for (const table of nested) {
+      expect(Object.values(table).every((v) => v === 'structure')).toBe(true)
+    }
+  })
+})
+
+describe('schedule triggers (F3)', () => {
+  test('apply accepts a schedule trigger whose scheduleId is in config.schedules', () => {
+    const withSchedule: GuildConfig = {
+      ...config,
+      schedules: [{ id: 'nightly', cron: '0 0 * * *' }],
+    }
+    const graph: RiteGraph = {
+      nodes: [
+        { id: 'tick', type: 'trigger.schedule', scheduleId: 'nightly' },
+        ...graphFor('work').nodes.slice(1),
+      ],
+      edges: [],
+    }
+    const charter = exportCharter({
+      name: 'n',
+      config: withSchedule,
+      rites: [rite('s', { activeGraph: graph })],
+      now,
+    })
+    const r = applyCharter({ charter, current: withSchedule, existingRiteNames: [] })
+    expect(r.ok).toBe(true)
   })
 })
