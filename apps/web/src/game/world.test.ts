@@ -25,7 +25,7 @@ test('every named place resolves to a point on its map', () => {
 })
 
 test('the Seal desk is where the hall map puts it', () => {
-  expect(placeNamed('seal-desk')).toMatchObject({ map: 'hall', x: 34, y: 10, w: 2, h: 2 })
+  expect(placeNamed('seal-desk')).toMatchObject({ map: 'hall', x: 3, y: 7, w: 2, h: 1 })
 })
 
 test('every named place has a walkable standing tile on its own map', () => {
@@ -53,7 +53,7 @@ test('every named place can be reached on foot from the hall entrance, through t
     y: number
   }
   const key = (spot: Spot) => `${spot.map}:${spot.x},${spot.y}`
-  const start: Spot = { map: 'hall', x: 38, y: 12 }
+  const start: Spot = { map: 'hall', x: 8, y: 10 }
   const seen = new Set([key(start)])
   const queue: Spot[] = [start]
   for (let at = queue.shift(); at; at = queue.shift()) {

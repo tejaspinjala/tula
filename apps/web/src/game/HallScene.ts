@@ -1,8 +1,8 @@
 import Phaser from 'phaser'
 import { formatCents } from '../treasury'
+import { memberSeats, stewardStand } from './actors'
 import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
-import { courierRoute } from './courier'
 import {
   integerZoom,
   openZoomWhole,
@@ -12,39 +12,17 @@ import {
   walkPose,
   zoomAfterResize,
 } from './daylight'
-import { BASE_SLOTS } from './hallmap'
-import { nearestTarget, REACH, sameTarget, type Target } from './interact'
-import {
-  apprenticeSeats,
-  bubbleCentreX,
-  bubbleCentreY,
-  elderSeats,
-  type HallLayout,
-  hallLayout,
-  landing,
-  mailboxIn,
-  questBoardIn,
-  refitHall,
-  roomProps,
-  roomTags,
-  seatsIn,
-  withClosedDoors,
-} from './layout'
+import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './interact'
+import { bubbleCentreX, roomTags } from './layout'
+import { lightIsOn } from './lighting'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
+import { type Atlases, actorDepth, viewportFor } from './render'
 import { Retained } from './retained'
+import { DEPTH, greatHall, type Room } from './room'
+import { drawRoom, makeShadow, moveShadow, preloadAtlases, registerAtlases } from './roomView'
 import type { Spot } from './route'
 import type { SceneBubble, SceneMember, SceneState } from './scene'
-import {
-  direction,
-  findPath,
-  followPath,
-  type Keys,
-  moveBy,
-  roomAt,
-  SPEED,
-  teleportTile,
-  type Vec,
-} from './walk'
+import { direction, findPath, followPath, type Keys, moveBy, SPEED, type Vec } from './walk'
 import { replan, standing, stepWalker, type Walker } from './walker'
 import {
   doorAt,
@@ -126,12 +104,12 @@ export interface HallOptions {
   onHandIn?: ((memberName: string) => void) | undefined
   /** Called when the Guild Master walks through a door into another map of the town. */
   onMap?: ((map: MapId) => void) | undefined
+  /** The height in px of the reserved HUD strip at the top of the canvas (the camera never draws under it). */
+  hudHeight?: (() => number) | undefined
   /** Opens the Council panel (navigation only): a tap on the Council chamber. */
   onOpenCouncil?: (() => void) | undefined
 }
 
-/** Where the Guild Master enters the hall: just inside the gate, in tiles. */
-const ENTRANCE: Vec = { x: 38.5, y: 12.5 }
 /** The Guild Master's sprite name; its look is the saved one, or the one this id seeds. */
 const GUILD_MASTER = GUILD_MASTER_ID
 /** Longest a pointer may travel and still count as a tap, in px. */
@@ -157,12 +135,14 @@ interface MemberView {
   name: string
   scroll: Phaser.GameObjects.Image
   sleep: Phaser.GameObjects.BitmapText
+  shadow: Phaser.GameObjects.Image
 }
 
 /** An apprentice: a Sub-Quest's helper standing in its parent's room until the child settles. */
 interface ApprenticeView {
   root: Phaser.GameObjects.Container
   hallId: string
+  shadow: Phaser.GameObjects.Image
 }
 
 /** Keys that walk the Guild Master (lower-case `KeyboardEvent.key`). */
@@ -186,17 +166,15 @@ const px = (tiles: number, size: number) => tiles * size
  * that can `follow` a target. It renders a `SceneState` and decides nothing.
  */
 export class HallScene extends Phaser.Scene {
-  private layout: HallLayout = hallLayout()
-  /** Room slots the hall map was last drawn for: it grows a wing per three Halls past six. */
-  private drawnSlots = BASE_SLOTS
-  /** The hall's tile layers and tilemap, kept so a growing roster can redraw them. */
-  private hallDrawn: {
-    layers: Phaser.GameObjects.GameObject[]
-    map: Phaser.Tilemaps.Tilemap
-    key: string
-  } | null = null
-  /** The map's walkable test with the doors of locked and empty rooms closed; refreshed on every render. */
-  private walkable: (x: number, y: number) => boolean = this.layout.walkable
+  /** The Great Hall as last drawn, and what it was drawn from. */
+  private hall: Room = greatHall([])
+  private hallSig = ''
+  private hallCount = 0
+  private hallSprites: Phaser.GameObjects.GameObject[] = []
+  private atlases: Atlases = { interiors: {}, furniture: {} }
+  private hudHeight = 0
+  /** The map's walkable test with the doorways of Halls shut (they open in their own rooms later); refreshed on every render. */
+  private walkable: (x: number, y: number) => boolean = this.hall.walkable
   private lockedSlots = new Set<number>()
   private readonly options: HallOptions
   private readonly members = new Map<string, MemberView>()
@@ -213,16 +191,15 @@ export class HallScene extends Phaser.Scene {
   private courierSeq = 0
   /** Couriers still walking, by seq: their addressee's bubble waits for them. */
   private readonly walkingCouriers = new Map<number, string | null>()
-  private gateSprites: Phaser.GameObjects.Image[] = []
   private zoomLevel = 1
   private followed: string | null = null
   private player: Phaser.GameObjects.Container | null = null
   private playerLayers: Phaser.GameObjects.Image[] = []
+  private playerShadow: Phaser.GameObjects.Image | null = null
   private playerLook: LookChoice | null = null
-  private at: Vec = { ...ENTRANCE }
+  private at: Vec = { x: this.hall.spawn.x + 0.5, y: this.hall.spawn.y + 0.5 }
   private path: Vec[] = []
   private chasing = false
-  private room: number | null = null
   /** The map of the town the Guild Master is in. */
   private current: MapId = 'hall'
   /** The map the camera shows: the Guild Master's, unless the camera follows a Member elsewhere. */
@@ -238,9 +215,6 @@ export class HallScene extends Phaser.Scene {
   /** Members of a Hall (not the Steward): the ones the Guild Master can talk to. */
   private talkable = new Set<string>()
   private near: Target | null = null
-  /** The five elders of the Council chamber, left to right, and their "..." mark. */
-  private elders: Phaser.GameObjects.Container[] = []
-  private conferMark: Phaser.GameObjects.BitmapText | null = null
   /** True while a Council session is open: the elders confer. */
   private councilState: 'idle' | 'conferring' | 'halted' = 'idle'
   private readonly keys: Keys = { left: false, right: false, up: false, down: false }
@@ -255,14 +229,15 @@ export class HallScene extends Phaser.Scene {
     this.load.spritesheet(TILES, '/game/tiles.png', { frameWidth: 16, frameHeight: 16, spacing: 1 })
     this.load.spritesheet(CHARS, '/game/chars.png', { frameWidth: 16, frameHeight: 16, spacing: 1 })
     this.load.bitmapFont(FONT, '/game/font.png', '/game/font.fnt')
+    preloadAtlases(this)
   }
 
   create(): void {
     this.input.enabled = this.inputOn
+    this.atlases = registerAtlases(this)
     for (const id of MAP_IDS) {
       this.drawMap(id)
     }
-    this.drawFixtures()
     this.makeGlow()
     this.makeCourier()
     this.makeMailbox()
@@ -279,7 +254,7 @@ export class HallScene extends Phaser.Scene {
     this.veil = this.add
       .rectangle(0, 0, 1, 1, 0xffffff, 0)
       .setOrigin(0, 0)
-      .setDepth(18)
+      .setDepth(DEPTH.top)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
     this.time.addEvent({
       delay: 60_000,
@@ -336,8 +311,11 @@ export class HallScene extends Phaser.Scene {
     if (slot !== null && this.lockedSlots.has(slot)) {
       return
     }
-    const tile = slot === null ? null : teleportTile(this.layout.rooms, slot, this.walkable)
-    this.at = tile ? { x: tile.x + 0.5, y: tile.y + 0.5 } : { ...ENTRANCE }
+    // A Hall's door is in the Great Hall's back wall; stand in front of it.
+    const door =
+      slot === null ? undefined : this.hall.doorways.filter((d) => d.hallId !== undefined)[slot]
+    const tile = door ? { x: door.tile.x, y: door.tile.y + 1 } : this.hall.spawn
+    this.at = { x: tile.x + 0.5, y: tile.y + 0.5 }
     this.path = []
     this.chasing = true
     if (this.current !== 'hall') {
@@ -383,6 +361,13 @@ export class HallScene extends Phaser.Scene {
     this.options.onMap?.(id)
   }
 
+  /** The canvas area the camera draws in: everything below the reserved HUD strip. */
+  private viewport(): { w: number; h: number } {
+    const v = viewportFor({ w: this.scale.width, h: this.scale.height }, this.hudHeight)
+    this.cameras.main.setViewport(v.x, v.y, v.w, v.h)
+    return v
+  }
+
   /** Bounds the camera to the current map, opens at a whole zoom and centres on the Guild Master. */
   private frameMap(): void {
     const cam = this.cameras.main
@@ -390,8 +375,8 @@ export class HallScene extends Phaser.Scene {
     const map = this.mapOf(this.viewMap)
     const w = px(map.width, map.tileSize)
     const h = px(map.height, map.tileSize)
-    cam.setSize(this.scale.width, this.scale.height)
-    this.zoomLevel = openZoomWhole(this.scale.width, this.scale.height, w, h)
+    const view = this.viewport()
+    this.zoomLevel = openZoomWhole(view.w, view.h, w, h)
     cam.setZoom(this.zoomLevel)
     this.boundCamera()
     if (this.viewMap === this.current) {
@@ -414,7 +399,7 @@ export class HallScene extends Phaser.Scene {
     cam.setBounds(x - (boundW - w) / 2, y - (boundH - h) / 2, boundW, boundH)
   }
 
-  /** Lays the world tint over the current map only, and lights or douses its lanterns. */
+  /** Lays the world tint over the current map only, and lights the room's lamps, sconces and windows. */
   private applyTint(): void {
     // Before the scene has loaded there is nothing to tint: `create` applies the stored phase.
     if (!this.veil) {
@@ -431,46 +416,57 @@ export class HallScene extends Phaser.Scene {
       lantern.destroy()
     }
     this.lanterns = []
-    if (!tint.lanterns) {
-      return
-    }
-    for (const lantern of map.lanterns) {
+    const lit =
+      this.viewMap === 'hall'
+        ? this.hall.lights.filter((l) => lightIsOn(this.phase, l)).map((l) => l.tile)
+        : tint.lanterns
+          ? map.lanterns
+          : []
+    for (const lantern of lit) {
       this.lanterns.push(
         this.add
           .image(x + (lantern.x + 0.5) * map.tileSize, y + (lantern.y + 0.5) * map.tileSize, GLOW)
-          .setDepth(19)
+          .setDepth(DEPTH.top + 1)
           .setBlendMode(Phaser.BlendModes.ADD)
       )
     }
   }
 
-  /** A map's data; the hall's size follows the map grown for the roster. */
+  /** A map's data; the hall's size follows the Great Hall as drawn (a corridor grows it past six Halls). */
   private mapOf(id: MapId): MapData {
     const data = mapData(id)
-    return id === 'hall' ? { ...data, width: this.layout.width, height: this.layout.height } : data
+    return id === 'hall' ? { ...data, width: this.hall.width, height: this.hall.height } : data
   }
 
-  /** Grows or shrinks the hall map to fit `slots` rooms, redrawing its tiles when the wings change. */
-  private fitHallTo(slots: number): void {
-    const { redraw, reframe } = refitHall(this.drawnSlots, slots, this.viewMap, this.followed)
-    if (!redraw) {
+  /** Redraws the Great Hall when its Halls change: a doorway and a sign per Hall, a corridor past six. */
+  private fitHall(state: SceneState): void {
+    const halls = state.rooms.map((r, index) => ({
+      id: r.hallId,
+      name: r.name,
+      kind: r.kind,
+      locked: r.locked,
+      index,
+    }))
+    const sig = JSON.stringify(halls)
+    if (sig === this.hallSig || !this.ready) {
       return
     }
-    this.drawnSlots = slots
-    this.layout = hallLayout(slots)
-    for (const layer of this.hallDrawn?.layers ?? []) {
-      layer.destroy()
+    const grew = halls.length !== this.hallCount
+    this.hallCount = halls.length
+    this.hallSig = sig
+    this.hall = greatHall(halls)
+    for (const object of this.hallSprites) {
+      object.destroy()
     }
-    this.hallDrawn?.map.destroy()
-    if (this.hallDrawn) {
-      this.cache.tilemap.remove(this.hallDrawn.key)
+    this.hallSprites = drawRoom(this, this.hall, this.atlases, OFFSETS.hall)
+    // A shrunk room can leave the Guild Master off it: back to the spawn.
+    if (
+      this.current === 'hall' &&
+      !this.hall.walkable(Math.floor(this.at.x), Math.floor(this.at.y))
+    ) {
+      this.at = { x: this.hall.spawn.x + 0.5, y: this.hall.spawn.y + 0.5 }
     }
-    this.drawMap('hall')
-    // A shrunk map can leave the Guild Master off it: back to the entrance.
-    if (this.current === 'hall') {
-      this.at = landing(this.at, this.layout.walkable, ENTRANCE)
-    }
-    if (reframe) {
+    if (grew && this.viewMap === 'hall') {
       this.frameMap()
     } else if (this.viewMap === 'hall') {
       this.boundCamera()
@@ -478,10 +474,14 @@ export class HallScene extends Phaser.Scene {
     this.applyTint()
   }
 
-  /** One of the town's maps as tile layers at its offset; the collision layer stays hidden. */
+  /** One of the town's maps as tile layers at its offset; the Great Hall is drawn by `fitHall`. */
   private drawMap(id: MapId): void {
-    const source = id === 'hall' ? this.layout.source : mapSource(id)
-    const key = `map-${id}-${id === 'hall' ? this.layout.height : 0}`
+    if (id === 'hall') {
+      this.hallSprites = drawRoom(this, this.hall, this.atlases, OFFSETS.hall)
+      return
+    }
+    const source = mapSource(id)
+    const key = `map-${id}`
     this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data: source })
     const map = this.make.tilemap({ key })
     const tileset = map.addTilesetImage('roguelike', TILES, 16, 16, 0, 1)
@@ -489,15 +489,8 @@ export class HallScene extends Phaser.Scene {
       return
     }
     const { x, y } = OFFSETS[id]
-    const layers: Phaser.GameObjects.GameObject[] = []
     for (const name of ['floor', 'walls', 'furniture']) {
-      const layer = map.createLayer(name, tileset, x, y)
-      if (layer) {
-        layers.push(layer)
-      }
-    }
-    if (id === 'hall') {
-      this.hallDrawn = { layers, map, key }
+      map.createLayer(name, tileset, x, y)
     }
     for (const label of MAP_LABELS[id]) {
       this.label(x + label.x * 16, y + label.y * 16, label.text, 16)
@@ -565,22 +558,33 @@ export class HallScene extends Phaser.Scene {
       if (this.seeding || this.options.reducedMotion) {
         continue
       }
-      const route = courierRoute(
-        this.layout,
-        state.rooms.findIndex((r) => r.hallId === courier.fromHall),
-        state.rooms.findIndex((r) => r.hallId === courier.toHall)
-      )
-      const start = route?.[0]
-      if (!route || !start) {
+      const door = (hallId: string) => this.hall.doorways.find((d) => d.hallId === hallId)
+      const from = door(courier.fromHall)
+      const to = door(courier.toHall)
+      if (!from || !to || from === to) {
         continue
       }
-      const sprite = this.add.image(start.x, start.y, COURIER).setDepth(15)
+      const at = (x: number, y: number) => ({ x: x * 16 + 8, y: y * 16 + 8 })
+      const route = [
+        at(from.tile.x, from.tile.y),
+        at(from.tile.x, from.tile.y + 1),
+        at(to.tile.x, to.tile.y + 1),
+        at(to.tile.x, to.tile.y),
+      ]
+      const start = route[0]
+      if (!start) {
+        continue
+      }
+      const sprite = this.add.image(start.x, start.y, COURIER).setDepth(actorDepth(start.y + 8))
       sprite.setScale(COURIER_SCALE)
       sprite.setName(`courier:${courier.seq}`)
       // The envelope rides in the courier's hands, a little ahead and above, and follows it.
-      const envelope = this.add.image(start.x, start.y, ENVELOPE).setDepth(16)
+      const envelope = this.add.image(start.x, start.y, ENVELOPE).setDepth(DEPTH.top - 1)
       envelope.setScale(COURIER_SCALE)
-      const follow = () => envelope.setPosition(sprite.x + 12, sprite.y - 4)
+      const follow = () => {
+        envelope.setPosition(sprite.x + 12, sprite.y - 4)
+        sprite.setDepth(actorDepth(sprite.y + 8))
+      }
       follow()
       this.walkingCouriers.set(courier.seq, courier.toMemberId)
       const step = (n: number) => {
@@ -627,13 +631,19 @@ export class HallScene extends Phaser.Scene {
 
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
   override update(_time: number, delta: number): void {
+    // The HUD changes height with its content: refit the viewport below it when it does.
+    const hud = this.options.hudHeight?.() ?? 0
+    if (hud !== this.hudHeight) {
+      this.hudHeight = hud
+      this.fit(true)
+    }
     for (const view of this.members.values()) {
       const height = view.bubble?.getData('height')
       if (view.bubble && typeof height === 'number') {
         // Above the speaker, or below when that would cover a room label; a tall (wrapped) bubble
         // moves away from the speaker by its extra height.
         const { x, y } = view.root
-        const centre = bubbleCentreY(this.layout.rooms, this.layout.tileSize, x, y)
+        const centre = y - 26
         const extra = (height - 20) / 2
         const wide = view.bubble.getData('width')
         const left =
@@ -645,6 +655,7 @@ export class HallScene extends Phaser.Scene {
     if (!this.player) {
       return
     }
+    this.sortActors()
     const seconds = Math.min(delta, 100) / 1000
     const dir = direction(this.keys)
     const walkable = this.canWalk()
@@ -707,9 +718,9 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** Reports who is in reach (a Member, or the Seal desk) whenever that changes. */
+  /** Reports who is in reach (a Member, the Seal desk or a Hall's mailbox) whenever that changes. */
   private updateNear(): void {
-    const s = this.layout.tileSize
+    const s = this.hall.tileSize
     const targets: { target: Target; at: Vec }[] = []
     if (this.current !== 'hall') {
       if (this.near !== null) {
@@ -724,39 +735,54 @@ export class HallScene extends Phaser.Scene {
         targets.push({ target: { kind: 'member', id }, at: { x: root.x / s, y: root.y / s } })
       }
     }
-    // The desk is a rectangle: reach its nearest edge, not its middle.
-    const desk = this.layout.sealDesk
-    targets.push({
-      target: { kind: 'sealDesk' },
-      at: {
-        x: Math.min(desk.x + desk.w - 0.5, Math.max(desk.x + 0.5, this.at.x)),
-        y: Math.min(desk.y + desk.h - 0.5, Math.max(desk.y + 0.5, this.at.y)),
-      },
-    })
-    // The chamber is a blocked rectangle like the desk: reach its nearest edge.
-    const chamber = this.layout.council
-    targets.push({
-      target: { kind: 'council' },
-      at: {
-        x: Math.min(chamber.x + chamber.w - 0.5, Math.max(chamber.x + 0.5, this.at.x)),
-        y: Math.min(chamber.y + chamber.h - 0.5, Math.max(chamber.y + 0.5, this.at.y)),
-      },
-    })
-    // A Hall's mailbox stands in its room: reach it from the tile beside it.
-    this.pending?.rooms.forEach((hall, index) => {
-      const room = this.layout.rooms[index]
-      if (hall && room && !hall.locked) {
-        const box = mailboxIn(this.layout, room)
+    const desk = this.hall.pois.find((p) => p.kind === 'seal-desk')
+    if (desk) {
+      targets.push({ target: { kind: 'sealDesk' }, at: reachPoint(desk.tile, this.at) })
+    }
+    // Until a Hall has its own room (#204) its mailbox is reached at its doorway in the back wall.
+    for (const hall of this.pending?.rooms ?? []) {
+      const door = this.hall.doorways.find((d) => d.hallId === hall.hallId)
+      if (door && !hall.locked) {
         targets.push({
           target: { kind: 'mailbox', hallId: hall.hallId },
-          at: { x: box.x + 0.5, y: box.y + 0.5 },
+          at: { x: door.tile.x + 0.5, y: door.tile.y + 1.5 },
         })
       }
-    })
+    }
     const now = nearestTarget(this.at, targets, REACH)
     if (!sameTarget(now, this.near)) {
       this.near = now
       this.options.onNear(now)
+    }
+  }
+
+  /** Every character sorts by its feet and casts a hard shadow; Members in another map follow their own root. */
+  private sortActors(): void {
+    const feet = (root: Phaser.GameObjects.Container, reach: number) => ({
+      x: root.x,
+      y: root.y + reach,
+    })
+    const place = (
+      root: Phaser.GameObjects.Container,
+      shadow: Phaser.GameObjects.Image | null,
+      reach: number,
+      shown: boolean
+    ) => {
+      const foot = feet(root, reach)
+      root.setDepth(actorDepth(foot.y))
+      if (shadow) {
+        moveShadow(shadow, foot)
+        shadow.setVisible(shown)
+      }
+    }
+    for (const view of this.members.values()) {
+      place(view.root, view.shadow, 8, !view.walker.hidden)
+    }
+    for (const view of this.apprentices.values()) {
+      place(view.root, view.shadow, 6, view.root.alpha > 0.2)
+    }
+    if (this.player) {
+      place(this.player, this.playerShadow, 8, true)
     }
   }
 
@@ -785,7 +811,8 @@ export class HallScene extends Phaser.Scene {
       this.add.image(0, 0, CHARS, frame)
     )
     const layers: Phaser.GameObjects.GameObject[] = [...this.playerLayers, this.crown()]
-    this.player = this.add.container(0, 0, layers).setDepth(16)
+    this.player = this.add.container(0, 0, layers)
+    this.playerShadow = makeShadow(this)
     this.player.setName(GUILD_MASTER)
     this.syncPlayer()
     const down = (event: KeyboardEvent) => this.onKey(event, true)
@@ -807,7 +834,7 @@ export class HallScene extends Phaser.Scene {
       if (moved > TAP_SLOP || this.input.hitTestPointer(pointer).length > 0) {
         return
       }
-      const s = this.layout.tileSize
+      const s = this.hall.tileSize
       const { x: ox, y: oy } = OFFSETS[this.current]
       const to = {
         x: Math.floor((pointer.worldX - ox) / s),
@@ -861,16 +888,12 @@ export class HallScene extends Phaser.Scene {
     this.keys.left = this.keys.right = this.keys.up = this.keys.down = false
   }
 
-  /** Puts the sprite on the Guild Master's position and reports a change of room. */
+  /** Puts the sprite on the Guild Master's position. */
   private syncPlayer(): void {
-    const s = this.layout.tileSize
+    const s = this.hall.tileSize
     const { x: ox, y: oy } = OFFSETS[this.current]
     this.player?.setPosition(ox + this.at.x * s, oy + this.at.y * s)
-    const now = this.current === 'hall' ? roomAt(this.layout.rooms, this.at) : null
-    if (now !== this.room) {
-      this.room = now
-      this.options.onRoom(now)
-    }
+    this.sortActors()
   }
 
   /** Follows the Guild Master with the camera: no easing under reduced motion. */
@@ -909,8 +932,12 @@ export class HallScene extends Phaser.Scene {
     if (!this.ready) {
       return
     }
-    this.fitHallTo(Math.max(BASE_SLOTS, state.rooms.length))
-    this.walkable = withClosedDoors(this.layout, state.rooms)
+    this.fitHall(state)
+    const hall = this.hall
+    // A Hall's doorway is a way into its own room, not yet walkable here (#204).
+    this.walkable = (x, y) =>
+      hall.walkable(x, y) &&
+      !hall.doorways.some((d) => d.hallId !== undefined && x === d.tile.x && y === d.tile.y)
     this.lockedSlots = new Set(state.rooms.flatMap((r, i) => (r.locked ? [i] : [])))
     this.drawDynamic(state)
     this.drawCouriers(state)
@@ -939,11 +966,11 @@ export class HallScene extends Phaser.Scene {
       this.followed = null
       cam.stopFollow()
     }
-    cam.setSize(this.scale.width, this.scale.height)
+    const view = this.viewport()
     const map = this.mapOf(this.viewMap)
     this.zoomLevel = (keepFollow ? zoomAfterResize : integerZoom)(
-      this.scale.width,
-      this.scale.height,
+      view.w,
+      view.h,
       px(map.width, map.tileSize),
       px(map.height, map.tileSize)
     )
@@ -993,60 +1020,8 @@ export class HallScene extends Phaser.Scene {
   private label(x: number, y: number, text: string, size = 16, tint = 0xffffff) {
     const t = this.add.bitmapText(x, y, FONT, text, size)
     t.setTint(tint)
-    t.setDepth(20)
+    t.setDepth(DEPTH.top + 2)
     return t
-  }
-
-  private drawFixtures(): void {
-    const s = this.layout.tileSize
-    const stew = this.layout.stewardDesk
-    this.label(stew.x * s, (stew.y - 0.6) * s, 'STEWARD')
-    const seal = this.layout.sealDesk
-    this.label(seal.x * s, (seal.y - 0.6) * s, 'SEALS')
-    const chest = this.layout.chest
-    this.add.image(chest.x * s + 8, chest.y * s + 8, TILES, FRAME.coin).setDepth(5)
-    this.drawCouncil()
-  }
-
-  /**
-   * The Council chamber: a dais and a long table in the corridor, five robed elders standing behind
-   * it and a label above. Drawn once; `setCouncilState` makes the elders confer or shows them halted.
-   */
-  private drawCouncil(): void {
-    const s = this.layout.tileSize
-    const c = this.layout.council
-    const g = this.add.graphics().setDepth(4)
-    g.fillStyle(0x4a3a5e, 1)
-    g.fillRect(c.x * s, c.y * s, c.w * s, c.h * s) // dais
-    g.fillStyle(0x7a4b24, 1)
-    g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, s - 5) // table
-    g.fillStyle(0x3b2410, 1)
-    g.fillRect(c.x * s + 2, (c.y + 1) * s + 2, c.w * s - 4, 1) // table edge
-    this.label(c.x * s, (c.y - 1.05) * s, 'COUNCIL')
-    const robes = [0x6c8ebf, 0xb8453a, 0x4f8a5b, 0xc9a227, 0x8a5fb0]
-    this.elders = elderSeats(this.layout).map((seat, index) => {
-      const look = lookFor(`council-elder-${index}`)
-      const layers = [look.body, look.outfit, look.hair].map((frame) =>
-        this.add.image(0, 0, CHARS, frame)
-      )
-      layers[1]?.setTint(robes[index] ?? 0xffffff)
-      layers[2]?.setTint(0xe6e6e6)
-      const elder = this.add.container(seat.x * s + s / 2, seat.y * s + s / 2, layers).setDepth(6)
-      elder.setName(`elder:${index}`)
-      return elder
-    })
-    const chamber = this.add
-      .zone(c.x * s, c.y * s, c.w * s, c.h * s)
-      .setOrigin(0, 0)
-      .setDepth(7)
-      .setInteractive({ useHandCursor: true })
-    chamber.on('pointerdown', () => this.options.onOpenCouncil?.())
-    this.conferMark = this.add
-      .bitmapText((c.x + c.w + 0.2) * s, (c.y - 0.4) * s, FONT, '...', 16)
-      .setTint(0xffffff)
-      .setDepth(20)
-      .setVisible(false)
-    this.applyConfer()
   }
 
   private inputOn = true
@@ -1059,267 +1034,152 @@ export class HallScene extends Phaser.Scene {
     }
   }
 
-  /** The elders confer (bob in turn, with a "..." above) while a Council session is open. */
+  /** Records whether a Council session is open (the Great Hall has no chamber to draw it in yet). */
   setCouncilState(state: 'idle' | 'conferring' | 'halted'): void {
     this.councilState = state
-    this.applyConfer()
   }
 
-  private applyConfer(): void {
-    const s = this.layout.tileSize
-    const baseY = this.layout.council.y * s + s / 2
-    this.elders.forEach((elder, index) => {
-      this.tweens.killTweensOf(elder)
-      elder.y = baseY
-      if (this.councilState === 'conferring' && !this.options.reducedMotion) {
-        this.tweens.add({
-          targets: elder,
-          y: baseY - 2,
-          duration: 420,
-          delay: index * 110,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        })
-      }
-    })
-    this.conferMark?.setText(this.councilState === 'halted' ? 'HALTED' : '...')
-    this.conferMark?.setVisible(this.councilState !== 'idle')
-  }
-
-  /** The pixels of one cozy prop at a pixel position (same flat, outlined style as the furniture). */
-  private propParts(
-    kind: 'plant' | 'shelf' | 'cushion' | 'lamp',
-    x: number,
-    y: number
-  ): Phaser.GameObjects.Rectangle[] {
-    const box = (dx: number, dy: number, w: number, h: number, fill: number) =>
-      this.add
-        .rectangle(x + dx, y + dy, w, h, fill, 1)
-        .setOrigin(0, 0)
-        .setStrokeStyle(1, 0x3e2716)
-        .setDepth(4)
-    switch (kind) {
-      case 'plant':
-        return [box(4, 9, 8, 6, 0xb77a45), box(3, 2, 10, 8, 0x4f8a3c), box(6, 0, 4, 4, 0x9fd06a)]
-      case 'shelf':
-        return [
-          box(0, 2, 28, 12, 0x8a5a32),
-          box(2, 4, 4, 8, 0x8e4a8a),
-          box(7, 5, 4, 7, 0xa8322a),
-          box(12, 4, 4, 8, 0x2f5f94),
-          box(17, 6, 4, 6, 0xf2c14e),
-        ]
-      case 'cushion':
-        return [box(1, 5, 14, 9, 0xe86a4f), box(4, 7, 8, 4, 0xf6e7c1)]
-      case 'lamp':
-        return [box(6, 10, 4, 5, 0x5a3a22), box(3, 1, 10, 9, 0xf2c14e)]
-    }
-  }
-
-  /** Rooms, gate, scrolls and the coin counter: each keyed group is rebuilt only when its inputs change. */
+  /** Hall signs, the Quest Board, the Seal desk, the gate and the Treasury chest: each keyed group is rebuilt only when its inputs change. */
   private drawDynamic(state: SceneState): void {
     this.dynamic.begin()
-    const s = this.layout.tileSize
-    const tags = roomTags(state.rooms, this.layout.rooms.length)
-    this.layout.rooms.forEach((room, index) => {
-      const hall = state.rooms[index]
-      const door = this.layout.doorways[index]
-      const tag = tags[index]
-      const sig = JSON.stringify([
-        room,
-        door,
-        tag,
-        hall ? [hall.hallId, hall.locked, hall.board] : null,
-      ])
-      this.dynamic.group(`room:${index}`, sig, () => {
+    const s = this.hall.tileSize
+    const tags = roomTags(state.rooms, state.rooms.length)
+    this.dynamic.group('signs', JSON.stringify([this.hallSig, tags]), () => {
+      const made: Phaser.GameObjects.GameObject[] = []
+      state.rooms.forEach((hall, index) => {
+        const door = this.hall.doorways.find((d) => d.hallId === hall.hallId)
+        const tag = tags[index]
+        if (!door || !tag) {
+          return
+        }
+        const sign = this.add
+          .bitmapText(
+            (door.tile.x + 0.5) * s,
+            (door.tile.y - 0.5) * s,
+            FONT,
+            tag.text.slice(0, 11),
+            8
+          )
+          .setOrigin(0.5, 0.5)
+          .setTint(tag.closed ? 0xff9a8a : 0xffffff)
+          .setDepth(DEPTH.top + 2)
+        made.push(sign)
+        if (tag.closed) {
+          made.push(
+            this.add
+              .image((door.tile.x + 0.5) * s, (door.tile.y + 0.5) * s, TILES, FRAME.doorClosed)
+              .setDepth(DEPTH.wall + 2)
+          )
+        }
+      })
+      return made
+    })
+    const board = this.hall.pois.find((p) => p.kind === 'quest-board')
+    const queued = state.rooms.reduce((sum, r) => sum + (r.locked ? 0 : r.board), 0)
+    if (board) {
+      this.dynamic.group('board', JSON.stringify([board.tile, queued]), () => {
         const made: Phaser.GameObjects.GameObject[] = []
-        const add = <T extends Phaser.GameObjects.GameObject>(object: T): T => {
-          made.push(object)
-          return object
-        }
-        if (tag && tag.veil > 0) {
-          add(
+        const key = actorDepth((board.tile.y + board.tile.h) * s) + 1
+        for (let i = 0; i < Math.min(queued, BOARD_SCROLLS); i++) {
+          made.push(
             this.add
-              .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0x101018, tag.veil)
-              .setOrigin(0, 0)
-              .setDepth(10)
+              .image(
+                board.tile.x * s + 7 + (i % 2) * 14,
+                board.tile.y * s - 12 + Math.floor(i / 2) * 9,
+                TILES,
+                FRAME.scroll
+              )
+              .setScale(0.5)
+              .setDepth(key)
           )
         }
-        if (tag && tag.warmth > 0) {
-          // A lived-in private room: warm lamplight over the floor, a worn rug and a small lamp.
-          add(
-            this.add
-              .rectangle(room.x * s, room.y * s, room.w * s, room.h * s, 0xf2c14e, tag.warmth)
-              .setOrigin(0, 0)
-              .setDepth(9)
+        if (queued > BOARD_SCROLLS) {
+          made.push(
+            this.label(
+              (board.tile.x + 2) * s,
+              (board.tile.y - 1) * s,
+              `+${queued - BOARD_SCROLLS}`,
+              8
+            )
           )
-          const rugW = Math.max(2, room.w - 4) * s
-          const rugH = 2 * s
-          const rugX = (room.x + room.w / 2) * s
-          const rugY = (room.y + room.h - 3) * s
-          const edge = (w: number, h: number, color: number, alpha: number) =>
-            add(this.add.rectangle(rugX, rugY, w, h, color, alpha).setDepth(2))
-          edge(rugW, rugH, 0x5a3a22, 1)
-          edge(rugW - 4, rugH - 4, 0xb06a5a, 1)
-          edge(rugW - 10, rugH - 10, 0xd9a066, 1)
-          edge(rugW - 14, rugH - 14, 0x8e4a8a, 1)
-          // Fringe at both short ends and a row of diamonds down the middle.
-          for (let f = 0; f < 4; f++) {
-            const fy = rugY - rugH / 2 + 4 + f * ((rugH - 8) / 3)
-            add(this.add.rectangle(rugX - rugW / 2 - 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
-            add(this.add.rectangle(rugX + rugW / 2 + 2, fy, 3, 2, 0xd9a066, 1).setDepth(2))
-          }
-          for (let d = -3; d <= 3; d++) {
-            add(
-              this.add
-                .rectangle(rugX + d * 14, rugY, 4, 4, 0xf6e7c1, 1)
-                .setDepth(2)
-                .setAngle(45)
-            )
-          }
-          add(
-            this.add
-              .rectangle((room.x + 1) * s + 8, (room.y + 2) * s + 8, 6, 8, 0xf2c14e, 1)
-              .setStrokeStyle(1, 0x5a3a22)
-              .setDepth(4)
-          )
-          if (hall) {
-            for (const prop of roomProps(hall.hallId, room)) {
-              for (const part of this.propParts(prop.kind, prop.x * s, prop.y * s)) {
-                add(part)
-              }
-            }
-          }
-        }
-        if (tag?.privateMark) {
-          // The privacy mark: a small folding screen (three panels, a darker top rail), not a lock.
-          const mx = (room.x + room.w) * s - 20
-          const my = room.y * s + 4
-          for (let panel = 0; panel < 3; panel++) {
-            add(
-              this.add
-                .rectangle(
-                  mx + panel * 5,
-                  my + 6 + (panel % 2),
-                  5,
-                  12,
-                  panel === 1 ? 0xd9a066 : 0xb77a45,
-                  1
-                )
-                .setStrokeStyle(1, 0x3e2716)
-                .setDepth(12)
-            )
-          }
-          add(this.add.rectangle(mx + 5, my + 1, 16, 2, 0x3e2716, 1).setDepth(12))
-        }
-        if (tag) {
-          add(this.label(room.x * s + 4, room.y * s + 2, tag.text, 16))
-        }
-        if (hall && !hall.locked) {
-          // The Quest Board: a board tile with a scroll per Quest posted (a team Campaign fills it).
-          const spot = questBoardIn(this.layout, room)
-          add(
-            this.add
-              .rectangle(spot.x * s + 8, spot.y * s + 8, s, s, 0x7a4b24, 1)
-              .setStrokeStyle(1, 0x3b2410)
-              .setDepth(4)
-          )
-          const box = mailboxIn(this.layout, room)
-          add(this.add.image(box.x * s + 8, box.y * s + 8, MAILBOX).setDepth(4))
-          const shown = Math.min(hall.board, BOARD_SCROLLS)
-          for (let i = 0; i < shown; i++) {
-            add(
-              this.add
-                .image(
-                  spot.x * s + 3 + (i % 2) * 7,
-                  spot.y * s + 4 + Math.floor(i / 2) * 7,
-                  TILES,
-                  FRAME.scroll
-                )
-                .setScale(0.45)
-                .setDepth(5)
-            )
-          }
-          if (hall.board > BOARD_SCROLLS) {
-            add(this.label((spot.x + 1) * s + 2, spot.y * s + 2, `+${hall.board - BOARD_SCROLLS}`))
-          }
-        }
-        if (door && tag?.closed) {
-          for (let dx = 0; dx < door.w; dx++) {
-            add(
-              this.add
-                .image((door.x + dx) * s + 8, door.y * s + 8, TILES, FRAME.doorClosed)
-                .setDepth(11)
-            )
-          }
         }
         return made
       })
-    })
-    const gate = this.layout.gate
-    this.dynamic.group('gate', JSON.stringify([gate, state.gateClosed]), () => {
-      const made: Phaser.GameObjects.GameObject[] = []
-      this.gateSprites = []
-      for (let dy = 0; dy < gate.h; dy++) {
-        const image = this.add
-          .image(
-            gate.x * s + 8,
-            (gate.y + dy) * s + 8,
-            TILES,
-            state.gateClosed ? FRAME.doorClosed : FRAME.doorOpen
-          )
-          .setDepth(11)
-        if (state.gateClosed) {
-          image.setTint(0xff5555)
-        }
-        made.push(image)
-        this.gateSprites.push(image)
-      }
-      made.push(
-        this.label(
-          (gate.x - 5) * s,
-          (gate.y + gate.h + 0.2) * s,
-          state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
-          16,
-          state.gateClosed ? 0xff6666 : 0x99ff99
-        )
-      )
-      return made
-    })
-    const seal = this.layout.sealDesk
-    this.dynamic.group(
-      'scrolls',
-      JSON.stringify([seal, state.scrolls.map((c) => c.questId)]),
-      () => {
+    }
+    const gate = this.hall.pois.find((p) => p.kind === 'gate')
+    if (gate) {
+      this.dynamic.group('gate', JSON.stringify([gate.tile, state.gateClosed]), () => {
         const made: Phaser.GameObjects.GameObject[] = []
-        state.scrolls.slice(0, MAX_SCROLLS).forEach((scroll, i) => {
-          const scrollSprite = this.add
-            .image((seal.x + i) * s + 8, seal.y * s + 8, TILES, FRAME.scroll)
-            .setScale(1.5)
-            .setDepth(12)
-            .setInteractive({ useHandCursor: true })
-          scrollSprite.on('pointerdown', () => this.options.onOpenSeal(scroll.questId))
-          made.push(scrollSprite)
-        })
-        if (state.scrolls.length > MAX_SCROLLS) {
+        if (state.gateClosed) {
           made.push(
-            this.label(
-              (seal.x + MAX_SCROLLS) * s,
-              seal.y * s + 4,
-              `+${state.scrolls.length - MAX_SCROLLS}`
-            )
+            this.add
+              .rectangle(
+                gate.tile.x * s,
+                (gate.tile.y - 0.5) * s,
+                gate.tile.w * s,
+                1.5 * s,
+                0xb8453a,
+                0.4
+              )
+              .setOrigin(0, 0)
+              .setDepth(actorDepth((gate.tile.y + gate.tile.h) * s) + 1)
           )
         }
+        made.push(
+          this.label(
+            (gate.tile.x - 1) * s,
+            (gate.tile.y - 1) * s,
+            state.gateClosed ? 'GATES BARRED' : 'GATE OPEN',
+            8,
+            state.gateClosed ? 0xff6666 : 0x99ff99
+          )
+        )
         return made
-      }
-    )
-    const chest = this.layout.chest
-    this.dynamic.group(
-      'treasury-chest',
-      JSON.stringify([chest, formatCents(state.coinsCents)]),
-      () => [this.label((chest.x + 1.2) * s, chest.y * s + 3, formatCents(state.coinsCents))]
-    )
+      })
+    }
+    const seal = this.hall.pois.find((p) => p.kind === 'seal-desk')
+    if (seal) {
+      this.dynamic.group(
+        'scrolls',
+        JSON.stringify([seal.tile, state.scrolls.map((c) => c.questId)]),
+        () => {
+          const made: Phaser.GameObjects.GameObject[] = []
+          const key = actorDepth((seal.tile.y + seal.tile.h) * s) + 1
+          made.push(this.label(seal.tile.x * s, (seal.tile.y - 1) * s, 'SEALS', 8))
+          state.scrolls.slice(0, MAX_SCROLLS).forEach((scroll, i) => {
+            const sprite = this.add
+              .image(seal.tile.x * s + 4 + i * 6, seal.tile.y * s - 2, TILES, FRAME.scroll)
+              .setScale(1)
+              .setDepth(key)
+              .setInteractive({ useHandCursor: true })
+            sprite.on('pointerdown', () => this.options.onOpenSeal(scroll.questId))
+            made.push(sprite)
+          })
+          if (state.scrolls.length > MAX_SCROLLS) {
+            made.push(
+              this.label(
+                (seal.tile.x + 2) * s,
+                seal.tile.y * s - 6,
+                `+${state.scrolls.length - MAX_SCROLLS}`,
+                8
+              )
+            )
+          }
+          return made
+        }
+      )
+    }
+    const steward = this.hall.pois.find((p) => p.kind === 'steward-desk')
+    if (steward) {
+      this.dynamic.group('steward', JSON.stringify(steward.tile), () => [
+        this.label(steward.tile.x * s, (steward.tile.y - 1) * s, 'STEWARD', 8),
+      ])
+    }
+    // The Treasury chest: a coin and the guild's spend, on the left wall's floor row.
+    this.dynamic.group('treasury-chest', JSON.stringify(formatCents(state.coinsCents)), () => [
+      this.add.image(6 * s + 8, 3 * s + 8, TILES, FRAME.coin).setDepth(actorDepth(4 * s)),
+      this.label(7 * s - 2, 3 * s + 3, formatCents(state.coinsCents), 8),
+    ])
     this.dynamic.end()
   }
 
@@ -1329,37 +1189,33 @@ export class HallScene extends Phaser.Scene {
     const idleIds = Object.values(state.members)
       .filter((m) => m.status === 'idle' && !m.awaitingSeal)
       .map((m) => m.id)
-    state.rooms.forEach((room, index) => {
-      const slot = this.layout.rooms[index]
-      if (!slot) {
-        return
-      }
-      const seats = seatsIn(this.layout, slot, room.memberIds.length)
-      room.memberIds.forEach((id, n) => {
+    // Until a Hall has its own room (#204), every Member stands on the Great Hall floor.
+    const seats = memberSeats(
+      this.hall,
+      state.rooms.reduce((sum, r) => sum + r.memberIds.length, 0)
+    )
+    const board = this.hall.pois.find((p) => p.kind === 'quest-board')?.stand ?? this.hall.spawn
+    let next = 0
+    for (const room of state.rooms) {
+      for (const id of room.memberIds) {
         const member = state.members[id]
-        const seat = seats[n]
+        const seat = seats[next++]
         if (!member || !seat) {
-          return
+          continue
         }
         live.add(id)
-        const desk = {
-          x: slot.x + 1 + (n % Math.max(1, slot.w - 2)),
-          y: slot.y + 2,
-        }
-        const board = questBoardIn(this.layout, slot)
         this.placeMember(member, {
           home: { map: 'hall', ...seat },
-          desk: { map: 'hall', ...desk },
+          desk: { map: 'hall', ...seat },
           board: { map: 'hall', ...board },
           idleIds,
         })
-      })
-    })
-    // The Steward sits at their desk.
-    const stew = this.layout.stewardDesk
+      }
+    }
+    // The Steward stands at their desk.
     this.talkable = new Set(live)
     live.add(state.stewardId)
-    const stewardSpot: Spot = { map: 'hall', x: stew.x + 1, y: stew.y + stew.h }
+    const stewardSpot: Spot = { map: 'hall', ...stewardStand(this.hall) }
     this.placeMember(
       {
         id: state.stewardId,
@@ -1382,6 +1238,7 @@ export class HallScene extends Phaser.Scene {
     for (const [id, view] of this.members) {
       if (!live.has(id)) {
         view.root.destroy()
+        view.shadow.destroy()
         view.bubble?.destroy()
         this.members.delete(id)
       }
@@ -1393,19 +1250,18 @@ export class HallScene extends Phaser.Scene {
    * spawned and fading out when the child settles. Reduced motion swaps them in and out.
    */
   private drawApprentices(state: SceneState): void {
-    const s = this.layout.tileSize
+    const s = this.hall.tileSize
     const live = new Set<string>()
-    state.rooms.forEach((room, index) => {
-      const slot = this.layout.rooms[index]
+    for (const room of state.rooms) {
       const crew = state.apprentices.filter((a) => a.hallId === room.hallId)
-      if (!slot || crew.length === 0) {
-        return
+      const door = this.hall.doorways.find((d) => d.hallId === room.hallId)
+      if (!door || crew.length === 0) {
+        continue
       }
-      const seats = apprenticeSeats(this.layout, slot, crew.length)
       crew.forEach((apprentice, n) => {
-        const seat = seats[n]
-        if (!seat) {
-          return
+        const seat = {
+          x: Math.min(this.hall.width - 2, Math.max(1, door.tile.x - 1 + (n % 3))),
+          y: door.tile.y + 2 + Math.floor(n / 3),
         }
         live.add(apprentice.childId)
         const x = seat.x * s + s / 2
@@ -1429,15 +1285,18 @@ export class HallScene extends Phaser.Scene {
         const root = this.add
           .container(animate && parent ? parent.x : x, animate && parent ? parent.y : y, layers)
           .setScale(0.75)
-          .setDepth(14)
         root.setName(`apprentice:${apprentice.childId}`)
         if (animate) {
           root.setAlpha(0)
           this.tweens.add({ targets: root, x, y, alpha: 1, duration: WALK_MS, ease: 'Linear' })
         }
-        this.apprentices.set(apprentice.childId, { root, hallId: room.hallId })
+        this.apprentices.set(apprentice.childId, {
+          root,
+          hallId: room.hallId,
+          shadow: makeShadow(this),
+        })
       })
-    })
+    }
     for (const [id, view] of this.apprentices) {
       if (live.has(id)) {
         continue
@@ -1446,12 +1305,16 @@ export class HallScene extends Phaser.Scene {
       this.tweens.killTweensOf(view.root)
       if (this.options.reducedMotion) {
         view.root.destroy()
+        view.shadow.destroy()
       } else {
         this.tweens.add({
           targets: view.root,
           alpha: 0,
           duration: WALK_MS,
-          onComplete: () => view.root.destroy(),
+          onComplete: () => {
+            view.root.destroy()
+            view.shadow.destroy()
+          },
         })
       }
     }
@@ -1501,7 +1364,7 @@ export class HallScene extends Phaser.Scene {
       scroll.setName('badge')
       const sleep = this.add.bitmapText(2, -14, FONT, 'Zz', 16).setTint(0xffffff).setVisible(false)
       sleep.setScale(0.5)
-      const root = this.add.container(0, 0, [...layers, scroll, sleep]).setDepth(15)
+      const root = this.add.container(0, 0, [...layers, scroll, sleep])
       root.setName(member.id)
       root.setSize(16, 16)
       root.setInteractive({ useHandCursor: true })
@@ -1519,6 +1382,7 @@ export class HallScene extends Phaser.Scene {
         name: member.name,
         scroll,
         sleep,
+        shadow: makeShadow(this),
       }
       this.members.set(member.id, view)
       this.syncMember(view)
@@ -1579,7 +1443,7 @@ export class HallScene extends Phaser.Scene {
   /** Puts the Member's game object where their walker is: map, tile, scroll and sleep mark. */
   private syncMember(view: MemberView): void {
     const { walker } = view
-    const s = this.layout.tileSize
+    const s = this.hall.tileSize
     const { x: ox, y: oy } = OFFSETS[walker.map]
     const spot = { x: Math.round(ox + walker.pos.x * s), y: Math.round(oy + walker.pos.y * s) }
     // Never stand on the Guild Master: step aside when sharing their map and tile.
