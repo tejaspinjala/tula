@@ -4,4 +4,5 @@
  */
 export const CHARTER_EVENT = {
   exported: 'charter.exported',
+  imported: 'charter.imported',
 } as const

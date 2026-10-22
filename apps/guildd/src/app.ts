@@ -33,6 +33,7 @@ import {
   fileBugReportInput,
   MAX_BUG_REPORT_PAGE,
 } from './ports/bug-report-store'
+import type { CharterImporter } from './ports/charter-import'
 import type { CheckpointAnchor } from './ports/checkpoint-anchor'
 import type { Classifier } from './ports/classifier'
 import type { Clock } from './ports/clock'
@@ -130,6 +131,8 @@ export interface AppDeps {
   proposals: ProposalEngine
   /** Versioned Rites and their instances; compiles agent nodes to governed Quests, with no authority of its own. */
   rites: RiteEngine
+  /** Charter import: config proposal, Rite drafts, event and idempotency record in one transaction. */
+  charterImports: CharterImporter
   /** The Quest queue: Quests, leases, retries and the dead-letter list. */
   quests: QuestQueue
   /** The stateless MCP gateway Members call with a lease handle; authorises every call itself. */
@@ -610,6 +613,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post('/guilds/:id/guild-master/away', limited('presence-write'))
   app.post('/guilds/:id/guild-master/return', limited('presence-write'))
   app.get('/guilds/:id/charter', limited('rite-read'))
+  app.post('/guilds/:id/charter/import', limited('rite-write'))
   app.get('/guilds/:id/rites', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId', limited('rite-read'))
   app.get('/guilds/:id/rites/:riteId/versions', limited('rite-read'))
@@ -2117,6 +2121,8 @@ export function createApp(deps: AppDeps): Hono {
     rites: deps.rites,
     config: deps.config,
     clock: deps.clock,
+    imports: deps.charterImports,
+    namesDisabledSubscription,
     guildName: async (id) => {
       const rows = await deps.db.withGuild(
         id,

@@ -1,4 +1,6 @@
 import type { Context, Hono } from 'hono'
+import type { GuildConfig } from '../guild-config'
+import type { CharterImporter } from '../ports/charter-import'
 import type { Clock } from '../ports/clock'
 import type { ConfigStore } from '../ports/config-store'
 import { MAX_RITE_PAGE } from '../ports/rite-store'
@@ -13,6 +15,10 @@ export interface CharterRouteDeps {
   rites: RiteEngine
   config: ConfigStore
   clock: Clock
+  /** Writes an import (config proposal, Rite drafts, event, idempotency record) all or nothing. */
+  imports: CharterImporter
+  /** Whether `config` names a subscription provider this host has not enabled. */
+  namesDisabledSubscription: (config: GuildConfig) => boolean
   /** The guild's name, or null when it is unknown. */
   guildName: (guildId: string) => Promise<string | null>
   /** Writes the `charter.exported` event to the guild's ledger. */
