@@ -115,6 +115,9 @@ export class MemoryRiteStore implements RiteStore {
       return { ok: false, error: 'not_found' }
     }
     if (found.status === 'pending') {
+      if (this.state(guildId).archived.has(riteId)) {
+        return { ok: false, error: 'rite_archived' }
+      }
       const over = this.state(guildId).basedOn.get(`${riteId}:${version}`) ?? null
       if ((list.findLast((v) => v.status === 'active')?.version ?? null) !== over) {
         return { ok: false, error: 'stale' }

@@ -31,9 +31,13 @@ async function setup(role: string) {
     handoffs: new MemoryHandoffStore(),
   })
   const principal = { guildId: guild, memberId: 'm', role }
+  const proofs = { spent: 0 }
   const identity = {
     resolveSession: async () => principal,
-    consumeReauth: async (_token: string, proof: string) => proof === 'good',
+    consumeReauth: async (_token: string, proof: string) => {
+      proofs.spent += 1
+      return proof === 'good'
+    },
   }
   const app = new Hono()
   const guard = async () => ({ guild })
@@ -43,7 +47,7 @@ async function setup(role: string) {
     sessionGuildFor: guard,
     guildMasterSessionFor: guard,
   })
-  return { app, engine, guild, tripwires }
+  return { app, engine, guild, tripwires, proofs }
 }
 
 /** Saves the template as a draft and publishes it; a first version that can post waits pending. */
@@ -69,6 +73,20 @@ test('confirming a pending version needs the Guild Master and a proof', async ()
       status === 200 ? 'active' : 'pending'
     )
   }
+})
+
+test('confirming on an archived Rite is 409 rite_archived, spends no proof and leaves the version pending', async () => {
+  const { app, engine, guild, proofs } = await setup('guild_master')
+  await pendingRite(engine, guild)
+  await engine.archive(guild, 'wf')
+  const res = await app.request(`/guilds/${guild}/rites/wf/versions/1/confirm`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer t', 'x-reauth-proof': 'good' },
+  })
+  expect(res.status).toBe(409)
+  expect(z.object({ error: z.string() }).parse(await res.json()).error).toBe('rite_archived')
+  expect(proofs.spent).toBe(0)
+  expect((await engine.get(guild, 'wf', 1))?.version.status).toBe('pending')
 })
 
 test('a run that fails part-way returns its runKey, so a retry resumes the same run', async () => {

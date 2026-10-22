@@ -222,6 +222,9 @@ export class PgRiteStore implements RiteStore {
       if (current.status !== 'pending') {
         return { ok: true, version: current }
       }
+      if ((await this.archivedAtIn(tx, guildId, riteId)) !== null) {
+        return { ok: false, error: 'rite_archived' }
+      }
       const [over] = await tx`
         select based_on from workflow_versions
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}`
