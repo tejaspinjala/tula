@@ -108,6 +108,8 @@ test('deleting a node clears the binding of every node that judged it', () => {
 
 test('a new Rite reads plainly, not as "of none in force"', () => {
   expect(versionLine(1, null)).toBe('Version 1, not yet in force.')
-  expect(versionLine(3, 2)).toBe('Version 3 of 2 in force.')
+  expect(versionLine(3, 2)).toBe('Viewing v3 \u00b7 v2 in force')
+  expect(versionLine(3, 3)).toBe('Viewing v3, in force')
+  expect(versionLine(2, 3)).toBe('Viewing v2 \u00b7 v3 in force')
   expect(versionLine(0, null)).toBe('Not saved yet.')
 })
