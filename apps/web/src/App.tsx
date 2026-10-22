@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { DesktopReturn } from './DesktopReturn'
+import type { GameLoader } from './GamePanel'
 import {
   desktopCodeFromHash,
   desktopRequested,
@@ -31,7 +32,14 @@ const DESKTOP_CODE_LOST =
  * The ledger: signed out it shows only sign-in (and founding while it is open); signed in it
  * shows the shell with one routed view at a time.
  */
-export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } = {}) {
+export function App({
+  browser = webAuthnBrowser,
+  loadGame,
+}: {
+  browser?: PasskeyBrowser
+  /** Loads the game; tests pass a fake so no Phaser code runs. Defaults to the real import. */
+  loadGame?: GameLoader | undefined
+} = {}) {
   const desktopShell = isDesktopShell(navigator.userAgent)
   const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking')
   const [session, setSession] = useState<Session | null>(null)
@@ -189,6 +197,7 @@ export function App({ browser = webAuthnBrowser }: { browser?: PasskeyBrowser } 
         guildName={guild?.name ?? ''}
         status={status}
         onSession={setSession}
+        loadGame={loadGame}
       />
       {fading && <div className="scene-fade" aria-hidden="true" />}
     </>

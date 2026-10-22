@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act } from 'react'
+import type { GameLoader } from './GamePanel'
 
 const guild = '11111111-1111-4111-8111-111111111111'
 const code = `${guild}.c2VjcmV0LXNlY3JldC1zZWNyZXQ`
@@ -15,6 +16,29 @@ GlobalRegistrator.register({
 })
 const { createRoot } = await import('react-dom/client')
 const { App } = await import('./App')
+
+const noop = () => {}
+let gameLoads = 0
+/** A game that draws nothing, so no test here boots Phaser's canvas under happy-dom. */
+const loadGame: GameLoader = async () => {
+  gameLoads += 1
+  return {
+    startGame: () => ({
+      render: noop,
+      zoomBy: noop,
+      fit: noop,
+      teleport: noop,
+      goTo: noop,
+      setPhase: noop,
+      setLook: noop,
+      setCouncilState: noop,
+      follow: noop,
+      setPaused: noop,
+      setInputEnabled: noop,
+      destroy: noop,
+    }),
+  }
+}
 
 let cookieLive = false
 let exchangeStatus = 201
@@ -84,7 +108,9 @@ async function mount() {
   const root = createRoot(host)
   current = root
   await act(async () => {
-    root.render(<App browser={{ create: async () => ({}), get: async () => ({}) }} />)
+    root.render(
+      <App browser={{ create: async () => ({}), get: async () => ({}) }} loadGame={loadGame} />
+    )
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   return host
@@ -99,6 +125,7 @@ test('the code the deep link delivered is cleared from the address bar, then exc
   ])
   expect(requests.some((r) => r.url === `/api/guilds/${guild}`)).toBe(true)
   expect(host.textContent).not.toContain('Sign in with your browser')
+  expect(gameLoads).toBeGreaterThan(0)
 })
 
 test('a code that no longer works leaves the title offering only the browser, with a line saying so', async () => {
