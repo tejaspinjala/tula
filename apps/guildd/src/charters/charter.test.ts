@@ -382,6 +382,30 @@ describe('private-Hall Rite omission (F5)', () => {
 })
 
 describe('schedule triggers (F6)', () => {
+  test('export omits a live Rite naming a removed schedule, and the export re-imports ok', () => {
+    const graph: RiteGraph = {
+      nodes: [
+        { id: 'tick', type: 'trigger.schedule', scheduleId: 'removed' },
+        ...graphFor('work').nodes.slice(1),
+      ],
+      edges: [],
+    }
+    const charter = exportCharter({
+      name: 'n',
+      config,
+      rites: [rite('s', { activeGraph: graph })],
+      now,
+    })
+    expect(charter.rites).toEqual([])
+    expect(charter.omitted).toContainEqual({ kind: 'rite', id: 's', reason: 'unknown_schedule' })
+    const parsed = parseCharter(JSON.stringify(charter))
+    if (!parsed.ok) {
+      throw new Error('the export did not parse')
+    }
+    const again = applyCharter({ charter: parsed.charter, current: config, existingRiteNames: [] })
+    expect(again.ok).toBe(true)
+  })
+
   test('apply rejects a Rite whose scheduleId is not in the config schedules', () => {
     const graph: RiteGraph = {
       nodes: [

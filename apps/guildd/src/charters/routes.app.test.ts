@@ -145,3 +145,26 @@ describe('POST /guilds/:id/charter/import through the composed app', () => {
     expect(await imported(b.guildId)).toHaveLength(0)
   })
 })
+
+describe('export then import round trip through the composed app', () => {
+  test('a guild export imports into a guild with the same Hall ids as 200', async () => {
+    const a = await signedIn('Guild A')
+    const b = await signedIn('Guild B')
+    await harness.adapters.rites.save(a.guildId, 'live', {
+      name: 'Live',
+      graph: LEARNING_TO_LINKEDIN,
+    })
+    await harness.adapters.rites.publish(a.guildId, 'live', 1, null)
+    await harness.adapters.rites.confirm(a.guildId, 'live', 1)
+    const out = await harness.request(`/guilds/${a.guildId}/charter`, { headers: a.auth })
+    expect(out.status).toBe(200)
+    const charter = charterSchema.parse(await out.json())
+    const { version } = await harness.adapters.config.current(b.guildId)
+    const res = await harness.request(`/guilds/${b.guildId}/charter/import`, {
+      method: 'POST',
+      headers: { ...b.auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ charter, baseVersion: version, importId: 'round-trip' }),
+    })
+    expect(res.status).toBe(200)
+  })
+})
