@@ -16,6 +16,8 @@ interface GuildState {
   /** Versions per rite id, in version order (index + 1 is the version number). */
   rites: Map<string, RiteVersion[]>
   instances: Map<string, RiteRun>
+  /** The active version each published-pending version was published over, keyed `rite:version`. */
+  basedOn: Map<string, number | null>
 }
 
 /**
@@ -30,7 +32,7 @@ export class MemoryRiteStore implements RiteStore {
   private state(guildId: string): GuildState {
     let s = this.guilds.get(guildId)
     if (!s) {
-      s = { rites: new Map(), instances: new Map() }
+      s = { rites: new Map(), instances: new Map(), basedOn: new Map() }
       this.guilds.set(guildId, s)
     }
     return s
@@ -91,13 +93,14 @@ export class MemoryRiteStore implements RiteStore {
       return { ok: false, error: 'not_draft' }
     }
     const current = list.findLast((v) => v.status === 'active')
-    if ((current?.version ?? null) !== input.basedOn) {
+    if ((current?.version ?? null) !== input.basedOn || input.basedOn !== input.classifiedAgainst) {
       return { ok: false, error: 'stale' }
     }
     if (input.outcome === 'active' && current) {
       current.status = 'superseded'
     }
     draft.status = input.outcome
+    this.state(guildId).basedOn.set(`${riteId}:${draft.version}`, current?.version ?? null)
     return { ok: true, version: structuredClone(draft) }
   }
 
@@ -108,6 +111,10 @@ export class MemoryRiteStore implements RiteStore {
       return { ok: false, error: 'not_found' }
     }
     if (found.status === 'pending') {
+      const over = this.state(guildId).basedOn.get(`${riteId}:${version}`) ?? null
+      if ((list.findLast((v) => v.status === 'active')?.version ?? null) !== over) {
+        return { ok: false, error: 'stale' }
+      }
       for (const v of list) {
         if (v.status === 'active') {
           v.status = 'superseded'

@@ -217,7 +217,7 @@ export class RiteEngine {
     const result = await this.deps.store.publishDraft(guildId, riteId, {
       version,
       basedOn,
-      classifiedAgainst: basedOn,
+      classifiedAgainst: active?.version ?? null,
       outcome,
     })
     return result.ok ? { ok: true, status: outcome, version: result.version } : result

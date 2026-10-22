@@ -337,7 +337,7 @@ export function riteStoreContract(name: string, make: () => Promise<RiteStoreFix
       expect((await store.versions(b, 'secret', { limit: 10 })).versions).toEqual([])
       expect(await store.getInstance(b, instance.id)).toBeNull()
       expect((await store.listInstances(b, 'secret', { limit: 10 })).instances).toEqual([])
-      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('superseded')
+      expect((await store.getVersion(a, 'secret', 1))?.status).toBe('active')
       await expect(
         store.createInstance(b, { riteId: 'secret', version: 2, runKey: 'k' })
       ).rejects.toThrow()

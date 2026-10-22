@@ -178,9 +178,10 @@ export class PgRiteStore implements RiteStore {
       }
       const [current] = await tx`
         select version from workflow_versions
-        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'`
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'
+        order by version desc limit 1`
       const active = current ? z.object({ version: z.number() }).parse(current).version : null
-      if (active !== input.basedOn) {
+      if (active !== input.basedOn || active !== input.classifiedAgainst) {
         return { ok: false, error: 'stale' }
       }
       if (input.outcome === 'active' && active !== null) {
@@ -189,7 +190,8 @@ export class PgRiteStore implements RiteStore {
           where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${active}`
       }
       const [row] = await tx`
-        update workflow_versions set status = ${input.outcome}
+        update workflow_versions
+        set status = ${input.outcome}, based_on = ${input.outcome === 'pending' ? active : null}
         where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${input.version}
         returning ${tx.unsafe(VERSION_COLUMNS)}`
       const version = toVersion(versionRow.parse(row))
@@ -216,6 +218,18 @@ export class PgRiteStore implements RiteStore {
       const current = toVersion(versionRow.parse(before))
       if (current.status !== 'pending') {
         return { ok: true, version: current }
+      }
+      const [over] = await tx`
+        select based_on from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and version = ${version}`
+      const [live] = await tx`
+        select version from workflow_versions
+        where guild_id = ${guildId} and workflow_id = ${riteId} and status = 'active'
+        order by version desc limit 1`
+      const basedOn = z.object({ based_on: z.number().nullable() }).parse(over).based_on
+      const active = live ? z.object({ version: z.number() }).parse(live).version : null
+      if (active !== basedOn) {
+        return { ok: false, error: 'stale' }
       }
       await tx`
         update workflow_versions set status = 'superseded'
