@@ -113,6 +113,20 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       expect((await second.read()).awake).toBe(true)
     })
 
+    test('making a Hall private-eligible ends routing waits once applied', async () => {
+      const { store, guild, make } = await seeded()
+      const waiting = await make.routingWait(guild, 'heralds')
+      const config = (await store.current(guild)).config
+      const halls = config.halls.map((h) =>
+        h.id === 'heralds' ? { ...h, privateEligible: true } : h
+      )
+      const proposed = await store.propose(guild, { ...config, halls })
+      expect(proposed.status).toBe('pending')
+      expect((await waiting.read()).awake).toBe(false)
+      await store.confirm(guild, proposed.version)
+      expect((await waiting.read()).awake).toBe(true)
+    })
+
     test('a change to caps or Seal Policy leaves routing waits backed off; another guild is untouched', async () => {
       const { store, guild, make } = await seeded()
       const other = await make.newGuild()
