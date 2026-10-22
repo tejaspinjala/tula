@@ -19,6 +19,14 @@ export interface ConfigStoreFixture {
       refunds: number
     }>
   }>
+  /**
+   * Posts a Quest, claims it and releases the claim for an hour (a routing wait); returns a reader of
+   * whether its wait is over now and of its attempt count.
+   */
+  routingWait: (
+    guildId: string,
+    hallId: string
+  ) => Promise<{ read: () => Promise<{ awake: boolean; attempts: number; refunds: number }> }>
   /** Opens an active model run in `hallId`, wired to the same ledger the store revokes in; returns a reader of its state. */
   liveRun: (guildId: string, hallId: string) => Promise<{ read: () => Promise<string> }>
 }
@@ -83,6 +91,22 @@ export function configStoreContract(name: string, make: () => Promise<ConfigStor
       expect((await other.read()).state).toBe('active')
       expect(await run.read()).toBe('revoked')
       expect(await otherRun.read()).toBe('active')
+    })
+
+    test('an applied config change ends every routing wait at once; a pending one does not until confirmed', async () => {
+      const { store, guild, make } = await seeded()
+      const waiting = await make.routingWait(guild, 'heralds')
+      const before = await waiting.read()
+      expect(before.awake).toBe(false)
+      const config = (await store.current(guild)).config
+      const proposed = await store.propose(guild, { ...config, sealPolicy: 'routine_alone' })
+      expect(proposed.status).toBe('pending')
+      expect((await waiting.read()).awake).toBe(false)
+      await store.confirm(guild, proposed.version)
+      expect(await waiting.read()).toEqual({ ...before, awake: true })
+      const second = await make.routingWait(guild, 'heralds')
+      await store.propose(guild, { ...config, caps: { dailyTokens: 5, dailySpendCents: 5 } })
+      expect((await second.read()).awake).toBe(true)
     })
 
     test('a widening change that also locks a Hall releases its leases on confirm, not before', async () => {

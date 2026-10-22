@@ -48,6 +48,43 @@ configStoreContract('postgres', async () => {
         },
       }
     },
+    routingWait: async (guildId, hallId) => {
+      const { quest } = await quests.post(guildId, {
+        jobKey: `wait-${crypto.randomUUID()}`,
+        templateId: 'herald-brief',
+        hallId,
+        rank: 'journeyman',
+        dataClass: 'internal',
+        title: 't',
+        ownerId: 'heralds-member-2',
+        doneCondition: 'c',
+        roundLimit: 1,
+      })
+      const claimed = await quests.claim(guildId, {
+        leaseMs: 60_000,
+        maxActive: 5,
+        questId: quest.id,
+      })
+      if (!claimed) {
+        throw new Error('expected a claim')
+      }
+      await quests.releaseClaim(
+        guildId,
+        quest.id,
+        claimed.attempts,
+        new Date(Date.now() + 3_600_000)
+      )
+      return {
+        read: async () => {
+          const q = await quests.get(guildId, quest.id)
+          return {
+            awake: q !== null && Date.parse(q.notBefore) <= Date.now(),
+            attempts: q?.attempts ?? 0,
+            refunds: q?.refunds ?? 0,
+          }
+        },
+      }
+    },
     liveRun: async (guildId, hallId) => {
       const runId = crypto.randomUUID()
       await ledger.openRun(guildId, {

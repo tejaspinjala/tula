@@ -26,6 +26,33 @@ configStoreContract('memory', async () => {
         },
       }
     },
+    routingWait: async (guildId, hallId) => {
+      const { quest } = await quests.post(guildId, questIn(hallId))
+      const claimed = await quests.claim(guildId, {
+        leaseMs: 60_000,
+        maxActive: 5,
+        questId: quest.id,
+      })
+      if (!claimed) {
+        throw new Error('expected a claim')
+      }
+      await quests.releaseClaim(
+        guildId,
+        quest.id,
+        claimed.attempts,
+        new Date(clock.now().getTime() + 3_600_000)
+      )
+      return {
+        read: async () => {
+          const q = await quests.get(guildId, quest.id)
+          return {
+            awake: q !== null && Date.parse(q.notBefore) <= clock.now().getTime(),
+            attempts: q?.attempts ?? 0,
+            refunds: q?.refunds ?? 0,
+          }
+        },
+      }
+    },
     liveRun: async (guildId, hallId) => {
       const runId = crypto.randomUUID()
       await ledger.openRun(guildId, {
