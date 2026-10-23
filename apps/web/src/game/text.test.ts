@@ -63,6 +63,29 @@ test('sceneSummary uses the singular for one Quest awaiting a Seal', () => {
   )
 })
 
+test('sceneSummary says the only Member is idle, and all of several Members are idle', () => {
+  const hall = (id: string, names: string[]) => ({
+    id,
+    name: id,
+    kind: 'work' as const,
+    locked: false,
+    captain: null,
+    members: names.map((name) => ({ id: name, name, rank: 'member' })),
+  })
+  const scene = deriveScene({
+    roster: {
+      steward: { id: 's', name: 'Steward' },
+      halls: [hall('Solo', ['a']), hall('Duo', ['b', 'c'])],
+    },
+    quests: [],
+    events: [],
+    upTo: null,
+  })
+  const summary = sceneSummary(scene)
+  expect(summary).toContain('Solo: the only Member is idle.')
+  expect(summary).toContain('Duo: all 2 Members are idle.')
+})
+
 test('the teleport menu marks a locked room', () => {
   expect(teleportLabel({ name: 'Health', locked: true })).toBe('Health (locked)')
   expect(teleportLabel({ name: 'Heralds Hall', locked: false })).toBe('Heralds Hall')

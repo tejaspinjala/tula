@@ -82,6 +82,7 @@ export function BuilderPanel({
   fetcher = liveFetch,
   browser = webAuthnBrowser,
   desktop,
+  onConfigChanged,
 }: BuilderPanelProps) {
   const wide = useDesktop(desktop)
   const [saved, setSaved] = useState<BuilderConfig | null>(null)
@@ -177,6 +178,7 @@ export function BuilderPanel({
     }
     setPending(null)
     await reload()
+    onConfigChanged?.()
     setMessage(`Saved as version ${outcome.version} (${outcome.change}).`)
   }
   const attempt = async (run: () => Promise<void>) => {
@@ -215,6 +217,7 @@ export function BuilderPanel({
         await confirmVersion(session, pending.version, fetcher, browser)
         setPending(null)
         await reload()
+        onConfigChanged?.()
         setMessage(`Version ${pending.version} is confirmed and in force.`)
       }
     })

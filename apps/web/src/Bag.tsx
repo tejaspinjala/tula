@@ -112,7 +112,7 @@ function PageBody({
     case 'guild':
       return (
         <>
-          <BuilderPanel session={session} />
+          <BuilderPanel session={session} onConfigChanged={onConfigChanged} />
           <RosterPanel session={session} />
           <SummonPanel session={session} onSetupRouting={onSetupRouting} />
         </>

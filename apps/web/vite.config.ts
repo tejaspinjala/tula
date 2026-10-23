@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: process.env.GUILDD_URL ?? 'http://localhost:8787',
+        ws: true,
         rewrite: (p) => p.slice(4),
       },
     },

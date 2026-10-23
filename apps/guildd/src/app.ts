@@ -239,10 +239,6 @@ const foundFinishBody = registerFinishBody.extend({
   name: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(2000),
 })
-const _foundGuildBody = z.object({
-  name: z.string().trim().min(1).max(200),
-  goal: z.string().trim().min(1).max(2000),
-})
 
 /** Bytes in the base64url string, or -1 when it is not base64url. */
 function base64urlLength(value: string): number {
