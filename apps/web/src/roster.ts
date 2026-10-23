@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Fetcher } from './artifacts'
 import { lookChoice } from './game/look'
+import { ROOM_STYLES } from './game/room'
 import { PasskeyRequestError, type Session } from './passkeys'
 
 const agent = z.object({ id: z.string(), name: z.string() })
@@ -10,6 +11,7 @@ const hall = z.object({
   kind: z.enum(['work', 'private']),
   locked: z.boolean(),
   captain: agent.nullable(),
+  roomStyle: z.enum(ROOM_STYLES).optional(),
   members: z.array(agent.extend({ rank: z.string(), look: lookChoice.optional() })),
 })
 const page = z.object({ steward: agent, halls: z.array(hall), next: z.string().nullable() })

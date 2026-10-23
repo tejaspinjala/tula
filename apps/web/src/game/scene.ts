@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { type ReplayEvent, replayTo } from '../replay'
 import type { Roster } from '../roster'
 import type { LookChoice } from './look'
+import type { RoomStyle } from './room'
 
 /** The Steward and Halls the hall is built from (the ledger's roster). */
 export type SceneRoster = Roster
@@ -53,6 +54,8 @@ export interface SceneRoom {
   locked: boolean
   paused: boolean
   memberIds: string[]
+  /** The Guild Master's room style choice for this Hall, if any. */
+  roomStyle?: RoomStyle | undefined
   /** Quests on this Hall's Quest Board (queued or in flight); a team Campaign fills it. */
   board: number
 }
@@ -325,6 +328,7 @@ export function deriveScene(input: SceneInput): SceneState {
       locked: hall.locked,
       paused: paused.has(hall.id),
       memberIds: everyone.map((m) => m.id),
+      ...(hall.roomStyle ? { roomStyle: hall.roomStyle } : {}),
       board: 0,
     }
   })
