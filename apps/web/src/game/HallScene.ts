@@ -1762,7 +1762,7 @@ export class HallScene extends Phaser.Scene {
     const dotB = this.add.rectangle(2, h / 2 + 6, 2, 2, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
     view.thought = this.add
       .container(view.root.x, view.root.y - 20 - h / 2, [back, dotA, dotB, label])
-      .setDepth(29)
+      .setDepth(DEPTH.top + 5)
       .setVisible(!view.walker.hidden)
     view.thought.setData('lift', 20 + h / 2)
   }
@@ -1859,7 +1859,7 @@ export class HallScene extends Phaser.Scene {
     const w = label.width + 8
     const h = label.height + 4
     const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y, [back, label]).setDepth(30)
+    const root = this.add.container(x, y, [back, label]).setDepth(DEPTH.top + 6)
     // The bubble rides with the sprite (a Member walking to the Quest Board), so `update` places it.
     root.setData('height', h)
     root.setData('width', w)
