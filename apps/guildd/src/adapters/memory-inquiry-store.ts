@@ -175,4 +175,17 @@ export class MemoryInquiryStore implements InquiryStore {
       ])
     )
   }
+
+  async unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number> {
+    const markers = this.markersOf(guildId)
+    return this.inquiries(guildId).filter(
+      (s) =>
+        s.inquiry.status === 'open' &&
+        hallIds.some(
+          (hall) =>
+            (s.inquiry.fromHall === hall || s.inquiry.toHall === hall) &&
+            s.inquiry.seq > (markers.get(hall) ?? 0)
+        )
+    ).length
+  }
 }

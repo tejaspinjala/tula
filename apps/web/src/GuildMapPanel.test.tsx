@@ -121,6 +121,17 @@ test('the list view holds the same rooms, labels and travel as the schematic', a
   await m.unmount()
 })
 
+test('the schematic is a named list of room buttons, not an application region', async () => {
+  const m = await mount(<GuildMapPanel map={map} onTravel={() => {}} />)
+  expect(m.host.querySelector('[role="application"]')).toBeNull()
+  const lists = [...m.host.querySelectorAll('ul')]
+  const schematic = lists.find((l) => l.getAttribute('aria-label') === 'Guild Map schematic')
+  expect(schematic).toBeDefined()
+  expect([...(schematic?.children ?? [])].every((c) => c.tagName === 'LI')).toBe(true)
+  expect(schematic?.querySelectorAll('li > button[data-room]').length).toBe(8)
+  await m.unmount()
+})
+
 test('says so when the Guild Map has not loaded', async () => {
   const m = await mount(<GuildMapPanel map={null} onTravel={() => {}} />)
   expect(nodes(m.host)).toEqual([])

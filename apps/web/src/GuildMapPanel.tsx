@@ -172,13 +172,7 @@ export function GuildMapPanel({ map, onTravel }: GuildMapPanelProps) {
           ))}
         </ul>
       ) : (
-        <div
-          className="gmap-grid"
-          role="application"
-          aria-label="Guild Map schematic"
-          onKeyDown={onKeyDown}
-          style={{ gridTemplateColumns: `repeat(${layout.cols * 2}, 1fr)` }}
-        >
+        <div className="gmap-schematic">
           <svg
             className="gmap-lines"
             viewBox={`0 0 ${layout.cols * 2} ${rows}`}
@@ -195,12 +189,25 @@ export function GuildMapPanel({ map, onTravel }: GuildMapPanelProps) {
               />
             ))}
           </svg>
-          {map.rooms.map((room) => {
-            const slot = slotOf(room.id)
-            return slot
-              ? node(room, { gridColumn: `${slot.col * 2 + 1} / span 2`, gridRow: slot.row + 1 })
-              : null
-          })}
+          <ul
+            className="gmap-grid"
+            aria-label="Guild Map schematic"
+            onKeyDown={onKeyDown}
+            style={{ gridTemplateColumns: `repeat(${layout.cols * 2}, 1fr)` }}
+          >
+            {map.rooms.map((room) => {
+              const slot = slotOf(room.id)
+              return slot ? (
+                <li
+                  key={room.id}
+                  className="gmap-cell"
+                  style={{ gridColumn: `${slot.col * 2 + 1} / span 2`, gridRow: slot.row + 1 }}
+                >
+                  {node(room)}
+                </li>
+              ) : null
+            })}
+          </ul>
         </div>
       )}
     </div>

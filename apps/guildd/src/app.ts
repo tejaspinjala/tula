@@ -1355,11 +1355,10 @@ export function createApp(deps: AppDeps): Hono {
       return who.res
     }
     const { config } = await deps.config.current(who.guild)
+    const hallIds = config.halls.map((h) => h.id)
     return c.json({
-      halls: await deps.inquiries.unreadCounts(
-        who.guild,
-        config.halls.map((h) => h.id)
-      ),
+      halls: await deps.inquiries.unreadCounts(who.guild, hallIds),
+      total: await deps.inquiries.unreadTotal(who.guild, hallIds),
     })
   })
 

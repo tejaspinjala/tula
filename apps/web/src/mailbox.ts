@@ -202,17 +202,8 @@ export function markMailboxRead(
   )
 }
 
-/** How many open Inquiries are newer than the read markers of the given Halls: the Mailbox's real unread count. */
-export async function countUnread(
-  session: Session,
-  fetcher: Fetcher,
-  hallIds: readonly string[]
-): Promise<number> {
-  const { halls } = await call(
-    session,
-    fetcher,
-    '/mailbox/unread',
-    z.object({ halls: z.record(z.string(), z.number()) })
-  )
-  return hallIds.reduce((sum, id) => sum + (halls[id] ?? 0), 0)
+/** How many distinct open Inquiries are unread: the Mailbox's real total, an Inquiry between two Halls counted once. */
+export async function countUnread(session: Session, fetcher: Fetcher): Promise<number> {
+  const { total } = await call(session, fetcher, '/mailbox/unread', z.object({ total: z.number() }))
+  return total
 }

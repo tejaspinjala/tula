@@ -147,7 +147,7 @@ describe('Hall inquiries routes', () => {
   describe('read marker routes', () => {
     const unreadPath = (g: string) => `/guilds/${g}/mailbox/unread`
     const readPath = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/mailbox/read`
-    const unreadBody = z.object({ halls: z.record(z.string(), z.number()) })
+    const unreadBody = z.object({ halls: z.record(z.string(), z.number()), total: z.number() })
     const markBody = z.object({ seen: z.number(), unread: z.number() })
     const mark = (g: string, hall: string, upToSeq: unknown) =>
       harness.request(readPath(g, hall), {
@@ -165,6 +165,7 @@ describe('Hall inquiries routes', () => {
       )
       expect(before.halls.heralds).toBe(2)
       expect(before.halls.health).toBe(2)
+      expect(before.total).toBe(2)
       const newest = (await harness.adapters.inquiries.list(g, { hallId: 'heralds', limit: 1 }))
         .inquiries[0]?.seq
       const res = await mark(g, 'heralds', newest)

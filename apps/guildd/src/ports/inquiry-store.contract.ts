@@ -324,6 +324,33 @@ export function inquiryStoreContract(name: string, make: () => Promise<InquirySt
         })
       })
 
+      test('the total counts an Inquiry between two Halls once, not once per Hall', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await askThree(store, g)
+        expect(await store.unreadTotal(g, ['scribes', 'heralds', 'smiths'])).toBe(3)
+        expect(await store.unreadTotal(g, ['smiths'])).toBe(0)
+        expect(await store.unreadTotal(g, [])).toBe(0)
+      })
+
+      test('the total drops an Inquiry only once every Hall asked about has read it', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [, , third] = await askThree(store, g)
+        await store.markRead(g, 'scribes', third ?? 0)
+        expect(await store.unreadTotal(g, ['scribes', 'heralds'])).toBe(3)
+        await store.markRead(g, 'heralds', third ?? 0)
+        expect(await store.unreadTotal(g, ['scribes', 'heralds'])).toBe(0)
+      })
+
+      test('another guild adds nothing to the total', async () => {
+        const { store, newGuild } = await make()
+        const a = await newGuild()
+        const b = await newGuild()
+        await askThree(store, a)
+        expect(await store.unreadTotal(b, ['scribes', 'heralds'])).toBe(0)
+      })
+
       test('marking counts only the Inquiries newer than the marker', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
