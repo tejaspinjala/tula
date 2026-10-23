@@ -16,7 +16,7 @@
   background: var(--px-paper-200);
   border: calc(var(--px) * 2) solid var(--px-line);
 }
-.gmap-grid {
+ul.gmap-grid {
   display: grid;
   grid-auto-rows: minmax(calc(var(--px) * 40), auto);
   gap: calc(var(--px) * 6) 0;
@@ -25,6 +25,7 @@
   list-style: none;
 }
 .gmap-cell {
+  min-width: 0;
   display: grid;
 }
 .gmap-lines {
@@ -81,7 +82,7 @@
   border-color: var(--px-gold-500);
 }
 .gmap-room[tabindex="0"]::before {
-  content: "▶";
+  content: "▶" / "";
   position: absolute;
   left: calc(var(--px) * 3);
   top: calc(var(--px) * 2);

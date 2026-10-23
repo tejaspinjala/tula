@@ -10,6 +10,7 @@ import {
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
+import { useRoomAnnouncement } from './game/announcement'
 import { type GuildMap, guildMap, mapSummary, townMapOf } from './game/guildmap'
 import { initialTalk, talkReducer } from './game/interact'
 import { announceLocation } from './game/location'
@@ -450,6 +451,15 @@ export function GamePanel({
   }, [scene, standing, unread, roomsBuilt])
 
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
+  // The location is spoken once per room, once the mini map describes that room (it is drawn a render
+  // after the scene moves), so no summary of the room just left is read out.
+  const spokenLocation = useRoomAnnouncement(
+    `${standing.map}|${location}`,
+    miniMap === null || miniMap.rooms.length === 0 || miniMap.current === standing.map,
+    miniMap && miniMap.rooms.length > 0
+      ? `${announceLocation(location)} ${mapSummary(miniMap)}`
+      : announceLocation(location)
+  )
   const focusWorld = useCallback(() => frame.current?.focus(), [])
 
   const hallControls = (
@@ -521,9 +531,7 @@ export function GamePanel({
         {summary}
       </p>
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
-        {miniMap && miniMap.rooms.length > 0
-          ? `${announceLocation(location)} ${mapSummary(miniMap)}`
-          : announceLocation(location)}
+        {spokenLocation}
       </p>
       {miniMap && <MiniMap map={miniMap} onOpen={() => open.current('/map')} />}
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
