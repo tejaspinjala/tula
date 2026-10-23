@@ -113,6 +113,8 @@ export interface Quest {
   maxAttempts: number
   /** Claims that were given back (a wait, a bar, a park), so the loop Tripwire never counts them. */
   refunds: number
+  /** Claims given back because routing blocked the Quest; sets the routing-wait backoff, nothing else. */
+  routingWaits: number
   /** When the current lease ends; null unless `active`. */
   leaseExpiresAt: string | null
   /** The Quest is not delivered before this instant (retry backoff). */
@@ -388,12 +390,12 @@ export function questRetryDelayMs(
 const MAX_ROUTING_WAIT_MS = 900_000
 
 /**
- * How long a routing-blocked Quest parks: doubling from 2 s with each refunded wait it has already
- * served (`refunds`), capped at 15 min, with jitter in [half, full]. A routing-relevant config change
- * ends the wait early (`wakeRoutingWaits`).
+ * How long a routing-blocked Quest parks: doubling from 2 s with each routing wait it has already
+ * served (`routingWaits`, not the shared `refunds`), capped at 15 min, with jitter in [half, full]. A
+ * routing-relevant config change ends the wait early (`wakeRoutingWaits`).
  */
-export function routingWaitDelayMs(quest: Pick<Quest, 'refunds'>, random: number): number {
-  const ceiling = Math.min(MAX_ROUTING_WAIT_MS, 2000 * 2 ** Math.min(quest.refunds, 20))
+export function routingWaitDelayMs(quest: Pick<Quest, 'routingWaits'>, random: number): number {
+  const ceiling = Math.min(MAX_ROUTING_WAIT_MS, 2000 * 2 ** Math.min(quest.routingWaits, 20))
   return Math.floor(ceiling / 2 + random * (ceiling / 2))
 }
 
@@ -571,6 +573,7 @@ export function releaseClaimTransition(quest: Quest, attempt: number, notBefore:
       // A wait is not a crash: the claim it cost is refunded, so the retry budget is unchanged.
       maxAttempts: quest.maxAttempts + 1,
       refunds: quest.refunds + 1,
+      routingWaits: quest.routingWaits + 1,
       notBefore: notBefore.toISOString(),
     },
     event: 'quest.retry_scheduled',

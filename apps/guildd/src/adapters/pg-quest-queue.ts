@@ -83,6 +83,7 @@ const questRow = z.object({
   attempts: z.number(),
   max_attempts: z.number(),
   refunds: z.number(),
+  routing_waits: z.number(),
   lease_expires_at: iso.nullable(),
   not_before: iso,
   last_error: z.string().nullable(),
@@ -137,6 +138,7 @@ export function toQuest(raw: unknown): Quest {
     attempts: r.attempts,
     maxAttempts: r.max_attempts,
     refunds: r.refunds,
+    routingWaits: r.routing_waits,
     leaseExpiresAt: r.lease_expires_at,
     notBefore: r.not_before,
     lastError: r.last_error === null ? null : failReason(r.last_error),
@@ -213,7 +215,8 @@ export class PgQuestQueue implements QuestQueue {
         lease_expires_at = ${q.leaseExpiresAt === null ? null : new Date(q.leaseExpiresAt)},
         not_before = ${new Date(q.notBefore)}, last_error = ${q.lastError},
         wait_on = ${`{${q.waitingOn.join(',')}}`}::uuid[], wait_mode = ${q.waitMode},
-        max_attempts = ${q.maxAttempts}, refunds = ${q.refunds}
+        max_attempts = ${q.maxAttempts}, refunds = ${q.refunds},
+        routing_waits = ${q.routingWaits}
       where guild_id = ${guildId} and quest_id = ${q.id}`
     await this.emit(tx, t, q.attempts)
   }

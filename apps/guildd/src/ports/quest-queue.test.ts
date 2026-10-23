@@ -4,6 +4,7 @@ import {
   QuestError,
   questRetryDelayMs,
   retryDelayMs,
+  routingWaitDelayMs,
   submitTransition,
 } from './quest-queue'
 
@@ -29,6 +30,7 @@ const active: Quest = {
   attempts: 1,
   maxAttempts: 3,
   refunds: 0,
+  routingWaits: 0,
   leaseExpiresAt: '2030-01-01T00:00:00.000Z',
   notBefore: '2030-01-01T00:00:00.000Z',
   lastError: null,
@@ -53,4 +55,11 @@ test('refunded waits do not lengthen the backoff: it grows with real attempts on
     questRetryDelayMs({ ...active, attempts: 1, refunds: 0 }, 0.5)
   )
   expect(questRetryDelayMs({ ...active, attempts: 4, refunds: 1 }, 0)).toBe(retryDelayMs(3, 0))
+})
+
+test('the first routing wait is about 2 s however many parks the Quest has had', () => {
+  const parked = { ...active, refunds: 4, routingWaits: 0 }
+  expect(routingWaitDelayMs(parked, 1)).toBe(2000)
+  expect(routingWaitDelayMs(parked, 0)).toBe(1000)
+  expect(routingWaitDelayMs({ ...parked, routingWaits: 2 }, 1)).toBe(8000)
 })

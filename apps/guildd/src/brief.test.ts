@@ -24,6 +24,7 @@ const quest: Quest = {
   attempts: 1,
   maxAttempts: 3,
   refunds: 0,
+  routingWaits: 0,
   leaseExpiresAt: null,
   notBefore: '2030-01-01T00:00:00.000Z',
   lastError: null,
