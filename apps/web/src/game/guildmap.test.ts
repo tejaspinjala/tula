@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { guildMap, mapSummary, miniView } from './guildmap'
+import { guildMap, mapLayout, mapSummary, miniView, moveCursor, travelSlot } from './guildmap'
 import { greatHall, type Room, type RoomHall, roomFor } from './room'
 import type { SceneMember, SceneRoom, SceneState } from './scene'
 
@@ -133,5 +133,40 @@ describe('the mini map view', () => {
     expect(text).toContain('2 waiting at the Seal desk')
     expect(text).toContain('5 unread in the mailbox')
     expect(mapSummary(build('hall:w'))).toContain('1 waiting for a Seal')
+  })
+})
+
+describe('travelling from the map', () => {
+  test('the Great Hall is the entrance, a Hall room its slot, anything else nowhere', () => {
+    const keys = ['hall:w', 'hall:p', 'hall:l'] as const
+    expect(travelSlot('hall', keys)).toBeNull()
+    expect(travelSlot('hall:p', keys)).toBe(1)
+    expect(travelSlot('hall:zzz', keys)).toBeUndefined()
+    expect(travelSlot('plaza', keys)).toBeUndefined()
+  })
+})
+
+describe('the Guild Map schematic layout', () => {
+  const layout = mapLayout(build())
+  const slot = (id: string) => layout.slots.find((s) => s.id === id)
+
+  test('the Great Hall sits on top, the Hall rooms in a row below, the Town right of them', () => {
+    expect(slot('hall')).toMatchObject({ row: 0, col: 1 })
+    expect(layout.slots.filter((s) => s.row === 1).map((s) => [s.id, s.col])).toEqual([
+      ['hall:w', 0],
+      ['hall:p', 1],
+      ['hall:l', 2],
+    ])
+    expect(layout.townCol).toBe(3)
+  })
+
+  test('arrow keys move to the nearest room that way and stay put at an edge', () => {
+    expect(moveCursor(layout, 'hall', 'down')).toBe('hall:p')
+    expect(moveCursor(layout, 'hall:w', 'right')).toBe('hall:p')
+    expect(moveCursor(layout, 'hall:p', 'left')).toBe('hall:w')
+    expect(moveCursor(layout, 'hall:l', 'up')).toBe('hall')
+    expect(moveCursor(layout, 'hall:l', 'right')).toBe('hall:l')
+    expect(moveCursor(layout, 'hall:l', 'down')).toBe('hall:l')
+    expect(moveCursor(layout, 'hall', 'left')).toBe('hall')
   })
 })

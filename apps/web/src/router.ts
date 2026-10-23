@@ -5,6 +5,7 @@ export type PageSize = 'menu' | 'workbench'
 
 /** The Bag's pages, in menu order. Each opens over the world at its path. */
 export const BAG_PAGES = [
+  { id: 'map', path: '/map', label: 'Guild Map', size: 'workbench' },
   { id: 'quests', path: '/quests', label: 'Quest Board', size: 'menu' },
   { id: 'seals', path: '/seals', label: 'Seals', size: 'menu' },
   { id: 'treasury', path: '/treasury', label: 'Treasury', size: 'menu' },

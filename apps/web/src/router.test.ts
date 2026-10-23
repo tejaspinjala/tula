@@ -3,6 +3,7 @@ import { BAG_PAGES, isKnownPath, pageFor } from './router'
 
 test('the Bag lists every page in menu order, ending with Settings', () => {
   expect(BAG_PAGES.map((p) => p.label)).toEqual([
+    'Guild Map',
     'Quest Board',
     'Seals',
     'Treasury',
@@ -51,8 +52,8 @@ test('the Council page opens at /council', () => {
   expect(pageFor('/council', '')).toBe('council')
 })
 
-test('Rites, Guild builder, Ledger of Deeds are workbench pages; the rest are menu pages', () => {
+test('the Guild Map, Rites, Guild builder, Ledger of Deeds are workbench pages; the rest are menu pages', () => {
   const workbench = BAG_PAGES.filter((p) => p.size === 'workbench').map((p) => p.label)
-  expect(workbench).toEqual(['Ledger of Deeds', 'Guild builder', 'Rites'])
-  expect(BAG_PAGES.filter((p) => p.size === 'menu')).toHaveLength(BAG_PAGES.length - 3)
+  expect(workbench).toEqual(['Guild Map', 'Ledger of Deeds', 'Guild builder', 'Rites'])
+  expect(BAG_PAGES.filter((p) => p.size === 'menu')).toHaveLength(BAG_PAGES.length - 4)
 })
