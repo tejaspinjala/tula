@@ -215,4 +215,15 @@ export class PgInquiryStore implements InquiryStore {
       return expired.length
     })
   }
+
+  async markRead(_guildId: string, _hallId: string, _upToSeq: number): Promise<number> {
+    throw new Error('not implemented')
+  }
+
+  async unreadCounts(
+    _guildId: string,
+    _hallIds: readonly string[]
+  ): Promise<Record<string, number>> {
+    throw new Error('not implemented')
+  }
 }
