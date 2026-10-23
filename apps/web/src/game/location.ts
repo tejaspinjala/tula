@@ -113,7 +113,7 @@ export function announceLocation(name: string): string {
  * The lines of a doorway sign: words wrap at `width` characters, a word longer than a line is split
  * with a hyphen, and a name past `lines` lines ends in a tilde. The whole name is shown.
  */
-export function signLines(name: string, width = 10, lines = 3): string[] {
+export function signLines(name: string, width = 13, lines = 3): string[] {
   const out: string[] = []
   let line = ''
   const flush = () => {
