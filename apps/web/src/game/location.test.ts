@@ -10,6 +10,8 @@ import {
   rememberLocation,
   restoreLocation,
   signLines,
+  signScale,
+  snapSignLeft,
 } from './location'
 import type { MapKey } from './world'
 
@@ -132,5 +134,24 @@ describe('doorway signs show the whole Hall name', () => {
     const lines = signLines('Wonderfully Extraordinarily Longwinded Appellation Hall')
     expect(lines.length).toBeLessThanOrEqual(3)
     expect(lines.at(-1)?.endsWith('~')).toBe(true)
+  })
+})
+
+describe('crisp sign lettering', () => {
+  test('text is drawn at one screen pixel per font pixel: the scale is the inverse of the zoom', () => {
+    expect(signScale(2)).toBe(0.5)
+    expect(signScale(3)).toBeCloseTo(1 / 3, 10)
+    expect(signScale(4)).toBe(0.25)
+  })
+
+  test('below zoom 2 the text stays at half size', () => {
+    expect(signScale(1)).toBe(0.5)
+  })
+
+  test('a line is centred on a point and snapped to a whole screen pixel', () => {
+    // 17.5 px of text centred on 100 starts at 91.25; at zoom 2 that is 182.5 screen px, so it snaps to 91.5.
+    expect(snapSignLeft(100, 17.5, 2)).toBe(91.5)
+    expect(snapSignLeft(100, 18, 2)).toBe(91)
+    expect(snapSignLeft(100, 17, 3) * 3).toBe(Math.round(snapSignLeft(100, 17, 3) * 3))
   })
 })

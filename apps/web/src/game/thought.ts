@@ -18,9 +18,13 @@ export type ThoughtMotion = 'station' | 'moving'
 
 /** The text of a Member's thought bubble, or null when they have none to show. */
 export function thoughtText(
-  _member: ThoughtMember,
-  _motion: ThoughtMotion,
-  _speaking: boolean
+  member: ThoughtMember,
+  motion: ThoughtMotion,
+  speaking: boolean
 ): string | null {
-  return null
+  const title = member.questTitle?.trim() ?? ''
+  if (member.status !== 'working' || title === '' || motion !== 'station' || speaking) {
+    return null
+  }
+  return title.length > THOUGHT_CHARS ? `${title.slice(0, THOUGHT_CHARS - 1).trimEnd()}~` : title
 }

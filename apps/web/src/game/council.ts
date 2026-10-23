@@ -21,12 +21,22 @@ export interface Elder {
   frame: string
 }
 
-/** The elders of a Council whose table fills `table`, posed for `state`. */
-export function elderPoses(_table: TableTile, _state: CouncilState): Elder[] {
-  return []
+const POSE: Record<CouncilState, readonly string[]> = {
+  idle: ['rest', 'rest', 'rest'],
+  conferring: ['speak', 'lean', 'lean'],
+  halted: ['halt', 'halt', 'halt'],
 }
 
-/** Tiles the elders occupy, which are solid floor. */
-export function elderTiles(_table: TableTile): Point[] {
-  return []
+/** Tiles the elders occupy, which are solid floor: two behind the table, one at its west end. */
+export function elderTiles(table: TableTile): Point[] {
+  return [
+    { x: table.x, y: table.y - 1 },
+    { x: table.x + table.w - 1, y: table.y - 1 },
+    { x: table.x - 1, y: table.y },
+  ]
+}
+
+/** The elders of a Council whose table fills `table`, posed for `state`. */
+export function elderPoses(table: TableTile, state: CouncilState): Elder[] {
+  return elderTiles(table).map((tile, i) => ({ tile, frame: `elder-${POSE[state][i]}-${i}` }))
 }

@@ -6,7 +6,7 @@ const working = { status: 'working', questTitle: 'Draft the launch note' } as co
 describe('thoughtText', () => {
   test('a Member working at their station keeps the Quest title, cut with a tilde', () => {
     const text = thoughtText(working, 'station', false)
-    expect(text).toBe('Draft the launch~')
+    expect(text).toBe('Draft the launc~')
     expect(text?.length).toBe(THOUGHT_CHARS)
   })
 
