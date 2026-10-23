@@ -166,6 +166,7 @@ export class MemoryQuestQueue implements QuestQueue {
       attempts: 0,
       maxAttempts: parsed.maxAttempts,
       refunds: 0,
+      routingWaits: 0,
       leaseExpiresAt: null,
       notBefore: now,
       lastError: null,
