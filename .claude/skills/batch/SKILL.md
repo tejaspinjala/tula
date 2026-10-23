@@ -22,7 +22,7 @@ You are the lead. Your context is precious: hold pointers (issue numbers, branch
   - Merge its branch into `batch/<slug>` (merge commit), run `bun run verify` on the integration worktree, push, and close nothing yet.
   - Recompute the frontier and spawn the next workers.
 - `handoff`: spawn a fresh worker with the same ticket plus the handoff's NEXT line. `blocked`: stop that ticket and tell the Guild Master.
-- Use the `explorer` agent (Haiku) for any lookup; never read broadly yourself.
+- Use the `explorer` agent (Sonnet) for any lookup; never read broadly yourself.
 
 ## 3. Close the batch
 
