@@ -4,6 +4,11 @@
  * rewritten. Counts only by default (a dry run); `--apply` writes. Each guild runs under its own
  * row level security context, and a second run reports 0 changes. Usage:
  * `bun scripts/rekey-note-links.ts [--apply]` (`DATABASE_URL` selects the database).
+ *
+ * A one-off maintenance-window script: it works one guild at a time, and `NoteStore.rekeyLinks`
+ * locks all of that guild's notes in a single transaction, so writes to them wait until it
+ * commits. Run it when the guild is quiet. It is idempotent (safe to rerun or resume after a
+ * failure) and a dry run unless `--apply` is given.
  */
 import postgres from 'postgres'
 import { z } from 'zod'

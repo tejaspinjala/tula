@@ -1355,7 +1355,9 @@ export function createApp(deps: AppDeps): Hono {
       return who.res
     }
     const { config } = await deps.config.current(who.guild)
-    const hallIds = config.halls.map((h) => h.id)
+    // A locked Hall cannot be entered, so its Inquiries are not the Guild Master's to read.
+    const locked = new Set(lockedHallIds(config))
+    const hallIds = config.halls.filter((h) => !locked.has(h.id)).map((h) => h.id)
     return c.json({
       halls: await deps.inquiries.unreadCounts(who.guild, hallIds),
       total: await deps.inquiries.unreadTotal(who.guild, hallIds),

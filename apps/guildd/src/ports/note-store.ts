@@ -279,7 +279,8 @@ export interface NoteStore {
   countPrivate(guildId: string): Promise<number>
   /**
    * Re-parses every note's current body with the current {@link titleKey} and rewrites the stored
-   * links of any note whose keys differ (#222). Idempotent.
+   * links of any note whose keys differ (#222). Idempotent. Locks all of the guild's notes in one
+   * transaction: for a one-off maintenance window, one guild at a time.
    * With `dryRun` nothing is written; the count says how many notes would change.
    * @returns how many notes had their links rewritten; 0 on a second run.
    */
