@@ -111,15 +111,20 @@ describe('doorway signs show the whole Hall name', () => {
   })
 
   test('words wrap onto lines', () => {
-    expect(signLines('Research Hall')).toEqual(['Research', 'Hall'])
+    expect(signLines('Research Hall Annex')).toEqual(['Research Hall', 'Annex'])
+  })
+
+  test('a name of up to thirteen letters stays whole on one line', () => {
+    expect(signLines('Relationships')).toEqual(['Relationships'])
+    expect(signLines('Personal')).toEqual(['Personal'])
   })
 
   test('a long word is split with a hyphen, never cut off', () => {
-    const lines = signLines('Relationships')
+    const lines = signLines('Interdepartmental')
     expect(lines.length).toBeGreaterThan(1)
-    expect(plain(lines)).toBe('Relationships')
+    expect(plain(lines)).toBe('Interdepartmental')
     for (const line of lines) {
-      expect(line.length).toBeLessThanOrEqual(10)
+      expect(line.length).toBeLessThanOrEqual(13)
     }
   })
 
