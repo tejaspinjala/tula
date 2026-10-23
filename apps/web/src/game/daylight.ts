@@ -80,7 +80,7 @@ const POSES: readonly Pose[] = [
 ]
 
 /** Milliseconds each of the four poses is held. */
-export const POSE_MS = 150
+const POSE_MS = 150
 
 /** The pose of a character `ms` into a walk (still when not walking); the cycle is four poses and loops. */
 export function walkPose(ms: number, walking: boolean): Pose {

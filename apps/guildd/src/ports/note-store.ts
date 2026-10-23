@@ -197,9 +197,13 @@ export function wikiLinks(text: string): string[] {
   return [...new Set(parseWikiLinks(text).map((l) => titleKey(l.target)))]
 }
 
-/** The normalised key a note's title is linked by. */
+/** The normalised key a note's title is linked by: NFKC, default-ignorable characters (zero-width and the like) removed, trimmed, lower-cased. */
 export function titleKey(title: string): string {
-  return title.trim().toLowerCase()
+  return title
+    .normalize('NFKC')
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .trim()
+    .toLowerCase()
 }
 
 /** Search terms: lower-cased runs of letters and digits (matches Postgres' `simple` config). */
@@ -273,6 +277,14 @@ export interface NoteStore {
   list(guildId: string, page: NotePaging): Promise<NotePage>
   /** How many private notes the guild holds; a count only, never a title or body. */
   countPrivate(guildId: string): Promise<number>
+  /**
+   * Re-parses every note's current body with the current {@link titleKey} and rewrites the stored
+   * links of any note whose keys differ (#222). Idempotent. Locks all of the guild's notes in one
+   * transaction: for a one-off maintenance window, one guild at a time.
+   * With `dryRun` nothing is written; the count says how many notes would change.
+   * @returns how many notes had their links rewritten; 0 on a second run.
+   */
+  rekeyLinks(guildId: string, options?: { dryRun?: boolean }): Promise<number>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */
   search(guildId: string, query: string, page: NotePaging): Promise<NotePage>
 }

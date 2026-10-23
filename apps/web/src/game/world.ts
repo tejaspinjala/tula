@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import archiveMap from './archive.tiled.json'
 import countingHouseMap from './counting-house.tiled.json'
-import hallMap from './hall.tiled.json'
 import plazaMap from './plaza.tiled.json'
 import {
   greatHall,
@@ -80,7 +79,7 @@ export interface MapData {
 }
 
 /** A Tiled object, in tiles, with its properties. */
-export interface MapObject extends Rect {
+interface MapObject extends Rect {
   name: string
   type: string
   properties: Record<string, string | number>
@@ -136,8 +135,10 @@ const tiledMap = z.object({
 })
 const mapId = z.enum(MAP_IDS)
 
-const SOURCES: Record<MapId, unknown> = {
-  hall: hallMap,
+/** The town maps drawn from Tiled JSON; the Great Hall and Hall rooms come from the room model. */
+type TownMapId = Exclude<MapId, 'hall'>
+
+const SOURCES: Record<TownMapId, unknown> = {
   plaza: plazaMap,
   archive: archiveMap,
   'counting-house': countingHouseMap,
@@ -145,7 +146,7 @@ const SOURCES: Record<MapId, unknown> = {
 }
 
 /** The raw Tiled JSON of a map, for the renderer (validated by `mapData`). */
-export function mapSource(id: MapId): unknown {
+export function mapSource(id: TownMapId): unknown {
   return SOURCES[id]
 }
 
@@ -253,17 +254,12 @@ function parseRoom(key: RoomMapId, room: Room): MapData {
   }
 }
 
+/** The plaza tile the Great Hall's gate lands on, beside the plaza's own way back in. */
+const PLAZA_LANDING = { toX: 5, toY: 7 } as const
+
 /** The hall map is the Great Hall room: its size, its walls, its way out to the plaza and a doorway per Hall. */
 function parseHall(): MapData {
   const room = great
-  const old = tiledMap.parse(SOURCES.hall)
-  const gate = old.layers
-    .flatMap((l) => (l.type === 'objectgroup' ? l.objects : []))
-    .find(
-      (o) => o.type === 'door' && o.properties?.some((p) => p.name === 'to' && p.value === 'plaza')
-    )
-  const prop = (name: string) =>
-    z.number().parse(gate?.properties?.find((p) => p.name === name)?.value)
   const exit = room.doorways.find((d) => d.target === 'plaza')
   const halls: Door[] = []
   const barred: MapData['barred'] = []
@@ -285,10 +281,7 @@ function parseHall(): MapData {
     width: room.width,
     height: room.height,
     tileSize: room.tileSize,
-    doors: [
-      ...(exit ? [{ ...exit.tile, to: 'plaza' as const, toX: prop('toX'), toY: prop('toY') }] : []),
-      ...halls,
-    ],
+    doors: [...(exit ? [{ ...exit.tile, to: 'plaza' as const, ...PLAZA_LANDING }] : []), ...halls],
     lanterns: room.lights.filter((l) => l.kind !== 'window').map((l) => l.tile),
     objects: greatHallObjects(room),
     barred,

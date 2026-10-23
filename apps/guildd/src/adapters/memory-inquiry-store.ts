@@ -25,10 +25,20 @@ interface Stored {
  */
 export class MemoryInquiryStore implements InquiryStore {
   private readonly guilds = new Map<string, Stored[]>()
+  private readonly readMarkers = new Map<string, Map<string, number>>()
   private nextSeq = 1
   private asks: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly quests: QuestQueue) {}
+
+  private markersOf(guildId: string): Map<string, number> {
+    let markers = this.readMarkers.get(guildId)
+    if (!markers) {
+      markers = new Map()
+      this.readMarkers.set(guildId, markers)
+    }
+    return markers
+  }
 
   private inquiries(guildId: string): Stored[] {
     let all = this.guilds.get(guildId)
@@ -138,5 +148,43 @@ export class MemoryInquiryStore implements InquiryStore {
       }
     }
     return expired
+  }
+
+  async markRead(guildId: string, hallId: string, upToSeq: number): Promise<number> {
+    const newest = this.inquiries(guildId)
+      .filter((s) => s.inquiry.fromHall === hallId || s.inquiry.toHall === hallId)
+      .reduce((max, s) => Math.max(max, s.inquiry.seq), 0)
+    const markers = this.markersOf(guildId)
+    const next = Math.max(markers.get(hallId) ?? 0, Math.min(upToSeq, newest))
+    markers.set(hallId, next)
+    return next
+  }
+
+  async unreadCounts(guildId: string, hallIds: readonly string[]): Promise<Record<string, number>> {
+    const markers = this.markersOf(guildId)
+    const all = this.inquiries(guildId)
+    return Object.fromEntries(
+      hallIds.map((hall) => [
+        hall,
+        all.filter(
+          (s) =>
+            s.inquiry.status === 'open' &&
+            (s.inquiry.fromHall === hall || s.inquiry.toHall === hall) &&
+            s.inquiry.seq > (markers.get(hall) ?? 0)
+        ).length,
+      ])
+    )
+  }
+
+  async unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number> {
+    const markers = this.markersOf(guildId)
+    return this.inquiries(guildId).filter((s) => {
+      const touched = hallIds.filter((h) => s.inquiry.fromHall === h || s.inquiry.toHall === h)
+      return (
+        s.inquiry.status === 'open' &&
+        touched.length > 0 &&
+        touched.every((h) => s.inquiry.seq > (markers.get(h) ?? 0))
+      )
+    }).length
   }
 }

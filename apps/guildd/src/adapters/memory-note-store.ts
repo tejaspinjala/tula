@@ -137,6 +137,11 @@ export class MemoryNoteStore implements NoteStore {
     return count
   }
 
+  /** Backlinks are derived from the current bodies on every read, so there are never stored keys to rewrite. */
+  async rekeyLinks(_guildId: string, _options?: { dryRun?: boolean }): Promise<number> {
+    return 0
+  }
+
   async search(guildId: string, query: string, page: NotePaging): Promise<NotePage> {
     const terms = searchTerms(query)
     if (terms.length === 0) {

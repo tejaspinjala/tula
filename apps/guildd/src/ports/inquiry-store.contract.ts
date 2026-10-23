@@ -299,5 +299,141 @@ export function inquiryStoreContract(name: string, make: () => Promise<InquirySt
       expect(await store.expireOverdue(b, new Date(T0.getTime() + 30 * DAY))).toBe(0)
       expect((await store.get(a, out.inquiry.id))?.status).toBe('open')
     })
+
+    describe('read marker', () => {
+      async function askThree(store: InquiryStore, g: string): Promise<number[]> {
+        const seqs: number[] = []
+        for (let n = 0; n < 3; n += 1) {
+          const out = await store.ask(g, asked())
+          if (!out.ok) {
+            throw new Error('ask refused')
+          }
+          seqs.push(out.inquiry.seq)
+        }
+        return seqs
+      }
+
+      test('every open Inquiry is unread until the Mailbox is marked', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await askThree(store, g)
+        expect(await store.unreadCounts(g, ['scribes', 'heralds', 'smiths'])).toEqual({
+          scribes: 3,
+          heralds: 3,
+          smiths: 0,
+        })
+      })
+
+      test('the total counts an Inquiry between two Halls once, not once per Hall', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        await askThree(store, g)
+        expect(await store.unreadTotal(g, ['scribes', 'heralds', 'smiths'])).toBe(3)
+        expect(await store.unreadTotal(g, ['smiths'])).toBe(0)
+        expect(await store.unreadTotal(g, [])).toBe(0)
+      })
+
+      test('the total drops an Inquiry once one of its Halls has read it', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [, , third] = await askThree(store, g)
+        await store.markRead(g, 'scribes', third ?? 0)
+        expect(await store.unreadTotal(g, ['scribes', 'heralds'])).toBe(0)
+      })
+
+      test('another guild adds nothing to the total', async () => {
+        const { store, newGuild } = await make()
+        const a = await newGuild()
+        const b = await newGuild()
+        await askThree(store, a)
+        expect(await store.unreadTotal(b, ['scribes', 'heralds'])).toBe(0)
+      })
+
+      test('marking counts only the Inquiries newer than the marker', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [first, second] = await askThree(store, g)
+        expect(await store.markRead(g, 'scribes', second ?? 0)).toBe(second ?? 0)
+        expect(await store.unreadCounts(g, ['scribes', 'heralds'])).toEqual({
+          scribes: 1,
+          heralds: 3,
+        })
+        expect(first).toBeLessThan(second ?? 0)
+      })
+
+      test('answered and expired Inquiries are not unread', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const out = await store.ask(g, asked())
+        if (!out.ok) {
+          throw new Error('ask refused')
+        }
+        await store.answer(g, {
+          inquiryId: out.inquiry.id,
+          answerQuestId: out.inquiry.answerQuestId,
+          by: 'scribes-captain',
+          answer: 'Warm.',
+          at: new Date(T0.getTime() + 1000),
+        })
+        await store.ask(g, asked())
+        await store.expireOverdue(g, new Date(T0.getTime() + 30 * DAY))
+        expect((await store.unreadCounts(g, ['scribes'])).scribes).toBe(0)
+      })
+
+      test('replaying an older marker never moves it backwards', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [first, , third] = await askThree(store, g)
+        expect(await store.markRead(g, 'scribes', third ?? 0)).toBe(third ?? 0)
+        expect(await store.markRead(g, 'scribes', first ?? 0)).toBe(third ?? 0)
+        expect(await store.markRead(g, 'scribes', third ?? 0)).toBe(third ?? 0)
+        expect((await store.unreadCounts(g, ['scribes'])).scribes).toBe(0)
+      })
+
+      test('a marker never passes the Hall newest Inquiry, so later mail stays unread', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [, , third] = await askThree(store, g)
+        expect(await store.markRead(g, 'scribes', 1_000_000_000)).toBe(third ?? 0)
+        await store.ask(g, asked())
+        expect((await store.unreadCounts(g, ['scribes'])).scribes).toBe(1)
+        expect(await store.markRead(g, 'smiths', 5)).toBe(0)
+      })
+
+      test('a marker is kept per Hall', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [, , third] = await askThree(store, g)
+        await store.markRead(g, 'scribes', third ?? 0)
+        expect(await store.unreadCounts(g, ['scribes', 'heralds'])).toEqual({
+          scribes: 0,
+          heralds: 3,
+        })
+      })
+
+      test('concurrent markers settle on the newest', async () => {
+        const { store, newGuild } = await make()
+        const g = await newGuild()
+        const [first, second, third] = await askThree(store, g)
+        await Promise.all([
+          store.markRead(g, 'scribes', second ?? 0),
+          store.markRead(g, 'scribes', third ?? 0),
+          store.markRead(g, 'scribes', first ?? 0),
+        ])
+        expect((await store.unreadCounts(g, ['scribes'])).scribes).toBe(0)
+      })
+
+      test('another guild neither sees nor moves a marker', async () => {
+        const { store, newGuild } = await make()
+        const a = await newGuild()
+        const b = await newGuild()
+        const [, , third] = await askThree(store, a)
+        await askThree(store, b)
+        await store.markRead(a, 'scribes', third ?? 0)
+        expect((await store.unreadCounts(a, ['scribes'])).scribes).toBe(0)
+        expect((await store.unreadCounts(b, ['scribes'])).scribes).toBe(3)
+        expect(await store.markRead(b, 'scribes', 0)).toBe(0)
+      })
+    })
   })
 }

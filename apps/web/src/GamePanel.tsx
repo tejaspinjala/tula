@@ -10,7 +10,8 @@ import {
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
-import { type GuildMap, guildMap, mapSummary, travelSlot } from './game/guildmap'
+import { useRoomAnnouncement } from './game/announcement'
+import { type GuildMap, guildMap, mapSummary, townMapOf } from './game/guildmap'
 import { initialTalk, talkReducer } from './game/interact'
 import { announceLocation } from './game/location'
 import type { LookChoice } from './game/look'
@@ -18,7 +19,7 @@ import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
-import { greatRoom, hallRoomOf, type MapKey, roomKeys } from './game/world'
+import { greatRoom, hallRoomOf, type MapKey } from './game/world'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
@@ -30,7 +31,7 @@ import {
   useSettledCount,
 } from './live-events'
 import { MiniMap } from './MiniMap'
-import { countOpenInquiries } from './mailbox'
+import { countUnread, MAILBOX_READ_EVENT } from './mailbox'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -422,15 +423,16 @@ export function GamePanel({
       return
     }
     let live = true
-    countOpenInquiries(
-      session,
-      fetch,
-      roster.halls.filter((h) => !h.locked).map((h) => h.id)
-    )
-      .then((count) => live && setUnread(count))
-      .catch(() => undefined)
+    const recount = () => {
+      countUnread(session, fetch)
+        .then((count) => live && setUnread(count))
+        .catch(() => undefined)
+    }
+    recount()
+    window.addEventListener(MAILBOX_READ_EVENT, recount)
     return () => {
       live = false
+      window.removeEventListener(MAILBOX_READ_EVENT, recount)
     }
   }, [session, roster, mailEvents])
   useEffect(() => {
@@ -439,6 +441,7 @@ export function GamePanel({
         guildMap({
           scene,
           roomOf: (key) => (key === 'hall' ? greatRoom() : hallRoomOf(key)),
+          townOf: townMapOf,
           current: standing.map,
           master: standing.tile,
           unread,
@@ -448,6 +451,15 @@ export function GamePanel({
   }, [scene, standing, unread, roomsBuilt])
 
   const summary = scene ? sceneSummary(scene) : 'Loading the guild hall.'
+  // The location is spoken once per room, once the mini map describes that room (it is drawn a render
+  // after the scene moves), so no summary of the room just left is read out.
+  const spokenLocation = useRoomAnnouncement(
+    `${standing.map}|${location}`,
+    miniMap === null || miniMap.rooms.length === 0 || miniMap.current === standing.map,
+    miniMap && miniMap.rooms.length > 0
+      ? `${announceLocation(location)} ${mapSummary(miniMap)}`
+      : announceLocation(location)
+  )
   const focusWorld = useCallback(() => frame.current?.focus(), [])
 
   const hallControls = (
@@ -519,11 +531,9 @@ export function GamePanel({
         {summary}
       </p>
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
-        {miniMap && miniMap.rooms.length > 0
-          ? `${announceLocation(location)} ${mapSummary(miniMap)}`
-          : announceLocation(location)}
+        {spokenLocation}
       </p>
-      {miniMap && <MiniMap map={miniMap} onOpen={() => open.current('/map')} />}
+      {miniMap && <MiniMap map={miniMap} unread={unread} onOpen={() => open.current('/map')} />}
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
         {notice}
       </p>
@@ -595,10 +605,7 @@ export function GamePanel({
           focusWorld,
           map: miniMap,
           travel: (key) => {
-            const slot = travelSlot(key, roomKeys())
-            if (slot !== undefined) {
-              handle.current?.teleport(slot)
-            }
+            handle.current?.travel(key)
           },
           refreshHall: () => setHallEpoch((n) => n + 1),
           talkTo: (id) => {

@@ -115,4 +115,22 @@ export interface InquiryStore {
    * (oldest first); idempotent; returns how many it expired, so a caller repeats until it is 0.
    */
   expireOverdue(guildId: string, at: Date): Promise<number>
+  /**
+   * Records that the Guild Master has seen a Hall's Mailbox up to `upToSeq` and returns the marker
+   * now held. Idempotent and monotonic: an older `upToSeq` (a replay) never moves it backwards,
+   * and it never passes the Hall's newest Inquiry, so an Inquiry that arrives later stays unread.
+   */
+  markRead(guildId: string, hallId: string, upToSeq: number): Promise<number>
+  /**
+   * For each Hall in `hallIds`, how many open Inquiries it asked or was asked that are newer than
+   * its read marker: the Mailbox's unread count. Every id asked for is a key of the result.
+   */
+  unreadCounts(guildId: string, hallIds: readonly string[]): Promise<Record<string, number>>
+  /**
+   * How many distinct open Inquiries are unread in at least one of `hallIds`: the Mailbox's total.
+   * An Inquiry between two of those Halls counts once, where summing `unreadCounts` counts it twice.
+   * An Inquiry stays in the total only while it is unread in every one of the given Halls it
+   * touches: once one of them has read past it, it drops out. Per-Hall counts stay per-Hall.
+   */
+  unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number>
 }

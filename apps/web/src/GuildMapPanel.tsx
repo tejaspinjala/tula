@@ -59,7 +59,7 @@ function RoomButton({
       {current && <Badge tone="info">Here</Badge>}
       {room.locked && <Badge tone="danger">Locked</Badge>}
       {room.private && <Badge tone="private">Private</Badge>}
-      {room.kind !== 'great' && (
+      {room.kind !== 'great' && room.kind !== 'town' && (
         <span className="gmap-count">
           {room.memberCount} {room.memberCount === 1 ? 'Member' : 'Members'}
         </span>
@@ -77,7 +77,7 @@ function focusRoom(root: RefObject<HTMLElement | null>, id: MapKey): void {
 }
 
 /**
- * The Guild Map page: a schematic of the Great Hall, every Hall room and the town joined by doorway
+ * The Guild Map page: a schematic of the Great Hall, every Hall room and the town maps (plaza, Archive, Counting House, trail) joined by doorway
  * lines, each room labelled with its Hall name, badges and Member count. Arrow keys move the ▶ cursor
  * between rooms and Enter travels there; a list view of the same rooms serves screen readers and
  * narrow screens.
@@ -143,7 +143,6 @@ export function GuildMapPanel({ map, onTravel }: GuildMapPanelProps) {
         return from && to ? [{ key: `${a.id}>${b}`, from, to }] : []
       })
   )
-  const great = slotOf('hall')
   const node = (room: MapRoom, style?: { gridColumn: string; gridRow: number }) => (
     <RoomButton
       key={room.id}
@@ -173,13 +172,7 @@ export function GuildMapPanel({ map, onTravel }: GuildMapPanelProps) {
           ))}
         </ul>
       ) : (
-        <div
-          className="gmap-grid"
-          role="application"
-          aria-label="Guild Map schematic"
-          onKeyDown={onKeyDown}
-          style={{ gridTemplateColumns: `repeat(${layout.cols * 2}, 1fr)` }}
-        >
+        <div className="gmap-schematic">
           <svg
             className="gmap-lines"
             viewBox={`0 0 ${layout.cols * 2} ${rows}`}
@@ -195,28 +188,26 @@ export function GuildMapPanel({ map, onTravel }: GuildMapPanelProps) {
                 y2={to.row + 0.5}
               />
             ))}
-            {great && (
-              <line
-                x1={great.col * 2 + 1}
-                y1={0.5}
-                x2={layout.townCol * 2 + 1}
-                y2={0.5}
-                data-door="town"
-              />
-            )}
           </svg>
-          {map.rooms.map((room) => {
-            const slot = slotOf(room.id)
-            return slot
-              ? node(room, { gridColumn: `${slot.col * 2 + 1} / span 2`, gridRow: slot.row + 1 })
-              : null
-          })}
-          <div
-            className="gmap-room gmap-town"
-            style={{ gridColumn: `${layout.townCol * 2 + 1} / span 2`, gridRow: 1 }}
+          <ul
+            className="gmap-grid"
+            aria-label="Guild Map schematic"
+            onKeyDown={onKeyDown}
+            style={{ gridTemplateColumns: `repeat(${layout.cols * 2}, 1fr)` }}
           >
-            <span className="gmap-name">Town</span>
-          </div>
+            {map.rooms.map((room) => {
+              const slot = slotOf(room.id)
+              return slot ? (
+                <li
+                  key={room.id}
+                  className="gmap-cell"
+                  style={{ gridColumn: `${slot.col * 2 + 1} / span 2`, gridRow: slot.row + 1 }}
+                >
+                  {node(room)}
+                </li>
+              ) : null
+            })}
+          </ul>
         </div>
       )}
     </div>

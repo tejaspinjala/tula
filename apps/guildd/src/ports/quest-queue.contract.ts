@@ -402,6 +402,19 @@ export function questQueueContract(name: string, make: () => Promise<QuestQueueF
       expect(failed).toMatchObject({ attempts: 3, refunds: 2 })
     })
 
+    test('routing waits are counted apart from other refunds, so a parked Quest backs off from the first step', async () => {
+      const { queue, clock, newGuild } = await make()
+      const g = await newGuild()
+      const { quest: q } = await queue.post(g, quest())
+      await queue.claim(g, LEASE)
+      await queue.releaseLeases(g, 'routing_blocked')
+      const second = await queue.claim(g, LEASE)
+      expect(second).toMatchObject({ refunds: 1, routingWaits: 0 })
+      await queue.releaseClaim(g, q.id, second?.attempts ?? 0, clock.now())
+      const third = await queue.claim(g, LEASE)
+      expect(third).toMatchObject({ refunds: 2, routingWaits: 1 })
+    })
+
     test('forgiving the repeats of a Hall refunds the attempts of its open Quests only', async () => {
       const { queue, clock, newGuild } = await make()
       const g = await newGuild()

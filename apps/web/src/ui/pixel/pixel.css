@@ -236,7 +236,7 @@
 }
 
 .px-menu-item[aria-selected="true"]::before {
-  content: "▶";
+  content: "▶" / "";
   position: absolute;
   left: calc(var(--px) * 3);
   animation: px-nudge 0.8s steps(2) infinite;

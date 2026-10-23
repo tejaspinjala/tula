@@ -11,14 +11,22 @@
   margin: 0 0 calc(var(--px) * 2);
   color: var(--px-danger-700);
 }
-.gmap-grid {
+.gmap-schematic {
   position: relative;
+  background: var(--px-paper-200);
+  border: calc(var(--px) * 2) solid var(--px-line);
+}
+ul.gmap-grid {
   display: grid;
   grid-auto-rows: minmax(calc(var(--px) * 40), auto);
   gap: calc(var(--px) * 6) 0;
+  margin: 0;
   padding: calc(var(--px) * 3);
-  background: var(--px-paper-200);
-  border: calc(var(--px) * 2) solid var(--px-line);
+  list-style: none;
+}
+.gmap-cell {
+  min-width: 0;
+  display: grid;
 }
 .gmap-lines {
   position: absolute;
@@ -74,7 +82,7 @@
   border-color: var(--px-gold-500);
 }
 .gmap-room[tabindex="0"]::before {
-  content: "▶";
+  content: "▶" / "";
   position: absolute;
   left: calc(var(--px) * 3);
   top: calc(var(--px) * 2);
@@ -89,12 +97,6 @@
 .gmap-count {
   font-size: var(--text-sm);
   color: var(--px-text-muted);
-}
-.gmap-town {
-  cursor: default;
-  align-self: center;
-  background: var(--px-paper);
-  color: var(--px-text);
 }
 
 /* On a phone the mini map is a Map button in the lower-left corner; a world alert rides above it. */

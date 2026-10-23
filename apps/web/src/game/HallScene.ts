@@ -3,6 +3,7 @@ import { formatCents } from '../treasury'
 import { apprenticeSeats, memberSpot, stewardStand } from './actors'
 import { stepAside } from './aside'
 import { type Plan, planFor, stayAt } from './behavior'
+import { elderPoses } from './council'
 import {
   integerZoom,
   openZoomWhole,
@@ -13,7 +14,6 @@ import {
   zoomAfterResize,
 } from './daylight'
 import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './interact'
-import { bubbleCentreX, roomTags } from './layout'
 import { lampPools, lightFadeMs, lightIsOn, lightPatches } from './lighting'
 import {
   browserStore,
@@ -24,14 +24,25 @@ import {
   rememberLocation,
   restoreLocation,
   signLines,
+  signScale,
+  snapSignLeft,
 } from './location'
 import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import { type Atlases, actorDepth, roomZoom, viewportFor } from './render'
 import { Retained } from './retained'
 import { DEPTH, type Room } from './room'
-import { drawRoom, makeShadow, moveShadow, preloadAtlases, registerAtlases } from './roomView'
+import { bubbleCentreX, roomTags } from './roomtags'
+import {
+  drawRoom,
+  FURNITURE,
+  makeShadow,
+  moveShadow,
+  preloadAtlases,
+  registerAtlases,
+} from './roomView'
 import type { Spot } from './route'
 import type { SceneBubble, SceneMember, SceneState } from './scene'
+import { type ThoughtMember, thoughtText } from './thought'
 import { direction, findPath, followPath, type Keys, moveBy, SPEED, type Vec } from './walk'
 import { replan, standing, stepWalker, type Walker } from './walker'
 import {
@@ -59,7 +70,8 @@ import {
 const TILES = 'tiles'
 const CHARS = 'chars'
 const FONT = 'font'
-const GLOW = 'glow'
+/** Radii, in px, of the four hard-edged rings of a lantern glow. */
+const GLOW_RINGS = [28, 21, 14, 7] as const
 const COURIER = 'courier'
 const MAILBOX = 'mailbox'
 const DOOR = 'door-closed'
@@ -102,6 +114,8 @@ const MAP_LABELS: Record<MapId, { text: string; x: number; y: number }[]> = {
 /** Tile frames of the Kenney Roguelike/RPG sheet (row * 57 + column). */
 const FRAME = { doorClosed: 32, doorOpen: 37, scroll: 899, coin: 1025 } as const
 
+/** Screen pixels between the lines of a door sign. */
+const SIGN_LINE_PX = 12
 /** How long a speech bubble stays up, in ms. */
 const BUBBLE_MS = 4500
 /** Longest Quest title a bubble shows before it is cut. */
@@ -173,6 +187,13 @@ interface MemberView {
   scroll: Phaser.GameObjects.Image
   sleep: Phaser.GameObjects.BitmapText
   shadow: Phaser.GameObjects.Image
+  /** What the Member is working on, for the thought bubble (set when state arrives). */
+  work: ThoughtMember
+  /** True while the Member is walking somewhere (the thought bubble waits for the station). */
+  moving: boolean
+  /** The thought bubble over a Member at work, and the text it shows (null when none). */
+  thought: Phaser.GameObjects.Container | null
+  thoughtText: string | null
 }
 
 /** An apprentice: a Sub-Quest's helper standing in its parent's room until the child settles. */
@@ -230,6 +251,8 @@ export class HallScene extends Phaser.Scene {
     o.destroy()
   })
   private pending: SceneState | null = null
+  /** The camera zoom the door signs were drawn at (they are redrawn when it changes). */
+  private signZoom = 2
   private ready = false
   private readonly apprentices = new Map<string, ApprenticeView>()
   /** True until the first state is drawn: what already happened is shown, not animated. */
@@ -256,7 +279,7 @@ export class HallScene extends Phaser.Scene {
   private phase: Phase = phaseAt(new Date().getHours())
   private phaseForced = false
   private veil: Phaser.GameObjects.Rectangle | null = null
-  private lanterns: Phaser.GameObjects.Image[] = []
+  private lanterns: Phaser.GameObjects.Graphics | null = null
   /** Window light patches and lamp pools: the world's light, under the tint and never on the chrome. */
   private lightLayer: Phaser.GameObjects.Graphics | null = null
   private facingLeft = false
@@ -289,7 +312,6 @@ export class HallScene extends Phaser.Scene {
     for (const id of MAP_IDS) {
       this.drawMap(id)
     }
-    this.makeGlow()
     this.makeDoor()
     this.makeCourier()
     this.makeMailbox()
@@ -365,8 +387,15 @@ export class HallScene extends Phaser.Scene {
   /** Moves the Guild Master into a Hall's room (its slot) or back to the Great Hall entrance (null). */
   teleport(slot: number | null): void {
     const key = slot === null ? 'hall' : roomKeys()[slot]
-    const spot = key === undefined ? null : landingFor(key)
-    if (key === undefined || spot === null) {
+    if (key !== undefined) {
+      this.travelTo(key)
+    }
+  }
+
+  /** Moves the Guild Master to where a map is entered (any town map or Hall room); a map with no open way in is left alone. */
+  travelTo(key: MapKey): void {
+    const spot = landingFor(key)
+    if (spot === null) {
       return
     }
     this.chasing = true
@@ -527,23 +556,28 @@ export class HallScene extends Phaser.Scene {
       .setSize(px(map.width, map.tileSize), px(map.height, map.tileSize))
       .setFillStyle(tint.color, tint.alpha)
     this.drawLight(model, x, y)
-    for (const lantern of this.lanterns) {
-      lantern.destroy()
-    }
-    this.lanterns = []
+    this.lanterns?.destroy()
+    this.lanterns = null
     const lit =
       model !== null
         ? model.lights.filter((l) => lightIsOn(this.phase, l)).map((l) => l.tile)
         : tint.lanterns
           ? map.lanterns
           : []
-    for (const lantern of lit) {
-      this.lanterns.push(
-        this.add
-          .image(x + (lantern.x + 0.5) * map.tileSize, y + (lantern.y + 0.5) * map.tileSize, GLOW)
-          .setDepth(DEPTH.top + 1)
-          .setBlendMode(Phaser.BlendModes.ADD)
-      )
+    if (lit.length > 0) {
+      // Drawn as circles, not a sprite: a texture's square edge showed as a faint box behind each lamp.
+      const glow = this.add.graphics().setDepth(DEPTH.top + 1)
+      glow.fillStyle(0xffc66b, 0.09)
+      for (const lantern of lit) {
+        for (const r of GLOW_RINGS) {
+          glow.fillCircle(
+            x + (lantern.x + 0.5) * map.tileSize,
+            y + (lantern.y + 0.5) * map.tileSize,
+            r
+          )
+        }
+      }
+      this.lanterns = glow
     }
   }
 
@@ -797,17 +831,6 @@ export class HallScene extends Phaser.Scene {
     return found instanceof Phaser.GameObjects.Image ? found : null
   }
 
-  /** A stepped lantern glow: four hard-edged rings of warm light, no gradient. */
-  private makeGlow(): void {
-    const g = this.add.graphics()
-    g.fillStyle(0xffc66b, 0.09)
-    for (const r of [28, 21, 14, 7]) {
-      g.fillCircle(28, 28, r)
-    }
-    g.generateTexture(GLOW, 56, 56)
-    g.destroy()
-  }
-
   /** Per frame: held keys walk the Guild Master, otherwise a tapped path is followed. */
   override update(_time: number, delta: number): void {
     // The HUD changes height with its content: refit the viewport below it when it does.
@@ -817,6 +840,11 @@ export class HallScene extends Phaser.Scene {
       this.fit(true)
     }
     for (const view of this.members.values()) {
+      if (view.thought) {
+        const lift = view.thought.getData('lift')
+        view.thought.setPosition(view.root.x, view.root.y - (typeof lift === 'number' ? lift : 24))
+        view.thought.setVisible(view.root.visible)
+      }
       const height = view.bubble?.getData('height')
       if (view.bubble && typeof height === 'number') {
         // Above the speaker, or below when that would cover a room label; a tall (wrapped) bubble
@@ -828,6 +856,13 @@ export class HallScene extends Phaser.Scene {
         const left =
           typeof wide === 'number' ? bubbleCentreX(this.cameras.main.worldView, wide, x) : x
         view.bubble.setPosition(left, centre < y ? centre - extra : centre + extra)
+      }
+    }
+    const zoom = this.cameras.main.zoom
+    if (zoom !== this.signZoom) {
+      this.signZoom = zoom
+      if (this.pending && this.ready) {
+        this.drawDynamic(this.pending)
       }
     }
     this.stepMembers(Math.min(delta, 100) / 1000)
@@ -1242,7 +1277,7 @@ export class HallScene extends Phaser.Scene {
     this.dynamic.begin()
     const s = this.hall.tileSize
     const tags = roomTags(state.rooms, state.rooms.length)
-    this.dynamic.group('signs', JSON.stringify([this.hallSig, tags]), () => {
+    this.dynamic.group('signs', JSON.stringify([this.hallSig, tags, this.signZoom]), () => {
       const made: Phaser.GameObjects.GameObject[] = []
       this.doors = []
       state.rooms.forEach((hall, index) => {
@@ -1258,29 +1293,36 @@ export class HallScene extends Phaser.Scene {
         ]
         const x = (door.tile.x + 0.5) * s
         const bottom = (door.tile.y - 0.5) * s
-        // Half the font's native size, left edge on a whole pixel: a fractional edge makes the thin
-        // letters (i, l, t) vanish at the 2x zoom of a phone.
-        const text = this.add
-          .bitmapText(0, Math.round(bottom - 1), FONT, lines.join('\n'), 16)
-          .setScale(0.5)
-          .setOrigin(0, 1)
-          .setCenterAlign()
-          .setTint(tag.closed ? 0xff9a8a : 0xffffff)
-          .setDepth(DEPTH.top + 3)
-        const left = Math.round(x - text.displayWidth / 2)
-        text.setX(left)
+        // One text per line, each snapped to a whole screen pixel at one screen pixel per font pixel: a
+        // centred multi-line text puts lines on quarter pixels, where the thin letters (i, l, t) vanish.
+        const zoom = this.signZoom
+        const scale = signScale(zoom)
+        const pitch = SIGN_LINE_PX / zoom
+        const snapY = (v: number) => Math.round(v * zoom) / zoom
+        const baseline = snapY(bottom - 1)
+        const texts = lines.map((line, n) => {
+          const text = this.add
+            .bitmapText(0, snapY(baseline - (lines.length - 1 - n) * pitch), FONT, line, 16)
+            .setScale(scale)
+            .setOrigin(0, 1)
+            .setTint(tag.closed ? 0xff9a8a : 0xffffff)
+            .setDepth(DEPTH.top + 3)
+          text.setX(snapSignLeft(x, text.displayWidth, zoom))
+          return text
+        })
+        const wide = Math.max(...texts.map((t) => t.displayWidth))
         const plate = this.add
           .rectangle(
-            left - 2,
-            Math.round(bottom),
-            text.displayWidth + 4,
-            text.displayHeight + 3,
+            snapSignLeft(x, wide, zoom) - 2,
+            snapY(baseline - 3 * scale) + 1,
+            wide + 4,
+            (lines.length - 1) * pitch + 10 * scale + 2,
             0x1a1a2a,
             0.8
           )
           .setOrigin(0, 1)
           .setDepth(DEPTH.top + 2)
-        made.push(plate, text)
+        made.push(plate, ...texts)
         // A locked Hall's doorway is a shut door with a bar across it; a Private Hall's door looks closed until the Guild Master nears.
         if (hall.locked || hall.kind === 'private') {
           const sprite = this.add
@@ -1314,9 +1356,17 @@ export class HallScene extends Phaser.Scene {
           .setOrigin(0, 0)
           .setInteractive({ useHandCursor: true })
         zone.on('pointerdown', () => this.options.onOpenCouncil?.())
+        // The elders sit behind and beside the table; the table's top edge covers their laps.
+        const elders = elderPoses(table.tile, this.councilState).map((elder) =>
+          this.add
+            .image(elder.tile.x * s, elder.tile.y * s, FURNITURE, elder.frame)
+            .setOrigin(0, 0)
+            .setDepth(actorDepth((elder.tile.y + 1) * s))
+        )
         return [
           zone,
-          this.label(table.tile.x * s, (table.tile.y - 1) * s, 'COUNCIL', 8),
+          ...elders,
+          this.label(table.tile.x * s, (table.tile.y - 2) * s, 'COUNCIL', 8),
           this.label(table.tile.x * s, table.tile.y * s + s, say, 8, tint),
         ]
       })
@@ -1484,6 +1534,7 @@ export class HallScene extends Phaser.Scene {
         view.root.destroy()
         view.shadow.destroy()
         view.bubble?.destroy()
+        view.thought?.destroy()
         this.members.delete(id)
       }
     }
@@ -1627,6 +1678,10 @@ export class HallScene extends Phaser.Scene {
         scroll,
         sleep,
         shadow: makeShadow(this),
+        work: { status: member.status, questTitle: member.questTitle },
+        moving: false,
+        thought: null,
+        thoughtText: null,
       }
       this.members.set(member.id, view)
       this.syncMember(view)
@@ -1682,6 +1737,41 @@ export class HallScene extends Phaser.Scene {
     const awaiting =
       member.bubble !== null && this.walkingCouriers.get(member.bubble.seq) === member.id
     this.showBubble(view, awaiting ? null : member.bubble, view.root.x, view.root.y)
+    view.work = { status: member.status, questTitle: member.questTitle }
+    this.syncThought(view)
+  }
+
+  /**
+   * Keeps a small thought bubble with the Quest's title over a Member working at their station. Rebuilt
+   * only when its text changes (a claim, a finish, a step away from the station or a speech bubble).
+   */
+  private syncThought(view: MemberView): void {
+    const text = thoughtText(view.work, view.moving ? 'moving' : 'station', view.bubble !== null)
+    if (text === view.thoughtText) {
+      return
+    }
+    view.thoughtText = text
+    view.thought?.destroy()
+    view.thought = null
+    if (text === null) {
+      return
+    }
+    const label = this.add
+      .bitmapText(0, 0, FONT, text, 16)
+      .setScale(0.5)
+      .setTint(0x1a1a2a)
+      .setOrigin(0.5, 0.5)
+    const w = Math.ceil(label.displayWidth) + 6
+    const h = Math.ceil(label.displayHeight) + 4
+    const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    // Two small steps down toward the head make it a thought, not speech.
+    const dotA = this.add.rectangle(0, h / 2 + 2, 3, 3, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    const dotB = this.add.rectangle(2, h / 2 + 6, 2, 2, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
+    view.thought = this.add
+      .container(view.root.x, view.root.y - 20 - h / 2, [back, dotA, dotB, label])
+      .setDepth(DEPTH.top + 5)
+      .setVisible(!view.walker.hidden)
+    view.thought.setData('lift', 20 + h / 2)
   }
 
   /** Puts the Member's game object where their walker is: map, tile, scroll and sleep mark. */
@@ -1719,6 +1809,11 @@ export class HallScene extends Phaser.Scene {
       if (walker.handedIn && !before.handedIn && view.handingSeq > view.handedSeq) {
         view.handedSeq = view.handingSeq
         this.options.onHandIn?.(view.name)
+      }
+      const moving = walker.path.length > 0 || walker.legs.length > 0
+      if (moving !== view.moving) {
+        view.moving = moving
+        this.syncThought(view)
       }
       this.syncMember(view)
     }
@@ -1771,15 +1866,17 @@ export class HallScene extends Phaser.Scene {
     const w = label.width + 8
     const h = label.height + 4
     const back = this.add.rectangle(0, 0, w, h, 0xffffff, 1).setStrokeStyle(1, 0x1a1a2a)
-    const root = this.add.container(x, y, [back, label]).setDepth(30)
+    const root = this.add.container(x, y, [back, label]).setDepth(DEPTH.top + 6)
     // The bubble rides with the sprite (a Member walking to the Quest Board), so `update` places it.
     root.setData('height', h)
     root.setData('width', w)
     view.bubble = root
+    this.syncThought(view)
     view.bubbleTimer = this.time.delayedCall(BUBBLE_MS, () => {
       root.destroy()
       if (view.bubble === root) {
         view.bubble = null
+        this.syncThought(view)
       }
     })
   }

@@ -7,7 +7,7 @@ import { hallTitle } from './walk'
 import { isRoomMapId, type MapKey, readSavedMapId } from './world'
 
 /** Steps to black (and the same number back) when walking through a doorway. */
-export const FADE_FRAMES = 4
+const FADE_FRAMES = 4
 /** How long each stepped frame of the fade lasts, in ms. */
 export const FADE_FRAME_MS = 70
 
@@ -146,4 +146,14 @@ export function signLines(name: string, width = 13, lines = 3): string[] {
   const last = kept[lines - 1] ?? ''
   kept[lines - 1] = `${last.replace(/-$/, '').slice(0, width - 1)}~`
   return kept
+}
+
+/** The scale of sign lettering at a camera zoom: the inverse of the zoom (one screen pixel per font pixel), half size below zoom 2. */
+export function signScale(zoom: number): number {
+  return zoom >= 2 ? 1 / zoom : 0.5
+}
+
+/** The left edge of a line `width` px wide centred on `centre`, snapped to a whole screen pixel at `zoom` so thin letters never vanish. */
+export function snapSignLeft(centre: number, width: number, zoom: number): number {
+  return Math.round((centre - width / 2) * zoom) / zoom
 }

@@ -7,6 +7,8 @@ export interface MiniMapProps {
   map: GuildMap
   /** Opens the Guild Map page; absent until that page exists (the map button then does nothing). */
   onOpen?: (() => void) | undefined
+  /** The Mailbox's unread count, shown as a badge on the collapsed map button; nothing at 0. */
+  unread?: number | undefined
 }
 
 /** Under this viewport width (px) the mini map collapses to a map button. */
@@ -126,7 +128,7 @@ function MiniCanvas({ map }: { map: GuildMap }) {
  * under 600 px wide it is a framed map button that opens the Guild Map page. A screen reader gets
  * the same content as text.
  */
-export function MiniMap({ map, onOpen }: MiniMapProps) {
+export function MiniMap({ map, onOpen, unread = 0 }: MiniMapProps) {
   const narrow = useNarrow()
   const [shown, setShown] = useState(true)
 
@@ -150,8 +152,12 @@ export function MiniMap({ map, onOpen }: MiniMapProps) {
     return (
       <div className="minimap minimap-collapsed">
         <Frame>
-          <PixelButton aria-label="Open the Guild Map" onClick={() => onOpen?.()}>
+          <PixelButton
+            aria-label={unread > 0 ? `Open the Guild Map, ${unread} unread` : 'Open the Guild Map'}
+            onClick={() => onOpen?.()}
+          >
             Map
+            {unread > 0 && <span className="minimap-badge"> {unread}</span>}
           </PixelButton>
         </Frame>
       </div>

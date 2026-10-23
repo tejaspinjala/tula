@@ -215,4 +215,68 @@ export class PgInquiryStore implements InquiryStore {
       return expired.length
     })
   }
+
+  async markRead(guildId: string, hallId: string, upToSeq: number): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const [newest] = await tx`
+        select coalesce(max(seq), 0)::bigint as seq from inquiries
+        where guild_id = ${guildId} and (from_hall = ${hallId} or to_hall = ${hallId})`
+      const target = Math.min(upToSeq, z.object({ seq: z.coerce.number() }).parse(newest).seq)
+      const [marker] = await tx`
+        insert into mailbox_read_markers (guild_id, hall_id, seen_seq)
+        values (${guildId}, ${hallId}, ${target})
+        on conflict (guild_id, hall_id) do update
+          set seen_seq = greatest(mailbox_read_markers.seen_seq, excluded.seen_seq),
+            updated_at = now()
+        returning seen_seq`
+      return z.object({ seen_seq: z.coerce.number() }).parse(marker).seen_seq
+    })
+  }
+
+  async unreadCounts(guildId: string, hallIds: readonly string[]): Promise<Record<string, number>> {
+    const counts: Record<string, number> = Object.fromEntries(hallIds.map((id) => [id, 0]))
+    if (hallIds.length === 0) {
+      return counts
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select h.hall_id, count(i.seq)::int as n
+        from unnest(${[...hallIds]}::text[]) as h(hall_id)
+        left join mailbox_read_markers m
+          on m.guild_id = ${guildId} and m.hall_id = h.hall_id
+        left join inquiries i
+          on i.guild_id = ${guildId} and i.status = 'open'
+          and (i.from_hall = h.hall_id or i.to_hall = h.hall_id)
+          and i.seq > coalesce(m.seen_seq, 0)
+        group by h.hall_id`
+    )
+    for (const r of rows) {
+      const parsed = z.object({ hall_id: z.string(), n: z.number() }).parse(r)
+      counts[parsed.hall_id] = parsed.n
+    }
+    return counts
+  }
+
+  async unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number> {
+    if (hallIds.length === 0) {
+      return 0
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select count(*)::int as n from (
+          select i.seq
+          from unnest(${[...hallIds]}::text[]) as h(hall_id)
+          left join mailbox_read_markers m
+            on m.guild_id = ${guildId} and m.hall_id = h.hall_id
+          join inquiries i
+            on i.guild_id = ${guildId} and i.status = 'open'
+            and (i.from_hall = h.hall_id or i.to_hall = h.hall_id)
+          group by i.seq
+          having bool_and(i.seq > coalesce(m.seen_seq, 0))
+        ) unread`
+    )
+    return z.object({ n: z.number() }).parse(rows[0]).n
+  }
 }

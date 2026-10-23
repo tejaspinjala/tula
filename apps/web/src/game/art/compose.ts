@@ -24,17 +24,6 @@ export function recolour(rows: Rows, map: Readonly<Record<string, string>>): Row
   return rows.map((row) => [...row].map((ch) => map[ch] ?? ch).join(''))
 }
 
-/** Joins sprites of equal height side by side. */
-export function hcat(...parts: Rows[]): Rows {
-  const h = parts[0]?.length ?? 0
-  return Array.from({ length: h }, (_, y) => parts.map((p) => p[y] ?? '').join(''))
-}
-
-/** Stacks sprites of equal width. */
-export function vcat(...parts: Rows[]): Rows {
-  return parts.flat()
-}
-
 /** Draws `item` onto `base` at (x, y); `.` in the item leaves the base showing. */
 export function stamp(base: Rows, x: number, y: number, item: Rows): Rows {
   return base.map((row, j) => {

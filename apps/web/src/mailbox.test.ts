@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test'
 import {
-  countOpenInquiries,
+  countUnread,
   fileBugReport,
   loadBugReports,
   loadDossiers,
   loadInquiries,
   mailboxRefusal,
+  markMailboxRead,
   requestDossier,
 } from './mailbox'
 import { PasskeyRequestError } from './passkeys'
@@ -150,27 +151,18 @@ test('every refusal the server can give reads as an in-world line', () => {
   expect(mailboxRefusal(new Error('boom'))).toBe('The courier could not get through. Try again.')
 })
 
-test('countOpenInquiries counts the unanswered Inquiries across the given Halls', async () => {
-  const row = (id: string, status: string) => ({
-    seq: 1,
-    id,
-    fromHall: 'a',
-    toHall: 'b',
-    askQuestId: 'q',
-    answerQuestId: 'q2',
-    asker: 'm1',
-    question: '?',
-    status,
-    answer: null,
-    answeredBy: null,
-    noteId: null,
-    askedAt: '2026-10-20T10:00:00.000Z',
-    expiresAt: '2026-10-21T10:00:00.000Z',
-    answeredAt: null,
-  })
-  const { fetcher } = stub([
-    { status: 200, body: { inquiries: [row('1', 'open'), row('2', 'answered')], next: null } },
-    { status: 200, body: { inquiries: [row('3', 'open'), row('4', 'open')], next: null } },
+test('countUnread reads the server total, which counts an Inquiry between two Halls once', async () => {
+  const { calls, fetcher } = stub([
+    { status: 200, body: { halls: { heralds: 2, health: 2 }, total: 2 } },
   ])
-  expect(await countOpenInquiries(session, fetcher, ['x', 'y'])).toBe(3)
+  expect(await countUnread(session, fetcher)).toBe(2)
+  expect(calls[0]?.url).toBe('/api/guilds/g1/mailbox/unread')
+})
+
+test('markMailboxRead posts the newest seen seq for one Hall and returns the marker', async () => {
+  const { calls, fetcher } = stub([{ status: 200, body: { seen: 7, unread: 0 } }])
+  expect(await markMailboxRead(session, fetcher, 'heralds', 7)).toEqual({ seen: 7, unread: 0 })
+  expect(calls[0]?.url).toBe('/api/guilds/g1/halls/heralds/mailbox/read')
+  expect(calls[0]?.init?.method).toBe('POST')
+  expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ upToSeq: 7 })
 })

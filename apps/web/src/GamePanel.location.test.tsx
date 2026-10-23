@@ -14,6 +14,7 @@ const loadGame: GameLoader = async () => ({
       zoomBy: noop,
       fit: noop,
       teleport: noop,
+      travel: noop,
       goTo: noop,
       setPhase: noop,
       setLook: noop,

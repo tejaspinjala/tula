@@ -61,7 +61,7 @@ export interface SceneRoom {
 }
 
 /** A Sub-Quest's apprentice: joins the parent's room when spawned, leaves when the child settles. */
-export interface SceneApprentice {
+interface SceneApprentice {
   childId: string
   parentId: string
   hallId: string
@@ -70,7 +70,7 @@ export interface SceneApprentice {
 }
 
 /** A courier's one trip between two Halls, raised by the event at `seq`. */
-export interface SceneCourier {
+interface SceneCourier {
   seq: number
   fromHall: string
   toHall: string
@@ -111,7 +111,7 @@ export interface SceneInput {
 }
 
 /** How old a Missive may be, in ms, and still pop a speech bubble. */
-export const BUBBLE_FRESH_MS = 30_000
+const BUBBLE_FRESH_MS = 30_000
 
 const hallPayload = z.object({ hallId: z.string() })
 const questPayload = z.object({ questId: z.string() })
@@ -141,8 +141,6 @@ export const memberActivityPayload = z.strictObject({
   /** The other Hall a cross-Hall activity is aimed at (a courier walks there). */
   toHallId: z.string().optional(),
 })
-/** A parsed `member.activity` payload. */
-export type MemberActivity = z.infer<typeof memberActivityPayload>
 const missivePayload = z.object({
   missiveId: z.string(),
   from: z.string(),

@@ -372,6 +372,47 @@ const SHADOW: Rows = [
   '................',
 ]
 
+// An elder of the Council: a hooded, bearded figure in a robe, 16 wide, drawn facing the viewer.
+const ELDER_REST: Rows = [
+  '................',
+  '.....kkkkkk.....',
+  '....knnnnnnk....',
+  '...knnDDDDnnk...',
+  '...knDkDDkDnk...',
+  '...knDDDDDDnk...',
+  '....kwwwwwwk....',
+  '...knnwwwwnnk...',
+  '..knnnnwwnnnnk..',
+  '..knnnnnnnnnnk..',
+  '..knDDnnnnDDnk..',
+  '..knnDDDDDDnnk..',
+  '..knnnnnnnnnnk..',
+  '..kmmmmmmmmmmk..',
+  '..kmmmmmmmmmmk..',
+  '...kkkkkkkkkk...',
+]
+const HAND_UP: Rows = ['kDk', 'kDk', 'knk']
+// Leaning in: the head and shoulders dip a row toward the table.
+const ELDER_LEAN: Rows = ['................', ...ELDER_REST.slice(0, 15)]
+// Speaking: one hand raised beside the head, the lap hand gone.
+const ELDER_SPEAK: Rows = stamp(stamp(ELDER_REST, 12, 5, HAND_UP), 10, 10, ['nn'])
+// Halted: both hands up, palms out, as if to stop the room.
+const ELDER_HALT: Rows = stamp(stamp(stamp(ELDER_SPEAK, 1, 5, HAND_UP), 3, 10, ['nn']), 10, 10, [
+  'nn',
+])
+// Each elder's robe: plum, sky and sage.
+const ROBES: readonly Record<string, string>[] = [{}, { n: 'E', m: 'b' }, { n: 'A', m: 's' }]
+
+/** The Council's elders: four poses in three robes. */
+function elders(): Sprite[] {
+  const poses = { rest: ELDER_REST, lean: ELDER_LEAN, speak: ELDER_SPEAK, halt: ELDER_HALT }
+  return Object.entries(poses).flatMap(([pose, rows]) =>
+    ROBES.flatMap((robe, i) =>
+      furniture(`elder-${pose}-${i}`, 'great-hall', recolour(rows, robe), 0)
+    )
+  )
+}
+
 /** Every piece of furniture, lamp, plant and the character shadow of the furniture atlas. */
 export function furnitureSprites(): Sprite[] {
   return [
@@ -406,5 +447,6 @@ export function furnitureSprites(): Sprite[] {
     ...furniture('plant-large', 'shared', PLANT_LARGE, 16),
     ...furniture('chair', 'shared', CHAIR, 8),
     ...furniture('shadow', 'shared', SHADOW, 0),
+    ...elders(),
   ]
 }
