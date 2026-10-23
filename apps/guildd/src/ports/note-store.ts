@@ -197,9 +197,13 @@ export function wikiLinks(text: string): string[] {
   return [...new Set(parseWikiLinks(text).map((l) => titleKey(l.target)))]
 }
 
-/** The normalised key a note's title is linked by. */
+/** The normalised key a note's title is linked by: NFKC, default-ignorable characters (zero-width and the like) removed, trimmed, lower-cased. */
 export function titleKey(title: string): string {
-  return title.trim().toLowerCase()
+  return title
+    .normalize('NFKC')
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .trim()
+    .toLowerCase()
 }
 
 /** Search terms: lower-cased runs of letters and digits (matches Postgres' `simple` config). */
