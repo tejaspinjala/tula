@@ -30,3 +30,16 @@ APP_DB_PASSWORD=<app password> bun run db:migrate
 `query would be affected by row-level security policy`, and the migration aborts and rolls back
 rather than minting nothing. It also fails if any guild still lacks a Guild Master after the
 backfill. Fix: grant `BYPASSRLS` to the migrator and rerun `bun run db:migrate`; nothing was applied.
+
+## Re-keying note links (one-off)
+
+After the `titleKey` change (#191), `scripts/rekey-note-links.ts` re-parses each note and rewrites
+stored wiki link keys that differ. It is a one-off maintenance-window script: it works one guild at
+a time, and `NoteStore.rekeyLinks` locks all of that guild's notes in a single transaction, so
+writes to them wait until it commits. Run it when the guild is quiet. It is idempotent (a second
+run reports 0 changes) and a dry run by default.
+
+```sh
+DATABASE_URL=postgres://<user>:<secret>@<host>:5432/guildhall bun scripts/rekey-note-links.ts          # count only
+DATABASE_URL=postgres://<user>:<secret>@<host>:5432/guildhall bun scripts/rekey-note-links.ts --apply  # write
+```

@@ -333,13 +333,11 @@ export function inquiryStoreContract(name: string, make: () => Promise<InquirySt
         expect(await store.unreadTotal(g, [])).toBe(0)
       })
 
-      test('the total drops an Inquiry only once every Hall asked about has read it', async () => {
+      test('the total drops an Inquiry once one of its Halls has read it', async () => {
         const { store, newGuild } = await make()
         const g = await newGuild()
         const [, , third] = await askThree(store, g)
         await store.markRead(g, 'scribes', third ?? 0)
-        expect(await store.unreadTotal(g, ['scribes', 'heralds'])).toBe(3)
-        await store.markRead(g, 'heralds', third ?? 0)
         expect(await store.unreadTotal(g, ['scribes', 'heralds'])).toBe(0)
       })
 

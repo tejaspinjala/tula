@@ -164,7 +164,6 @@ describe('Hall inquiries routes', () => {
         await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
       )
       expect(before.halls.heralds).toBe(2)
-      expect(before.halls.health).toBe(2)
       expect(before.total).toBe(2)
       const newest = (await harness.adapters.inquiries.list(g, { hallId: 'heralds', limit: 1 }))
         .inquiries[0]?.seq
@@ -177,7 +176,19 @@ describe('Hall inquiries routes', () => {
         await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
       )
       expect(after.halls.heralds).toBe(0)
-      expect(after.halls.health).toBe(2)
+    })
+
+    test('a locked Hall never counts: its Inquiries are not in the Halls or the total', async () => {
+      const g = await found()
+      await ask(g, 'health', 'personal', 'between two locked Halls')
+      await ask(g, 'heralds', 'health', 'between an open and a locked Hall')
+      const body = unreadBody.parse(
+        await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
+      )
+      expect(body.halls.health).toBeUndefined()
+      expect(body.halls.personal).toBeUndefined()
+      expect(body.halls.heralds).toBe(1)
+      expect(body.total).toBe(1)
     })
 
     test('a bad marker or a Hall the guild does not have is refused', async () => {
