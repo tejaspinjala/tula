@@ -30,7 +30,7 @@ import {
   useSettledCount,
 } from './live-events'
 import { MiniMap } from './MiniMap'
-import { countOpenInquiries } from './mailbox'
+import { countUnread, MAILBOX_READ_EVENT } from './mailbox'
 import { loadMissives } from './missives'
 import { prefersReducedMotion } from './motion'
 import type { Session } from './passkeys'
@@ -422,15 +422,20 @@ export function GamePanel({
       return
     }
     let live = true
-    countOpenInquiries(
-      session,
-      fetch,
-      roster.halls.filter((h) => !h.locked).map((h) => h.id)
-    )
-      .then((count) => live && setUnread(count))
-      .catch(() => undefined)
+    const recount = () => {
+      countUnread(
+        session,
+        fetch,
+        roster.halls.filter((h) => !h.locked).map((h) => h.id)
+      )
+        .then((count) => live && setUnread(count))
+        .catch(() => undefined)
+    }
+    recount()
+    window.addEventListener(MAILBOX_READ_EVENT, recount)
     return () => {
       live = false
+      window.removeEventListener(MAILBOX_READ_EVENT, recount)
     }
   }, [session, roster, mailEvents])
   useEffect(() => {

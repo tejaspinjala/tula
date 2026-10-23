@@ -275,6 +275,17 @@ text. A Dossier, an Inquiry answer or a Bug Report never carries a private Hall'
 Hall, and a work-Hall Member reading the Archive is told the note does not exist. "While you were
 away" names private Quests only to you. Another guild never sees any of it.
 
+## Re-keying old note links
+
+`titleKey` normalises Unicode (NFKC, zero-width characters removed), but a stored wiki link is re-keyed only when its note is next edited, so links typed in NFD or with zero-width characters stay unresolved in backlinks until then. Re-key them once, under each guild's own row level security context:
+
+```
+bun scripts/rekey-note-links.ts            # dry run: counts the notes that would change
+bun scripts/rekey-note-links.ts --apply    # rewrites their links
+```
+
+`DATABASE_URL` selects the database. It is idempotent: a second run reports 0 changes. It is safe with guildd running.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri 2 shell: a native window that opens your Guildhall server, with the pixel-art

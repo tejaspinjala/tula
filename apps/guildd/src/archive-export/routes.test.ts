@@ -272,6 +272,7 @@ for (const kind of ['memory', 'postgres'] as const) {
             get: store.get.bind(store),
             search: store.search.bind(store),
             countPrivate: store.countPrivate.bind(store),
+            rekeyLinks: store.rekeyLinks.bind(store),
             list: (g, page) => {
               calls.list++
               return store.list(g, page)

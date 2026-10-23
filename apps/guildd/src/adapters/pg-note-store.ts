@@ -34,6 +34,8 @@ const noteRow = versionRow.extend({
   data_class: z.enum(['public', 'internal', 'private']),
   hall_id: z.string().nullable(),
 })
+const linkRow = z.object({ note_id: z.string(), target_key: z.string() })
+const currentRow = z.object({ note_id: z.string(), current_version: z.number(), body: z.string() })
 const backlinkRow = z.object({ note_id: z.string(), title: z.string() })
 
 function toNote(row: z.infer<typeof noteRow>): Note {
@@ -188,6 +190,50 @@ export class PgNoteStore implements NoteStore {
         select count(*)::int as n from notes
         where guild_id = ${guildId} and data_class = 'private'`
       return Number(rows[0]?.n ?? 0)
+    })
+  }
+
+  async rekeyLinks(guildId: string, options?: { dryRun?: boolean }): Promise<number> {
+    return this.db.withGuild(guildId, async (tx) => {
+      const notes = await tx`
+        select n.note_id, n.current_version, v.body
+        from notes n join note_versions v
+          on v.guild_id = n.guild_id and v.note_id = n.note_id and v.version = n.current_version
+        where n.guild_id = ${guildId} order by n.note_id for update of n`
+      const stored = await tx`
+        select note_id, target_key from note_links l
+        where l.guild_id = ${guildId}
+          and l.version = (select current_version from notes n
+            where n.guild_id = l.guild_id and n.note_id = l.note_id)`
+      const have = new Map<string, Set<string>>()
+      for (const r of stored) {
+        const row = linkRow.parse(r)
+        const keys = have.get(row.note_id) ?? new Set<string>()
+        keys.add(row.target_key)
+        have.set(row.note_id, keys)
+      }
+      let changed = 0
+      for (const r of notes) {
+        const note = currentRow.parse(r)
+        const want = new Set(wikiLinks(note.body))
+        const now = have.get(note.note_id) ?? new Set<string>()
+        if (want.size === now.size && [...want].every((k) => now.has(k))) {
+          continue
+        }
+        changed++
+        if (options?.dryRun === true) {
+          continue
+        }
+        await tx`
+          delete from note_links
+          where guild_id = ${guildId} and note_id = ${note.note_id} and version = ${note.current_version}`
+        for (const key of want) {
+          await tx`
+            insert into note_links (guild_id, note_id, version, target_key)
+            values (${guildId}, ${note.note_id}, ${note.current_version}, ${key})`
+        }
+      }
+      return changed
     })
   }
 

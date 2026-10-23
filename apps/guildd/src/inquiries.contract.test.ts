@@ -143,4 +143,85 @@ describe('Hall inquiries routes', () => {
       snapshot: (g) => harness.adapters.inquiries.get(g, id),
     })
   })
+
+  describe('read marker routes', () => {
+    const unreadPath = (g: string) => `/guilds/${g}/mailbox/unread`
+    const readPath = (g: string, hall = 'heralds') => `/guilds/${g}/halls/${hall}/mailbox/read`
+    const unreadBody = z.object({ halls: z.record(z.string(), z.number()) })
+    const markBody = z.object({ seen: z.number(), unread: z.number() })
+    const mark = (g: string, hall: string, upToSeq: unknown) =>
+      harness.request(readPath(g, hall), {
+        method: 'POST',
+        headers: { ...headers(g), 'content-type': 'application/json' },
+        body: JSON.stringify({ upToSeq }),
+      })
+
+    test('opening a Mailbox clears its unread count, and an older replay changes nothing', async () => {
+      const g = await found()
+      await ask(g, 'heralds', 'health', 'one')
+      await ask(g, 'health', 'heralds', 'two')
+      const before = unreadBody.parse(
+        await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
+      )
+      expect(before.halls.heralds).toBe(2)
+      expect(before.halls.health).toBe(2)
+      const newest = (await harness.adapters.inquiries.list(g, { hallId: 'heralds', limit: 1 }))
+        .inquiries[0]?.seq
+      const res = await mark(g, 'heralds', newest)
+      expect(res.status).toBe(200)
+      expect(markBody.parse(await res.json())).toEqual({ seen: newest ?? 0, unread: 0 })
+      const replay = await mark(g, 'heralds', 1)
+      expect(markBody.parse(await replay.json())).toEqual({ seen: newest ?? 0, unread: 0 })
+      const after = unreadBody.parse(
+        await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
+      )
+      expect(after.halls.heralds).toBe(0)
+      expect(after.halls.health).toBe(2)
+    })
+
+    test('a bad marker or a Hall the guild does not have is refused', async () => {
+      const g = await found()
+      for (const bad of [-1, 1.5, 'x', null, 10 ** 17]) {
+        expect((await mark(g, 'heralds', bad)).status).toBe(400)
+      }
+      expect((await mark(g, 'no-such-hall', 1)).status).toBe(404)
+    })
+
+    test('without a session the routes answer 401', async () => {
+      const g = await strict.foundGuild({ name: 'Inquiries', goal: 'g' })
+      await strict.adapters.config.seed(g)
+      const auth = { headers: { 'x-guild-id': g } }
+      expect((await strict.request(unreadPath(g), auth)).status).toBe(401)
+      expect(
+        (
+          await strict.request(readPath(g), {
+            ...auth,
+            method: 'POST',
+            body: JSON.stringify({ upToSeq: 1 }),
+          })
+        ).status
+      ).toBe(401)
+    })
+
+    test('cross-guild probe: another guild looks like a missing one and keeps its marker', async () => {
+      const caller = await found()
+      const victim = await found()
+      await ask(victim, 'heralds', 'health', 'secret question')
+      await expectGuildIsolation(harness, {
+        build: (_caller, target) => [unreadPath(target), { headers: headers(caller) }],
+        snapshot: (g) => harness.adapters.inquiries.unreadCounts(g, ['heralds']),
+      })
+      await expectGuildIsolation(harness, {
+        build: (_caller, target) => [
+          readPath(target),
+          {
+            method: 'POST',
+            headers: { ...headers(caller), 'content-type': 'application/json' },
+            body: JSON.stringify({ upToSeq: 1000 }),
+          },
+        ],
+        snapshot: (g) => harness.adapters.inquiries.unreadCounts(g, ['heralds']),
+      })
+    })
+  })
 })

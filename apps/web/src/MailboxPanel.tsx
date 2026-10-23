@@ -6,10 +6,12 @@ import {
   loadBugReports,
   loadDossiers,
   loadInquiries,
+  MAILBOX_READ_EVENT,
   type MailBugReport,
   type MailDossier,
   type MailInquiry,
   mailboxRefusal,
+  markMailboxRead,
   requestDossier,
 } from './mailbox'
 import type { Session } from './passkeys'
@@ -166,6 +168,13 @@ export function MailboxPanel({ session }: { session: Session | null }) {
       const query = { limit: PAGE, ...(after === undefined ? {} : { after }) }
       if (tab === 'inquiries') {
         const got = await loadInquiries(session, fetch, hallId, query)
+        const newest = got.inquiries[0]
+        if (after === undefined && newest) {
+          // Seeing the newest page is reading the Mailbox: record it, then let every view recount.
+          markMailboxRead(session, fetch, hallId, newest.seq)
+            .then(() => window.dispatchEvent(new Event(MAILBOX_READ_EVENT)))
+            .catch(() => undefined)
+        }
         return { rows: got.inquiries.map((i) => inquiryRow(i, hallName)), next: got.next }
       }
       if (tab === 'dossiers') {
