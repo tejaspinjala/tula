@@ -5,7 +5,7 @@
 import { DEPTH, type Furniture, type Room } from './room'
 
 /** The size of one atlas frame, in px. */
-export interface FrameSize {
+interface FrameSize {
   w: number
   h: number
 }

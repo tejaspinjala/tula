@@ -19,7 +19,7 @@ export const ROOM_STYLES = [
 /** A Hall room style. */
 export type RoomStyle = (typeof ROOM_STYLES)[number]
 /** The template size a room uses: up to 4, 8 or 12 stations. */
-export type RoomSize = 'S' | 'M' | 'L'
+type RoomSize = 'S' | 'M' | 'L'
 
 /** A tile position. */
 export interface Point {
@@ -27,12 +27,12 @@ export interface Point {
   y: number
 }
 /** A rectangle in tiles. */
-export interface Rect extends Point {
+interface Rect extends Point {
   w: number
   h: number
 }
 /** Which way a Member at a station faces. */
-export type Facing = 'up' | 'down' | 'left' | 'right'
+type Facing = 'up' | 'down' | 'left' | 'right'
 
 /** The parts of a Hall the room model reads. */
 export interface RoomHall {
@@ -49,7 +49,7 @@ export interface RoomMember {
   captain?: boolean
 }
 /** Where one Member works. */
-export interface Station {
+interface Station {
   memberId: string
   /** The tile the Member stands on. */
   tile: Point
@@ -69,7 +69,7 @@ export interface Furniture {
   tall: boolean
 }
 /** A way into another room or map. */
-export interface Doorway {
+interface Doorway {
   tile: Rect
   /** The room id (`great-hall`, `hall:<id>`) or town map (`plaza`) it leads to. */
   target: string
@@ -87,14 +87,14 @@ export interface Light {
   radius: number
 }
 /** A landmark for the Guild Map. */
-export interface Poi {
+interface Poi {
   kind: 'steward-desk' | 'seal-desk' | 'quest-board' | 'mailbox' | 'gate' | 'council-table'
   tile: Rect
   /** The tile a Member waits on, or the Guild Master stands on to use it. */
   stand: Point
 }
 /** Tile layers by frame name, row-major, `null` where empty. */
-export interface RoomLayers {
+interface RoomLayers {
   floor: (string | null)[]
   wallFace: (string | null)[]
   wallTop: (string | null)[]

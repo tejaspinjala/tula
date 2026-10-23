@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { roomProps, roomTags } from './layout'
+import { bubbleCentreX, roomTags } from './roomtags'
 
 const hall = (name: string, locked = false, paused = false, kind: 'work' | 'private' = 'work') => ({
   name,
@@ -49,19 +49,10 @@ test('an unlocked private Hall is a calm lived-in room with a privacy mark; a lo
   expect(tags[2]).toMatchObject({ privateMark: false, warmth: 0 })
 })
 
-test('each private room gets its own deterministic cozy props, all inside the room', () => {
-  const room = { x: 2, y: 3, w: 24, h: 15 }
-  const kinds = (id: string) => roomProps(id, room).map((p) => p.kind)
-  expect(roomProps('health', room)).toEqual(roomProps('health', room))
-  expect(kinds('health')).toEqual(['plant', 'shelf', 'cushion'])
-  expect(kinds('personal')).toEqual(['shelf', 'plant', 'lamp'])
-  expect(kinds('relationships')).toEqual(['cushion', 'cushion', 'plant'])
-  for (const id of ['health', 'personal', 'relationships']) {
-    for (const p of roomProps(id, room)) {
-      expect(p.x).toBeGreaterThanOrEqual(room.x)
-      expect(p.x).toBeLessThan(room.x + room.w)
-      expect(p.y).toBeGreaterThanOrEqual(room.y)
-      expect(p.y).toBeLessThan(room.y + room.h)
-    }
-  }
+test('a speech bubble is clamped inside the camera view', () => {
+  const view = { x: 100, width: 200 }
+  expect(bubbleCentreX(view, 120, 150)).toBe(100 + 60 + 1)
+  expect(bubbleCentreX(view, 120, 290)).toBe(300 - 60 - 1)
+  expect(bubbleCentreX(view, 120, 200)).toBe(200)
+  expect(bubbleCentreX(view, 400, 200)).toBe(200)
 })

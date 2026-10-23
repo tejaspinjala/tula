@@ -8,7 +8,7 @@ import { type Atlases, actorShadow, roomSprites, type Sprite } from './render'
 import type { Room } from './room'
 
 /** Texture keys of the two atlases. */
-export const INTERIORS = 'interiors'
+const INTERIORS = 'interiors'
 export const FURNITURE = 'furniture'
 const MAPS = { [INTERIORS]: 'interiors-map', [FURNITURE]: 'furniture-map' } as const
 

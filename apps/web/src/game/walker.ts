@@ -4,7 +4,7 @@ import { followPath, type Vec } from './walk'
 import type { MapKey } from './world'
 
 /** How fast a Member walks about the town, in tiles per second (a Member strolls; the Guild Master runs). */
-export const STROLL = 5
+const STROLL = 5
 
 /** A Member's body in the town: which map, where, and what they are doing. Plain data, no engine objects. */
 export interface Walker {

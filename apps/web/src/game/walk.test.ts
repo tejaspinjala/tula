@@ -1,19 +1,6 @@
 import { expect, test } from 'bun:test'
-import { hallLayout } from './layout'
-import {
-  announceRoom,
-  direction,
-  findPath,
-  followPath,
-  HALF,
-  moveBy,
-  roomAt,
-  stick,
-  teleportTile,
-  type Vec,
-} from './walk'
+import { direction, findPath, followPath, HALF, hallTitle, moveBy, stick, type Vec } from './walk'
 
-const layout = hallLayout()
 const open = () => true
 const wallAt5 = (x: number) => x !== 5
 
@@ -38,12 +25,6 @@ test('the hitbox cannot squeeze a corner into a blocked tile', () => {
   const p = moveBy({ x: 4.6, y: 4.5 }, 0.5, 0.5, blocked)
   const overlaps = (v: Vec) => v.x + HALF > 5 && v.x - HALF < 6 && v.y + HALF > 5 && v.y - HALF < 6
   expect(overlaps(p)).toBe(false)
-})
-
-test('the hall edge and walls block walking from the entrance', () => {
-  const entrance = { x: 38.5, y: 12.5 }
-  expect(moveBy(entrance, 5, 0, layout.walkable).x).toBeLessThan(40)
-  expect(moveBy(entrance, 0, -5, layout.walkable).y).toBeGreaterThan(10)
 })
 
 test('keys give a unit direction; opposite keys cancel; diagonals are not faster', () => {
@@ -73,19 +54,6 @@ test('a path goes around walls and ends on the target; blocked targets have none
   expect(findPath(walkable, { x: 0, y: 0 }, { x: 2, y: 0 })).toBeNull()
 })
 
-test('a path leads from the entrance into a room through its doorway', () => {
-  const room = layout.rooms[0]
-  const door = layout.doorways[0]
-  expect(room).toBeDefined()
-  expect(door).toBeDefined()
-  if (!room || !door) {
-    return
-  }
-  const path = findPath(layout.walkable, { x: 38, y: 12 }, { x: room.x + 5, y: room.y + 4 })
-  expect(path).not.toBeNull()
-  expect(path?.some((t) => t.x >= door.x && t.x < door.x + door.w && t.y === door.y)).toBe(true)
-})
-
 test('following a path moves toward the next tile centre and consumes reached tiles', () => {
   const path = [
     { x: 1, y: 0 },
@@ -102,31 +70,8 @@ test('following a path moves toward the next tile centre and consumes reached ti
   expect(c.path).toEqual([])
 })
 
-test('teleporting puts the Guild Master on a walkable tile inside that room', () => {
-  layout.rooms.forEach((_room, slot) => {
-    const tile = teleportTile(layout.rooms, slot, layout.walkable)
-    expect(tile).not.toBeNull()
-    if (tile) {
-      expect(layout.walkable(tile.x, tile.y)).toBe(true)
-      expect(roomAt(layout.rooms, { x: tile.x + 0.5, y: tile.y + 0.5 })).toBe(slot)
-    }
-  })
-  expect(teleportTile(layout.rooms, 99, layout.walkable)).toBeNull()
-})
-
-test('the announcement names the Hall, the empty room, or the hallway', () => {
-  expect(announceRoom('Research', true)).toBe('You are in the Research Hall.')
-  expect(announceRoom(undefined, true)).toBe('You are in an empty room.')
-  expect(announceRoom(null, false)).toBe('You are in the hallway.')
-})
-
-test('a name already ending in Hall is not given a second Hall', () => {
-  expect(announceRoom('Heralds Hall', true)).toBe('You are in the Heralds Hall.')
-  expect(announceRoom('Great hall', true)).toBe('You are in the Great hall.')
-})
-
-test('roomAt names the room the position is in, and null in the corridor', () => {
-  expect(roomAt(layout.rooms, { x: 5.5, y: 4.5 })).toBe(0)
-  expect(roomAt(layout.rooms, { x: 20.5, y: 20.5 })).toBe(4)
-  expect(roomAt(layout.rooms, { x: 38.5, y: 12.5 })).toBeNull()
+test('a Hall is titled with Hall once; a name already ending in Hall keeps it', () => {
+  expect(hallTitle('Research')).toBe('Research Hall')
+  expect(hallTitle('Heralds Hall')).toBe('Heralds Hall')
+  expect(hallTitle('Great hall')).toBe('Great hall')
 })

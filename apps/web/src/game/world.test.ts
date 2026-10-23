@@ -94,3 +94,9 @@ test('a saved last location naming the old vault map reads as the Counting House
   expect(readSavedMapId(null)).toBeNull()
   expect<string[]>([...MAP_IDS]).not.toContain('vault')
 })
+
+test('the Great Hall gate to the plaza lands on the plaza tile beside its way back', () => {
+  const gate = mapData('hall').doors.find((d) => d.to === 'plaza')
+  expect(gate).toMatchObject({ to: 'plaza', toX: 5, toY: 7 })
+  expect(mapData('plaza').walkable(5, 7)).toBe(true)
+})

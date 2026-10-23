@@ -7,7 +7,7 @@ import { hallTitle } from './walk'
 import { isRoomMapId, type MapKey, readSavedMapId } from './world'
 
 /** Steps to black (and the same number back) when walking through a doorway. */
-export const FADE_FRAMES = 4
+const FADE_FRAMES = 4
 /** How long each stepped frame of the fade lasts, in ms. */
 export const FADE_FRAME_MS = 70
 

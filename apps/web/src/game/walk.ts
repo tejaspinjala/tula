@@ -156,53 +156,8 @@ export function followPath(
   return { pos: at, path: rest }
 }
 
-/** The walkable tile nearest a room's centre, or null for an unknown room. */
-export function teleportTile(
-  rooms: readonly { x: number; y: number; w: number; h: number }[],
-  slot: number,
-  walkable: Walkable
-): Vec | null {
-  const room = rooms[slot]
-  if (!room) {
-    return null
-  }
-  const cx = room.x + room.w / 2 - 0.5
-  const cy = room.y + room.h / 2 - 0.5
-  let best: Vec | null = null
-  let bestGap = Number.POSITIVE_INFINITY
-  for (let y = room.y; y < room.y + room.h; y++) {
-    for (let x = room.x; x < room.x + room.w; x++) {
-      const gap = Math.hypot(x - cx, y - cy)
-      if (walkable(x, y) && gap < bestGap) {
-        best = { x, y }
-        bestGap = gap
-      }
-    }
-  }
-  return best
-}
-
 /** A Hall's name as a title: "Research" is "Research Hall", "Heralds Hall" stays as it is. */
 export function hallTitle(name: string): string {
   const trimmed = name.trim()
   return /\bhall$/i.test(trimmed) ? trimmed : `${trimmed} Hall`
-}
-
-/** What the live region says about where the Guild Master is. */
-export function announceRoom(hallName: string | null | undefined, inRoom: boolean): string {
-  if (!inRoom) {
-    return 'You are in the hallway.'
-  }
-  return hallName ? `You are in the ${hallTitle(hallName)}.` : 'You are in an empty room.'
-}
-
-/** The index of the room rectangle holding a position, or null in the corridors. */
-export function roomAt(
-  rooms: readonly { x: number; y: number; w: number; h: number }[],
-  pos: Vec
-): number | null {
-  const index = rooms.findIndex(
-    (r) => pos.x >= r.x && pos.x < r.x + r.w && pos.y >= r.y && pos.y < r.y + r.h
-  )
-  return index === -1 ? null : index
 }
