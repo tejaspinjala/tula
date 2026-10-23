@@ -48,7 +48,9 @@ export function sceneSummary(scene: SceneState): string {
     if (members.length === 0) {
       parts.push(`${room.name} has no Members.`)
     } else if (working.length === 0) {
-      parts.push(`${room.name}: all ${members.length} Members idle.`)
+      parts.push(
+        `${room.name}: ${members.length === 1 ? 'the only Member is' : `all ${members.length} Members are`} idle.`
+      )
     } else {
       parts.push(
         `${room.name}: ${working.map((m) => `${m.name} is working${titles(m)}`).join(', ')}.`

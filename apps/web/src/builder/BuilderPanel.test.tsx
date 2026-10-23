@@ -148,13 +148,19 @@ function world(
   return { urls, puts, state, fetcher, browser, proof: () => proofHeader }
 }
 
-async function mount(w: ReturnType<typeof world>, desktop: boolean) {
+async function mount(w: ReturnType<typeof world>, desktop: boolean, onConfigChanged?: () => void) {
   const host = document_.createElement('div')
   document_.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
     root.render(
-      <BuilderPanel session={session} fetcher={w.fetcher} browser={w.browser} desktop={desktop} />
+      <BuilderPanel
+        session={session}
+        fetcher={w.fetcher}
+        browser={w.browser}
+        desktop={desktop}
+        onConfigChanged={onConfigChanged}
+      />
     )
   })
   await act(async () => {
@@ -440,4 +446,17 @@ test('after a stale refusal, Reload fetches the latest version and the next Save
   await click(host, 'Save')
   expect(w.puts.at(-1)?.body.baseVersion).toBe(2)
   expect(host.textContent).toContain('Saved as version 3')
+})
+
+test('a saved room style tells the world the config changed so the Hall room restyles live', async () => {
+  const w = world()
+  let changed = 0
+  const host = await mount(w, true, () => {
+    changed += 1
+  })
+  await click(host, 'Heralds Hall')
+  await choose(host, 'Room style', 'studio')
+  expect(changed).toBe(0)
+  await click(host, 'Save')
+  expect(changed).toBe(1)
 })

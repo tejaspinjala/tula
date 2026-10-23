@@ -1253,20 +1253,32 @@ export class HallScene extends Phaser.Scene {
         }
         // The whole name on the sign, wrapped; locked and paused say so on a last line.
         const lines = [
-          ...signLines(hall.name),
+          ...signLines(hall.name, 13, hall.locked || hall.paused ? 2 : 3),
           ...(hall.locked ? ['LOCKED'] : hall.paused ? ['PAUSED'] : []),
         ]
         const x = (door.tile.x + 0.5) * s
         const bottom = (door.tile.y - 0.5) * s
+        // Half the font's native size, left edge on a whole pixel: a fractional edge makes the thin
+        // letters (i, l, t) vanish at the 2x zoom of a phone.
         const text = this.add
-          .bitmapText(x, bottom - 1, FONT, lines.join('\n'), 8)
-          .setOrigin(0.5, 1)
+          .bitmapText(0, Math.round(bottom - 1), FONT, lines.join('\n'), 16)
+          .setScale(0.5)
+          .setOrigin(0, 1)
           .setCenterAlign()
           .setTint(tag.closed ? 0xff9a8a : 0xffffff)
           .setDepth(DEPTH.top + 3)
+        const left = Math.round(x - text.displayWidth / 2)
+        text.setX(left)
         const plate = this.add
-          .rectangle(x, bottom, text.width + 4, text.height + 3, 0x1a1a2a, 0.8)
-          .setOrigin(0.5, 1)
+          .rectangle(
+            left - 2,
+            Math.round(bottom),
+            text.displayWidth + 4,
+            text.displayHeight + 3,
+            0x1a1a2a,
+            0.8
+          )
+          .setOrigin(0, 1)
           .setDepth(DEPTH.top + 2)
         made.push(plate, text)
         // A locked Hall's doorway is a shut door with a bar across it; a Private Hall's door looks closed until the Guild Master nears.

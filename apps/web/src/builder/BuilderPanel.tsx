@@ -37,6 +37,8 @@ export interface BuilderPanelProps {
   browser?: PasskeyBrowser
   /** Forces the desktop canvas (true) or the phone's read-only tree (false); default follows the screen width. */
   desktop?: boolean
+  /** Called after a save, restore or confirm changes the config in force, so the world redraws its Halls. */
+  onConfigChanged?: (() => void) | undefined
 }
 
 // One stable function: a fresh default per render would re-run the loading effect forever.
@@ -80,6 +82,7 @@ export function BuilderPanel({
   fetcher = liveFetch,
   browser = webAuthnBrowser,
   desktop,
+  onConfigChanged,
 }: BuilderPanelProps) {
   const wide = useDesktop(desktop)
   const [saved, setSaved] = useState<BuilderConfig | null>(null)
@@ -175,6 +178,7 @@ export function BuilderPanel({
     }
     setPending(null)
     await reload()
+    onConfigChanged?.()
     setMessage(`Saved as version ${outcome.version} (${outcome.change}).`)
   }
   const attempt = async (run: () => Promise<void>) => {
@@ -213,6 +217,7 @@ export function BuilderPanel({
         await confirmVersion(session, pending.version, fetcher, browser)
         setPending(null)
         await reload()
+        onConfigChanged?.()
         setMessage(`Version ${pending.version} is confirmed and in force.`)
       }
     })
