@@ -11,14 +11,21 @@
   margin: 0 0 calc(var(--px) * 2);
   color: var(--px-danger-700);
 }
-.gmap-grid {
+.gmap-schematic {
   position: relative;
+  background: var(--px-paper-200);
+  border: calc(var(--px) * 2) solid var(--px-line);
+}
+.gmap-grid {
   display: grid;
   grid-auto-rows: minmax(calc(var(--px) * 40), auto);
   gap: calc(var(--px) * 6) 0;
+  margin: 0;
   padding: calc(var(--px) * 3);
-  background: var(--px-paper-200);
-  border: calc(var(--px) * 2) solid var(--px-line);
+  list-style: none;
+}
+.gmap-cell {
+  display: grid;
 }
 .gmap-lines {
   position: absolute;

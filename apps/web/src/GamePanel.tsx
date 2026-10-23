@@ -423,11 +423,7 @@ export function GamePanel({
     }
     let live = true
     const recount = () => {
-      countUnread(
-        session,
-        fetch,
-        roster.halls.filter((h) => !h.locked).map((h) => h.id)
-      )
+      countUnread(session, fetch)
         .then((count) => live && setUnread(count))
         .catch(() => undefined)
     }

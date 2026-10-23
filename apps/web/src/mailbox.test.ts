@@ -151,11 +151,11 @@ test('every refusal the server can give reads as an in-world line', () => {
   expect(mailboxRefusal(new Error('boom'))).toBe('The courier could not get through. Try again.')
 })
 
-test('countUnread sums the per-Hall unread counts the server keeps', async () => {
+test('countUnread reads the server total, which counts an Inquiry between two Halls once', async () => {
   const { calls, fetcher } = stub([
-    { status: 200, body: { halls: { heralds: 2, health: 3, locked: 9 } } },
+    { status: 200, body: { halls: { heralds: 2, health: 2 }, total: 2 } },
   ])
-  expect(await countUnread(session, fetcher, ['heralds', 'health'])).toBe(5)
+  expect(await countUnread(session, fetcher)).toBe(2)
   expect(calls[0]?.url).toBe('/api/guilds/g1/mailbox/unread')
 })
 

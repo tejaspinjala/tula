@@ -257,4 +257,23 @@ export class PgInquiryStore implements InquiryStore {
     }
     return counts
   }
+
+  async unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number> {
+    if (hallIds.length === 0) {
+      return 0
+    }
+    const rows = await this.db.withGuild(
+      guildId,
+      (tx) => tx`
+        select count(distinct i.seq)::int as n
+        from unnest(${[...hallIds]}::text[]) as h(hall_id)
+        left join mailbox_read_markers m
+          on m.guild_id = ${guildId} and m.hall_id = h.hall_id
+        join inquiries i
+          on i.guild_id = ${guildId} and i.status = 'open'
+          and (i.from_hall = h.hall_id or i.to_hall = h.hall_id)
+          and i.seq > coalesce(m.seen_seq, 0)`
+    )
+    return z.object({ n: z.number() }).parse(rows[0]).n
+  }
 }

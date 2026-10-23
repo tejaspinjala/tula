@@ -126,4 +126,9 @@ export interface InquiryStore {
    * its read marker: the Mailbox's unread count. Every id asked for is a key of the result.
    */
   unreadCounts(guildId: string, hallIds: readonly string[]): Promise<Record<string, number>>
+  /**
+   * How many distinct open Inquiries are unread in at least one of `hallIds`: the Mailbox's total.
+   * An Inquiry between two of those Halls counts once, where summing `unreadCounts` counts it twice.
+   */
+  unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number>
 }
