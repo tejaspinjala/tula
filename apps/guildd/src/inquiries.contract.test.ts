@@ -180,6 +180,27 @@ describe('Hall inquiries routes', () => {
       expect(after.halls.health).toBe(2)
     })
 
+    test('a locked Hall never counts: its Inquiries are not in the Halls or the total', async () => {
+      const g = await found()
+      await ask(g, 'health', 'heralds', 'to the locked Hall')
+      await ask(g, 'heralds', 'scribes', 'between locked and open')
+      const { config } = await harness.adapters.config.current(g)
+      const proposed = await harness.adapters.config.propose(g, {
+        ...config,
+        halls: config.halls.map((h) => (h.id === 'heralds' ? { ...h, locked: true } : h)),
+      })
+      if (proposed.status !== 'applied') {
+        await harness.adapters.config.confirm(g, proposed.version)
+      }
+      const body = unreadBody.parse(
+        await (await harness.request(unreadPath(g), { headers: headers(g) })).json()
+      )
+      expect(body.halls.heralds).toBeUndefined()
+      expect(body.halls.health).toBe(1)
+      expect(body.halls.scribes).toBe(1)
+      expect(body.total).toBe(2)
+    })
+
     test('a bad marker or a Hall the guild does not have is refused', async () => {
       const g = await found()
       for (const bad of [-1, 1.5, 'x', null, 10 ** 17]) {
