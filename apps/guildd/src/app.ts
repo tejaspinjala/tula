@@ -331,6 +331,7 @@ const inquiryPage = z.object({
     .optional(),
   limit: z.coerce.number().int().min(1).max(MAX_INQUIRY_PAGE).default(50),
 })
+const markMailboxInput = z.object({ upToSeq: z.number().int().min(0).max(9_007_199_254_740_991) })
 const sealPage = z.object({
   after: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SEAL_PAGE).default(50),
@@ -577,6 +578,8 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/guilds/:id/halls/:hallId/missives', limited('missives-read'))
   app.get('/guilds/:id/halls/:hallId/inquiries', limited('missives-read'))
   app.get('/guilds/:id/inquiries/:inquiryId', limited('missives-read'))
+  app.get('/guilds/:id/mailbox/unread', limited('missives-read'))
+  app.post('/guilds/:id/halls/:hallId/mailbox/read', limited('mailbox-mark'))
   app.get('/guilds/:id/halls/:hallId/dossiers', limited('dossier-read'))
   app.get('/guilds/:id/dossiers/:dossierId', limited('dossier-read'))
   app.get('/guilds/:id/council/sessions', limited('dossier-read'))
@@ -1343,6 +1346,42 @@ export function createApp(deps: AppDeps): Hono {
         ...(page.data.after === undefined ? {} : { after: page.data.after }),
       })
     )
+  })
+
+  // The Mailbox's real unread count per Hall: open Inquiries newer than the Guild Master's marker.
+  app.get('/guilds/:id/mailbox/unread', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const { config } = await deps.config.current(who.guild)
+    return c.json({
+      halls: await deps.inquiries.unreadCounts(
+        who.guild,
+        config.halls.map((h) => h.id)
+      ),
+    })
+  })
+
+  // Opening a Hall's Mailbox records what the Guild Master has seen, up to `upToSeq`. Idempotent:
+  // the store never moves the marker backwards or past the Hall's newest Inquiry.
+  app.post('/guilds/:id/halls/:hallId/mailbox/read', async (c) => {
+    const who = await guildMasterSessionFor(c)
+    if ('res' in who) {
+      return who.res
+    }
+    const hallId = hallParam.safeParse(c.req.param('hallId'))
+    const body = markMailboxInput.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) {
+      return c.json({ error: 'invalid_request' }, 400)
+    }
+    const { config } = await deps.config.current(who.guild)
+    if (!hallId.success || !config.halls.some((h) => h.id === hallId.data)) {
+      return c.json({ error: 'hall_not_found' }, 404)
+    }
+    const seen = await deps.inquiries.markRead(who.guild, hallId.data, body.data.upToSeq)
+    const counts = await deps.inquiries.unreadCounts(who.guild, [hallId.data])
+    return c.json({ seen, unread: counts[hallId.data] ?? 0 })
   })
 
   // One Inquiry for the Guild Master; an unknown id and another guild's id look the same.

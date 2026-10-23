@@ -33,6 +33,7 @@ export type RateRoute =
   | 'learning-scan'
   | 'events-history'
   | 'missives-read'
+  | 'mailbox-mark'
   | 'dossier-read'
   | 'dossier-write'
   | 'bug-report-read'
@@ -126,6 +127,8 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
   // History reads page through the whole chain and fold it, so they are bounded per client and guild.
   'events-history': writeLimits(60, 240),
   'missives-read': writeLimits(60, 240),
+  // Marking a Mailbox read is one small upsert, made once each time a Mailbox opens.
+  'mailbox-mark': writeLimits(60, 240),
   // Reading a Dossier is a cheap indexed read; creating one re-reads every cited artifact from the object store.
   'dossier-read': writeLimits(60, 240),
   'dossier-write': writeLimits(20, 60),
@@ -275,6 +278,7 @@ export const RATE_ROUTE_AUTH: Record<RateRoute, RateAuth> = {
   'learning-scan': 'session',
   'events-history': 'session',
   'missives-read': 'session',
+  'mailbox-mark': 'session',
   'dossier-read': 'session',
   'dossier-write': 'session',
   'bug-report-read': 'session',
