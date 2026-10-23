@@ -365,8 +365,15 @@ export class HallScene extends Phaser.Scene {
   /** Moves the Guild Master into a Hall's room (its slot) or back to the Great Hall entrance (null). */
   teleport(slot: number | null): void {
     const key = slot === null ? 'hall' : roomKeys()[slot]
-    const spot = key === undefined ? null : landingFor(key)
-    if (key === undefined || spot === null) {
+    if (key !== undefined) {
+      this.travelTo(key)
+    }
+  }
+
+  /** Moves the Guild Master to where a map is entered (any town map or Hall room); a map with no open way in is left alone. */
+  travelTo(key: MapKey): void {
+    const spot = landingFor(key)
+    if (spot === null) {
       return
     }
     this.chasing = true

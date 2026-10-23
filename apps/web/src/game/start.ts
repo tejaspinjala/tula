@@ -5,7 +5,7 @@ import { type HallOptions, HallScene } from './HallScene'
 import type { LookChoice } from './look'
 import type { SceneState } from './scene'
 import { refitScale, watchSize } from './watch'
-import { PLACE_NAMES, type PlaceName } from './world'
+import { type MapKey, PLACE_NAMES, type PlaceName } from './world'
 
 /** What the page holds of a running game: draw a state, zoom, pause, tear down. */
 export interface GameHandle {
@@ -14,6 +14,8 @@ export interface GameHandle {
   fit: () => void
   /** Moves the Guild Master to a room (its slot), or to the entrance (null). */
   teleport: (slot: number | null) => void
+  /** Takes the Guild Master to any map of the town or Hall room. */
+  travel: (key: MapKey) => void
   /** Walks the Guild Master to a named place of the town (any map). */
   goTo: (place: PlaceName) => void
   /** Lights the world for a time of day (null follows the clock). */
@@ -106,6 +108,7 @@ export function startGame(parent: HTMLElement, options: HallOptions): GameHandle
     zoomBy: (step) => scene.zoomBy(step),
     fit: () => scene.fit(),
     teleport: (slot) => scene.teleport(slot),
+    travel: (key) => scene.travelTo(key),
     goTo: (place) => scene.goTo(place),
     setPhase: (phase) => (phase ? scene.setPhase(phase) : scene.setPhase(phaseNow(), false)),
     setCouncilState: (state) => scene.setCouncilState(state),

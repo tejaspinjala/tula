@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { guildMap, mapLayout, mapSummary, miniView, moveCursor, travelSlot } from './guildmap'
+import { guildMap, mapLayout, mapSummary, miniView, moveCursor, type TownMap } from './guildmap'
 import { greatHall, type Room, type RoomHall, roomFor } from './room'
 import type { SceneMember, SceneRoom, SceneState } from './scene'
+import type { MapKey } from './world'
 
 const hall = (id: string, name: string, kind: 'work' | 'private', locked: boolean, index: number) =>
   ({ id, name, kind, locked, index }) satisfies RoomHall
@@ -67,10 +68,17 @@ const scene: SceneState = {
   coinsCents: 0,
   appliedSeq: 0,
 }
+const towns: Partial<Record<MapKey, TownMap>> = {
+  plaza: { width: 36, height: 20, links: ['hall', 'archive', 'counting-house', 'trail'] },
+  archive: { width: 16, height: 12, links: ['plaza'] },
+  'counting-house': { width: 14, height: 10, links: ['plaza'] },
+  trail: { width: 28, height: 10, links: ['plaza'] },
+}
 const build = (current: 'hall' | 'hall:w' = 'hall') =>
   guildMap({
     scene,
     roomOf: (k) => roomsByKey.get(k) ?? null,
+    townOf: (k) => towns[k] ?? null,
     current,
     master: { x: 3, y: 4 },
     unread: 5,
@@ -106,6 +114,25 @@ describe('the Guild Map model', () => {
     expect(byId['hall:w']?.bounds).toMatchObject({ x: 0, y: 0 })
   })
 
+  test('the plaza, Archive, Counting House and trail are rooms with their doorway links', () => {
+    const byId = Object.fromEntries(build().rooms.map((r) => [r.id, r]))
+    expect(byId.plaza).toMatchObject({
+      name: 'Plaza',
+      kind: 'town',
+      hallId: null,
+      locked: false,
+      private: false,
+      memberCount: 0,
+      bounds: { x: 0, y: 0, w: 36, h: 20 },
+    })
+    expect(byId.plaza?.links).toEqual(['hall', 'archive', 'counting-house', 'trail'])
+    expect(byId.archive?.name).toBe('Archive')
+    expect(byId['counting-house']?.name).toBe('Counting House')
+    expect(byId.trail?.name).toBe('Trail')
+    expect(byId.trail?.links).toEqual(['plaza'])
+    expect(byId.hall?.links).toContain('plaza')
+  })
+
   test('the Guild Master is a mark in the current room', () => {
     expect(build('hall:w').marks).toContainEqual({
       kind: 'guildMaster',
@@ -136,13 +163,20 @@ describe('the mini map view', () => {
   })
 })
 
-describe('travelling from the map', () => {
-  test('the Great Hall is the entrance, a Hall room its slot, anything else nowhere', () => {
-    const keys = ['hall:w', 'hall:p', 'hall:l'] as const
-    expect(travelSlot('hall', keys)).toBeNull()
-    expect(travelSlot('hall:p', keys)).toBe(1)
-    expect(travelSlot('hall:zzz', keys)).toBeUndefined()
-    expect(travelSlot('plaza', keys)).toBeUndefined()
+describe('the town on the summary and the mini map', () => {
+  test('the Great Hall names the plaza as a door; the plaza names the other town maps', () => {
+    expect(mapSummary(build('hall'))).toContain('Plaza')
+    const inPlaza = guildMap({
+      scene,
+      roomOf: (k) => roomsByKey.get(k) ?? null,
+      townOf: (k) => towns[k] ?? null,
+      current: 'plaza',
+      master: { x: 3, y: 4 },
+      unread: 0,
+    })
+    const text = mapSummary(inPlaza)
+    expect(text).toContain('Mini map: Plaza.')
+    expect(text).toContain('Doors lead to Great Hall, Archive, Counting House, Trail.')
   })
 })
 
@@ -150,9 +184,27 @@ describe('the Guild Map schematic layout', () => {
   const layout = mapLayout(build())
   const slot = (id: string) => layout.slots.find((s) => s.id === id)
 
+  test('the town maps stack in the column right of the Hall rooms, the plaza level with the Great Hall', () => {
+    expect(['plaza', 'archive', 'counting-house', 'trail'].map((id) => [id, slot(id)])).toEqual([
+      ['plaza', { id: 'plaza', col: 3, row: 0 }],
+      ['archive', { id: 'archive', col: 3, row: 1 }],
+      ['counting-house', { id: 'counting-house', col: 3, row: 2 }],
+      ['trail', { id: 'trail', col: 3, row: 3 }],
+    ])
+  })
+
+  test('arrow keys travel the cursor across the town', () => {
+    expect(moveCursor(layout, 'hall', 'right')).toBe('plaza')
+    expect(moveCursor(layout, 'plaza', 'down')).toBe('archive')
+    expect(moveCursor(layout, 'archive', 'down')).toBe('counting-house')
+    expect(moveCursor(layout, 'counting-house', 'down')).toBe('trail')
+    expect(moveCursor(layout, 'trail', 'down')).toBe('trail')
+    expect(moveCursor(layout, 'archive', 'left')).toBe('hall:l')
+  })
+
   test('the Great Hall sits on top, the Hall rooms in a row below, the Town right of them', () => {
     expect(slot('hall')).toMatchObject({ row: 0, col: 1 })
-    expect(layout.slots.filter((s) => s.row === 1).map((s) => [s.id, s.col])).toEqual([
+    expect(layout.slots.filter((s) => s.row === 1 && s.col < 3).map((s) => [s.id, s.col])).toEqual([
       ['hall:w', 0],
       ['hall:p', 1],
       ['hall:l', 2],
@@ -165,8 +217,8 @@ describe('the Guild Map schematic layout', () => {
     expect(moveCursor(layout, 'hall:w', 'right')).toBe('hall:p')
     expect(moveCursor(layout, 'hall:p', 'left')).toBe('hall:w')
     expect(moveCursor(layout, 'hall:l', 'up')).toBe('hall')
-    expect(moveCursor(layout, 'hall:l', 'right')).toBe('hall:l')
-    expect(moveCursor(layout, 'hall:l', 'down')).toBe('hall:l')
+    expect(moveCursor(layout, 'hall:l', 'right')).toBe('archive')
+    expect(moveCursor(layout, 'hall:l', 'down')).toBe('counting-house')
     expect(moveCursor(layout, 'hall', 'left')).toBe('hall')
   })
 })

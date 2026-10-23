@@ -90,12 +90,6 @@
   font-size: var(--text-sm);
   color: var(--px-text-muted);
 }
-.gmap-town {
-  cursor: default;
-  align-self: center;
-  background: var(--px-paper);
-  color: var(--px-text);
-}
 
 /* On a phone the mini map is a Map button in the lower-left corner; a world alert rides above it. */
 @media (max-width: 599px) {
