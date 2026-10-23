@@ -3,6 +3,7 @@
  * templates, with a station per Member, doorways, collision, depth bands, lights and map POIs. No Phaser.
  */
 import { z } from 'zod'
+import { elderTiles } from './council'
 import templates from './roomtemplates.tiled.json'
 
 /** The room styles a Hall can be furnished in. */
@@ -454,6 +455,9 @@ export function greatHall(halls: readonly RoomHall[]): Room {
   const council: Rect = { x: 14, y: 8, w: 2, h: 1 }
   for (let i = 0; i < council.w; i++) {
     collision[at(council.x + i, council.y)] = true
+  }
+  for (const seat of elderTiles(council)) {
+    collision[at(seat.x, seat.y)] = true
   }
   const exit = doors.find((o) => prop(o, 'target') === 'plaza')
   const exitTile = exit ? tileRect(exit, t.tileSize) : { x: 0, y: t.height - 1, w: 1, h: 1 }

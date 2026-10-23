@@ -88,8 +88,9 @@ describe('shadows', () => {
     const against = { ...lamp, tile: { x: 5, y: 3, w: 1, h: 1 } }
     expect(freeStanding({ ...room, furniture: [against] }, against)).toBe(false)
     const shadows = roomSprites(room, atlases).filter((s) => s.frame === 'shadow')
-    // Steward desk 2, Seal desk 2, Quest Board 2, mailbox 1, gate 2, lamp 1, plant 1, Council table 2.
-    expect(shadows.length).toBe(13)
+    // Steward desk 2, Seal desk 2, Quest Board 2, mailbox 1, gate 2, lamp 1, plant 1; the Council table has elders
+    // seated behind it (solid floor), so it reads as against the wall and casts none.
+    expect(shadows.length).toBe(11)
     expect(shadows.every((s) => s.depth === DEPTH.shadow)).toBe(true)
   })
 })
