@@ -411,7 +411,7 @@ ul[aria-label] {
 /* The room style preview: one hard-edged square per tile, tokens only. */
 .room-preview {
   display: grid;
-  grid-auto-rows: var(--px);
+  grid-auto-rows: calc(var(--px) * 3);
   border: var(--px) solid var(--px-edge);
   background: var(--px-wood-900);
   width: max-content;

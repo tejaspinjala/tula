@@ -36,7 +36,7 @@ export function previewCells(style: RoomStyle): { width: number; cells: PreviewT
 /** A small tile-by-tile picture of a room style: walls, furniture and floor, in the style's accent. */
 export function RoomPreview({ style }: { style: RoomStyle }) {
   const { width, cells } = useMemo(() => previewCells(style), [style])
-  const grid: CSSProperties = { gridTemplateColumns: `repeat(${width}, var(--px))` }
+  const grid: CSSProperties = { gridTemplateColumns: `repeat(${width}, calc(var(--px) * 3))` }
   return (
     <div
       role="img"
