@@ -277,6 +277,13 @@ export interface NoteStore {
   list(guildId: string, page: NotePaging): Promise<NotePage>
   /** How many private notes the guild holds; a count only, never a title or body. */
   countPrivate(guildId: string): Promise<number>
+  /**
+   * Re-parses every note's current body with the current {@link titleKey} and rewrites the stored
+   * links of any note whose keys differ (#222). Idempotent.
+   * With `dryRun` nothing is written; the count says how many notes would change.
+   * @returns how many notes had their links rewritten; 0 on a second run.
+   */
+  rekeyLinks(guildId: string, options?: { dryRun?: boolean }): Promise<number>
   /** Notes whose current version contains every term of `query`, paginated like {@link list}. */
   search(guildId: string, query: string, page: NotePaging): Promise<NotePage>
 }

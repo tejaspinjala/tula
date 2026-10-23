@@ -61,6 +61,18 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect(promoted).toMatchObject({ trust: 'fact', evidence: 'measured', version: 2 })
     })
 
+    test('rekeyLinks keeps backlinks, reports 0 changes on a second run and never crosses guilds', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const other = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'Café', body: 'b' })
+      const source = await store.add(g, { ...fact, title: 'Src', body: 'see [[Cafe\u0301]]' })
+      await store.add(other, { ...fact, title: 'Other', body: 'see [[Cafe\u0301]]' })
+      await store.rekeyLinks(g)
+      expect(await store.rekeyLinks(g)).toBe(0)
+      expect((await store.get(g, target.id))?.backlinks).toEqual([{ id: source.id, title: 'Src' }])
+    })
+
     test('editing an unknown note is not_found', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()
