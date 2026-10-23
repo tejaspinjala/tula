@@ -183,14 +183,36 @@ export function mailboxRefusal(error: unknown): string {
   return 'The courier could not get through. Try again.'
 }
 
-/** How many Inquiries still wait for an answer in the given Halls (the first page of each): the Mailbox's unread count. */
-export async function countOpenInquiries(
+/** The window event a Mailbox fires once it has recorded a read marker, so every view can recount. */
+export const MAILBOX_READ_EVENT = 'guildhall:mailbox-read'
+
+/** Records that the Guild Master has seen a Hall's Mailbox up to `upToSeq`; the server never moves it backwards. */
+export function markMailboxRead(
+  session: Session,
+  fetcher: Fetcher,
+  hallId: string,
+  upToSeq: number
+): Promise<{ seen: number; unread: number }> {
+  return call(
+    session,
+    fetcher,
+    `/halls/${encodeURIComponent(hallId)}/mailbox/read`,
+    z.object({ seen: z.number(), unread: z.number() }),
+    { method: 'POST', body: { upToSeq } }
+  )
+}
+
+/** How many open Inquiries are newer than the read markers of the given Halls: the Mailbox's real unread count. */
+export async function countUnread(
   session: Session,
   fetcher: Fetcher,
   hallIds: readonly string[]
 ): Promise<number> {
-  const pages = await Promise.all(
-    hallIds.map((id) => loadInquiries(session, fetcher, id, { limit: 50 }))
+  const { halls } = await call(
+    session,
+    fetcher,
+    '/mailbox/unread',
+    z.object({ halls: z.record(z.string(), z.number()) })
   )
-  return pages.reduce((sum, p) => sum + p.inquiries.filter((i) => i.status === 'open').length, 0)
+  return hallIds.reduce((sum, id) => sum + (halls[id] ?? 0), 0)
 }

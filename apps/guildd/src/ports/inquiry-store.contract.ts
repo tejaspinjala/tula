@@ -407,7 +407,7 @@ export function inquiryStoreContract(name: string, make: () => Promise<InquirySt
         await store.markRead(a, 'scribes', third ?? 0)
         expect((await store.unreadCounts(a, ['scribes'])).scribes).toBe(0)
         expect((await store.unreadCounts(b, ['scribes'])).scribes).toBe(3)
-        expect(await store.markRead(b, 'scribes', third ?? 0)).toBeLessThan(third ?? 0)
+        expect(await store.markRead(b, 'scribes', 0)).toBe(0)
       })
     })
   })
