@@ -7,6 +7,9 @@ import { CostTablePanel } from './CostTablePanel'
 import { CouncilPanel } from './CouncilPanel'
 import { CharterPanel } from './charters/CharterPanel'
 import { GatesPanel } from './GatesPanel'
+import { GuildMapPanel } from './GuildMapPanel'
+import type { GuildMap } from './game/guildmap'
+import type { MapKey } from './game/world'
 import { LearningPanel } from './LearningPanel'
 import { MailboxPanel } from './MailboxPanel'
 import { MissivesPanel } from './MissivesPanel'
@@ -44,10 +47,14 @@ export interface BagProps {
   onSignOut: () => void
   /** Returns keyboard focus to the world. */
   focusWorld: () => void
-  /** Closes the Bag and opens the talk conversation with a Member (the Guild chat's Talk). */
+  /** Closes the Bag and opens the talk conversation with a Member (Missives' Talk). */
   onTalkTo?: ((memberId: string) => void) | undefined
   /** Reloads the Hall after the guild config changed (a Charter import). */
   onConfigChanged?: (() => void) | undefined
+  /** The Guild Map the map page draws (null until the Hall's rooms are built). */
+  map?: GuildMap | null | undefined
+  /** Travels the Guild Master to a room from the map page. */
+  onTravel?: ((id: MapKey) => void) | undefined
 }
 
 const HALL_TOOLS = 'hall-tools'
@@ -66,6 +73,8 @@ function PageBody({
   onTalkTo,
   onConfigChanged,
   onSetupRouting,
+  map,
+  onTravel,
 }: {
   page: PageId
   session: Session
@@ -73,8 +82,12 @@ function PageBody({
   onTalkTo?: ((memberId: string) => void) | undefined
   onConfigChanged?: (() => void) | undefined
   onSetupRouting?: (() => void) | undefined
+  map?: GuildMap | null | undefined
+  onTravel?: ((id: MapKey) => void) | undefined
 }) {
   switch (page) {
+    case 'map':
+      return <GuildMapPanel map={map ?? null} onTravel={(id) => onTravel?.(id)} />
     case 'quests':
       return <QuestBoardPanel session={session} onSetupRouting={onSetupRouting} />
     case 'seals':
@@ -99,7 +112,7 @@ function PageBody({
     case 'guild':
       return (
         <>
-          <BuilderPanel session={session} />
+          <BuilderPanel session={session} onConfigChanged={onConfigChanged} />
           <RosterPanel session={session} />
           <SummonPanel session={session} onSetupRouting={onSetupRouting} />
         </>
@@ -152,6 +165,8 @@ export function Bag({
   focusWorld,
   onTalkTo,
   onConfigChanged,
+  map,
+  onTravel,
 }: BagProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const wasVisible = useRef(false)
@@ -181,13 +196,19 @@ export function Bag({
   const heading = useRef<HTMLHeadingElement>(null)
   const title = hall ? 'Hall tools' : (BAG_PAGES.find((p) => p.id === page)?.label ?? 'Bag')
   const inMenu = page === null && !hall
+  const size = BAG_PAGES.find((p) => p.id === page)?.size ?? 'menu'
 
   // Choosing a page replaces the menu the cursor was on: keyboard focus follows to the page title.
   useEffect(() => {
     if (visible && !inMenu) {
-      heading.current?.focus()
+      // The Guild Map is a cursor widget: its ▶ cursor takes focus so the arrow keys work at once.
+      const cursor =
+        page === 'map'
+          ? dialog.current?.querySelector<HTMLElement>('[data-room][tabindex="0"]')
+          : null
+      ;(cursor ?? heading.current)?.focus()
     }
-  }, [visible, inMenu])
+  }, [visible, inMenu, page])
 
   const select = (id: string) => {
     if (id === SIGN_OUT) {
@@ -216,6 +237,7 @@ export function Bag({
     <dialog
       ref={dialog}
       className="bag"
+      data-size={size}
       aria-labelledby={page ? `${page}-title` : 'bag-title'}
       onKeyDown={onKeyDown}
       onCancel={(event) => {
@@ -249,6 +271,8 @@ export function Bag({
                 onSession={onSession}
                 onTalkTo={onTalkTo}
                 onConfigChanged={onConfigChanged}
+                map={map}
+                onTravel={onTravel}
                 onSetupRouting={() => onOpenPath('/vault')}
               />
             </FlatWorkContext.Provider>

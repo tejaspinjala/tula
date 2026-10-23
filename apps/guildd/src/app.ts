@@ -210,11 +210,6 @@ export interface AppDeps {
   suggestions?: SuggestionStore
   /** Whether `x-guild-id` identifies the caller (development only). */
   devGuildHeader: boolean
-  /**
-   * Whether the legacy `POST /guilds` is served. It writes the guild before any passkey exists, so
-   * production refuses it; it follows `devGuildHeader` unless composition overrides it.
-   */
-  legacyFounding?: boolean
   /** Abuse limits for the unauthenticated identity routes; state is shared, never in process memory. */
   rateLimiter: RateLimiter
   /** Read the client address from the last `X-Forwarded-For` hop (env `TRUST_PROXY`); default false. */
@@ -241,10 +236,6 @@ const { upgradeWebSocket, websocket } = createBunWebSocket()
 export { websocket }
 
 const foundFinishBody = registerFinishBody.extend({
-  name: z.string().trim().min(1).max(200),
-  goal: z.string().trim().min(1).max(2000),
-})
-const foundGuildBody = z.object({
   name: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(2000),
 })
@@ -552,7 +543,6 @@ export function createApp(deps: AppDeps): Hono {
     c.header('Retry-After', String(decision.retryAfterSeconds))
     return c.json({ error: 'rate_limited' }, 429)
   }
-  app.post('/guilds', limited('founding'))
   app.post('/founding/begin', limited('founding-begin'))
   app.post('/founding/finish', limited('founding'))
   app.get('/founding', limited('founding-status'))
@@ -636,43 +626,6 @@ export function createApp(deps: AppDeps): Hono {
     const mode = deps.foundingMode ?? 'open'
     const open = mode === 'open' || (mode === 'once' && !(await deps.db.anyGuildExists()))
     return c.json({ open })
-  })
-
-  // The legacy founding writes the guild before any passkey exists, so an abandoned ceremony
-  // leaves an orphan. Only the dev/test switch (the one that enables x-guild-id) keeps it.
-  app.post('/guilds', async (c) => {
-    if (!(deps.legacyFounding ?? deps.devGuildHeader)) {
-      return c.json({ error: 'not_found' }, 404)
-    }
-    const body = foundGuildBody.safeParse(await c.req.json().catch(() => null))
-    if (!body.success) {
-      return c.json({ error: 'invalid_guild' }, 400)
-    }
-    const mode = deps.foundingMode ?? 'open'
-    if (mode === 'closed') {
-      return c.json({ error: 'founding_closed' }, 403)
-    }
-    // The founding token is issued inside the founding transaction, so a failure leaves no guild.
-    // Returned once; only its hash is kept. Needed to register the guild's first passkey.
-    let foundingToken = ''
-    try {
-      const id = await deps.db.foundGuildChained(
-        body.data,
-        deps.keys,
-        async (tx, guildId) => {
-          foundingToken = (await deps.identity.issueFoundingToken(guildId, tx)).token
-          // The Steward, Heralds Hall and locked Halls are seeded in the founding transaction.
-          await deps.config.seed(guildId, tx)
-        },
-        { once: mode === 'once' }
-      )
-      return c.json({ id, foundingToken }, 201)
-    } catch (error) {
-      if (error instanceof FoundingClosedError) {
-        return c.json({ error: 'founding_closed' }, 403)
-      }
-      throw error
-    }
   })
 
   // Founding as one ceremony: nothing is written for the guild until the first passkey verifies,

@@ -384,6 +384,19 @@ export function questRetryDelayMs(
   return retryDelayMs(Math.max(1, quest.attempts - quest.refunds), random)
 }
 
+/** The longest a routing-blocked Quest waits between passes. */
+const MAX_ROUTING_WAIT_MS = 900_000
+
+/**
+ * How long a routing-blocked Quest parks: doubling from 2 s with each refunded wait it has already
+ * served (`refunds`), capped at 15 min, with jitter in [half, full]. A routing-relevant config change
+ * ends the wait early (`wakeRoutingWaits`).
+ */
+export function routingWaitDelayMs(quest: Pick<Quest, 'refunds'>, random: number): number {
+  const ceiling = Math.min(MAX_ROUTING_WAIT_MS, 2000 * 2 ** Math.min(quest.refunds, 20))
+  return Math.floor(ceiling / 2 + random * (ceiling / 2))
+}
+
 /** Whether the Quest holds a lease that has not lapsed at `now`. */
 export function hasLiveLease(quest: Quest, now: Date): boolean {
   return (
@@ -442,6 +455,8 @@ export function claimTransition(quest: Quest, now: Date, leaseMs: number): Trans
       attempts: quest.attempts + 1,
       leaseExpiresAt: new Date(now.getTime() + leaseMs).toISOString(),
       waitingOn: [],
+      // Going active ends a routing wait, so its coded reason no longer applies.
+      lastError: quest.lastError === 'routing_blocked' ? null : quest.lastError,
     },
     event: 'quest.claimed',
   }

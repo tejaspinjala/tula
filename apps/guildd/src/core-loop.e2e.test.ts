@@ -41,7 +41,6 @@ import { RecordingSandboxRunner } from './testing/recording-sandbox'
 async function memoryWorld(): Promise<E2eWorld> {
   const clock = new MemoryClock(new Date('2030-01-01T00:00:00.000Z'))
   const keys = new MemoryKeyProvider()
-  const config = new MemoryConfigStore(clock)
   const secrets = new MemorySecretStore(keys)
   const gateStore = new MemoryGateStore()
   const quests = new MemoryQuestQueue(
@@ -51,6 +50,7 @@ async function memoryWorld(): Promise<E2eWorld> {
     () => false,
     (guildId) => gateStore.barredNow(guildId)
   )
+  const config = new MemoryConfigStore(clock, { quests })
   const sandboxes = new RecordingSandboxRunner()
   const guilds: string[] = []
   const tripwires = new MemoryTripwireStore(clock)

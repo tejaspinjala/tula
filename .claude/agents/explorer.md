@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Cheap read-only search. Finds where something lives or answers one factual question about the repo or its docs and returns file:line pointers, never file contents. Use for any lookup that would otherwise pull many files into the lead's or a worker's context.
-model: claude-haiku-5-5
+model: claude-sonnet-5-5
 tools: Read, Grep, Glob, Bash
 ---
 

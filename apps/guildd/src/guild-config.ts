@@ -25,6 +25,17 @@ export const member = agent.extend({
   look: characterLook.optional(),
 })
 
+/** The room styles a Hall's room can be furnished in (ADR-0016); cosmetic. */
+export const ROOM_STYLES = [
+  'writing-room',
+  'library',
+  'workshop',
+  'studio',
+  'infirmary',
+  'garden-room',
+  'quiet-room',
+] as const
+
 /** A Hall: a department of the guild, with its Captain and Members. */
 export const hall = z.strictObject({
   id: slug,
@@ -37,6 +48,8 @@ export const hall = z.strictObject({
   privateEligible: z.boolean(),
   captain: agent.nullable(),
   members: z.array(member).max(MAX_ITEMS),
+  /** Overrides the room style picked from the Hall's kind and name; cosmetic, so changing it is neutral. */
+  roomStyle: z.enum(ROOM_STYLES).optional(),
   /**
    * Quests of this Hall that may hold a live lease at once; {@link DEFAULT_MAX_CONCURRENT_MEMBERS} when
    * absent. Raising it widens risk. Only live-leased `active` Quests count (a parked parent or a
@@ -628,6 +641,7 @@ function hallNoWider(prev: Hall, next: Hall): boolean {
       'privateEligible',
       'captain',
       'members',
+      'roomStyle',
       'maxConcurrentMembers',
     ])
   )
@@ -741,7 +755,7 @@ function provablyNoWider(prev: GuildConfig, next: GuildConfig): boolean {
   )
 }
 
-/** Drops display names and Member looks at every depth, leaving only what can carry risk. */
+/** Drops display names, Member looks and room styles at every depth, leaving only what can carry risk. */
 function withoutNames(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutNames)
@@ -749,7 +763,7 @@ function withoutNames(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([k]) => k !== 'name' && k !== 'look')
+        .filter(([k]) => k !== 'name' && k !== 'look' && k !== 'roomStyle')
         .map(([k, v]) => [k, withoutNames(v)])
     )
   }

@@ -37,6 +37,18 @@
   --px-danger-400: #e86a4f;
   --px-warn-500: #f0c419;
   --px-berry-500: #8e4a8a;
+  /* World ramps for the three-quarter interiors (stone, plum, sage, linen, a mid sky). Art only. */
+  --px-stone-700: #5b5560;
+  --px-stone-500: #857e86;
+  --px-stone-300: #b3acab;
+  --px-stone-100: #d6d0c8;
+  --px-plum-700: #4a3348;
+  --px-plum-500: #6e4a63;
+  --px-sage-500: #7d9a6e;
+  --px-sage-300: #a9c49a;
+  --px-linen-500: #aebfc4;
+  --px-linen-300: #dbe6e6;
+  --px-sky-500: #4f82b6;
   --px-edge: calc(var(--px) * 2);
   --px-focus: var(--px-gold-500);
   --px-on-gold: var(--px-ink);

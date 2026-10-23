@@ -6,8 +6,9 @@ A governed agent-operations platform played as a guild game. `GLOSSARY.md` is bi
 
 - **Lead** (your session, Opus): runs one batch per fresh session with the `batch` skill. Holds pointers, not file contents, and stays under 40% of its context window: past that, finish the current step and continue in a fresh session from GitHub state.
 - **Workers** (`worker` agent, Sonnet): one ticket each, in their own git worktree branched from the batch's integration branch; at most 4 at once, never two in the same area.
-- **Explorer** (`explorer` agent, Haiku): every lookup that would pull many files into context.
+- **Explorer** (`explorer` agent, Sonnet): every lookup that would pull many files into context.
 - **Reviewer** (`reviewer` agent, Sonnet): only via the `review-loop` skill, for `risk` tickets and once per batch; max 2 rounds.
+- **Every other subagent** (general-purpose, run-check, browser walks) is spawned with `model: sonnet`; no subagent runs on Haiku or Opus.
 - All implementation happens in worktrees under `../tula.worktrees/<slug>`; the main checkout stays clean on `develop`.
 - Agents never push to `develop` or `main`, never merge their own PR, and never add co-author trailers or generated-by footers.
 

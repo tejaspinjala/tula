@@ -8,6 +8,7 @@ import { createDb } from './db/client'
 import type { PushNotifier, PushPayload } from './ports/push-notifier'
 import type { PushSubscription } from './ports/push-store'
 import { createSealPushRelay } from './seal-push'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
 import { testDbUrl } from './testing/test-db'
 
@@ -18,17 +19,11 @@ afterAll(async () => {
   await owner.end()
 })
 
-const founded = z.object({ id: z.string() })
 const MEMBER = '44444444-4444-4444-8444-444444444444'
 const DEVICE = { endpoint: 'https://push.example/phone', p256dh: 'k', auth: 'a' }
 
 async function foundGuild(name: string): Promise<string> {
-  const res = await harness.request('/guilds', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, goal: 'g' }),
-  })
-  return founded.parse(await res.json()).id
+  return (await foundViaApi(harness, { name, goal: 'g' })).id
 }
 
 const request = (guildId: string) =>

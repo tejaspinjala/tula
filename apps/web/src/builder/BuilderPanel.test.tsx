@@ -64,6 +64,7 @@ interface Put {
         members: { id: string; look?: unknown }[]
         captain: unknown
         maxConcurrentMembers?: number
+        roomStyle?: string
       }[]
       caps?: Record<string, number>
     }
@@ -147,13 +148,19 @@ function world(
   return { urls, puts, state, fetcher, browser, proof: () => proofHeader }
 }
 
-async function mount(w: ReturnType<typeof world>, desktop: boolean) {
+async function mount(w: ReturnType<typeof world>, desktop: boolean, onConfigChanged?: () => void) {
   const host = document_.createElement('div')
   document_.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
     root.render(
-      <BuilderPanel session={session} fetcher={w.fetcher} browser={w.browser} desktop={desktop} />
+      <BuilderPanel
+        session={session}
+        fetcher={w.fetcher}
+        browser={w.browser}
+        desktop={desktop}
+        onConfigChanged={onConfigChanged}
+      />
     )
   })
   await act(async () => {
@@ -244,6 +251,14 @@ test('dropping a prebuilt Research Hall adds its Captain and two Members to the 
   expect(added?.members).toHaveLength(2)
 })
 
+test('palette tiles carry whole names, never a four letter cut', async () => {
+  const host = await mount(world(), true)
+  const glyphs = [...host.querySelectorAll('.palette .px-slot-glyph')].map((g) =>
+    g.getAttribute('data-glyph')
+  )
+  expect(glyphs).toEqual(['Hall', 'Member', 'Heralds', 'Research', 'Review'])
+})
+
 test('adding a blank Hall from the palette shows it and discard takes it back out', async () => {
   const w = world()
   const host = await mount(w, true)
@@ -315,6 +330,20 @@ test('the Hall inspector edits the member cap, shows its bounds, and saves it in
   expect(host.textContent).not.toContain('Widening')
   await click(host, 'Save')
   expect(w.puts[0]?.body.config.halls[0]?.maxConcurrentMembers).toBe(1)
+})
+
+test('picking a room style in the Hall inspector previews it and saves a neutral roomStyle change', async () => {
+  const w = world()
+  const host = await mount(w, true)
+  await click(host, 'Heralds Hall')
+  await choose(host, 'Room style', 'library')
+  expect(host.querySelector('[data-testid="room-preview"]')?.getAttribute('data-style')).toBe(
+    'library'
+  )
+  expect(host.textContent).not.toContain('Widening')
+  await click(host, 'Save')
+  expect(w.puts[0]?.body.config.halls[0]?.roomStyle).toBe('library')
+  expect(host.textContent).not.toContain('Confirm with passkey')
 })
 
 test('raising a cap is marked widening before save; the server answer decides the passkey prompt', async () => {
@@ -417,4 +446,17 @@ test('after a stale refusal, Reload fetches the latest version and the next Save
   await click(host, 'Save')
   expect(w.puts.at(-1)?.body.baseVersion).toBe(2)
   expect(host.textContent).toContain('Saved as version 3')
+})
+
+test('a saved room style tells the world the config changed so the Hall room restyles live', async () => {
+  const w = world()
+  let changed = 0
+  const host = await mount(w, true, () => {
+    changed += 1
+  })
+  await click(host, 'Heralds Hall')
+  await choose(host, 'Room style', 'studio')
+  expect(changed).toBe(0)
+  await click(host, 'Save')
+  expect(changed).toBe(1)
 })

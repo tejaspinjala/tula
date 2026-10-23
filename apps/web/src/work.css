@@ -177,3 +177,36 @@
 .work-log:empty {
   display: none;
 }
+
+/* The artifact reader: a framed page that scrolls and wraps, never a wide overflow. */
+.artifact-reader {
+  max-width: 100%;
+  max-height: calc(var(--px) * 90);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: calc(var(--px) * 3);
+  background: var(--px-paper-200);
+  color: var(--px-text);
+  border: calc(var(--px) * 2) solid var(--px-line);
+}
+
+.artifact-reader:focus-visible {
+  outline: calc(var(--px) * 2) solid var(--px-text);
+  outline-offset: calc(var(--px) * 1);
+}
+
+.artifact-prose {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.artifact-code {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

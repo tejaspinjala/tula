@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
 import { withClusterDdlLock } from './testing/test-db'
 
@@ -17,12 +18,9 @@ async function withMode<T>(
     ...(foundingMode ? { app: { foundingMode } } : {}),
   })
   try {
-    return await run(() =>
-      harness.request('/guilds', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Ember', goal: 'Ship a newsletter' }),
-      })
+    return await run(
+      async () =>
+        (await foundViaApi(harness, { name: 'Ember', goal: 'Ship a newsletter' })).response
     )
   } finally {
     await harness.close()

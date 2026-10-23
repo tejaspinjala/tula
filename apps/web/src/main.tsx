@@ -13,6 +13,7 @@ import './styles/tokens.css'
 import './ui/pixel/pixel.css'
 import './work.css'
 import './index.css'
+import './guildmap.css'
 import './TitleScene.css'
 import { bootTheme, browserThemeEnv } from './ui/pixel/theme'
 

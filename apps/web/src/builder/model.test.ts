@@ -8,6 +8,7 @@ import {
   parseConfig,
   saveStatus,
   setLook,
+  setRoomStyle,
 } from './model'
 import { instantiate, TEMPLATES } from './templates'
 
@@ -119,6 +120,14 @@ test('a Member look override survives parsing, and setLook sets and clears it', 
   // A round trip through the server's JSON keeps the override.
   expect(members(parseConfig(JSON.parse(JSON.stringify(withLook))))?.[0]).toMatchObject({ look })
   expect(members(setLook(withLook, 'm1', null))?.[0]).not.toHaveProperty('look')
+})
+
+test('setRoomStyle sets and clears one Hall roomStyle and leaves the others alone', () => {
+  const styled = setRoomStyle(load(), 'heralds', 'library')
+  expect(styled.halls[0]?.roomStyle).toBe('library')
+  expect(styled.halls.slice(1).every((h) => !('roomStyle' in h))).toBe(true)
+  expect(parseConfig(JSON.parse(JSON.stringify(styled))).halls[0]?.roomStyle).toBe('library')
+  expect(setRoomStyle(styled, 'heralds', null).halls[0]).not.toHaveProperty('roomStyle')
 })
 
 test('dropping the same prebuilt Hall twice keeps ids unique', () => {

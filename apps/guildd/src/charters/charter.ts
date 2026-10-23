@@ -35,6 +35,7 @@ export const HALL_FIELD_CLASS = {
   privateEligible: 'local',
   captain: 'structure',
   members: 'structure',
+  roomStyle: 'structure',
   maxConcurrentMembers: 'structure',
 } as const satisfies Record<string, FieldClass>
 

@@ -1,5 +1,13 @@
 import { expect, test } from 'bun:test'
-import { initialTalk, nearestTarget, REACH, sameTarget, type Target, talkReducer } from './interact'
+import {
+  initialTalk,
+  nearestTarget,
+  REACH,
+  reachPoint,
+  sameTarget,
+  type Target,
+  talkReducer,
+} from './interact'
 
 const ana: Target = { kind: 'member', id: 'ana' }
 const bo: Target = { kind: 'member', id: 'bo' }
@@ -93,7 +101,7 @@ test('targets are the same by what they are, not by object', () => {
 test('a Hall mailbox is a target by Hall; interacting with it opens it', () => {
   const box: Target = { kind: 'mailbox', hallId: 'heralds' }
   expect(sameTarget(box, { kind: 'mailbox', hallId: 'heralds' })).toBe(true)
-  expect(sameTarget(box, { kind: 'mailbox', hallId: 'vault' })).toBe(false)
+  expect(sameTarget(box, { kind: 'mailbox', hallId: 'h-vault' })).toBe(false)
   expect(sameTarget(box, desk)).toBe(false)
   const near = talkReducer(initialTalk, { type: 'near', target: box })
   expect(talkReducer(near, { type: 'interact' }).open).toEqual(box)
@@ -105,4 +113,10 @@ test('the Council chamber is a target; interacting with it opens it', () => {
   expect(sameTarget(chamber, desk)).toBe(false)
   const near = talkReducer(initialTalk, { type: 'near', target: chamber })
   expect(talkReducer(near, { type: 'interact' }).open).toEqual(chamber)
+})
+
+test('reachPoint clamps to the nearest tile centre of a rectangle', () => {
+  const rect = { x: 3, y: 7, w: 2, h: 1 }
+  expect(reachPoint(rect, { x: 10, y: 10 })).toEqual({ x: 4.5, y: 7.5 })
+  expect(reachPoint(rect, { x: 3.7, y: 9 })).toEqual({ x: 3.7, y: 7.5 })
 })

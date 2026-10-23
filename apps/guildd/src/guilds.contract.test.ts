@@ -1,19 +1,17 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { z } from 'zod'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
 
 const harness = await createHarness()
 afterAll(() => harness.close())
 
 describe('founding a guild', () => {
-  test('POST /guilds creates the guild and returns its id; GET returns it to its own guild', async () => {
-    const res = await harness.request('/guilds', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Ember Guild', goal: 'Ship a weekly newsletter' }),
+  test('founding creates the guild and returns its id; GET returns it to its own guild', async () => {
+    const { id, response: res } = await foundViaApi(harness, {
+      name: 'Ember Guild',
+      goal: 'Ship a weekly newsletter',
     })
     expect(res.status).toBe(201)
-    const { id } = z.object({ id: z.string() }).parse(await res.json())
     expect(id).toMatch(/^[0-9a-f-]{36}$/)
 
     const got = await harness.request(`/guilds/${id}`, { headers: { 'x-guild-id': id } })
@@ -37,11 +35,7 @@ describe('founding a guild', () => {
   })
 
   test('rejects a guild without a name or goal', async () => {
-    const res = await harness.request('/guilds', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '' }),
-    })
-    expect(res.status).toBe(400)
+    const { response } = await foundViaApi(harness, { name: '', goal: '' })
+    expect(response.status).toBe(400)
   })
 })

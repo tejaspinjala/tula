@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { DEFAULT_RATE_LIMITS } from './rate-limits'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
+import type { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const tunnel = await createHarness({ devGuildHeader: false, app: { trustProxy: true } })
@@ -11,10 +12,10 @@ afterAll(async () => {
   await tunnel.close()
 })
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const COOKIE_MODE = { 'x-session-mode': 'cookie' }
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
+const _founded = z.object({ id: z.string(), foundingToken: z.string() })
 const tokenBody = z.object({ token: z.string() })
 
 type Subject = typeof harness
@@ -34,25 +35,9 @@ function postJson(
 }
 
 async function found(h: Subject) {
-  const g = founded.parse(
-    await (await postJson(h, '/guilds', { name: 'Ember', goal: 'Ship' })).json()
-  )
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const begin = ceremony.parse(
-    await (
-      await postJson(
-        h,
-        `/guilds/${g.id}/passkeys/begin`,
-        {},
-        { 'x-founding-token': g.foundingToken }
-      )
-    ).json()
-  )
-  const done = await postJson(h, `/guilds/${g.id}/passkeys/finish`, {
-    challengeId: begin.challengeId,
-    response: await key.register(begin.options),
-  })
-  expect(done.status).toBe(201)
+  const g = await foundViaApi(h, { name: 'Ember', goal: 'Ship' })
+  const key = g.key
+  expect(g.response.status).toBe(201)
   return { guildId: g.id, key }
 }
 

@@ -9,6 +9,7 @@ import { PixelButton } from './PixelButton'
 import { Portrait } from './Portrait'
 import { SlotGrid } from './SlotGrid'
 import { ThemeControls } from './ThemeControls'
+import { Tileset } from './Tileset'
 import { Tooltip } from './Tooltip'
 import { WalkingLoader } from './WalkingLoader'
 import { YesNo } from './YesNo'
@@ -152,6 +153,7 @@ export function KitchenSink() {
           />
           <p className="px-sink-note">Answered: {answer}</p>
         </div>
+        <Tileset />
       </main>
     </div>
   )

@@ -182,3 +182,15 @@ export function mailboxRefusal(error: unknown): string {
   }
   return 'The courier could not get through. Try again.'
 }
+
+/** How many Inquiries still wait for an answer in the given Halls (the first page of each): the Mailbox's unread count. */
+export async function countOpenInquiries(
+  session: Session,
+  fetcher: Fetcher,
+  hallIds: readonly string[]
+): Promise<number> {
+  const pages = await Promise.all(
+    hallIds.map((id) => loadInquiries(session, fetcher, id, { limit: 50 }))
+  )
+  return pages.reduce((sum, p) => sum + p.inquiries.filter((i) => i.status === 'open').length, 0)
+}

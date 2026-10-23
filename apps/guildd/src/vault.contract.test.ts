@@ -2,8 +2,8 @@ import { afterAll, describe, expect, spyOn, test } from 'bun:test'
 import { z } from 'zod'
 import { eventsAfter } from './events'
 import { expectGuildIsolation } from './testing/cross-guild'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const devHarness = await createHarness({ devGuildHeader: true })
@@ -12,11 +12,11 @@ afterAll(async () => {
   await devHarness.close()
 })
 
-const ORIGIN = 'http://localhost:5173'
+const _ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
 const session = z.object({ token: z.string(), guildId: z.string() })
-const foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
+const _foundedBody = z.object({ id: z.string(), foundingToken: z.string() })
 const proofBody = z.object({ proof: z.string() })
 const listBody = z.object({ refs: z.array(z.string()), next: z.string().nullable() })
 const checkBody = z.object({
@@ -32,24 +32,9 @@ function post(path: string, body: unknown, headers: Record<string, string> = {})
 }
 
 async function signedIn() {
-  const founded = foundedBody.parse(
-    await (await post('/guilds', { name: 'Vault', goal: 'g' })).json()
-  )
+  const founded = await foundViaApi(harness, { name: 'Vault', goal: 'g' })
   const guildId = founded.id
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const reg = ceremony.parse(
-    await (
-      await post(
-        `/guilds/${guildId}/passkeys/begin`,
-        {},
-        { 'x-founding-token': founded.foundingToken }
-      )
-    ).json()
-  )
-  await post(`/guilds/${guildId}/passkeys/finish`, {
-    challengeId: reg.challengeId,
-    response: await key.register(reg.options),
-  })
+  const key = founded.key
   const begin = ceremony.parse(await (await post(`/guilds/${guildId}/sign-in/begin`, {})).json())
   const res = await post(`/guilds/${guildId}/sign-in/finish`, {
     challengeId: begin.challengeId,

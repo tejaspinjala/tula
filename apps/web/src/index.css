@@ -177,11 +177,9 @@ ul[aria-label] {
 
 .game-frame {
   position: absolute;
-  /* The map is framed under the HUD (Hud.tsx sets --hud-inset), never beneath it. */
-  inset: calc(var(--hud-inset, 0px) + var(--px) * 2) 0 0 0;
+  /* The frame fills the world; the camera's viewport starts below the HUD strip (game/render.ts). */
+  inset: 0;
   background: var(--px-wood-900);
-  /* A hard, blur-free copy of the frame, lifted into the strip above it, so the HUD sits on wood. */
-  box-shadow: 0 calc(-1 * (var(--hud-inset, 0px) + var(--px) * 2)) 0 0 var(--px-wood-900);
   overflow: hidden;
   touch-action: none;
 }
@@ -209,6 +207,20 @@ ul[aria-label] {
   bottom: calc(var(--px) * 6);
   margin: 0 auto;
 }
+/* The mini map sits in the lower-left corner; the canvas scales by whole multiples of --px. */
+.world .minimap {
+  position: absolute;
+  left: calc(var(--px) * 3);
+  bottom: calc(var(--px) * 3);
+  z-index: 1;
+}
+.minimap-canvas {
+  display: block;
+  width: calc(var(--px) * 96);
+  height: calc(var(--px) * 72);
+  image-rendering: pixelated;
+}
+
 /* Banners drop in at the top centre, under the HUD. */
 .world .px-itemget {
   position: absolute;
@@ -310,6 +322,24 @@ ul[aria-label] {
   max-height: calc(100dvh - var(--px) * 16);
   min-height: 0;
 }
+/* A workbench page fills the viewport inside the frame, with a gutter of four pixel steps. */
+.bag[data-size="workbench"] {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  padding: calc(var(--px) * 4);
+  box-sizing: border-box;
+}
+.bag[data-size="workbench"] .bag-frame {
+  height: 100%;
+  max-height: none;
+}
+.bag[data-size="workbench"] .bag-frame > .px-frame-ring,
+.bag[data-size="workbench"] .bag-frame > .px-frame-ring > .px-frame-in {
+  height: 100%;
+  max-height: none;
+}
 .bag-head {
   display: flex;
   flex-wrap: wrap;
@@ -369,6 +399,49 @@ ul[aria-label] {
   align-items: flex-end;
   border: 0;
   padding: 0;
+}
+.room-style-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  border: 0;
+  padding: 0;
+}
+/* The room style preview: one hard-edged square per tile, tokens only. */
+.room-preview {
+  display: grid;
+  grid-auto-rows: calc(var(--px) * 3);
+  border: var(--px) solid var(--px-edge);
+  background: var(--px-wood-900);
+  width: max-content;
+}
+.room-preview-wall {
+  background: var(--px-stone-700);
+}
+.room-preview-floor {
+  background: var(--px-wood-300);
+}
+.room-preview-furniture {
+  background: var(--px-wood-700);
+}
+.room-preview[data-style="library"] .room-preview-furniture {
+  background: var(--px-plum-700);
+}
+.room-preview[data-style="studio"] .room-preview-furniture {
+  background: var(--px-berry-500);
+}
+.room-preview[data-style="infirmary"] .room-preview-floor {
+  background: var(--px-linen-300);
+}
+.room-preview[data-style="garden-room"] .room-preview-floor {
+  background: var(--px-grass-300);
+}
+.room-preview[data-style="quiet-room"] .room-preview-floor {
+  background: var(--px-sky-300);
+}
+.room-preview[data-style="writing-room"] .room-preview-floor {
+  background: var(--px-paper-400);
 }
 .character-panel {
   margin-block: 0.75rem;

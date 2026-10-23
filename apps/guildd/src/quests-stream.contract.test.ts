@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test'
 import { z } from 'zod'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 const harness = await createHarness({ devGuildHeader: false })
 const clock = harness.adapters.clock
@@ -9,7 +9,7 @@ afterAll(() => harness.close())
 
 const json = { 'content-type': 'application/json' }
 const ceremony = z.object({ challengeId: z.string(), options: z.object({ challenge: z.string() }) })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
+const _founded = z.object({ id: z.string(), foundingToken: z.string() })
 const session = z.object({ token: z.string(), guildId: z.string() })
 const ticketBody = z.object({ ticket: z.string() })
 const frame = z.object({
@@ -28,21 +28,8 @@ function post(path: string, body: unknown, headers: Record<string, string> = {})
 }
 
 async function signedIn() {
-  const guild = founded.parse(await (await post('/guilds', { name: 'Live', goal: 'g' })).json())
-  const key = await SoftwareAuthenticator.create('localhost', 'http://localhost:5173')
-  const begin = ceremony.parse(
-    await (
-      await post(
-        `/guilds/${guild.id}/passkeys/begin`,
-        {},
-        { 'x-founding-token': guild.foundingToken }
-      )
-    ).json()
-  )
-  await post(`/guilds/${guild.id}/passkeys/finish`, {
-    challengeId: begin.challengeId,
-    response: await key.register(begin.options),
-  })
+  const guild = await foundViaApi(harness, { name: 'Live', goal: 'g' })
+  const key = guild.key
   const sign = ceremony.parse(await (await post(`/guilds/${guild.id}/sign-in/begin`, {})).json())
   const res = await post(`/guilds/${guild.id}/sign-in/finish`, {
     challengeId: sign.challengeId,

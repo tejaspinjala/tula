@@ -44,10 +44,12 @@ export function Shell({
     setBagOpen(false)
     navigate('/')
   }, [navigate])
-  // B opens the Bag from the walk, and closes it from its menu. Typing in a field never triggers it.
+  // B opens the Bag from the walk, and closes it from its menu; G opens the Guild Map page, and
+  // closes it. Typing in a field never triggers either.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'b' || event.ctrlKey || event.metaKey || event.altKey) {
+      const letter = event.key.toLowerCase()
+      if ((letter !== 'b' && letter !== 'g') || event.ctrlKey || event.metaKey || event.altKey) {
         return
       }
       const target = event.target
@@ -60,7 +62,13 @@ export function Shell({
         return
       }
       event.preventDefault()
-      if (!visible) {
+      if (letter === 'g') {
+        if (!visible) {
+          openPath('/map')
+        } else if (page === 'map') {
+          close()
+        }
+      } else if (!visible) {
         showMenu()
       } else if (page === null) {
         close()
@@ -68,7 +76,7 @@ export function Shell({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [visible, page, showMenu, close])
+  }, [visible, page, showMenu, close, openPath])
   useEffect(() => {
     document.title = active ? `${active.label} | Guildhall` : 'Guildhall'
   }, [active])
@@ -85,7 +93,7 @@ export function Shell({
   return (
     <main id="main" tabIndex={-1} className="shell">
       <GamePanel session={session} navigate={openPath} inputEnabled={!visible} loadGame={loadGame}>
-        {({ hallControls, focusWorld, talkTo, refreshHall }) => (
+        {({ hallControls, focusWorld, talkTo, refreshHall, map, travel }) => (
           <>
             <Hud
               session={session}
@@ -112,6 +120,11 @@ export function Shell({
               onSignOut={signOut}
               focusWorld={focusWorld}
               onConfigChanged={refreshHall}
+              map={map}
+              onTravel={(key) => {
+                close()
+                travel(key)
+              }}
               onTalkTo={(id) => {
                 close()
                 talkTo(id)

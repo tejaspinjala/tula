@@ -21,7 +21,7 @@ test('the Tiled hall has six room slots, two desks, a gate and a coin counter', 
   expect(layout.stewardDesk.w).toBeGreaterThan(0)
   expect(layout.sealDesk.w).toBeGreaterThan(0)
   expect(layout.gate.h).toBeGreaterThan(0)
-  expect(layout.coins.w).toBeGreaterThan(0)
+  expect(layout.chest.w).toBeGreaterThan(0)
 })
 
 test('walls and furniture block; room floors and doorways are walkable', () => {
@@ -221,7 +221,7 @@ test('the Council chamber stands in the corridor: five tiles wide, blocked, clea
   for (const r of [
     layout.stewardDesk,
     layout.sealDesk,
-    layout.coins,
+    layout.chest,
     layout.gate,
     ...layout.doorways,
   ]) {
@@ -241,15 +241,15 @@ test('five elders stand one to a tile along the back of the chamber, inside it',
 })
 
 test('the coin spot reserves room for its label and keeps two tiles clear of the Council dais', () => {
-  const coins = layout.coins
+  const chest = layout.chest
   const dais = layout.council
   // Icon plus a label such as "$1000.00": about five tiles.
-  expect(coins.w).toBeGreaterThanOrEqual(5)
+  expect(chest.w).toBeGreaterThanOrEqual(5)
   const margin = 2
   const apart =
-    coins.x + coins.w + margin <= dais.x ||
-    dais.x + dais.w + margin <= coins.x ||
-    coins.y + coins.h + margin <= dais.y ||
-    dais.y + dais.h + margin <= coins.y
+    chest.x + chest.w + margin <= dais.x ||
+    dais.x + dais.w + margin <= chest.x ||
+    chest.y + chest.h + margin <= dais.y ||
+    dais.y + dais.h + margin <= chest.y
   expect(apart).toBe(true)
 })

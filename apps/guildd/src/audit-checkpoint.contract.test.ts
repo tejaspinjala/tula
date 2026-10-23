@@ -4,8 +4,8 @@ import { MemoryCheckpointAnchor } from './adapters/memory-checkpoint-anchor'
 import { bindVerifyTimeout, checkpointHash, checkpointSignature } from './audit-chain'
 import { appendEvent } from './events'
 import type { AnchoredCheckpoint, CheckpointAnchor } from './ports/checkpoint-anchor'
+import { foundViaApi } from './testing/found-via-api'
 import { createHarness } from './testing/harness'
-import { SoftwareAuthenticator } from './testing/software-authenticator'
 
 /** An anchor whose custody can be swapped under the app, to simulate a wiped or corrupt one. */
 class SwitchableAnchor implements CheckpointAnchor {
@@ -33,13 +33,11 @@ const { db, keys } = harness.adapters
 
 type Harness = typeof harness
 
-const ORIGIN = 'http://localhost:5173'
 const json = { 'content-type': 'application/json' }
 const ceremony = z.object({
   challengeId: z.string(),
   options: z.object({ challenge: z.string() }),
 })
-const founded = z.object({ id: z.string(), foundingToken: z.string() })
 const tokenBody = z.object({ token: z.string() })
 const status = { lastCheckpointAt: z.string().nullable(), overdue: z.boolean() }
 const Verdict = z.union([
@@ -68,18 +66,9 @@ async function guildMaster(h: Harness = harness) {
       headers: { ...json, ...headers },
       body: JSON.stringify(body),
     })
-  const f = founded.parse(await (await post('/guilds', { name: 'Audit', goal: 'g' })).json())
+  const f = await foundViaApi(h, { name: 'Audit', goal: 'g' })
   const id = f.id
-  const key = await SoftwareAuthenticator.create('localhost', ORIGIN)
-  const reg = ceremony.parse(
-    await (
-      await post(`/guilds/${id}/passkeys/begin`, {}, { 'x-founding-token': f.foundingToken })
-    ).json()
-  )
-  await post(`/guilds/${id}/passkeys/finish`, {
-    challengeId: reg.challengeId,
-    response: await key.register(reg.options),
-  })
+  const key = f.key
   let auth = { authorization: 'Bearer ' }
   async function signIn() {
     const begin = ceremony.parse(await (await post(`/guilds/${id}/sign-in/begin`, {})).json())

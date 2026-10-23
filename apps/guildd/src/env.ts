@@ -124,7 +124,7 @@ const baseSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   /**
-   * Who may found a guild through the unauthenticated `POST /guilds`: `open` (anyone, the default),
+   * Who may found a guild through the unauthenticated `/founding/*` routes: `open` (anyone, the default),
    * `once` (refused with 403 `founding_closed` once a guild exists) or `closed` (always
    * refused). A self-hosted Guildhall behind a tunnel runs `once`.
    */
@@ -132,7 +132,7 @@ const baseSchema = z.object({
   ...vapidFields,
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   /**
-   * Address guildd binds. Defaults to loopback: `POST /guilds` and the other routes are not
+   * Address guildd binds. Defaults to loopback: `/founding/*` and the other routes are not
    * exposed to the LAN. Exposing guildd needs a TLS reverse proxy (see the self-host runbook).
    */
   HOST: z.string().min(1).default('127.0.0.1'),

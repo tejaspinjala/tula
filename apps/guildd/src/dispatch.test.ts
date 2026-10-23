@@ -133,8 +133,8 @@ describe('routeClaimed', () => {
     })
     const after = await s.quests.get(s.guild, quest.id)
     expect(after).toMatchObject({ state: 'queued', attempts: 1, lastError: 'routing_blocked' })
-    // attempt 1 backoff with jitter 0.5 is 750ms.
-    expect(after?.notBefore).toBe(new Date(START.getTime() + 750).toISOString())
+    // the first wait doubles from 2 s; with jitter 0.5 it is 1.5 s.
+    expect(after?.notBefore).toBe(new Date(START.getTime() + 1500).toISOString())
   })
 })
 

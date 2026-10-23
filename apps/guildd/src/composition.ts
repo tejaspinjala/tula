@@ -301,7 +301,6 @@ export async function compose(
     clock,
     db,
     devGuildHeader,
-    legacyFounding: overrides.legacyFounding ?? devGuildHeader,
     objectStore,
     identity,
     keys,
