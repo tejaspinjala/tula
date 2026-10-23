@@ -26,7 +26,7 @@ export function allSprites(): Sprite[] {
 }
 
 /** The width of every atlas sheet; sprites are packed in shelves from the tallest down. */
-export const ATLAS_WIDTH = 256
+const ATLAS_WIDTH = 256
 
 /** One pixel of gap around every frame is not needed (Phaser crops by frame), so frames are butted. */
 function pack(name: PackedAtlas['name'], sprites: readonly Sprite[]): PackedAtlas {

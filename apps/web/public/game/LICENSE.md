@@ -10,4 +10,4 @@ All art here is CC0 1.0 (public domain), by Kenney (https://www.kenney.nl). Cred
 
 Licence text: https://creativecommons.org/publicdomain/zero/1.0/
 
-The hall layout `apps/web/src/game/hall.tiled.json` is hand-written Tiled JSON (Tiled 1.10 format), original to this repository.
+The town maps `apps/web/src/game/*.tiled.json` are hand-written Tiled JSON (Tiled 1.10 format), original to this repository.

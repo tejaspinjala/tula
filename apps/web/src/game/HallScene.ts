@@ -14,7 +14,6 @@ import {
   zoomAfterResize,
 } from './daylight'
 import { nearestTarget, REACH, reachPoint, sameTarget, type Target } from './interact'
-import { bubbleCentreX, roomTags } from './layout'
 import { lampPools, lightFadeMs, lightIsOn, lightPatches } from './lighting'
 import {
   browserStore,
@@ -32,6 +31,7 @@ import { framesOf, GUILD_MASTER_ID, type LookChoice, lookFor } from './look'
 import { type Atlases, actorDepth, roomZoom, viewportFor } from './render'
 import { Retained } from './retained'
 import { DEPTH, type Room } from './room'
+import { bubbleCentreX, roomTags } from './roomtags'
 import {
   drawRoom,
   FURNITURE,
