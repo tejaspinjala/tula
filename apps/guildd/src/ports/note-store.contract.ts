@@ -99,6 +99,17 @@ export function noteStoreContract(name: string, make: () => Promise<NoteStoreFix
       expect(await store.countPrivate(other)).toBe(1)
     })
 
+    test('a link typed in NFD or with zero-width characters backlinks an NFC title', async () => {
+      const { store, newGuild } = await make()
+      const g = await newGuild()
+      const target = await store.add(g, { ...fact, title: 'Caf\u00e9', body: 'x' })
+      const source = await store.add(g, {
+        ...fact,
+        title: 'Src',
+        body: 'see [[Cafe\u0301]] and [[Ca\u200bf\u00e9]]',
+      })
+      expect((await store.get(g, target.id))?.backlinks).toEqual([{ id: source.id, title: 'Src' }])
+    })
     test('a note stored as [[T|alias]] or [[T#heading]] backlinks the target', async () => {
       const { store, newGuild } = await make()
       const g = await newGuild()

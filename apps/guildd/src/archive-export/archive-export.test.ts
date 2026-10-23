@@ -169,6 +169,15 @@ describe('wiki links', () => {
       'see [[Engineering/Target One|Target One]] now'
     )
   })
+  test('an NFD or zero-width link resolves to an NFC title', () => {
+    const files = run([
+      note({ id: '1', title: 'Source', body: 'see [[Cafe\u0301]] and [[Ca\u200bf\u00e9]]' }),
+      note({ id: '2', title: 'Caf\u00e9' }),
+    ])
+    expect(file(files, 'Engineering/Source.md')).toContain(
+      'see [[Engineering/Caf\u00e9|Caf\u00e9]] and [[Engineering/Caf\u00e9|Caf\u00e9]]'
+    )
+  })
   test('missing targets become plain text', () => {
     const c = file(run([note({ id: '1', title: 'S', body: 'see [[Ghost]]' })]), 'Engineering/S.md')
     expect(c).toContain('see Ghost')
