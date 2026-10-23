@@ -60,7 +60,7 @@ describe('agents', () => {
   test.each([
     ['worker', 'claude-sonnet-5-5'],
     ['reviewer', 'claude-sonnet-5-5'],
-    ['explorer', 'claude-haiku-5-5'],
+    ['explorer', 'claude-sonnet-5-5'],
   ])('%s is pinned to %s', (name, model) => {
     expect(frontmatter(join(claude, 'agents', `${name}.md`)).model).toBe(model)
   })
