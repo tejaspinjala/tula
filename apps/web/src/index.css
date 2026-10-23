@@ -214,6 +214,23 @@ ul[aria-label] {
   bottom: calc(var(--px) * 3);
   z-index: 1;
 }
+/* The unread badge: a small gold plate with an ink edge, hard-cornered, on the collapsed Map button. */
+.minimap-badge {
+  display: inline-block;
+  box-sizing: border-box;
+  min-width: calc(var(--px) * 9);
+  margin-left: calc(var(--px) * 2);
+  padding: 0 calc(var(--px) * 2);
+  vertical-align: middle;
+  background: var(--px-gold-500);
+  color: var(--px-on-gold);
+  border: var(--px) solid var(--px-ink);
+  font-family: var(--font-label);
+  font-size: var(--text-sm);
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
 .minimap-canvas {
   display: block;
   width: calc(var(--px) * 96);
