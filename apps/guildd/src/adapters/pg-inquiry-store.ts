@@ -265,14 +265,17 @@ export class PgInquiryStore implements InquiryStore {
     const rows = await this.db.withGuild(
       guildId,
       (tx) => tx`
-        select count(distinct i.seq)::int as n
-        from unnest(${[...hallIds]}::text[]) as h(hall_id)
-        left join mailbox_read_markers m
-          on m.guild_id = ${guildId} and m.hall_id = h.hall_id
-        join inquiries i
-          on i.guild_id = ${guildId} and i.status = 'open'
-          and (i.from_hall = h.hall_id or i.to_hall = h.hall_id)
-          and i.seq > coalesce(m.seen_seq, 0)`
+        select count(*)::int as n from (
+          select i.seq
+          from unnest(${[...hallIds]}::text[]) as h(hall_id)
+          left join mailbox_read_markers m
+            on m.guild_id = ${guildId} and m.hall_id = h.hall_id
+          join inquiries i
+            on i.guild_id = ${guildId} and i.status = 'open'
+            and (i.from_hall = h.hall_id or i.to_hall = h.hall_id)
+          group by i.seq
+          having bool_and(i.seq > coalesce(m.seen_seq, 0))
+        ) unread`
     )
     return z.object({ n: z.number() }).parse(rows[0]).n
   }

@@ -112,3 +112,17 @@ test('without a Guild Map page the collapsed button does nothing', async () => {
   expect(m.host.querySelector('button')).not.toBeNull()
   await m.unmount()
 })
+
+test('the collapsed map button shows the unread count, and nothing at 0', async () => {
+  await resize(390)
+  const some = await mount(<MiniMap map={map} unread={3} />)
+  const button = some.host.querySelector('button')
+  expect(button?.getAttribute('aria-label')).toBe('Open the Guild Map, 3 unread')
+  expect(button?.textContent).toContain('3')
+  await some.unmount()
+  const none = await mount(<MiniMap map={map} unread={0} />)
+  const bare = none.host.querySelector('button')
+  expect(bare?.getAttribute('aria-label')).toBe('Open the Guild Map')
+  expect(bare?.textContent).toBe('Map')
+  await none.unmount()
+})

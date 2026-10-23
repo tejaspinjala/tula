@@ -533,7 +533,7 @@ export function GamePanel({
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-location">
         {spokenLocation}
       </p>
-      {miniMap && <MiniMap map={miniMap} onOpen={() => open.current('/map')} />}
+      {miniMap && <MiniMap map={miniMap} unread={unread} onOpen={() => open.current('/map')} />}
       <p className="sr-only" role="status" aria-live="polite" data-testid="game-notice">
         {notice}
       </p>

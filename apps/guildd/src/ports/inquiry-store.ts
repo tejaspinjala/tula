@@ -129,8 +129,8 @@ export interface InquiryStore {
   /**
    * How many distinct open Inquiries are unread in at least one of `hallIds`: the Mailbox's total.
    * An Inquiry between two of those Halls counts once, where summing `unreadCounts` counts it twice.
-   * An Inquiry counts once if it is unread in at least one of the given Halls, so it stays in the
-   * total until every one of its Halls (among those given) has been read past it.
+   * An Inquiry stays in the total only while it is unread in every one of the given Halls it
+   * touches: once one of them has read past it, it drops out. Per-Hall counts stay per-Hall.
    */
   unreadTotal(guildId: string, hallIds: readonly string[]): Promise<number>
 }
