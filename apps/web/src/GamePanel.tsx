@@ -10,7 +10,7 @@ import {
 import { type Banner, bannerFor } from './banners'
 import { CharacterPanel } from './CharacterPanel'
 import { type CouncilChamberState, councilChamberState, loadCouncilSessions } from './council'
-import { type GuildMap, guildMap, mapSummary, travelSlot } from './game/guildmap'
+import { type GuildMap, guildMap, mapSummary, townMapOf } from './game/guildmap'
 import { initialTalk, talkReducer } from './game/interact'
 import { announceLocation } from './game/location'
 import type { LookChoice } from './game/look'
@@ -18,7 +18,7 @@ import { hallsToFetch, mergeTexts } from './game/missive-texts'
 import { deriveScene, type SceneQuest, type SceneState } from './game/scene'
 import type { GameHandle, startGame } from './game/start'
 import { readEventFrame, sceneSummary, teleportLabel } from './game/text'
-import { greatRoom, hallRoomOf, type MapKey, roomKeys } from './game/world'
+import { greatRoom, hallRoomOf, type MapKey } from './game/world'
 import { loadGuildMasterLook } from './guild-master-look'
 import { loadHistory } from './history'
 import { InspectCard } from './InspectCard'
@@ -444,6 +444,7 @@ export function GamePanel({
         guildMap({
           scene,
           roomOf: (key) => (key === 'hall' ? greatRoom() : hallRoomOf(key)),
+          townOf: townMapOf,
           current: standing.map,
           master: standing.tile,
           unread,
@@ -600,10 +601,7 @@ export function GamePanel({
           focusWorld,
           map: miniMap,
           travel: (key) => {
-            const slot = travelSlot(key, roomKeys())
-            if (slot !== undefined) {
-              handle.current?.teleport(slot)
-            }
+            handle.current?.travel(key)
           },
           refreshHall: () => setHallEpoch((n) => n + 1),
           talkTo: (id) => {

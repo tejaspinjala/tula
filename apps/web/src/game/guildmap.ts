@@ -1,14 +1,14 @@
 import { memberSpot } from './actors'
 import type { Point, Room } from './room'
 import type { SceneState } from './scene'
-import { isRoomMapId, type MapKey } from './world'
+import { isRoomMapId, MAP_IDS, type MapId, type MapKey, mapData } from './world'
 
 /** One room of the Guild Map. */
 export interface MapRoom {
   id: MapKey
   hallId: string | null
   name: string
-  kind: 'great' | 'work' | 'private'
+  kind: 'great' | 'town' | 'work' | 'private'
   locked: boolean
   private: boolean
   memberCount: number
@@ -39,11 +39,20 @@ export interface GuildMap {
   marks: MapMark[]
 }
 
+/** A town map as the Guild Map needs it: its size in tiles and where its doorways lead. */
+export interface TownMap {
+  width: number
+  height: number
+  links: MapKey[]
+}
+
 /** Inputs of {@link guildMap}. */
 export interface GuildMapInput {
   scene: SceneState
   /** The room of a map key (null for a town map or an unknown Hall). */
   roomOf: (key: MapKey) => Room | null
+  /** A town map's size and the maps its doorways lead to (null for a map that is not a town map). */
+  townOf: (key: MapKey) => TownMap | null
   current: MapKey
   master: Point | null
   unread: number
@@ -51,17 +60,42 @@ export interface GuildMapInput {
 
 const POIS = ['seal-desk', 'mailbox', 'quest-board', 'gate'] as const
 
-/** The map key a doorway target names, when it is a room of the Guildhall (not a town map). */
+/** The map key a doorway target names: a Hall room, the Great Hall or a town map; null for anything else. */
 function roomTarget(target: string): MapKey | null {
   if (target === 'great-hall') {
     return 'hall'
   }
-  return isRoomMapId(target) ? target : null
+  return isRoomMapId(target) ? target : (MAP_IDS.find((id) => id === target) ?? null)
+}
+
+/** The display name of each town map the Guild Map draws. */
+const TOWN_NAMES: Record<Exclude<MapId, 'hall'>, string> = {
+  plaza: 'Plaza',
+  archive: 'Archive',
+  'counting-house': 'Counting House',
+  trail: 'Trail',
+}
+
+/** The town maps other than the Great Hall, in the order the Guild Map lists them. */
+const TOWN_KEYS = ['plaza', 'archive', 'counting-house', 'trail'] as const
+
+/** A town map's size and doorway links from the world data; null for the Great Hall, a Hall room or an unknown key. */
+export function townMapOf(key: MapKey): TownMap | null {
+  const id = TOWN_KEYS.find((k) => k === key)
+  if (id === undefined) {
+    return null
+  }
+  const data = mapData(id)
+  return {
+    width: data.width,
+    height: data.height,
+    links: [...new Set(data.doors.map((d) => d.to))],
+  }
 }
 
 /** Derives the Guild Map from a scene state: rooms with flags and links, and the marks in them. */
 export function guildMap(input: GuildMapInput): GuildMap {
-  const { scene, roomOf, current, master, unread } = input
+  const { scene, roomOf, townOf, current, master, unread } = input
   const rooms: MapRoom[] = []
   const marks: MapMark[] = []
   const away = new Set<string>()
@@ -159,6 +193,23 @@ export function guildMap(input: GuildMapInput): GuildMap {
       })
     }
   }
+  for (const key of TOWN_KEYS) {
+    const town = townOf(key)
+    if (!town) {
+      continue
+    }
+    rooms.push({
+      id: key,
+      hallId: null,
+      name: TOWN_NAMES[key],
+      kind: 'town',
+      locked: false,
+      private: false,
+      memberCount: 0,
+      bounds: { x: 0, y: 0, w: town.width, h: town.height },
+      links: town.links,
+    })
+  }
   if (master) {
     marks.push({ kind: 'guildMaster', room: current, tile: master })
   }
@@ -237,14 +288,15 @@ export interface MapSlot {
 /** The schematic grid: every room's slot, the Town's column, and the grid width in columns. */
 export interface MapLayout {
   slots: MapSlot[]
-  /** The Town hangs off the Great Hall's row, in the column right of every Hall room. */
+  /** The town maps stack in the column right of every Hall room, the plaza level with the Great Hall. */
   townCol: number
   cols: number
 }
 
 /** Lays the rooms out: the Great Hall on top, the Hall rooms in rows of up to four below it. */
 export function mapLayout(map: GuildMap): MapLayout {
-  const halls = map.rooms.filter((r) => r.id !== 'hall')
+  const halls = map.rooms.filter((r) => r.id !== 'hall' && r.kind !== 'town')
+  const towns = map.rooms.filter((r) => r.kind === 'town')
   const across = Math.min(4, Math.max(1, halls.length))
   const slots: MapSlot[] = []
   if (map.rooms.some((r) => r.id === 'hall')) {
@@ -253,16 +305,10 @@ export function mapLayout(map: GuildMap): MapLayout {
   halls.forEach((r, i) => {
     slots.push({ id: r.id, col: i % across, row: 1 + Math.floor(i / across) })
   })
+  towns.forEach((r, i) => {
+    slots.push({ id: r.id, col: across, row: i })
+  })
   return { slots, townCol: across, cols: across + 1 }
-}
-
-/** The teleport slot of a map key: null for the Great Hall entrance, undefined when it has none. */
-export function travelSlot(key: MapKey, keys: readonly MapKey[]): number | null | undefined {
-  if (key === 'hall') {
-    return null
-  }
-  const slot = keys.indexOf(key)
-  return slot < 0 ? undefined : slot
 }
 
 /** A direction the ▶ cursor moves on the schematic. */

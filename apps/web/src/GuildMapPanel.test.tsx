@@ -17,14 +17,21 @@ const room = (
   extra: Partial<GuildMap['rooms'][number]> = {}
 ): GuildMap['rooms'][number] => ({
   id,
-  hallId: id === 'hall' ? null : id.slice(5),
+  hallId: id.startsWith('hall:') ? id.slice(5) : null,
   name,
-  kind: id === 'hall' ? 'great' : 'work',
+  kind: id === 'hall' ? 'great' : id.startsWith('hall:') ? 'work' : 'town',
   locked: false,
   private: false,
   memberCount: 0,
   bounds: { x: 0, y: 0, w: 10, h: 8 },
-  links: id === 'hall' ? ['hall:w', 'hall:p', 'hall:l'] : ['hall'],
+  links:
+    id === 'hall'
+      ? ['hall:w', 'hall:p', 'hall:l', 'plaza']
+      : id === 'plaza'
+        ? ['hall', 'archive', 'counting-house', 'trail']
+        : id.startsWith('hall:')
+          ? ['hall']
+          : ['plaza'],
   ...extra,
 })
 const map: GuildMap = {
@@ -35,6 +42,10 @@ const map: GuildMap = {
     room('hall:w', 'Works', { memberCount: 3 }),
     room('hall:p', 'Health', { kind: 'private', private: true, memberCount: 1 }),
     room('hall:l', 'Vault', { locked: true, memberCount: 1 }),
+    room('plaza', 'Plaza'),
+    room('archive', 'Archive'),
+    room('counting-house', 'Counting House'),
+    room('trail', 'Trail'),
   ],
 }
 
@@ -44,13 +55,23 @@ const ids = (host: HTMLElement) => nodes(host).map((n) => n.dataset.room)
 test('the schematic labels every room with its name, badges and Member count', async () => {
   const m = await mount(<GuildMapPanel map={map} onTravel={() => {}} />)
   const text = Object.fromEntries(nodes(m.host).map((n) => [n.dataset.room, n.textContent]))
-  expect(Object.keys(text)).toEqual(['hall', 'hall:w', 'hall:p', 'hall:l'])
+  expect(Object.keys(text)).toEqual([
+    'hall',
+    'hall:w',
+    'hall:p',
+    'hall:l',
+    'plaza',
+    'archive',
+    'counting-house',
+    'trail',
+  ])
   expect(text['hall:w']).toContain('Works')
   expect(text['hall:w']).toContain('3 Members')
   expect(text['hall:p']).toContain('Private')
   expect(text['hall:p']).toContain('1 Member')
   expect(text['hall:l']).toContain('Locked')
-  expect(m.host.textContent).toContain('Town')
+  expect(text.archive).toContain('Archive')
+  expect(text.archive).not.toContain('Member')
   await m.unmount()
 })
 
@@ -116,6 +137,23 @@ test('axe finds no violations in either view', async () => {
   )
   await click(toggle as Element)
   expect(await check()).toEqual([])
-  expect(ids(m.host).length).toBe(4)
+  expect(ids(m.host).length).toBe(8)
+  await m.unmount()
+})
+
+test('arrow keys and Enter travel to each town map', async () => {
+  const travelled: string[] = []
+  const m = await mount(<GuildMapPanel map={map} onTravel={(id) => travelled.push(id)} />)
+  const node = (id: string) => nodes(m.host).find((n) => n.dataset.room === id) as HTMLElement
+  await focus(node('hall'))
+  await press(node('hall'), 'ArrowRight')
+  await press(node('plaza'), 'Enter')
+  await press(node('plaza'), 'ArrowDown')
+  await press(node('archive'), 'Enter')
+  await press(node('archive'), 'ArrowDown')
+  await press(node('counting-house'), 'Enter')
+  await press(node('counting-house'), 'ArrowDown')
+  await press(node('trail'), 'Enter')
+  expect(travelled).toEqual(['plaza', 'archive', 'counting-house', 'trail'])
   await m.unmount()
 })
