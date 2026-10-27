@@ -25,7 +25,7 @@ jobs:
       - run: cargo test
         working-directory: apps/desktop/src-tauri
       - run: bun run --cwd apps/desktop build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: guildhall-desktop-macos
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
